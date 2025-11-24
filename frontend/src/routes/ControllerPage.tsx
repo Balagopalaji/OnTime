@@ -5,6 +5,7 @@ import { useMockData } from '../context/MockDataContext'
 import { TimerPanel } from '../components/controller/TimerPanel'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
+import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ShareLinkButton } from '../components/core/ShareLinkButton'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
@@ -33,21 +34,18 @@ export const ControllerPage = () => {
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id
   const isRunning = room?.state.isRunning ?? false
-  const [selectedTimerId, setSelectedTimerId] = useState<string | null>(null)
+  const [selectedTimerId, setSelectedTimerId] = useState<string | null>(
+    () => activeTimer?.id ?? null,
+  )
 
   useEffect(() => {
-    if (!activeTimer && !selectedTimerId) return
-    if (!selectedTimerId && activeTimer) {
-      setSelectedTimerId(activeTimer.id)
-      return
-    }
-    if (
-      selectedTimerId &&
-      !timers.some((timer) => timer.id === selectedTimerId)
-    ) {
-      setSelectedTimerId(activeTimer?.id ?? null)
-    }
-  }, [activeTimer, selectedTimerId, timers])
+    setSelectedTimerId((prev) => {
+      if (prev && timers.some((timer) => timer.id === prev)) {
+        return prev
+      }
+      return activeTimer?.id ?? prev ?? null
+    })
+  }, [activeTimer, timers])
 
   const selectedTimer =
     timers.find((timer) => timer.id === selectedTimerId) ?? activeTimer
@@ -81,7 +79,6 @@ export const ControllerPage = () => {
       startActiveTimer()
       return
     }
-    setSelectedTimerId(selectedTimerId)
     void startTimer(currentRoomId, selectedTimerId)
   }, [
     activeTimer?.id,
@@ -90,6 +87,23 @@ export const ControllerPage = () => {
     startActiveTimer,
     startTimer,
   ])
+
+  const handleSaveDuration = useCallback(
+    (timerId: string, minutes: number) => {
+      if (!currentRoomId) return
+      const duration = Math.max(30, Math.round(minutes * 60))
+      void updateTimer(currentRoomId, timerId, { duration })
+    },
+    [currentRoomId, updateTimer],
+  )
+
+  const handleUpdateDetails = useCallback(
+    (timerId: string, patch: { title?: string; speaker?: string }) => {
+      if (!currentRoomId) return
+      void updateTimer(currentRoomId, timerId, patch)
+    },
+    [currentRoomId, updateTimer],
+  )
 
   const engine = useTimerEngine({
     durationSec: activeTimer?.duration ?? 0,
@@ -132,12 +146,28 @@ export const ControllerPage = () => {
         }
         case 'ArrowUp': {
           event.preventDefault()
-          nudgeActiveTimer(60_000)
+          if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
+            const nextMinutes = Math.max(
+              1,
+              Math.round(selectedTimer.duration / 60) + 1,
+            )
+            handleSaveDuration(selectedTimer.id, nextMinutes)
+          } else {
+            nudgeActiveTimer(60_000)
+          }
           break
         }
         case 'ArrowDown': {
           event.preventDefault()
-          nudgeActiveTimer(-60_000)
+          if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
+            const nextMinutes = Math.max(
+              1,
+              Math.round(selectedTimer.duration / 60) - 1,
+            )
+            handleSaveDuration(selectedTimer.id, nextMinutes)
+          } else {
+            nudgeActiveTimer(-60_000)
+          }
           break
         }
         default:
@@ -149,10 +179,13 @@ export const ControllerPage = () => {
     return () => window.removeEventListener('keydown', handleKey)
   }, [
     currentRoomId,
+    activeTimer?.id,
+    handleSaveDuration,
     isRunning,
     nudgeActiveTimer,
     pauseActiveTimer,
     resetActiveTimer,
+    selectedTimer,
     startActiveTimer,
   ])
 
@@ -218,28 +251,45 @@ export const ControllerPage = () => {
         />
 
         <TimerPanel
-          timer={activeTimer}
-          selectedTimer={selectedTimer}
+          timer={selectedTimer}
+          isLive={Boolean(selectedTimer && selectedTimer.id === activeTimer?.id)}
+          isRunning={
+            Boolean(selectedTimer && selectedTimer.id === activeTimer?.id) && isRunning
+          }
           engine={engine}
-          isRunning={isRunning}
           onStart={startActiveTimer}
           onPause={pauseActiveTimer}
           onReset={resetActiveTimer}
           onNudge={nudgeActiveTimer}
           onSaveDuration={(minutes) => {
-            if (!activeTimer) return
-            const duration = Math.max(30, Math.round(minutes * 60))
-            void updateTimer(room.id, activeTimer.id, { duration })
+            if (!selectedTimer) return
+            handleSaveDuration(selectedTimer.id, minutes)
           }}
           onStartSelected={startSelectedTimer}
-        />
-
-        <MessagePanel
-          initial={room.state.message}
-          onUpdate={(payload) => {
-            void updateMessage(room.id, payload)
+          onUpdateDetails={(patch) => {
+            if (!selectedTimer) return
+            handleUpdateDetails(selectedTimer.id, patch)
           }}
         />
+
+        <div className="space-y-4">
+          <MessagePanel
+            initial={room.state.message}
+            onUpdate={(payload) => {
+              void updateMessage(room.id, payload)
+            }}
+          />
+          <LiveTimerPreview
+            timer={activeTimer}
+            engine={engine}
+            isRunning={isRunning}
+            onStart={startActiveTimer}
+            onPause={pauseActiveTimer}
+            onReset={resetActiveTimer}
+            onNudge={nudgeActiveTimer}
+            message={room.state.message}
+          />
+        </div>
       </div>
     </section>
   )

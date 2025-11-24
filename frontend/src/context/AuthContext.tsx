@@ -28,14 +28,28 @@ const DEMO_USER: AuthUser = {
   displayName: 'StageTime Operator',
 }
 
+const STORAGE_KEY = 'stagetime.auth.v1'
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    if (typeof window === 'undefined') return null
+    return window.localStorage.getItem(STORAGE_KEY) ? DEMO_USER : null
+  })
   const [status, setStatus] = useState<'loading' | 'ready'>('loading')
 
   useEffect(() => {
-    const timer = setTimeout(() => setStatus('ready'), 400)
+    const timer = setTimeout(() => setStatus('ready'), 200)
     return () => clearTimeout(timer)
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (user) {
+      window.localStorage.setItem(STORAGE_KEY, '1')
+    } else {
+      window.localStorage.removeItem(STORAGE_KEY)
+    }
+  }, [user])
 
   const login = useCallback(async () => {
     setStatus('loading')

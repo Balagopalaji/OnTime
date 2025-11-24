@@ -1,4 +1,4 @@
-export type MessageColor = 'green' | 'yellow' | 'red' | 'blue' | 'white'
+export type MessageColor = 'green' | 'yellow' | 'red' | 'blue' | 'white' | 'none'
 
 export type TimerType = 'countdown' | 'countup' | 'timeofday'
 

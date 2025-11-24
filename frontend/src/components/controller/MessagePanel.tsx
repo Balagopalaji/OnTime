@@ -100,6 +100,7 @@ export const MessagePanel = ({
               onUpdate({ color: next })
             }}
           >
+            <option value="none">No color</option>
             <option value="green">Green</option>
             <option value="yellow">Yellow</option>
             <option value="red">Red</option>

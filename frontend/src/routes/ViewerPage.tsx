@@ -66,6 +66,7 @@ export const ViewerPage = () => {
     red: 'bg-rose-500/90 text-white',
     blue: 'bg-sky-500/90 text-white',
     white: 'bg-white/90 text-slate-900',
+    none: 'border border-white/40 bg-transparent text-white',
   }[room.state.message.color]
 
   return (
@@ -127,12 +128,12 @@ export const ViewerPage = () => {
           )}
         </div>
 
-        {room.state.message.visible && room.state.message.text && (
+        {room.state.message.visible && room.state.message.text && messageBg && (
           <div
-            className={`mt-8 flex w-full items-center justify-center rounded-3xl px-4 py-4 text-lg font-semibold ${messageBg}`}
+            className={`mt-8 flex w-full items-center justify-center rounded-3xl px-5 py-8 text-lg font-semibold ${messageBg}`}
           >
             <FitText
-              className="w-full text-center font-semibold"
+              className="w-full text-center font-semibold leading-[1.05]"
               max={160}
               min={40}
               ratio={6}

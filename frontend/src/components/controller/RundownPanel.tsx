@@ -21,14 +21,16 @@ export const RundownPanel = ({
   onCreate: (input: { title: string; duration: number; speaker?: string }) => void
 }) => {
   const [title, setTitle] = useState('New Segment')
-  const [duration, setDuration] = useState(5)
+  const [duration, setDuration] = useState('5')
   const [speaker, setSpeaker] = useState('')
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onCreate({ title, duration: Math.round(duration * 60), speaker })
+    const durationMinutes = Number(duration)
+    const safeDuration = Number.isNaN(durationMinutes) ? 1 : durationMinutes
+    onCreate({ title, duration: Math.round(safeDuration * 60), speaker })
     setTitle('New Segment')
-    setDuration(5)
+    setDuration('5')
     setSpeaker('')
   }
 
@@ -145,8 +147,7 @@ export const RundownPanel = ({
               className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
               value={duration}
               onChange={(event) => {
-                const next = Number(event.target.value)
-                setDuration(Number.isNaN(next) ? 1 : next)
+                setDuration(event.target.value)
               }}
             />
           </label>

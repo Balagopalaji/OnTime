@@ -442,6 +442,10 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             isRunning: true,
             startedAt: Date.now(),
             elapsedOffset: isSwitching ? 0 : room.state.elapsedOffset,
+            message: {
+              ...room.state.message,
+              visible: false,
+            },
           },
         }
       })
