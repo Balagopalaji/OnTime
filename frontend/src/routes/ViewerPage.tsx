@@ -41,6 +41,8 @@ export const ViewerPage = () => {
     return () => window.removeEventListener('keydown', handleKey)
   }, [toggleFullscreen])
 
+  const clockTime = useClock()
+
   if (!room || !roomId) {
     return (
       <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
@@ -69,7 +71,6 @@ export const ViewerPage = () => {
     white: 'bg-white/90 text-slate-900',
     none: 'border border-white/40 bg-transparent text-white',
   }[room.state.message.color]
-  const clockTime = useClock()
 
   const getMessageFitProps = (length: number) => {
     if (length > 160) {

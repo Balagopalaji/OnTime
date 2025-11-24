@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AlertTriangle, Radio } from 'lucide-react'
 import { useMockData } from '../context/MockDataContext'
@@ -30,7 +30,10 @@ export const ControllerPage = () => {
   } = useMockData()
 
   const room = roomId ? getRoom(roomId) : undefined
-  const timers = roomId ? getTimers(roomId) : []
+  const timers = useMemo(
+    () => (roomId ? getTimers(roomId) : []),
+    [getTimers, roomId],
+  )
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id
@@ -39,71 +42,58 @@ export const ControllerPage = () => {
     () => activeTimer?.id ?? null,
   )
 
-  useEffect(() => {
-    setSelectedTimerId((prev) => {
-      if (prev && timers.some((timer) => timer.id === prev)) {
-        return prev
-      }
-      return activeTimer?.id ?? prev ?? null
-    })
-  }, [activeTimer, timers])
+  const effectiveSelectedTimerId = useMemo(() => {
+    if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
+      return selectedTimerId
+    }
+    return activeTimer?.id ?? null
+  }, [activeTimer?.id, selectedTimerId, timers])
 
-  const selectedTimer = timers.find((timer) => timer.id === selectedTimerId) ?? activeTimer
+  const selectedTimer =
+    timers.find((timer) => timer.id === effectiveSelectedTimerId) ?? activeTimer
 
-  const startActiveTimer = useCallback(() => {
+  const startActiveTimer = () => {
     if (!currentRoomId) return
     void startTimer(currentRoomId)
-  }, [currentRoomId, startTimer])
+  }
 
-  const pauseActiveTimer = useCallback(() => {
+  const pauseActiveTimer = () => {
     if (!currentRoomId) return
     void pauseTimer(currentRoomId)
-  }, [currentRoomId, pauseTimer])
+  }
 
-  const resetActiveTimer = useCallback(() => {
+  const resetActiveTimer = () => {
     if (!currentRoomId) return
     void resetTimer(currentRoomId)
-  }, [currentRoomId, resetTimer])
+  }
 
-  const nudgeActiveTimer = useCallback(
-    (deltaMs: number) => {
-      if (!currentRoomId) return
-      void nudgeTimer(currentRoomId, deltaMs)
-    },
-    [currentRoomId, nudgeTimer],
-  )
+  const nudgeActiveTimer = (deltaMs: number) => {
+    if (!currentRoomId) return
+    void nudgeTimer(currentRoomId, deltaMs)
+  }
 
-  const startSelectedTimer = useCallback(() => {
-    if (!currentRoomId || !selectedTimerId) return
-    if (selectedTimerId === activeTimer?.id) {
+  const startSelectedTimer = () => {
+    if (!currentRoomId || !effectiveSelectedTimerId) return
+    if (effectiveSelectedTimerId === activeTimer?.id) {
       startActiveTimer()
       return
     }
-    void startTimer(currentRoomId, selectedTimerId)
-  }, [
-    activeTimer?.id,
-    currentRoomId,
-    selectedTimerId,
-    startActiveTimer,
-    startTimer,
-  ])
+    void startTimer(currentRoomId, effectiveSelectedTimerId)
+  }
 
-  const handleSaveDuration = useCallback(
-    (timerId: string, minutes: number) => {
-      if (!currentRoomId) return
-      const duration = Math.max(0, Math.round(minutes * 60))
-      void updateTimer(currentRoomId, timerId, { duration })
-    },
-    [currentRoomId, updateTimer],
-  )
+  const handleSaveDuration = (timerId: string, minutes: number) => {
+    if (!currentRoomId) return
+    const duration = Math.max(0, Math.round(minutes * 60))
+    void updateTimer(currentRoomId, timerId, { duration })
+  }
 
-  const handleUpdateDetails = useCallback(
-    (timerId: string, patch: { title?: string; speaker?: string }) => {
-      if (!currentRoomId) return
-      void updateTimer(currentRoomId, timerId, patch)
-    },
-    [currentRoomId, updateTimer],
-  )
+  const handleUpdateDetails = (
+    timerId: string,
+    patch: { title?: string; speaker?: string },
+  ) => {
+    if (!currentRoomId) return
+    void updateTimer(currentRoomId, timerId, patch)
+  }
 
   const engine = useTimerEngine({
     durationSec: activeTimer?.duration ?? 0,
@@ -158,14 +148,19 @@ export const ControllerPage = () => {
     const performArrowAction = (direction: 'up' | 'down') => {
       if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
         const delta = direction === 'up' ? 1 : -1
-        const nextMinutes = Math.max(
+        const stagedMinutes = Math.max(
           0,
-          Math.round(selectedTimer.duration / 60) + delta,
+          Math.round(selectedTimer.duration / 60),
         )
-        handleSaveDuration(selectedTimer.id, nextMinutes)
-      } else {
-        nudgeActiveTimer(direction === 'up' ? 60_000 : -60_000)
+        const nextMinutes = Math.max(0, stagedMinutes + delta)
+        const duration = Math.max(0, Math.round(nextMinutes * 60))
+        void updateTimer(currentRoomId, selectedTimer.id, { duration })
+        return
       }
+      void nudgeTimer(
+        currentRoomId,
+        direction === 'up' ? 60_000 : -60_000,
+      )
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -184,15 +179,15 @@ export const ControllerPage = () => {
         case 'Space': {
           event.preventDefault()
           if (isRunning) {
-            pauseActiveTimer()
+            void pauseTimer(currentRoomId)
           } else {
-            startActiveTimer()
+            void startTimer(currentRoomId)
           }
           break
         }
         case 'KeyR': {
           event.preventDefault()
-          resetActiveTimer()
+          void resetTimer(currentRoomId)
           break
         }
         case 'ArrowUp':
@@ -230,15 +225,15 @@ export const ControllerPage = () => {
       window.removeEventListener('blur', stopRepeat)
     }
   }, [
-    currentRoomId,
     activeTimer?.id,
-    handleSaveDuration,
+    currentRoomId,
     isRunning,
-    nudgeActiveTimer,
-    pauseActiveTimer,
-    resetActiveTimer,
+    nudgeTimer,
+    pauseTimer,
+    resetTimer,
     selectedTimer,
-    startActiveTimer,
+    startTimer,
+    updateTimer,
   ])
 
   if (!room || !roomId) {
@@ -248,6 +243,8 @@ export const ControllerPage = () => {
       </div>
     )
   }
+
+  const messageKey = `${room.state.message.text}::${room.state.message.color}::${room.state.message.visible}`
 
   return (
     <section className="space-y-6">
@@ -375,6 +372,7 @@ export const ControllerPage = () => {
 
         <div className="space-y-4">
           <MessagePanel
+            key={messageKey}
             initial={room.state.message}
             onUpdate={(payload) => {
               void updateMessage(room.id, payload)

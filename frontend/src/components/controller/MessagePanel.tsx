@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { MessageColor } from '../../types'
 
 const PRESETS = [
@@ -23,17 +23,6 @@ export const MessagePanel = ({
   const [text, setText] = useState(initial.text)
   const [color, setColor] = useState<MessageColor>(initial.color)
   const [visible, setVisible] = useState(initial.visible)
-
-  const lastInitialText = useRef(initial.text)
-
-  useEffect(() => {
-    if (lastInitialText.current !== initial.text) {
-      setText(initial.text)
-      lastInitialText.current = initial.text
-    }
-    setColor(initial.color)
-    setVisible(initial.visible)
-  }, [initial])
 
   const applyChange = (next: Partial<{ text: string; color: MessageColor }>) => {
     if (next.text !== undefined) setText(next.text)
