@@ -22,6 +22,7 @@ export type RoomState = {
   isRunning: boolean
   startedAt: number | null // epoch ms
   elapsedOffset: number // ms
+  progress: Record<string, number> // timerId -> elapsed ms
   showClock: boolean
   message: {
     text: string

@@ -32,27 +32,49 @@ const normalizeState = (state: MockState): MockState => {
   let didChange = false
   const normalizedRooms = state.rooms.map((room) => {
     const timers = state.timers[room.id] ?? []
+    const progress = { ...(room.state.progress ?? {}) }
+    let nextRoom = room
+
+    let progressChanged = false
+    timers.forEach((timer) => {
+      if (progress[timer.id] === undefined) {
+        progress[timer.id] = 0
+        progressChanged = true
+      }
+    })
+
+    if (progressChanged) {
+      didChange = true
+      nextRoom = {
+        ...nextRoom,
+        state: {
+          ...nextRoom.state,
+          progress,
+        },
+      }
+    }
+
     const hasValidActive =
-      !!room.state.activeTimerId &&
-      timers.some((timer) => timer.id === room.state.activeTimerId)
+      !!nextRoom.state.activeTimerId &&
+      timers.some((timer) => timer.id === nextRoom.state.activeTimerId)
 
-    if (hasValidActive || timers.length === 0) {
-      return room
+    if (!hasValidActive && timers.length > 0) {
+      didChange = true
+      const fallbackTimer = [...timers].sort((a, b) => a.order - b.order)[0]
+      nextRoom = {
+        ...nextRoom,
+        state: {
+          ...nextRoom.state,
+          activeTimerId: fallbackTimer?.id ?? null,
+          isRunning: false,
+          startedAt: null,
+          elapsedOffset:
+            fallbackTimer?.id ? progress[fallbackTimer.id] ?? 0 : 0,
+        },
+      }
     }
 
-    didChange = true
-    const fallbackTimer = [...timers].sort((a, b) => a.order - b.order)[0]
-
-    return {
-      ...room,
-      state: {
-        ...room.state,
-        activeTimerId: fallbackTimer?.id ?? null,
-        isRunning: false,
-        startedAt: null,
-        elapsedOffset: 0,
-      },
-    }
+    return nextRoom
   })
 
   return didChange ? { ...state, rooms: normalizedRooms } : state
@@ -104,6 +126,19 @@ type MockDataContextValue = {
 
 const MockDataContext = createContext<MockDataContextValue | undefined>(undefined)
 
+const captureProgress = (room: Room) => {
+  const progress = { ...(room.state.progress ?? {}) }
+  const activeId = room.state.activeTimerId
+  if (activeId) {
+    let elapsed = room.state.elapsedOffset
+    if (room.state.isRunning && room.state.startedAt) {
+      elapsed += Date.now() - room.state.startedAt
+    }
+    progress[activeId] = Math.max(0, elapsed)
+  }
+  return progress
+}
+
 const createSeedState = (): MockState => {
   const ownerId = 'demo-owner'
   const roomId = 'room-main'
@@ -145,16 +180,20 @@ const createSeedState = (): MockState => {
       timezone: getTimezoneSuggestion(),
       createdAt: Date.now() - 1000 * 60 * 60 * 24,
       config: DEFAULT_CONFIG,
-        state: {
-          activeTimerId: timers[0].id,
-          isRunning: false,
-          startedAt: null,
-          elapsedOffset: 0,
-          showClock: false,
-          message: {
-            text: 'Welcome to StageTime',
-            visible: true,
-            color: 'green',
+      state: {
+        activeTimerId: timers[0].id,
+        isRunning: false,
+        startedAt: null,
+        elapsedOffset: 0,
+        progress: timers.reduce<Record<string, number>>((acc, timer) => {
+          acc[timer.id] = 0
+          return acc
+        }, {}),
+        showClock: false,
+        message: {
+          text: 'Welcome to StageTime',
+          visible: true,
+          color: 'green',
         },
       },
     },
@@ -178,6 +217,7 @@ const loadState = (): MockState => {
         state: {
           ...room.state,
           showClock: room.state?.showClock ?? false,
+          progress: room.state?.progress ?? {},
         },
       })),
       timers: parsed.timers ?? {},
@@ -295,6 +335,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           isRunning: false,
           startedAt: null,
           elapsedOffset: 0,
+          progress: { [defaultTimer.id]: 0 },
           showClock: false,
           message: {
             text: '',
@@ -394,7 +435,19 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       await delay()
       updateTimers(roomId, (timers) => timers.filter((timer) => timer.id !== timerId))
       updateRoom(roomId, (room) => {
-        if (room.state.activeTimerId !== timerId) return room
+        const progress = { ...(room.state.progress ?? {}) }
+        if (progress[timerId] !== undefined) {
+          delete progress[timerId]
+        }
+        if (room.state.activeTimerId !== timerId) {
+          return {
+            ...room,
+            state: {
+              ...room.state,
+              progress,
+            },
+          }
+        }
         return {
           ...room,
           state: {
@@ -403,6 +456,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             isRunning: false,
             startedAt: null,
             elapsedOffset: 0,
+            progress,
           },
         }
       })
@@ -435,17 +489,22 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const setActiveTimer = useCallback(
     async (roomId: string, timerId: string) => {
       await delay(120)
-      updateRoom(roomId, (room) => ({
-        ...room,
-        state: {
-          ...room.state,
-          showClock: false,
-          activeTimerId: timerId,
-          isRunning: false,
-          startedAt: null,
-          elapsedOffset: 0,
-        },
-      }))
+      updateRoom(roomId, (room) => {
+        const progress = captureProgress(room)
+        const nextElapsed = progress[timerId] ?? 0
+        return {
+          ...room,
+          state: {
+            ...room.state,
+            showClock: false,
+            isRunning: false,
+            startedAt: null,
+            activeTimerId: timerId,
+            elapsedOffset: nextElapsed,
+            progress,
+          },
+        }
+      })
     },
     [updateRoom],
   )
@@ -456,7 +515,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       updateRoom(roomId, (room) => {
         const nextActive = timerId ?? room.state.activeTimerId
         if (!nextActive) return room
-        const isSwitching = timerId && timerId !== room.state.activeTimerId
+        const progress = captureProgress(room)
+        const nextElapsed = progress[nextActive] ?? 0
         return {
           ...room,
           state: {
@@ -465,7 +525,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             activeTimerId: nextActive,
             isRunning: true,
             startedAt: Date.now(),
-            elapsedOffset: isSwitching ? 0 : room.state.elapsedOffset,
+            elapsedOffset: nextElapsed,
+            progress,
             message: {
               ...room.state.message,
               visible: false,
@@ -480,7 +541,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const pauseTimer = useCallback(async (roomId: string) => {
     await delay(60)
     updateRoom(roomId, (room) => {
-      if (!room.state.startedAt) {
+      const activeId = room.state.activeTimerId
+      if (!activeId) {
         return {
           ...room,
           state: {
@@ -489,14 +551,15 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         }
       }
-      const elapsed = Date.now() - room.state.startedAt
+      const progress = captureProgress(room)
       return {
         ...room,
         state: {
           ...room.state,
           isRunning: false,
           startedAt: null,
-          elapsedOffset: room.state.elapsedOffset + elapsed,
+          elapsedOffset: progress[activeId] ?? 0,
+          progress,
         },
       }
     })
@@ -504,15 +567,23 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const resetTimer = useCallback(async (roomId: string) => {
     await delay(60)
-    updateRoom(roomId, (room) => ({
-      ...room,
-      state: {
-        ...room.state,
-        isRunning: false,
-        startedAt: null,
-        elapsedOffset: 0,
-      },
-    }))
+    updateRoom(roomId, (room) => {
+      const activeId = room.state.activeTimerId
+      const progress = { ...(room.state.progress ?? {}) }
+      if (activeId) {
+        progress[activeId] = 0
+      }
+      return {
+        ...room,
+        state: {
+          ...room.state,
+          isRunning: false,
+          startedAt: null,
+          elapsedOffset: 0,
+          progress,
+        },
+      }
+    })
   }, [updateRoom])
 
   const nudgeTimer = useCallback(async (roomId: string, deltaMs: number) => {
@@ -523,15 +594,16 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         return prev
       }
 
-      const timers = prev.timers[roomId] ?? []
-      const activeTimer = timers.find(
-        (timer) => timer.id === room.state.activeTimerId,
-      )
-      if (!activeTimer) {
+      const activeId = room.state.activeTimerId
+      if (!activeId) {
         return prev
       }
 
-      const nextElapsed = room.state.elapsedOffset - deltaMs
+      const nextElapsed = Math.max(0, room.state.elapsedOffset - deltaMs)
+      const progress = {
+        ...(room.state.progress ?? {}),
+        [activeId]: nextElapsed,
+      }
 
       return {
         ...prev,
@@ -542,6 +614,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
                 state: {
                   ...candidate.state,
                   elapsedOffset: nextElapsed,
+                  progress,
                 },
               }
             : candidate,
