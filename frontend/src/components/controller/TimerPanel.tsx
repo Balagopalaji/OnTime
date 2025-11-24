@@ -170,7 +170,7 @@ export const TimerPanel = ({
               Duration
             </p>
             <p className="text-lg font-semibold text-white">
-              {Math.round(timer.duration / 60)} minutes
+              {Math.round((timer?.duration ?? 0) / 60)} minutes
             </p>
           </div>
           <div>

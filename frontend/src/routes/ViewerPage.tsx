@@ -6,6 +6,7 @@ import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { FitText } from '../components/core/FitText'
 import { useFullscreen } from '../hooks/useFullscreen'
+import { useClock } from '../hooks/useClock'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
@@ -68,6 +69,7 @@ export const ViewerPage = () => {
     white: 'bg-white/90 text-slate-900',
     none: 'border border-white/40 bg-transparent text-white',
   }[room.state.message.color]
+  const clockTime = useClock()
 
   const getMessageFitProps = (length: number) => {
     if (length > 160) {
@@ -129,7 +131,13 @@ export const ViewerPage = () => {
         </div>
 
         <div className="mt-6 flex flex-1 flex-col items-center justify-center">
-          {isOvertime ? (
+          {room.state.showClock ? (
+            <div className="flex justify-center w-full">
+              <FitText className="font-semibold text-white" max={360} min={140} ratio={2}>
+                {clockTime}
+              </FitText>
+            </div>
+          ) : isOvertime ? (
             <div className="flex w-full flex-col items-center gap-4 text-white">
               <div className="flex justify-center w-full">
                 <FitText className="font-semibold text-white" max={320} min={90} ratio={3.4}>
@@ -154,12 +162,14 @@ export const ViewerPage = () => {
               </FitText>
             </div>
           )}
-          <div className="mt-8 h-3 w-full max-w-3xl rounded-full bg-white/10">
-            <div
-              className={`h-full rounded-full transition-all ${progressColor}`}
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
+          {!room.state.showClock && (
+            <div className="mt-8 h-3 w-full max-w-3xl rounded-full bg-white/10">
+              <div
+                className={`h-full rounded-full transition-all ${progressColor}`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
         </div>
 
         {room.state.message.visible && room.state.message.text && messageBg && (

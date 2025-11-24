@@ -2,9 +2,11 @@ import type { MessageColor, Timer } from '../../types'
 import type { TimerEngineState } from '../../hooks/useTimerEngine'
 import { FitText } from '../core/FitText'
 import { TransportControls } from './TransportControls'
+import { useClock } from '../../hooks/useClock'
 
 export const LiveTimerPreview = ({
   timer,
+  showClock,
   engine,
   isRunning,
   onStart,
@@ -14,6 +16,7 @@ export const LiveTimerPreview = ({
   message,
 }: {
   timer: Timer | undefined
+  showClock: boolean
   engine: TimerEngineState
   isRunning: boolean
   onStart: () => void
@@ -22,6 +25,7 @@ export const LiveTimerPreview = ({
   onNudge: (deltaMs: number) => void
   message: { text: string; color: MessageColor; visible: boolean }
 }) => {
+  const clockTime = useClock()
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
     yellow: 'bg-amber-400/90 text-slate-900',
@@ -64,31 +68,35 @@ export const LiveTimerPreview = ({
       </div>
       <div
         className={`mt-6 rounded-xl border border-slate-800 px-4 py-8 text-center ${
-          engine.status === 'overtime' ? 'bg-rose-950/80 border-rose-900' : 'bg-slate-950/60'
+          engine.status === 'overtime' && !showClock
+            ? 'bg-rose-950/80 border-rose-900'
+            : 'bg-slate-950/60'
         }`}
       >
         <div className="flex justify-center">
           <FitText className="font-display text-white" max={140}>
-            {engine.display}
+            {showClock ? clockTime : engine.display}
           </FitText>
         </div>
         <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">
           Status: {engine.status.toUpperCase()}
         </p>
-        <div className="mt-6 h-2 rounded-full bg-slate-800">
-          <div
-            className={`h-full rounded-full transition-all ${
-              engine.status === 'overtime'
-                ? 'bg-rose-400'
-                : engine.status === 'critical'
-                ? 'bg-rose-400'
-                : engine.status === 'warning'
-                ? 'bg-amber-300'
-                : 'bg-emerald-400'
-            }`}
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
+        {!showClock && (
+          <div className="mt-6 h-2 rounded-full bg-slate-800">
+            <div
+              className={`h-full rounded-full transition-all ${
+                engine.status === 'overtime'
+                  ? 'bg-rose-400'
+                  : engine.status === 'critical'
+                  ? 'bg-rose-400'
+                  : engine.status === 'warning'
+                  ? 'bg-amber-300'
+                  : 'bg-emerald-400'
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        )}
         {message.visible && message.text && messageBg && (
           <div
             className={`mt-6 flex w-full items-center justify-center rounded-2xl px-3 py-4 text-center text-sm font-semibold break-words ${messageBg}`}
@@ -102,15 +110,17 @@ export const LiveTimerPreview = ({
           </div>
         )}
       </div>
-      <div className="mt-5">
-        <TransportControls
-          isRunning={isRunning}
-          onStart={onStart}
-          onPause={onPause}
-          onReset={onReset}
-          onNudge={onNudge}
-        />
-      </div>
+      {!showClock && (
+        <div className="mt-5">
+          <TransportControls
+            isRunning={isRunning}
+            onStart={onStart}
+            onPause={onPause}
+            onReset={onReset}
+            onNudge={onNudge}
+          />
+        </div>
+      )}
     </div>
   )
 }

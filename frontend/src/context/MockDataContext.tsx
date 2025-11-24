@@ -95,6 +95,7 @@ type MockDataContextValue = {
   pauseTimer: (roomId: string) => Promise<void>
   resetTimer: (roomId: string) => Promise<void>
   nudgeTimer: (roomId: string, deltaMs: number) => Promise<void>
+  setClockMode: (roomId: string, enabled: boolean) => Promise<void>
   updateMessage: (
     roomId: string,
     message: Partial<{ text: string; color: MessageColor; visible: boolean }>,
@@ -172,7 +173,13 @@ const loadState = (): MockState => {
     if (!raw) return createSeedState()
     const parsed = JSON.parse(raw) as MockState
     return {
-      rooms: parsed.rooms ?? [],
+      rooms: (parsed.rooms ?? []).map((room) => ({
+        ...room,
+        state: {
+          ...room.state,
+          showClock: room.state?.showClock ?? false,
+        },
+      })),
       timers: parsed.timers ?? {},
     }
   } catch (error) {
@@ -432,6 +439,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ...room,
         state: {
           ...room.state,
+          showClock: false,
           activeTimerId: timerId,
           isRunning: false,
           startedAt: null,
@@ -453,6 +461,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           ...room,
           state: {
             ...room.state,
+            showClock: false,
             activeTimerId: nextActive,
             isRunning: true,
             startedAt: Date.now(),
@@ -541,6 +550,20 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     })
   }, [])
 
+  const setClockMode = useCallback(
+    async (roomId: string, enabled: boolean) => {
+      await delay(60)
+      updateRoom(roomId, (room) => ({
+        ...room,
+        state: {
+          ...room.state,
+          showClock: enabled,
+        },
+      }))
+    },
+    [updateRoom],
+  )
+
   const updateMessage = useCallback(
     async (
       roomId: string,
@@ -580,6 +603,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       pauseTimer,
       resetTimer,
       nudgeTimer,
+      setClockMode,
       updateMessage,
     }),
     [
@@ -599,6 +623,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       pauseTimer,
       resetTimer,
       nudgeTimer,
+      setClockMode,
       updateMessage,
     ],
   )

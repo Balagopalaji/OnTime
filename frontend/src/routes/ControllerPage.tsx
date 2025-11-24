@@ -24,6 +24,7 @@ export const ControllerPage = () => {
     deleteTimer,
     moveTimer,
     updateTimer,
+    setClockMode,
     updateMessage,
     connectionStatus,
   } = useMockData()
@@ -47,8 +48,7 @@ export const ControllerPage = () => {
     })
   }, [activeTimer, timers])
 
-  const selectedTimer =
-    timers.find((timer) => timer.id === selectedTimerId) ?? activeTimer
+  const selectedTimer = timers.find((timer) => timer.id === selectedTimerId) ?? activeTimer
 
   const startActiveTimer = useCallback(() => {
     if (!currentRoomId) return
@@ -259,6 +259,7 @@ export const ControllerPage = () => {
           timers={timers}
           activeTimerId={room.state.activeTimerId}
           selectedTimerId={selectedTimerId}
+          isClockActive={room.state.showClock}
           onSelect={(timerId) => {
             setSelectedTimerId(timerId)
           }}
@@ -275,14 +276,15 @@ export const ControllerPage = () => {
           onCreate={(input) => {
             void createTimer(room.id, input)
           }}
+          onToggleClock={() => {
+            void setClockMode(room.id, !room.state.showClock)
+          }}
         />
 
         <TimerPanel
           timer={selectedTimer}
-          isLive={Boolean(selectedTimer && selectedTimer.id === activeTimer?.id)}
-          isRunning={
-            Boolean(selectedTimer && selectedTimer.id === activeTimer?.id) && isRunning
-          }
+          isLive={Boolean(selectedTimer && selectedTimer.id === room.state.activeTimerId)}
+          isRunning={Boolean(selectedTimer && selectedTimer.id === room.state.activeTimerId) && isRunning}
           engine={engine}
           onStart={startActiveTimer}
           onPause={pauseActiveTimer}
@@ -308,6 +310,7 @@ export const ControllerPage = () => {
           />
           <LiveTimerPreview
             timer={activeTimer}
+            showClock={room.state.showClock}
             engine={engine}
             isRunning={isRunning}
             onStart={startActiveTimer}
