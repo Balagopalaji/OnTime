@@ -69,8 +69,8 @@ export const RundownPanel = ({
                   </p>
                   <div className="mt-1 flex gap-2 text-[10px] uppercase tracking-wide">
                     {isActive && (
-                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-200">
-                        Live
+                      <span className="rounded-full bg-rose-500/30 px-2 py-0.5 text-rose-100">
+                        On Air
                       </span>
                     )}
                     {!isActive && isSelected && (

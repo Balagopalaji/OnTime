@@ -40,8 +40,15 @@ export const useTimerEngine = ({
 
   const state = useMemo(() => {
     const durationMs = durationSec * 1000
-    const warningMs = warningSec * 1000
-    const criticalMs = criticalSec * 1000
+    const isShort = durationSec > 0 && durationSec < 600
+    const adaptiveWarningSec = isShort
+      ? Math.min(120, Math.max(30, Math.round(durationSec * 0.25)))
+      : warningSec
+    const adaptiveCriticalSec = isShort
+      ? Math.max(10, Math.round(durationSec * 0.1))
+      : criticalSec
+    const warningMs = adaptiveWarningSec * 1000
+    const criticalMs = adaptiveCriticalSec * 1000
     const elapsedFromStart =
       isRunning && startedAt ? Math.max(0, timestamp - startedAt) : 0
     const totalElapsed = elapsedOffset + elapsedFromStart

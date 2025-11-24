@@ -38,17 +38,17 @@ export const TransportControls = ({
       </button>
       <button
         type="button"
-        onClick={() => onNudge(60_000)}
-        className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60"
-      >
-        + 1 min
-      </button>
-      <button
-        type="button"
         onClick={() => onNudge(-60_000)}
         className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60"
       >
         - 1 min
+      </button>
+      <button
+        type="button"
+        onClick={() => onNudge(60_000)}
+        className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60"
+      >
+        + 1 min
       </button>
     </div>
   )

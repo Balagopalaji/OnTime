@@ -69,6 +69,28 @@ export const ViewerPage = () => {
     none: 'border border-white/40 bg-transparent text-white',
   }[room.state.message.color]
 
+  const getMessageFitProps = (length: number) => {
+    if (length > 160) {
+      return { max: 80, min: 20, ratio: 9 }
+    }
+    if (length > 100) {
+      return { max: 120, min: 28, ratio: 7 }
+    }
+    return { max: 160, min: 40, ratio: 6 }
+  }
+
+  const durationMs = (activeTimer?.duration ?? 0) * 1000
+  const progressPercent =
+    durationMs <= 0
+      ? 0
+      : Math.max(0, Math.min(1, engine.remainingMs / durationMs)) * 100
+  const progressColor =
+    engine.status === 'overtime' || engine.status === 'critical'
+      ? 'bg-rose-400'
+      : engine.status === 'warning'
+      ? 'bg-amber-300'
+      : 'bg-emerald-400'
+
   return (
     <section className="flex min-h-[calc(100vh-80px)] w-full items-center justify-center px-4 py-6 md:py-10">
       <div
@@ -109,34 +131,44 @@ export const ViewerPage = () => {
         <div className="mt-6 flex flex-1 flex-col items-center justify-center">
           {isOvertime ? (
             <div className="flex w-full flex-col items-center gap-4 text-white">
-              <FitText className="font-semibold text-white" max={320} min={90} ratio={3.4}>
-                Time is up!
-              </FitText>
-              <FitText
-                className="font-semibold text-rose-100"
-                max={220}
-                min={60}
-                ratio={4}
-              >
+              <div className="flex justify-center w-full">
+                <FitText className="font-semibold text-white" max={320} min={90} ratio={3.4}>
+                  Time is up!
+                </FitText>
+              </div>
+              <div className="flex justify-center w-full">
+                <FitText
+                  className="font-semibold text-rose-100"
+                  max={220}
+                  min={60}
+                  ratio={4}
+                >
+                  {engine.display}
+                </FitText>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-center w-full">
+              <FitText className="font-semibold text-white" max={480} min={120} ratio={2.2}>
                 {engine.display}
               </FitText>
             </div>
-          ) : (
-            <FitText className="font-semibold text-white" max={480} min={120} ratio={2.2}>
-              {engine.display}
-            </FitText>
           )}
+          <div className="mt-8 h-3 w-full max-w-3xl rounded-full bg-white/10">
+            <div
+              className={`h-full rounded-full transition-all ${progressColor}`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
         </div>
 
         {room.state.message.visible && room.state.message.text && messageBg && (
           <div
-            className={`mt-8 flex w-full items-center justify-center rounded-3xl px-5 py-8 text-lg font-semibold ${messageBg}`}
+            className={`mt-8 flex w-full items-center justify-center rounded-3xl px-5 py-8 text-lg font-semibold break-words ${messageBg}`}
           >
             <FitText
-              className="w-full text-center font-semibold leading-[1.05]"
-              max={160}
-              min={40}
-              ratio={6}
+              className="w-full text-center font-semibold leading-[1.05] break-words"
+              {...getMessageFitProps(room.state.message.text.length)}
             >
               {room.state.message.text}
             </FitText>

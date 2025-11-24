@@ -30,7 +30,7 @@ export const TimerPanel = ({
   onUpdateDetails: (patch: { title?: string; speaker?: string }) => void
 }) => {
   const [editableMinutes, setEditableMinutes] = useState(() =>
-    timer ? Math.round(timer.duration / 60) : 5,
+    timer ? Math.max(0, Math.round(timer.duration / 60)).toString() : '5',
   )
   const [titleInput, setTitleInput] = useState(timer?.title ?? '')
   const [speakerInput, setSpeakerInput] = useState(timer?.speaker ?? '')
@@ -38,7 +38,7 @@ export const TimerPanel = ({
   useEffect(() => {
     if (!timer) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setEditableMinutes(Math.max(1, Math.round(timer.duration / 60)))
+    setEditableMinutes(Math.max(0, Math.round(timer.duration / 60)).toString())
     setTitleInput(timer.title)
     setSpeakerInput(timer.speaker ?? '')
   }, [timer])
@@ -46,7 +46,10 @@ export const TimerPanel = ({
   const handleDurationSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!timer) return
-    onSaveDuration(editableMinutes)
+    const parsed = Number(editableMinutes)
+    const safe = Number.isNaN(parsed) ? 0 : Math.max(0, parsed)
+    onSaveDuration(safe)
+    setEditableMinutes(String(safe))
   }
 
   const displayValue = useMemo(() => {
@@ -54,7 +57,9 @@ export const TimerPanel = ({
       return engine.display
     }
     if (timer) {
-      return formatDuration(Math.max(1, editableMinutes) * 60_000)
+      const parsed = Number(editableMinutes)
+      const safe = Number.isNaN(parsed) ? 0 : Math.max(0, parsed)
+      return formatDuration(safe * 60_000)
     }
     return '00:00'
   }, [editableMinutes, engine, isLive, timer])
@@ -70,11 +75,22 @@ export const TimerPanel = ({
   }, [engine, isLive, timer])
 
   const progressWidth = useMemo(() => {
-    if (isLive && engine) {
-      return Math.min(engine.progress * 100, 100)
+    if (timer) {
+      if (isLive && engine) {
+        const durationMs = timer.duration * 1000
+        if (durationMs <= 0) return 0
+        const ratio = Math.max(0, Math.min(1, engine.remainingMs / durationMs))
+        return ratio * 100
+      }
+      const stagedMinutes = Number(editableMinutes)
+      const stagedTotalMs = Math.max(0, (Number.isNaN(stagedMinutes) ? 0 : stagedMinutes) * 60_000)
+      const durationMs = timer.duration * 1000
+      if (durationMs <= 0) return 100
+      const ratio = Math.max(0, Math.min(1, stagedTotalMs / durationMs))
+      return ratio * 100
     }
     return 0
-  }, [engine, isLive])
+  }, [editableMinutes, engine, isLive, timer])
 
   const handleStart = () => {
     if (!timer) return
@@ -100,8 +116,10 @@ export const TimerPanel = ({
     if (isLive) {
       onNudge(deltaMinutes * 60_000)
     } else {
-      const next = Math.max(1, editableMinutes + deltaMinutes)
-      setEditableMinutes(next)
+      const current = Number(editableMinutes)
+      const safeCurrent = Number.isNaN(current) ? 0 : current
+      const next = Math.max(0, safeCurrent + deltaMinutes)
+      setEditableMinutes(String(next))
       onSaveDuration(next)
     }
   }
@@ -159,17 +177,25 @@ export const TimerPanel = ({
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
               Status
             </p>
-            <p className="text-white">
-              {isLive ? 'On Air' : 'Staged (not running)'}
-            </p>
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                isLive
+                  ? 'bg-rose-500/30 text-rose-100 animate-pulse shadow-[0_0_8px_rgba(248,113,113,0.5)]'
+                  : 'bg-slate-800 text-slate-200'
+              }`}
+            >
+              {isLive ? 'On Air' : 'Staged'}
+            </span>
           </div>
         </div>
       )}
 
       <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-8 text-center">
-        <FitText className="font-display text-white" max={isLive ? 180 : 160}>
-          {displayValue}
-        </FitText>
+        <div className="flex justify-center">
+          <FitText className="font-display text-white" max={isLive ? 180 : 160}>
+            {displayValue}
+          </FitText>
+        </div>
         <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">
           Status: {statusLabel}
         </p>
@@ -214,19 +240,19 @@ export const TimerPanel = ({
         </button>
         <button
           type="button"
-          onClick={() => handleMinuteAdjust(1)}
-          className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
-          disabled={!timer}
-        >
-          + 1 min
-        </button>
-        <button
-          type="button"
           onClick={() => handleMinuteAdjust(-1)}
           className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
           disabled={!timer}
         >
           - 1 min
+        </button>
+        <button
+          type="button"
+          onClick={() => handleMinuteAdjust(1)}
+          className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+          disabled={!timer}
+        >
+          + 1 min
         </button>
       </div>
 
@@ -281,13 +307,11 @@ export const TimerPanel = ({
             <span className="text-xs text-slate-400">Minutes</span>
             <input
               type="number"
-              min={1}
+              min={0}
               className="w-24 rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-white"
               value={editableMinutes}
               onChange={(event) => {
-                const next = Number(event.target.value)
-                if (Number.isNaN(next)) return
-                setEditableMinutes(Math.max(1, next))
+                setEditableMinutes(event.target.value)
               }}
               disabled={!timer}
             />

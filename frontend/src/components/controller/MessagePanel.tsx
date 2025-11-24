@@ -7,6 +7,8 @@ const PRESETS = [
   { label: 'Standby', text: 'Standby', color: 'blue' as MessageColor },
 ]
 
+const MAX_MESSAGE_LENGTH = 150
+
 export const MessagePanel = ({
   initial,
   onUpdate,
@@ -82,12 +84,16 @@ export const MessagePanel = ({
       <form onSubmit={handleSubmit} className="mt-4 space-y-3 text-sm">
         <label className="block text-slate-300">
           Custom text
-          <input
+          <textarea
             className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
             value={text}
-            onChange={(event) => setText(event.target.value)}
-            maxLength={64}
+            onChange={(event) => setText(event.target.value.slice(0, MAX_MESSAGE_LENGTH))}
+            maxLength={MAX_MESSAGE_LENGTH}
+            rows={3}
           />
+          <span className="mt-1 block text-right text-xs text-slate-500">
+            {text.length}/{MAX_MESSAGE_LENGTH}
+          </span>
         </label>
         <label className="block text-slate-300">
           Color

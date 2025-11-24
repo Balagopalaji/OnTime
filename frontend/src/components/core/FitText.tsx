@@ -39,7 +39,12 @@ export const FitText = ({
     <div
       ref={ref}
       className={className}
-      style={{ fontSize, lineHeight: 1.05, fontFamily: 'Space Grotesk, system-ui' }}
+      style={{
+        fontSize,
+        lineHeight: 1.05,
+        fontFamily: 'Space Grotesk, system-ui',
+        fontVariantNumeric: 'tabular-nums',
+      }}
     >
       {children}
     </div>

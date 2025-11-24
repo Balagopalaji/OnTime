@@ -144,15 +144,16 @@ const createSeedState = (): MockState => {
       timezone: getTimezoneSuggestion(),
       createdAt: Date.now() - 1000 * 60 * 60 * 24,
       config: DEFAULT_CONFIG,
-      state: {
-        activeTimerId: timers[0].id,
-        isRunning: false,
-        startedAt: null,
-        elapsedOffset: 0,
-        message: {
-          text: 'Welcome to StageTime',
-          visible: true,
-          color: 'green',
+        state: {
+          activeTimerId: timers[0].id,
+          isRunning: false,
+          startedAt: null,
+          elapsedOffset: 0,
+          showClock: false,
+          message: {
+            text: 'Welcome to StageTime',
+            visible: true,
+            color: 'green',
         },
       },
     },
@@ -287,6 +288,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           isRunning: false,
           startedAt: null,
           elapsedOffset: 0,
+          showClock: false,
           message: {
             text: '',
             visible: false,
@@ -363,8 +365,21 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             : timer,
         ),
       )
+      if (patch.duration !== undefined) {
+        updateRoom(roomId, (room) => {
+          if (room.state.activeTimerId !== timerId) return room
+          return {
+            ...room,
+            state: {
+              ...room.state,
+              elapsedOffset: 0,
+              startedAt: room.state.isRunning ? Date.now() : null,
+            },
+          }
+        })
+      }
     },
-    [updateTimers],
+    [updateRoom, updateTimers],
   )
 
   const deleteTimer = useCallback(
@@ -507,13 +522,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         return prev
       }
 
-      const durationMs = activeTimer.duration * 1000
-      const maxElapsed = durationMs
-      const minElapsed = durationMs * -1
-      const nextElapsed = Math.min(
-        maxElapsed,
-        Math.max(minElapsed, room.state.elapsedOffset - deltaMs),
-      )
+      const nextElapsed = room.state.elapsedOffset - deltaMs
 
       return {
         ...prev,
@@ -563,6 +572,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       deleteRoom,
       createTimer,
       updateTimer,
+      setClockMode,
       deleteTimer,
       moveTimer,
       setActiveTimer,

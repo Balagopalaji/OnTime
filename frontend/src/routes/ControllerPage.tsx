@@ -91,7 +91,7 @@ export const ControllerPage = () => {
   const handleSaveDuration = useCallback(
     (timerId: string, minutes: number) => {
       if (!currentRoomId) return
-      const duration = Math.max(30, Math.round(minutes * 60))
+      const duration = Math.max(0, Math.round(minutes * 60))
       void updateTimer(currentRoomId, timerId, { duration })
     },
     [currentRoomId, updateTimer],
@@ -116,7 +116,34 @@ export const ControllerPage = () => {
 
   useEffect(() => {
     if (!currentRoomId) return
-    const handleKey = (event: KeyboardEvent) => {
+    let repeatInterval: ReturnType<typeof window.setInterval> | null = null
+    let repeatTimeout: ReturnType<typeof window.setTimeout> | null = null
+
+    const stopRepeat = () => {
+      if (repeatInterval) {
+        window.clearInterval(repeatInterval)
+        repeatInterval = null
+      }
+      if (repeatTimeout) {
+        window.clearTimeout(repeatTimeout)
+        repeatTimeout = null
+      }
+    }
+
+    const performArrowAction = (direction: 'up' | 'down') => {
+      if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
+        const delta = direction === 'up' ? 1 : -1
+        const nextMinutes = Math.max(
+          0,
+          Math.round(selectedTimer.duration / 60) + delta,
+        )
+        handleSaveDuration(selectedTimer.id, nextMinutes)
+      } else {
+        nudgeActiveTimer(direction === 'up' ? 60_000 : -60_000)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (
         target &&
@@ -127,7 +154,6 @@ export const ControllerPage = () => {
       ) {
         return
       }
-      if (event.repeat) return
 
       switch (event.code) {
         case 'Space': {
@@ -144,30 +170,18 @@ export const ControllerPage = () => {
           resetActiveTimer()
           break
         }
-        case 'ArrowUp': {
-          event.preventDefault()
-          if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
-            const nextMinutes = Math.max(
-              1,
-              Math.round(selectedTimer.duration / 60) + 1,
-            )
-            handleSaveDuration(selectedTimer.id, nextMinutes)
-          } else {
-            nudgeActiveTimer(60_000)
-          }
-          break
-        }
+        case 'ArrowUp':
         case 'ArrowDown': {
           event.preventDefault()
-          if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
-            const nextMinutes = Math.max(
-              1,
-              Math.round(selectedTimer.duration / 60) - 1,
+          const direction = event.code === 'ArrowUp' ? 'up' : 'down'
+          performArrowAction(direction)
+          stopRepeat()
+          repeatTimeout = window.setTimeout(() => {
+            repeatInterval = window.setInterval(
+              () => performArrowAction(direction),
+              80,
             )
-            handleSaveDuration(selectedTimer.id, nextMinutes)
-          } else {
-            nudgeActiveTimer(-60_000)
-          }
+          }, 250)
           break
         }
         default:
@@ -175,8 +189,21 @@ export const ControllerPage = () => {
       }
     }
 
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
+        stopRepeat()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', stopRepeat)
+    return () => {
+      stopRepeat()
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', stopRepeat)
+    }
   }, [
     currentRoomId,
     activeTimer?.id,

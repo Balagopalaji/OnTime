@@ -31,6 +31,22 @@ export const LiveTimerPreview = ({
     none: 'border border-white/40 bg-transparent text-white',
   }[message.color] as string | undefined
 
+  const durationMs = (timer?.duration ?? 0) * 1000
+  const progressPercent =
+    durationMs <= 0
+      ? 0
+      : Math.max(0, Math.min(1, engine.remainingMs / durationMs)) * 100
+
+  const getMessageFitProps = (length: number) => {
+    if (length > 120) {
+      return { max: 34, min: 12, ratio: 11 }
+    }
+    if (length > 80) {
+      return { max: 42, min: 14, ratio: 9 }
+    }
+    return { max: 55, min: 16, ratio: 7.5 }
+  }
+
   return (
     <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-5 shadow-card">
       <div className="flex items-center justify-between text-sm text-slate-400">
@@ -46,10 +62,16 @@ export const LiveTimerPreview = ({
           <p className="text-xs text-slate-400">Speaker: {timer.speaker}</p>
         )}
       </div>
-      <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-8 text-center">
-        <FitText className="font-display text-white" max={140}>
-          {engine.display}
-        </FitText>
+      <div
+        className={`mt-6 rounded-xl border border-slate-800 px-4 py-8 text-center ${
+          engine.status === 'overtime' ? 'bg-rose-950/80 border-rose-900' : 'bg-slate-950/60'
+        }`}
+      >
+        <div className="flex justify-center">
+          <FitText className="font-display text-white" max={140}>
+            {engine.display}
+          </FitText>
+        </div>
         <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">
           Status: {engine.status.toUpperCase()}
         </p>
@@ -64,18 +86,16 @@ export const LiveTimerPreview = ({
                 ? 'bg-amber-300'
                 : 'bg-emerald-400'
             }`}
-            style={{ width: `${Math.min(engine.progress * 100, 100)}%` }}
+            style={{ width: `${progressPercent}%` }}
           />
         </div>
         {message.visible && message.text && messageBg && (
           <div
-            className={`mt-6 flex w-full items-center justify-center rounded-2xl px-4 py-5 text-center text-sm font-semibold ${messageBg}`}
+            className={`mt-6 flex w-full items-center justify-center rounded-2xl px-3 py-4 text-center text-sm font-semibold break-words ${messageBg}`}
           >
             <FitText
-              className="w-full text-center font-semibold leading-[1.05]"
-              max={80}
-              min={20}
-              ratio={6}
+              className="w-full text-center font-semibold leading-[1.05] break-words"
+              {...getMessageFitProps(message.text.length)}
             >
               {message.text}
             </FitText>

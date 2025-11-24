@@ -26,7 +26,7 @@ describe('useTimerEngine', () => {
       ...base,
       isRunning: false,
       startedAt: null,
-      elapsedOffset: 190_000,
+      elapsedOffset: 230_000,
     })
 
     expect(result.current.status).toBe('warning')
