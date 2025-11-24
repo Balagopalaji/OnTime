@@ -4,6 +4,7 @@ import type { Timer } from '../../types'
 export const RundownPanel = ({
   timers,
   activeTimerId,
+  selectedTimerId,
   onSelect,
   onStart,
   onDelete,
@@ -12,6 +13,7 @@ export const RundownPanel = ({
 }: {
   timers: Timer[]
   activeTimerId: string | null
+  selectedTimerId: string | null
   onSelect: (timerId: string) => void
   onStart: (timerId: string) => void
   onDelete: (timerId: string) => void
@@ -42,15 +44,20 @@ export const RundownPanel = ({
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
-          {timers.map((timer, index) => (
-            <li
-              key={timer.id}
-              className={`rounded-xl border px-4 py-3 text-sm ${
-                timer.id === activeTimerId
-                  ? 'border-emerald-400/60 bg-emerald-400/10'
-                  : 'border-slate-800 bg-slate-950/40'
-              }`}
-            >
+          {timers.map((timer, index) => {
+            const isActive = timer.id === activeTimerId
+            const isSelected = timer.id === selectedTimerId
+            return (
+              <li
+                key={timer.id}
+                className={`rounded-xl border px-4 py-3 text-sm ${
+                  isActive
+                    ? 'border-emerald-400/60 bg-emerald-400/10'
+                    : isSelected
+                    ? 'border-sky-400/70 bg-sky-400/10'
+                    : 'border-slate-800 bg-slate-950/40'
+                }`}
+              >
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-white">{timer.title}</p>
@@ -58,6 +65,18 @@ export const RundownPanel = ({
                     {Math.round(timer.duration / 60)} min •{' '}
                     {timer.speaker ? timer.speaker : 'No speaker'}
                   </p>
+                  <div className="mt-1 flex gap-2 text-[10px] uppercase tracking-wide">
+                    {isActive && (
+                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-200">
+                        Live
+                      </span>
+                    )}
+                    {!isActive && isSelected && (
+                      <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-sky-200">
+                        Selected
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-1 text-xs">
                   <button
@@ -100,7 +119,7 @@ export const RundownPanel = ({
                 </div>
               </div>
             </li>
-          ))}
+          )})}
         </ul>
       )}
 

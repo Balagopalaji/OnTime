@@ -5,6 +5,7 @@ export const AppShell = () => {
   const { user, status, login, logout } = useAuth()
   const location = useLocation()
   const isAuthed = Boolean(user)
+  const isViewerRoute = /\/room\/[^/]+\/view$/.test(location.pathname)
 
   const handleAuthClick = () => {
     if (isAuthed) {
@@ -59,7 +60,11 @@ export const AppShell = () => {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-10">
+      <main
+        className={
+          isViewerRoute ? 'w-full px-0 py-4 sm:px-4' : 'mx-auto max-w-6xl px-4 py-10'
+        }
+      >
         <Outlet />
       </main>
     </div>

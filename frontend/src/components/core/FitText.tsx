@@ -8,11 +8,13 @@ export const FitText = ({
   min = 32,
   max = 160,
   className = '',
+  ratio = 6,
 }: {
   children: ReactNode
   min?: number
   max?: number
   className?: string
+  ratio?: number
 }) => {
   const ref = useRef<HTMLDivElement>(null)
   const [fontSize, setFontSize] = useState(max)
@@ -23,7 +25,7 @@ export const FitText = ({
 
     const updateSize = () => {
       const width = element.parentElement?.clientWidth ?? element.clientWidth
-      const next = clamp(width / 6, min, max)
+      const next = clamp(width / ratio, min, max)
       setFontSize(next)
     }
 
@@ -31,7 +33,7 @@ export const FitText = ({
     const resizeObserver = new ResizeObserver(updateSize)
     resizeObserver.observe(element.parentElement ?? element)
     return () => resizeObserver.disconnect()
-  }, [max, min])
+  }, [max, min, ratio])
 
   return (
     <div

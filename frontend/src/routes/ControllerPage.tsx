@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AlertTriangle, Radio } from 'lucide-react'
 import { useMockData } from '../context/MockDataContext'
@@ -14,7 +15,6 @@ export const ControllerPage = () => {
   const {
     getRoom,
     getTimers,
-    setActiveTimer,
     startTimer,
     pauseTimer,
     resetTimer,
@@ -22,6 +22,7 @@ export const ControllerPage = () => {
     createTimer,
     deleteTimer,
     moveTimer,
+    updateTimer,
     updateMessage,
     connectionStatus,
   } = useMockData()
@@ -30,6 +31,65 @@ export const ControllerPage = () => {
   const timers = roomId ? getTimers(roomId) : []
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
+  const currentRoomId = room?.id
+  const isRunning = room?.state.isRunning ?? false
+  const [selectedTimerId, setSelectedTimerId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!activeTimer && !selectedTimerId) return
+    if (!selectedTimerId && activeTimer) {
+      setSelectedTimerId(activeTimer.id)
+      return
+    }
+    if (
+      selectedTimerId &&
+      !timers.some((timer) => timer.id === selectedTimerId)
+    ) {
+      setSelectedTimerId(activeTimer?.id ?? null)
+    }
+  }, [activeTimer, selectedTimerId, timers])
+
+  const selectedTimer =
+    timers.find((timer) => timer.id === selectedTimerId) ?? activeTimer
+
+  const startActiveTimer = useCallback(() => {
+    if (!currentRoomId) return
+    void startTimer(currentRoomId)
+  }, [currentRoomId, startTimer])
+
+  const pauseActiveTimer = useCallback(() => {
+    if (!currentRoomId) return
+    void pauseTimer(currentRoomId)
+  }, [currentRoomId, pauseTimer])
+
+  const resetActiveTimer = useCallback(() => {
+    if (!currentRoomId) return
+    void resetTimer(currentRoomId)
+  }, [currentRoomId, resetTimer])
+
+  const nudgeActiveTimer = useCallback(
+    (deltaMs: number) => {
+      if (!currentRoomId) return
+      void nudgeTimer(currentRoomId, deltaMs)
+    },
+    [currentRoomId, nudgeTimer],
+  )
+
+  const startSelectedTimer = useCallback(() => {
+    if (!currentRoomId || !selectedTimerId) return
+    if (selectedTimerId === activeTimer?.id) {
+      startActiveTimer()
+      return
+    }
+    setSelectedTimerId(selectedTimerId)
+    void startTimer(currentRoomId, selectedTimerId)
+  }, [
+    activeTimer?.id,
+    currentRoomId,
+    selectedTimerId,
+    startActiveTimer,
+    startTimer,
+  ])
 
   const engine = useTimerEngine({
     durationSec: activeTimer?.duration ?? 0,
@@ -39,6 +99,62 @@ export const ControllerPage = () => {
     warningSec: room?.config.warningSec ?? 120,
     criticalSec: room?.config.criticalSec ?? 30,
   })
+
+  useEffect(() => {
+    if (!currentRoomId) return
+    const handleKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      if (event.repeat) return
+
+      switch (event.code) {
+        case 'Space': {
+          event.preventDefault()
+          if (isRunning) {
+            pauseActiveTimer()
+          } else {
+            startActiveTimer()
+          }
+          break
+        }
+        case 'KeyR': {
+          event.preventDefault()
+          resetActiveTimer()
+          break
+        }
+        case 'ArrowUp': {
+          event.preventDefault()
+          nudgeActiveTimer(60_000)
+          break
+        }
+        case 'ArrowDown': {
+          event.preventDefault()
+          nudgeActiveTimer(-60_000)
+          break
+        }
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [
+    currentRoomId,
+    isRunning,
+    nudgeActiveTimer,
+    pauseActiveTimer,
+    resetActiveTimer,
+    startActiveTimer,
+  ])
 
   if (!room || !roomId) {
     return (
@@ -82,10 +198,12 @@ export const ControllerPage = () => {
         <RundownPanel
           timers={timers}
           activeTimerId={room.state.activeTimerId}
+          selectedTimerId={selectedTimerId}
           onSelect={(timerId) => {
-            void setActiveTimer(room.id, timerId)
+            setSelectedTimerId(timerId)
           }}
           onStart={(timerId) => {
+            setSelectedTimerId(timerId)
             void startTimer(room.id, timerId)
           }}
           onDelete={(timerId) => {
@@ -101,20 +219,19 @@ export const ControllerPage = () => {
 
         <TimerPanel
           timer={activeTimer}
+          selectedTimer={selectedTimer}
           engine={engine}
-          isRunning={room.state.isRunning}
-          onStart={() => {
-            void startTimer(room.id)
+          isRunning={isRunning}
+          onStart={startActiveTimer}
+          onPause={pauseActiveTimer}
+          onReset={resetActiveTimer}
+          onNudge={nudgeActiveTimer}
+          onSaveDuration={(minutes) => {
+            if (!activeTimer) return
+            const duration = Math.max(30, Math.round(minutes * 60))
+            void updateTimer(room.id, activeTimer.id, { duration })
           }}
-          onPause={() => {
-            void pauseTimer(room.id)
-          }}
-          onReset={() => {
-            void resetTimer(room.id)
-          }}
-          onNudge={(deltaMs) => {
-            void nudgeTimer(room.id, deltaMs)
-          }}
+          onStartSelected={startSelectedTimer}
         />
 
         <MessagePanel

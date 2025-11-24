@@ -28,6 +28,36 @@ type MockState = {
   timers: Record<string, Timer[]>
 }
 
+const normalizeState = (state: MockState): MockState => {
+  let didChange = false
+  const normalizedRooms = state.rooms.map((room) => {
+    const timers = state.timers[room.id] ?? []
+    const hasValidActive =
+      !!room.state.activeTimerId &&
+      timers.some((timer) => timer.id === room.state.activeTimerId)
+
+    if (hasValidActive || timers.length === 0) {
+      return room
+    }
+
+    didChange = true
+    const fallbackTimer = [...timers].sort((a, b) => a.order - b.order)[0]
+
+    return {
+      ...room,
+      state: {
+        ...room.state,
+        activeTimerId: fallbackTimer?.id ?? null,
+        isRunning: false,
+        startedAt: null,
+        elapsedOffset: 0,
+      },
+    }
+  })
+
+  return didChange ? { ...state, rooms: normalizedRooms } : state
+}
+
 type CreateRoomInput = {
   title: string
   timezone: string
@@ -151,9 +181,25 @@ const loadState = (): MockState => {
 }
 
 export const MockDataProvider = ({ children }: { children: ReactNode }) => {
-  const [state, setState] = useState<MockState>(() => loadState())
+  const [state, setStateRaw] = useState<MockState>(() => normalizeState(loadState()))
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     'online',
+  )
+
+  const setState = useCallback<React.Dispatch<React.SetStateAction<MockState>>>(
+    (value) => {
+      setStateRaw((prev) => {
+        const next =
+          typeof value === 'function'
+            ? (value as (prevState: MockState) => MockState)(prev)
+            : (value as MockState)
+        if (next === prev) {
+          return prev
+        }
+        return normalizeState(next)
+      })
+    },
+    [],
   )
 
   useEffect(() => {
@@ -161,6 +207,26 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   }, [state])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY || !event.newValue) return
+      try {
+        const next = JSON.parse(event.newValue) as MockState
+        setStateRaw((prev) => {
+          const hydrated = normalizeState({
+            rooms: next.rooms ?? [],
+            timers: next.timers ?? {},
+          })
+          return JSON.stringify(prev) === JSON.stringify(hydrated) ? prev : hydrated
+        })
+      } catch (error) {
+        console.warn('Failed to hydrate mock data from storage event', error)
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
   const getRoom = useCallback(
     (roomId: string) => state.rooms.find((room) => room.id === roomId),
     [state.rooms],
@@ -200,6 +266,15 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const createRoom = useCallback(
     async ({ title, timezone, ownerId }: CreateRoomInput) => {
       const id = randomId()
+      const defaultTimer = {
+        id: randomId(),
+        roomId: id,
+        title: 'Opening Remarks',
+        duration: 300,
+        speaker: 'Host',
+        type: 'countdown' as const,
+        order: 10,
+      }
       const room: Room = {
         id,
         title,
@@ -208,7 +283,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         createdAt: Date.now(),
         config: DEFAULT_CONFIG,
         state: {
-          activeTimerId: null,
+          activeTimerId: defaultTimer.id,
           isRunning: false,
           startedAt: null,
           elapsedOffset: 0,
@@ -226,17 +301,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         rooms: [...prev.rooms, room],
         timers: {
           ...prev.timers,
-          [id]: [
-            {
-              id: randomId(),
-              roomId: id,
-              title: 'Opening Remarks',
-              duration: 300,
-              speaker: 'Host',
-              type: 'countdown',
-              order: 10,
-            },
-          ],
+          [id]: [defaultTimer],
         },
       }))
 
