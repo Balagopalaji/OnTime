@@ -5,24 +5,20 @@ export const RundownPanel = ({
   timers,
   activeTimerId,
   selectedTimerId,
-  isClockActive,
   onSelect,
   onStart,
   onDelete,
   onMove,
   onCreate,
-  onToggleClock,
 }: {
   timers: Timer[]
   activeTimerId: string | null
   selectedTimerId: string | null
-  isClockActive: boolean
   onSelect: (timerId: string) => void
   onStart: (timerId: string) => void
   onDelete: (timerId: string) => void
   onMove: (timerId: string, direction: 'up' | 'down') => void
   onCreate: (input: { title: string; duration: number; speaker?: string }) => void
-  onToggleClock: () => void
 }) => {
   const [title, setTitle] = useState('New Segment')
   const [duration, setDuration] = useState('5')
@@ -42,20 +38,7 @@ export const RundownPanel = ({
     <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">Rundown</h2>
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <p>{timers.length} segments</p>
-          <button
-            type="button"
-            onClick={onToggleClock}
-            className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide transition ${
-              isClockActive
-                ? 'bg-rose-500/30 text-rose-100 border border-rose-500/40'
-                : 'border border-slate-700 text-slate-200 hover:border-white/60'
-            }`}
-          >
-            {isClockActive ? 'Clock On Air' : 'Show Clock'}
-          </button>
-        </div>
+        <p className="text-xs text-slate-400">{timers.length} segments</p>
       </div>
       {timers.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-6 text-center text-xs uppercase tracking-[0.3em] text-slate-500">
@@ -84,14 +67,14 @@ export const RundownPanel = ({
                     {Math.round(timer.duration / 60)} min •{' '}
                     {timer.speaker ? timer.speaker : 'No speaker'}
                   </p>
-                  <div className="mt-1 flex gap-2 text-[10px] uppercase tracking-wide">
-                    {isActive && !isClockActive && (
-                      <span className="rounded-full bg-rose-500/30 px-2 py-0.5 text-rose-100">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide">
+                    {isActive && (
+                      <span className="inline-flex whitespace-nowrap rounded-full bg-rose-500/30 px-2 py-0.5 text-rose-100">
                         On Air
                       </span>
                     )}
-                    {!isActive && isSelected && (
-                      <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-sky-200">
+                    {isSelected && (
+                      <span className="inline-flex whitespace-nowrap rounded-full bg-sky-500/20 px-2 py-0.5 text-sky-200">
                         Selected
                       </span>
                     )}

@@ -114,6 +114,31 @@ export const ControllerPage = () => {
     criticalSec: room?.config.criticalSec ?? 30,
   })
 
+  const activeIndex = activeTimer
+    ? timers.findIndex((timer) => timer.id === activeTimer.id)
+    : -1
+  const prevTimer = activeIndex > 0 ? timers[activeIndex - 1] : null
+  const nextTimer =
+    activeIndex >= 0 && activeIndex < timers.length - 1
+      ? timers[activeIndex + 1]
+      : null
+
+  const handleStartPrevTimer = () => {
+    if (!prevTimer) return
+    setSelectedTimerId(prevTimer.id)
+    void startTimer(room.id, prevTimer.id)
+  }
+
+  const handleStartNextTimer = () => {
+    if (!nextTimer) return
+    setSelectedTimerId(nextTimer.id)
+    void startTimer(room.id, nextTimer.id)
+  }
+
+  const handleToggleClock = () => {
+    void setClockMode(room.id, !room.state.showClock)
+  }
+
   useEffect(() => {
     if (!currentRoomId) return
     let repeatInterval: ReturnType<typeof window.setInterval> | null = null
@@ -254,12 +279,59 @@ export const ControllerPage = () => {
         )}
       </header>
 
+      <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-4 flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
+          Operator Controls
+        </span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleStartPrevTimer}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+            disabled={!prevTimer}
+          >
+            Prev Segment
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (room.state.isRunning) {
+                pauseActiveTimer()
+              } else {
+                startActiveTimer()
+              }
+            }}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60"
+          >
+            {room.state.isRunning ? 'Pause' : 'Resume'}
+          </button>
+          <button
+            type="button"
+            onClick={handleStartNextTimer}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+            disabled={!nextTimer}
+          >
+            Next Segment
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleClock}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
+              room.state.showClock
+                ? 'bg-rose-500/30 text-rose-100 border border-rose-500/40'
+                : 'border border-slate-700 text-slate-200 hover:border-white/60'
+            }`}
+          >
+            {room.state.showClock ? 'Hide Clock' : 'Show Clock'}
+          </button>
+        </div>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[320px_1fr_320px]">
         <RundownPanel
           timers={timers}
           activeTimerId={room.state.activeTimerId}
           selectedTimerId={selectedTimerId}
-          isClockActive={room.state.showClock}
           onSelect={(timerId) => {
             setSelectedTimerId(timerId)
           }}
