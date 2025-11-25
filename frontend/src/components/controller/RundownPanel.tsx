@@ -204,7 +204,12 @@ export const RundownPanel = ({
                     setDraggingId(null)
                   }}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="relative flex items-start justify-between gap-4">
+                  {isSelected && (
+                    <span className="absolute -top-3 right-0 rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100">
+                      Selected
+                    </span>
+                  )}
                   <div className="flex flex-col gap-1">
                     <EditableField
                       value={timer.title}
@@ -223,11 +228,6 @@ export const RundownPanel = ({
                       {isActive && (
                         <span className="inline-flex items-center rounded-full bg-rose-500/30 px-3 py-0.5 text-[10px] text-rose-100">
                           On Air
-                        </span>
-                      )}
-                      {isSelected && (
-                        <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] text-emerald-200">
-                          Selected
                         </span>
                       )}
                     </div>

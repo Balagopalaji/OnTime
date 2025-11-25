@@ -63,6 +63,7 @@ export const ControllerPage = () => {
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
   const [undoTimer, setUndoTimer] = useState<{ timer: Timer; index: number } | null>(null)
   const undoTimeoutRef = useRef<number | null>(null)
+  const [shortcutScope, setShortcutScope] = useState<'controls' | 'rundown'>('controls')
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -145,12 +146,14 @@ export const ControllerPage = () => {
   const handleStartPrevTimer = () => {
     if (!prevTimer) return
     setSelectedTimerId(prevTimer.id)
+    setShortcutScope('controls')
     void setActiveTimer(room.id, prevTimer.id)
   }
 
   const handleStartNextTimer = () => {
     if (!nextTimer) return
     setSelectedTimerId(nextTimer.id)
+    setShortcutScope('controls')
     void setActiveTimer(room.id, nextTimer.id)
   }
 
@@ -208,6 +211,7 @@ export const ControllerPage = () => {
       speaker: '',
     }).then((newTimer) => {
       setSelectedTimerId(newTimer.id)
+      setShortcutScope('rundown')
     })
   }
 
@@ -263,7 +267,12 @@ export const ControllerPage = () => {
     }
 
     const performArrowAction = (direction: 'up' | 'down') => {
-      if (selectedTimer && selectedTimer.id !== activeTimer?.id) {
+      const adjustSelected =
+        shortcutScope === 'rundown' &&
+        selectedTimer &&
+        selectedTimer.id !== activeTimer?.id
+
+      if (adjustSelected) {
         const delta = direction === 'up' ? 1 : -1
         const stagedMinutes = Math.max(
           0,
@@ -295,7 +304,15 @@ export const ControllerPage = () => {
       switch (event.code) {
         case 'Space': {
           event.preventDefault()
-          if (isRunning) {
+          if (shortcutScope === 'rundown' && selectedTimer) {
+            if (selectedTimer.id !== activeTimer?.id) {
+              void startTimer(currentRoomId, selectedTimer.id)
+            } else if (isRunning) {
+              void pauseTimer(currentRoomId)
+            } else {
+              void startTimer(currentRoomId)
+            }
+          } else if (isRunning) {
             void pauseTimer(currentRoomId)
           } else {
             void startTimer(currentRoomId)
@@ -305,6 +322,13 @@ export const ControllerPage = () => {
         case 'KeyR': {
           event.preventDefault()
           void resetTimer(currentRoomId)
+          break
+        }
+        case 'Escape': {
+          if (shortcutScope !== 'controls') {
+            event.preventDefault()
+            setShortcutScope('controls')
+          }
           break
         }
         case 'ArrowUp':
@@ -349,6 +373,7 @@ export const ControllerPage = () => {
     pauseTimer,
     resetTimer,
     selectedTimer,
+    shortcutScope,
     startTimer,
     updateTimer,
   ])
@@ -472,7 +497,18 @@ export const ControllerPage = () => {
         )}
       </header>
 
-      <div className="rounded-3xl border border-slate-900/60 bg-slate-950/60 p-4 shadow-card sm:flex sm:items-center sm:justify-between sm:gap-4">
+      <div
+        className={`relative rounded-3xl border bg-slate-950/60 p-4 shadow-card transition ${
+          shortcutScope === 'controls' ? 'border-emerald-400/70 shadow-[0_0_25px_rgba(16,185,129,0.25)]' : 'border-slate-900/60'
+        } sm:flex sm:items-center sm:justify-between sm:gap-4`}
+        role="group"
+        onClick={() => setShortcutScope('controls')}
+      >
+        {shortcutScope === 'controls' && (
+          <span className="absolute -top-3 right-6 rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100">
+            Selected
+          </span>
+        )}
         <div className="flex flex-wrap items-center gap-3 text-base text-white">
           <button
             type="button"
@@ -485,7 +521,10 @@ export const ControllerPage = () => {
           </button>
           <button
             type="button"
-            onClick={startActiveTimer}
+            onClick={() => {
+              setShortcutScope('controls')
+              startActiveTimer()
+            }}
             className={`inline-flex items-center gap-1 rounded-2xl px-5 py-2 font-semibold transition ${
               room.state.isRunning
                 ? 'bg-rose-500/80 text-white'
@@ -498,7 +537,10 @@ export const ControllerPage = () => {
           </button>
           <button
             type="button"
-            onClick={pauseActiveTimer}
+            onClick={() => {
+              setShortcutScope('controls')
+              pauseActiveTimer()
+            }}
             className={`inline-flex items-center gap-1 rounded-2xl border px-4 py-2 font-semibold transition ${
               room.state.isRunning
                 ? 'border-rose-400 bg-rose-500/10 text-rose-200 hover:border-rose-200'
@@ -520,7 +562,10 @@ export const ControllerPage = () => {
           </button>
           <button
             type="button"
-            onClick={resetActiveTimer}
+            onClick={() => {
+              setShortcutScope('controls')
+              resetActiveTimer()
+            }}
             className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50"
           >
             <RotateCcw size={16} />
@@ -602,9 +647,11 @@ export const ControllerPage = () => {
           selectedTimerId={selectedTimerId}
           onSelect={(timerId) => {
             setSelectedTimerId(timerId)
+            setShortcutScope('rundown')
           }}
           onStart={(timerId) => {
             setSelectedTimerId(timerId)
+            setShortcutScope('rundown')
             void startTimer(room.id, timerId)
           }}
           onDelete={handleDeleteTimer}
