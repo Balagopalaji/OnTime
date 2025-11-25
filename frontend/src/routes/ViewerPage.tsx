@@ -41,7 +41,7 @@ export const ViewerPage = () => {
     return () => window.removeEventListener('keydown', handleKey)
   }, [toggleFullscreen])
 
-  const clockTime = useClock()
+  const clockTime = useClock(room.timezone)
 
   if (!room || !roomId) {
     return (

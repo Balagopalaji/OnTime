@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -12,13 +12,15 @@ import {
   QrCode,
 } from 'lucide-react'
 import { useMockData } from '../context/MockDataContext'
+import type { Timer } from '../types'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
 import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ShareLinkButton } from '../components/core/ShareLinkButton'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
-import { formatDate } from '../lib/time'
+import { formatDate, formatDuration } from '../lib/time'
+import { getAllTimezones } from '../lib/timezones'
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
@@ -34,6 +36,9 @@ export const ControllerPage = () => {
     reorderTimer,
     updateTimer,
     updateRoomMeta,
+    restoreTimer,
+    resetTimerProgress,
+    setActiveTimer,
     setClockMode,
     updateMessage,
     connectionStatus,
@@ -55,6 +60,9 @@ export const ControllerPage = () => {
   const [qrError, setQrError] = useState(false)
   const [isTimezoneEditing, setIsTimezoneEditing] = useState(false)
   const [timezoneInput, setTimezoneInput] = useState(room?.timezone ?? '')
+  const timezoneInputRef = useRef<HTMLInputElement | null>(null)
+  const [undoTimer, setUndoTimer] = useState<{ timer: Timer; index: number } | null>(null)
+  const undoTimeoutRef = useRef<number | null>(null)
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -65,12 +73,23 @@ export const ControllerPage = () => {
 
   const selectedTimer =
     timers.find((timer) => timer.id === effectiveSelectedTimerId) ?? activeTimer
-  const timezoneOptions = useMemo(() => {
-    if (typeof Intl.supportedValuesOf === 'function') {
-      return Intl.supportedValuesOf('timeZone')
+  const timezoneOptions = useMemo(() => getAllTimezones(), [])
+  const timezoneListId = room ? `timezone-${room.id}` : 'timezone-global'
+
+  useEffect(() => {
+    return () => {
+      if (undoTimeoutRef.current) {
+        window.clearTimeout(undoTimeoutRef.current)
+      }
     }
-    return ['UTC', 'America/New_York', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney']
   }, [])
+
+  useEffect(() => {
+    if (isTimezoneEditing && timezoneInputRef.current) {
+      timezoneInputRef.current.focus()
+      timezoneInputRef.current.select()
+    }
+  }, [isTimezoneEditing])
 
   const startActiveTimer = () => {
     if (!currentRoomId) return
@@ -126,21 +145,34 @@ export const ControllerPage = () => {
   const handleStartPrevTimer = () => {
     if (!prevTimer) return
     setSelectedTimerId(prevTimer.id)
-    void startTimer(room.id, prevTimer.id)
+    void setActiveTimer(room.id, prevTimer.id)
   }
 
   const handleStartNextTimer = () => {
     if (!nextTimer) return
     setSelectedTimerId(nextTimer.id)
-    void startTimer(room.id, nextTimer.id)
+    void setActiveTimer(room.id, nextTimer.id)
   }
 
   const handleToggleClock = () => {
     void setClockMode(room.id, !room.state.showClock)
   }
 
-  const viewerUrl =
-    typeof window !== 'undefined' ? `${window.location.origin}/viewer/${room.id}` : ''
+  const remainingLookup = useMemo(() => {
+    if (!room) return {}
+    const { progress, activeTimerId, elapsedOffset } = room.state
+    const lookup: Record<string, string> = {}
+    timers.forEach((timer) => {
+      if (timer.id === activeTimerId) {
+        lookup[timer.id] = formatDuration(timer.duration * 1000 - elapsedOffset)
+        return
+      }
+      const elapsed = progress?.[timer.id] ?? 0
+      const remainingMs = timer.duration * 1000 - elapsed
+      lookup[timer.id] = formatDuration(remainingMs)
+    })
+    return lookup
+  }, [room, timers])
 
   const handleTimezoneSave = () => {
     if (!room) return
@@ -165,6 +197,52 @@ export const ControllerPage = () => {
       window.alert('Viewer link copied to clipboard')
     } catch {
       window.prompt('Copy viewer link', viewerUrl)
+    }
+  }
+
+  const handleAddSegment = () => {
+    if (!room) return
+    void createTimer(room.id, {
+      title: 'New Segment',
+      duration: 5 * 60,
+      speaker: '',
+    }).then((newTimer) => {
+      setSelectedTimerId(newTimer.id)
+    })
+  }
+
+  const handleDeleteTimer = (timerId: string) => {
+    if (!room) return
+    const index = timers.findIndex((timer) => timer.id === timerId)
+    const snapshot = index >= 0 ? timers[index] : undefined
+    if (snapshot) {
+      if (undoTimeoutRef.current) {
+        window.clearTimeout(undoTimeoutRef.current)
+      }
+      setUndoTimer({ timer: snapshot, index })
+      undoTimeoutRef.current = window.setTimeout(() => {
+        setUndoTimer(null)
+      }, 8000)
+    }
+    void deleteTimer(room.id, timerId)
+  }
+
+  const handleUndoDelete = useCallback(() => {
+    if (!room || !undoTimer) return
+    void restoreTimer(room.id, undoTimer.timer)
+    setUndoTimer(null)
+    if (undoTimeoutRef.current) {
+      window.clearTimeout(undoTimeoutRef.current)
+      undoTimeoutRef.current = null
+    }
+  }, [room, undoTimer, restoreTimer])
+
+  const handleResetTimer = (timerId: string) => {
+    if (!currentRoomId) return
+    if (room.state.activeTimerId === timerId) {
+      resetActiveTimer()
+    } else {
+      void resetTimerProgress(currentRoomId, timerId)
     }
   }
 
@@ -275,6 +353,26 @@ export const ControllerPage = () => {
     updateTimer,
   ])
 
+  useEffect(() => {
+    return () => {
+      if (undoTimeoutRef.current) {
+        window.clearTimeout(undoTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleUndoShortcut = (event: KeyboardEvent) => {
+      const isUndo = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z'
+      if (isUndo && undoTimer) {
+        event.preventDefault()
+        handleUndoDelete()
+      }
+    }
+    window.addEventListener('keydown', handleUndoShortcut)
+    return () => window.removeEventListener('keydown', handleUndoShortcut)
+  }, [undoTimer, handleUndoDelete])
+
   if (!room || !roomId) {
     return (
       <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
@@ -283,9 +381,15 @@ export const ControllerPage = () => {
     )
   }
 
+  const viewerUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/room/${room.id}/view`
+      : ''
+
   const messageKey = `${room.state.message.text}::${room.state.message.color}::${room.state.message.visible}`
 
   return (
+    <>
     <section className="space-y-6">
       <header className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-4 shadow-card sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -309,8 +413,9 @@ export const ControllerPage = () => {
               {isTimezoneEditing ? (
                 <div className="flex items-center gap-2">
                   <input
-                    list="timezone-options"
+                    list={timezoneListId}
                     className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-white"
+                    ref={timezoneInputRef}
                     value={timezoneInput}
                     onChange={(event) => setTimezoneInput(event.target.value)}
                     onBlur={handleTimezoneSave}
@@ -326,7 +431,7 @@ export const ControllerPage = () => {
                       }
                     }}
                   />
-                  <datalist id="timezone-options">
+                  <datalist id={timezoneListId}>
                     {timezoneOptions.map((tz) => (
                       <option key={tz} value={tz} />
                     ))}
@@ -493,6 +598,7 @@ export const ControllerPage = () => {
           activeTimerId={room.state.activeTimerId}
           isRunning={isRunning}
           activeTimerDisplay={isRunning && activeTimer ? engine.display : null}
+          remainingLookup={remainingLookup}
           selectedTimerId={selectedTimerId}
           onSelect={(timerId) => {
             setSelectedTimerId(timerId)
@@ -501,12 +607,8 @@ export const ControllerPage = () => {
             setSelectedTimerId(timerId)
             void startTimer(room.id, timerId)
           }}
-          onDelete={(timerId) => {
-            void deleteTimer(room.id, timerId)
-          }}
-          onCreate={(input) => {
-            void createTimer(room.id, input)
-          }}
+          onDelete={handleDeleteTimer}
+          onAddSegment={handleAddSegment}
           onEdit={(timerId, patch) => {
             handleEditTimer(timerId, patch)
           }}
@@ -514,7 +616,11 @@ export const ControllerPage = () => {
             handleReorderTimer(timerId, targetIndex)
           }}
           onPauseActive={pauseActiveTimer}
-          onResetActive={resetActiveTimer}
+          onReset={handleResetTimer}
+          undoPlaceholder={
+            undoTimer ? { index: Math.min(undoTimer.index, timers.length), title: undoTimer.timer.title } : null
+          }
+          onUndoDelete={undoTimer ? handleUndoDelete : undefined}
         />
 
         <div className="space-y-4">
@@ -535,9 +641,11 @@ export const ControllerPage = () => {
             onReset={resetActiveTimer}
             onNudge={nudgeActiveTimer}
             message={room.state.message}
+            timezone={room.timezone}
           />
         </div>
       </div>
     </section>
+    </>
   )
 }

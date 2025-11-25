@@ -110,6 +110,8 @@ type MockDataContextValue = {
     roomId: string,
     patch: Partial<Pick<Room, 'title' | 'timezone'>>,
   ) => Promise<void>
+  restoreTimer: (roomId: string, timer: Timer) => Promise<void>
+  resetTimerProgress: (roomId: string, timerId: string) => Promise<void>
   deleteTimer: (roomId: string, timerId: string) => Promise<void>
   moveTimer: (
     roomId: string,
@@ -323,6 +325,56 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ...patch,
       }))
       await delay()
+    },
+    [updateRoom],
+  )
+
+  const restoreTimer = useCallback(
+    async (roomId: string, timer: Timer) => {
+      updateTimers(roomId, (timers) => {
+        const filtered = timers.filter((candidate) => candidate.id !== timer.id)
+        return [...filtered, timer].sort((a, b) => a.order - b.order)
+      })
+      updateRoom(roomId, (room) => ({
+        ...room,
+        state: {
+          ...room.state,
+          progress: {
+            ...(room.state.progress ?? {}),
+            [timer.id]: 0,
+          },
+        },
+      }))
+      await delay(80)
+    },
+    [updateRoom, updateTimers],
+  )
+
+  const resetTimerProgress = useCallback(
+    async (roomId: string, timerId: string) => {
+      updateRoom(roomId, (room) => {
+        const progress = { ...(room.state.progress ?? {}), [timerId]: 0 }
+        if (room.state.activeTimerId === timerId) {
+          return {
+            ...room,
+            state: {
+              ...room.state,
+              progress,
+              elapsedOffset: 0,
+              startedAt: null,
+              isRunning: false,
+            },
+          }
+        }
+        return {
+          ...room,
+          state: {
+            ...room.state,
+            progress,
+          },
+        }
+      })
+      await delay(60)
     },
     [updateRoom],
   )
@@ -707,6 +759,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       createTimer,
       updateTimer,
       updateRoomMeta,
+      restoreTimer,
+      resetTimerProgress,
       reorderTimer,
       setClockMode,
       deleteTimer,
@@ -730,6 +784,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       createTimer,
       updateTimer,
       updateRoomMeta,
+      restoreTimer,
+      resetTimerProgress,
       reorderTimer,
       deleteTimer,
       moveTimer,

@@ -14,6 +14,7 @@ export const LiveTimerPreview = ({
   onReset,
   onNudge,
   message,
+  timezone,
 }: {
   timer: Timer | undefined
   showClock: boolean
@@ -24,8 +25,9 @@ export const LiveTimerPreview = ({
   onReset: () => void
   onNudge: (deltaMs: number) => void
   message: { text: string; color: MessageColor; visible: boolean }
+  timezone: string
 }) => {
-  const clockTime = useClock()
+  const clockTime = useClock(timezone)
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
     yellow: 'bg-amber-400/90 text-slate-900',
@@ -40,6 +42,15 @@ export const LiveTimerPreview = ({
     durationMs <= 0
       ? 0
       : Math.max(0, Math.min(1, engine.remainingMs / durationMs)) * 100
+
+  const statusText =
+    engine.status === 'default'
+      ? 'On Schedule'
+      : engine.status === 'warning'
+      ? 'Warning'
+      : engine.status === 'critical'
+      ? 'Critical'
+      : 'Overtime'
 
   return (
     <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-5 shadow-card">
@@ -78,7 +89,7 @@ export const LiveTimerPreview = ({
           </FitText>
         </div>
         <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">
-          Status: {engine.status.toUpperCase()}
+          Status: {statusText}
         </p>
         {!showClock && (
           <div className="mt-6 h-2 rounded-full bg-slate-800">

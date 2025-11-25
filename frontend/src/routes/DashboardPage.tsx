@@ -1,20 +1,12 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Clock, PlayCircle, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useMockData } from '../context/MockDataContext'
 import { formatDate, getTimezoneSuggestion } from '../lib/time'
+import { getAllTimezones } from '../lib/timezones'
 import type { ConnectionStatus } from '../types'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
-
-const TIMEZONES = [
-  'America/New_York',
-  'America/Los_Angeles',
-  'Europe/London',
-  'Europe/Paris',
-  'Asia/Singapore',
-  'UTC',
-]
 
 export const DashboardPage = () => {
   const { user } = useAuth()
@@ -29,6 +21,7 @@ export const DashboardPage = () => {
   const [title, setTitle] = useState('New Broadcast')
   const [timezone, setTimezone] = useState(localTimezone)
   const [isCreating, setIsCreating] = useState(false)
+  const allTimezones = useMemo(() => getAllTimezones(), [])
 
   const myRooms = useMemo(() => {
     if (!user) return []
@@ -109,18 +102,18 @@ export const DashboardPage = () => {
           </label>
           <label className="text-sm text-slate-300">
             Timezone
-            <select
+            <input
+              list="all-timezones"
               className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
               value={timezone}
               onChange={(event) => setTimezone(event.target.value)}
-            >
-              <option value={localTimezone}>Local ({localTimezone})</option>
-              {TIMEZONES.filter((tz) => tz !== localTimezone).map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
+            />
+            <datalist id="all-timezones">
+              <option value={localTimezone}>{`Local (${localTimezone})`}</option>
+              {allTimezones.map((tz) => (
+                <option key={tz} value={tz} />
               ))}
-            </select>
+            </datalist>
           </label>
         </div>
         <button

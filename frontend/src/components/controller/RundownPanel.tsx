@@ -1,4 +1,4 @@
-import { Fragment, FormEvent, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Timer } from '../../types'
 import { formatDuration } from '../../lib/time'
 import { EditableField } from '../core/EditableField'
@@ -41,34 +41,36 @@ export const RundownPanel = ({
   activeTimerId,
   isRunning,
   activeTimerDisplay,
+  remainingLookup,
   selectedTimerId,
   onSelect,
   onStart,
   onDelete,
-  onCreate,
+  onAddSegment,
   onEdit,
   onReorder,
   onPauseActive,
-  onResetActive,
+  onReset,
+  undoPlaceholder,
+  onUndoDelete,
 }: {
   timers: Timer[]
   activeTimerId: string | null
   isRunning: boolean
   activeTimerDisplay: string | null
+  remainingLookup: Record<string, string>
   selectedTimerId: string | null
   onSelect: (timerId: string) => void
   onStart: (timerId: string) => void
   onDelete: (timerId: string) => void
-  onCreate: (input: { title: string; duration: number; speaker?: string }) => void
+  onAddSegment: () => void
   onEdit: (timerId: string, patch: { title?: string; speaker?: string; duration?: number }) => void
   onReorder: (timerId: string, targetIndex: number) => void
   onPauseActive: () => void
-  onResetActive: () => void
+  onReset: (timerId: string) => void
+  undoPlaceholder?: { index: number; title: string } | null
+  onUndoDelete?: () => void
 }) => {
-  const [title, setTitle] = useState('New Segment')
-  const [duration, setDuration] = useState('5')
-  const [speaker, setSpeaker] = useState('')
-  const [isAdding, setIsAdding] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [editingDuration, setEditingDuration] = useState<{
@@ -110,17 +112,6 @@ export const RundownPanel = ({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [editingDuration, onEdit])
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const durationMinutes = Number(duration)
-    const safeDuration = Number.isNaN(durationMinutes) ? 1 : durationMinutes
-    onCreate({ title, duration: Math.round(safeDuration * 60), speaker })
-    setTitle('New Segment')
-    setDuration('5')
-    setSpeaker('')
-    setIsAdding(false)
-  }
-
   return (
     <div className="rounded-3xl border border-slate-900/70 bg-slate-950/60 p-4 shadow-card sm:p-5">
       <div className="flex items-center justify-between gap-2">
@@ -141,9 +132,32 @@ export const RundownPanel = ({
             const isSelected = timer.id === selectedTimerId
             const durationLabel = formatDuration(timer.duration * 1000)
             const displayValue =
-              isActive && activeTimerDisplay ? activeTimerDisplay : durationLabel
+              isActive && activeTimerDisplay
+                ? activeTimerDisplay
+                : remainingLookup[timer.id] ?? durationLabel
             return (
               <Fragment key={timer.id}>
+                {undoPlaceholder && undoPlaceholder.index === index && (
+                  <li className="rounded-2xl border border-dashed border-slate-600 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span>
+                        Removed “{undoPlaceholder.title}”
+                      </span>
+                      {onUndoDelete && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onUndoDelete()
+                          }}
+                          className="rounded-full border border-emerald-400/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
+                        >
+                          Undo
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                )}
                 {draggingId && hoverIndex === index && (
                   <div className="pointer-events-none px-8">
                     <div className="h-0.5 rounded-full bg-slate-600/70" />
@@ -295,10 +309,9 @@ export const RundownPanel = ({
                         <button
                           type="button"
                           onClick={() => {
-                            if (isActive) onResetActive()
+                            onReset(timer.id)
                           }}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
-                          disabled={!isActive}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
                         >
                           <RotateCcw size={16} />
                         </button>
@@ -317,6 +330,27 @@ export const RundownPanel = ({
               </Fragment>
             )
           })}
+          {undoPlaceholder && undoPlaceholder.index >= timers.length && (
+            <li className="rounded-2xl border border-dashed border-slate-600 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+              <div className="flex items-center justify-between">
+                <span>
+                  Removed “{undoPlaceholder.title}”
+                </span>
+                {onUndoDelete && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onUndoDelete()
+                    }}
+                    className="rounded-full border border-emerald-400/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
+            </li>
+          )}
         </ul>
         {draggingId && hoverIndex === timers.length && (
           <div className="pointer-events-none px-8">
@@ -326,59 +360,15 @@ export const RundownPanel = ({
         </>
       )}
 
-      <div className="mt-5">
+      <div className="mt-5 flex justify-center">
         <button
           type="button"
-          onClick={() => setIsAdding((prev) => !prev)}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-slate-500"
+          onClick={onAddSegment}
+          className="flex h-12 w-full max-w-sm items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-xl text-slate-200 transition hover:border-slate-500"
         >
-          <span className="text-lg">+</span>
+          <span className="text-2xl">+</span>
           <span className="sr-only">Add new segment</span>
         </button>
-        {isAdding && (
-          <form
-            onSubmit={handleSubmit}
-            className="mt-4 space-y-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm"
-          >
-            <label className="block text-slate-300">
-              Title
-              <input
-                className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                required
-              />
-            </label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="text-slate-300">
-                Duration (min)
-                <input
-                  type="number"
-                  min={1}
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
-                  value={duration}
-                  onChange={(event) => {
-                    setDuration(event.target.value)
-                  }}
-                />
-              </label>
-              <label className="text-slate-300">
-                Speaker (optional)
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
-                  value={speaker}
-                  onChange={(event) => setSpeaker(event.target.value)}
-                />
-              </label>
-            </div>
-            <button
-              type="submit"
-              className="mt-2 inline-flex items-center rounded-lg bg-emerald-500/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-950 transition hover:bg-emerald-400"
-            >
-              Save Timer
-            </button>
-          </form>
-        )}
       </div>
     </div>
   )
