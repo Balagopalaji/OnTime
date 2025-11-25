@@ -41,31 +41,30 @@ export const LiveTimerPreview = ({
       ? 0
       : Math.max(0, Math.min(1, engine.remainingMs / durationMs)) * 100
 
-  const getMessageFitProps = (length: number) => {
-    if (length > 120) {
-      return { max: 34, min: 12, ratio: 11 }
-    }
-    if (length > 80) {
-      return { max: 42, min: 14, ratio: 9 }
-    }
-    return { max: 55, min: 16, ratio: 7.5 }
-  }
-
   return (
     <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-5 shadow-card">
-      <div className="flex items-center justify-between text-sm text-slate-400">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-            Live Countdown
-          </p>
-          <p className="text-lg font-semibold text-white">
-            {timer ? timer.title : 'Standby'}
-          </p>
-        </div>
+      <div className="text-sm text-slate-400">
+        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+          Live Countdown
+        </p>
+        <p className="text-lg font-semibold text-white">
+          {timer ? timer.title : 'Standby'}
+        </p>
         {timer?.speaker && (
           <p className="text-xs text-slate-400">Speaker: {timer.speaker}</p>
         )}
       </div>
+      {!showClock && (
+        <div className="mb-4 mt-3">
+          <TransportControls
+            isRunning={isRunning}
+            onStart={onStart}
+            onPause={onPause}
+            onReset={onReset}
+            onNudge={onNudge}
+          />
+        </div>
+      )}
       <div
         className={`mt-6 rounded-xl border border-slate-800 px-4 py-8 text-center ${
           engine.status === 'overtime' && !showClock
@@ -99,28 +98,12 @@ export const LiveTimerPreview = ({
         )}
         {message.visible && message.text && messageBg && (
           <div
-            className={`mt-6 flex w-full items-center justify-center rounded-2xl px-3 py-4 text-center text-sm font-semibold break-words ${messageBg}`}
+            className={`mt-4 rounded-2xl px-3 py-3 text-[10px] font-semibold ${messageBg} max-h-24 overflow-auto`}
           >
-            <FitText
-              className="w-full text-center font-semibold leading-[1.05] break-words"
-              {...getMessageFitProps(message.text.length)}
-            >
-              {message.text}
-            </FitText>
+            <p className="leading-[1.2] break-words text-left">{message.text}</p>
           </div>
         )}
       </div>
-      {!showClock && (
-        <div className="mt-5">
-          <TransportControls
-            isRunning={isRunning}
-            onStart={onStart}
-            onPause={onPause}
-            onReset={onReset}
-            onNudge={onNudge}
-          />
-        </div>
-      )}
     </div>
   )
 }

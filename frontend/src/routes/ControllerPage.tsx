@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { AlertTriangle, Radio } from 'lucide-react'
+import {
+  AlertTriangle,
+  Clock3,
+  Pause,
+  Play,
+  RotateCcw,
+  Share2,
+  SkipBack,
+  SkipForward,
+  QrCode,
+} from 'lucide-react'
 import { useMockData } from '../context/MockDataContext'
-import { TimerPanel } from '../components/controller/TimerPanel'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
 import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
@@ -22,8 +31,9 @@ export const ControllerPage = () => {
     nudgeTimer,
     createTimer,
     deleteTimer,
-    moveTimer,
+    reorderTimer,
     updateTimer,
+    updateRoomMeta,
     setClockMode,
     updateMessage,
     connectionStatus,
@@ -41,6 +51,10 @@ export const ControllerPage = () => {
   const [selectedTimerId, setSelectedTimerId] = useState<string | null>(
     () => activeTimer?.id ?? null,
   )
+  const [qrOpen, setQrOpen] = useState(false)
+  const [qrError, setQrError] = useState(false)
+  const [isTimezoneEditing, setIsTimezoneEditing] = useState(false)
+  const [timezoneInput, setTimezoneInput] = useState(room?.timezone ?? '')
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -51,6 +65,12 @@ export const ControllerPage = () => {
 
   const selectedTimer =
     timers.find((timer) => timer.id === effectiveSelectedTimerId) ?? activeTimer
+  const timezoneOptions = useMemo(() => {
+    if (typeof Intl.supportedValuesOf === 'function') {
+      return Intl.supportedValuesOf('timeZone')
+    }
+    return ['UTC', 'America/New_York', 'Europe/London', 'Asia/Tokyo', 'Australia/Sydney']
+  }, [])
 
   const startActiveTimer = () => {
     if (!currentRoomId) return
@@ -72,27 +92,17 @@ export const ControllerPage = () => {
     void nudgeTimer(currentRoomId, deltaMs)
   }
 
-  const startSelectedTimer = () => {
-    if (!currentRoomId || !effectiveSelectedTimerId) return
-    if (effectiveSelectedTimerId === activeTimer?.id) {
-      startActiveTimer()
-      return
-    }
-    void startTimer(currentRoomId, effectiveSelectedTimerId)
-  }
-
-  const handleSaveDuration = (timerId: string, minutes: number) => {
-    if (!currentRoomId) return
-    const duration = Math.max(0, Math.round(minutes * 60))
-    void updateTimer(currentRoomId, timerId, { duration })
-  }
-
-  const handleUpdateDetails = (
+  const handleEditTimer = (
     timerId: string,
-    patch: { title?: string; speaker?: string },
+    patch: { title?: string; speaker?: string; duration?: number },
   ) => {
     if (!currentRoomId) return
     void updateTimer(currentRoomId, timerId, patch)
+  }
+
+  const handleReorderTimer = (sourceId: string, targetIndex: number) => {
+    if (!currentRoomId) return
+    void reorderTimer(currentRoomId, sourceId, targetIndex)
   }
 
   const engine = useTimerEngine({
@@ -127,6 +137,35 @@ export const ControllerPage = () => {
 
   const handleToggleClock = () => {
     void setClockMode(room.id, !room.state.showClock)
+  }
+
+  const viewerUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/viewer/${room.id}` : ''
+
+  const handleTimezoneSave = () => {
+    if (!room) return
+    const next = timezoneInput.trim()
+    if (!next) {
+      setTimezoneInput(room.timezone)
+      setIsTimezoneEditing(false)
+      return
+    }
+    void updateRoomMeta(room.id, { timezone: next })
+    setIsTimezoneEditing(false)
+  }
+
+  const handleShare = async () => {
+    if (!viewerUrl) return
+    if (navigator.share) {
+      await navigator.share({ title: room.title, url: viewerUrl })
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(viewerUrl)
+      window.alert('Viewer link copied to clipboard')
+    } catch {
+      window.prompt('Copy viewer link', viewerUrl)
+    }
   }
 
   useEffect(() => {
@@ -248,25 +287,77 @@ export const ControllerPage = () => {
 
   return (
     <section className="space-y-6">
-      <header className="rounded-2xl border border-slate-900 bg-slate-900/80 p-6 shadow-card">
+      <header className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-4 shadow-card sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-              Controller View
-            </p>
-            <h1 className="text-2xl font-semibold text-white">{room.title}</h1>
-            <p className="text-sm text-slate-400">
-              {room.timezone} • Created {formatDate(room.createdAt, room.timezone)}
-            </p>
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="rounded-full bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.4em] text-white">
+              StageTime
+            </span>
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                Current Room
+              </p>
+              <p className="text-2xl font-semibold text-white">{room.title}</p>
+              <p className="text-xs text-slate-500">
+                Created {formatDate(room.createdAt, room.timezone)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                Timezone
+              </p>
+              {isTimezoneEditing ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    list="timezone-options"
+                    className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-white"
+                    value={timezoneInput}
+                    onChange={(event) => setTimezoneInput(event.target.value)}
+                    onBlur={handleTimezoneSave}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleTimezoneSave()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        setTimezoneInput(room.timezone)
+                        setIsTimezoneEditing(false)
+                      }
+                    }}
+                  />
+                  <datalist id="timezone-options">
+                    {timezoneOptions.map((tz) => (
+                      <option key={tz} value={tz} />
+                    ))}
+                  </datalist>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-400/60"
+                  onClick={() => {
+                    setTimezoneInput(room.timezone)
+                    setIsTimezoneEditing(true)
+                  }}
+                >
+                  {room.timezone}
+                </button>
+              )}
+            </div>
           </div>
-          <ConnectionIndicator status={connectionStatus} />
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-slate-300">
-          <div className="flex items-center gap-2">
-            <Radio size={16} className="text-emerald-400" />
-            Active timers: {timers.length}
+          <div className="flex flex-wrap items-center gap-3">
+            <ConnectionIndicator status={connectionStatus} />
+            <a
+              href={`/room/${room.id}/view`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-white/60"
+            >
+              Viewer
+            </a>
+            <ShareLinkButton roomId={room.id} />
           </div>
-          <ShareLinkButton roomId={room.id} />
         </div>
         {connectionStatus !== 'online' && (
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
@@ -276,58 +367,132 @@ export const ControllerPage = () => {
         )}
       </header>
 
-      <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-4 flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
-          Operator Controls
-        </span>
-        <div className="flex flex-wrap gap-2">
+      <div className="rounded-3xl border border-slate-900/60 bg-slate-950/60 p-4 shadow-card sm:flex sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex flex-wrap items-center gap-3 text-base text-white">
           <button
             type="button"
             onClick={handleStartPrevTimer}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50 disabled:opacity-30"
             disabled={!prevTimer}
           >
-            Prev Segment
+            <SkipBack size={16} />
+            Prev
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (room.state.isRunning) {
-                pauseActiveTimer()
-              } else {
-                startActiveTimer()
-              }
-            }}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60"
+            onClick={startActiveTimer}
+            className={`inline-flex items-center gap-1 rounded-2xl px-5 py-2 font-semibold transition ${
+              room.state.isRunning
+                ? 'bg-rose-500/80 text-white'
+                : 'bg-emerald-500/90 text-slate-950 hover:bg-emerald-400'
+            }`}
+            disabled={room.state.isRunning}
           >
-            {room.state.isRunning ? 'Pause' : 'Resume'}
+            <Play size={16} />
+            Play
+          </button>
+          <button
+            type="button"
+            onClick={pauseActiveTimer}
+            className={`inline-flex items-center gap-1 rounded-2xl border px-4 py-2 font-semibold transition ${
+              room.state.isRunning
+                ? 'border-rose-400 bg-rose-500/10 text-rose-200 hover:border-rose-200'
+                : 'border-slate-800 bg-slate-900/80 text-white'
+            }`}
+            disabled={!room.state.isRunning}
+          >
+            <Pause size={16} />
+            Pause
           </button>
           <button
             type="button"
             onClick={handleStartNextTimer}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50 disabled:opacity-30"
             disabled={!nextTimer}
           >
-            Next Segment
+            Next
+            <SkipForward size={16} />
           </button>
           <button
             type="button"
+            onClick={resetActiveTimer}
+            className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50"
+          >
+            <RotateCcw size={16} />
+            Reset
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:mt-0">
+          <span>
+            {activeIndex >= 0 ? activeIndex + 1 : 0} / {timers.length}
+          </span>
+          <button
+            type="button"
             onClick={handleToggleClock}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm font-semibold transition ${
               room.state.showClock
-                ? 'bg-rose-500/30 text-rose-100 border border-rose-500/40'
-                : 'border border-slate-700 text-slate-200 hover:border-white/60'
+                ? 'border-rose-400 bg-rose-500/20 text-rose-100'
+                : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
             }`}
           >
+            <Clock3 size={16} />
             {room.state.showClock ? 'Hide Clock' : 'Show Clock'}
           </button>
+          <div className="relative flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShare}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:border-white/50"
+            >
+              <Share2 size={16} />
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setQrError(false)
+                setQrOpen((prev) => !prev)
+              }}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm font-semibold transition ${
+                qrOpen
+                  ? 'border-emerald-400/70 text-emerald-200'
+                  : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
+              }`}
+            >
+              <QrCode size={16} />
+            </button>
+            {qrOpen && (
+              <div className="absolute right-0 top-full z-10 mt-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-3 shadow-lg">
+                {viewerUrl ? (
+                  qrError ? (
+                    <p className="text-xs text-slate-400">
+                      QR code unavailable offline. Copy the link instead.
+                    </p>
+                  ) : (
+                    <img
+                      src={`https://chart.googleapis.com/chart?cht=qr&chs=160x160&chl=${encodeURIComponent(
+                        viewerUrl,
+                      )}`}
+                      alt="Viewer QR"
+                      className="h-32 w-32"
+                      onError={() => setQrError(true)}
+                    />
+                  )
+                ) : (
+                  <p className="text-xs text-slate-400">QR available once the app loads.</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr_320px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <RundownPanel
           timers={timers}
           activeTimerId={room.state.activeTimerId}
+          isRunning={isRunning}
+          activeTimerDisplay={isRunning && activeTimer ? engine.display : null}
           selectedTimerId={selectedTimerId}
           onSelect={(timerId) => {
             setSelectedTimerId(timerId)
@@ -339,35 +504,17 @@ export const ControllerPage = () => {
           onDelete={(timerId) => {
             void deleteTimer(room.id, timerId)
           }}
-          onMove={(timerId, direction) => {
-            void moveTimer(room.id, timerId, direction)
-          }}
           onCreate={(input) => {
             void createTimer(room.id, input)
           }}
-          onToggleClock={() => {
-            void setClockMode(room.id, !room.state.showClock)
+          onEdit={(timerId, patch) => {
+            handleEditTimer(timerId, patch)
           }}
-        />
-
-        <TimerPanel
-          timer={selectedTimer}
-          isLive={Boolean(selectedTimer && selectedTimer.id === room.state.activeTimerId)}
-          isRunning={Boolean(selectedTimer && selectedTimer.id === room.state.activeTimerId) && isRunning}
-          engine={engine}
-          onStart={startActiveTimer}
-          onPause={pauseActiveTimer}
-          onReset={resetActiveTimer}
-          onNudge={nudgeActiveTimer}
-          onSaveDuration={(minutes) => {
-            if (!selectedTimer) return
-            handleSaveDuration(selectedTimer.id, minutes)
+          onReorder={(timerId, targetIndex) => {
+            handleReorderTimer(timerId, targetIndex)
           }}
-          onStartSelected={startSelectedTimer}
-          onUpdateDetails={(patch) => {
-            if (!selectedTimer) return
-            handleUpdateDetails(selectedTimer.id, patch)
-          }}
+          onPauseActive={pauseActiveTimer}
+          onResetActive={resetActiveTimer}
         />
 
         <div className="space-y-4">

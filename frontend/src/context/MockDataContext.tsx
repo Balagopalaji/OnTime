@@ -106,12 +106,17 @@ type MockDataContextValue = {
     timerId: string,
     patch: Partial<Omit<Timer, 'id' | 'roomId'>>,
   ) => Promise<void>
+  updateRoomMeta: (
+    roomId: string,
+    patch: Partial<Pick<Room, 'title' | 'timezone'>>,
+  ) => Promise<void>
   deleteTimer: (roomId: string, timerId: string) => Promise<void>
   moveTimer: (
     roomId: string,
     timerId: string,
     direction: 'up' | 'down',
   ) => Promise<void>
+  reorderTimer: (roomId: string, timerId: string, targetIndex: number) => Promise<void>
   setActiveTimer: (roomId: string, timerId: string) => Promise<void>
   startTimer: (roomId: string, timerId?: string) => Promise<void>
   pauseTimer: (roomId: string) => Promise<void>
@@ -311,6 +316,17 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [setState],
   )
 
+  const updateRoomMeta = useCallback(
+    async (roomId: string, patch: Partial<Pick<Room, 'title' | 'timezone'>>) => {
+      updateRoom(roomId, (room) => ({
+        ...room,
+        ...patch,
+      }))
+      await delay()
+    },
+    [updateRoom],
+  )
+
   const createRoom = useCallback(
     async ({ title, timezone, ownerId }: CreateRoomInput) => {
       const id = randomId()
@@ -486,6 +502,28 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [updateTimers],
   )
 
+  const reorderTimer = useCallback(
+    async (roomId: string, timerId: string, targetIndex: number) => {
+      updateTimers(roomId, (timers) => {
+        const ordered = [...timers].sort((a, b) => a.order - b.order)
+        const fromIndex = ordered.findIndex((timer) => timer.id === timerId)
+        if (fromIndex === -1) return ordered
+        const [moved] = ordered.splice(fromIndex, 1)
+        let nextIndex = Math.max(0, Math.min(targetIndex, ordered.length))
+        if (fromIndex < nextIndex) {
+          nextIndex -= 1
+        }
+        ordered.splice(nextIndex, 0, moved)
+        return ordered.map((timer, idx) => ({
+          ...timer,
+          order: (idx + 1) * 10,
+        }))
+      })
+      await delay()
+    },
+    [updateTimers],
+  )
+
   const setActiveTimer = useCallback(
     async (roomId: string, timerId: string) => {
       updateRoom(roomId, (room) => {
@@ -598,7 +636,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         return prev
       }
 
-      const nextElapsed = Math.max(0, room.state.elapsedOffset - deltaMs)
+      const nextElapsed = room.state.elapsedOffset - deltaMs
       const progress = {
         ...(room.state.progress ?? {}),
         [activeId]: nextElapsed,
@@ -668,6 +706,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       deleteRoom,
       createTimer,
       updateTimer,
+      updateRoomMeta,
+      reorderTimer,
       setClockMode,
       deleteTimer,
       moveTimer,
@@ -689,6 +729,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       deleteRoom,
       createTimer,
       updateTimer,
+      updateRoomMeta,
+      reorderTimer,
       deleteTimer,
       moveTimer,
       setActiveTimer,

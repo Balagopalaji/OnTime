@@ -3,6 +3,7 @@ import type { Timer } from '../../types'
 import { FitText } from '../core/FitText'
 import type { TimerEngineState } from '../../hooks/useTimerEngine'
 import { formatDuration } from '../../lib/time'
+import { EditableField } from '../core/EditableField'
 
 export const TimerPanel = ({
   timer,
@@ -29,40 +30,22 @@ export const TimerPanel = ({
   onStartSelected: () => void
   onUpdateDetails: (patch: { title?: string; speaker?: string }) => void
 }) => {
-  const [editableMinutes, setEditableMinutes] = useState(() =>
-    timer ? Math.max(0, Math.round(timer.duration / 60)).toString() : '5',
-  )
-  const [titleInput, setTitleInput] = useState(timer?.title ?? '')
-  const [speakerInput, setSpeakerInput] = useState(timer?.speaker ?? '')
+  const [durationInput, setDurationInput] = useState('0')
+  const [isDurationEditing, setIsDurationEditing] = useState(false)
 
   useEffect(() => {
     if (!timer) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setEditableMinutes(Math.max(0, Math.round(timer.duration / 60)).toString())
-    setTitleInput(timer.title)
-    setSpeakerInput(timer.speaker ?? '')
+    setDurationInput(Math.max(0, Math.round(timer.duration / 60)).toString())
   }, [timer])
 
-  const handleDurationSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!timer) return
-    const parsed = Number(editableMinutes)
-    const safe = Number.isNaN(parsed) ? 0 : Math.max(0, parsed)
-    onSaveDuration(safe)
-    setEditableMinutes(String(safe))
+  let displayValue = '00:00'
+  if (timer) {
+    displayValue = formatDuration((timer.duration ?? 0) * 1000)
   }
-
-  const displayValue = useMemo(() => {
-    if (isLive && engine) {
-      return engine.display
-    }
-    if (timer) {
-      const parsed = Number(editableMinutes)
-      const safe = Number.isNaN(parsed) ? 0 : Math.max(0, parsed)
-      return formatDuration(safe * 60_000)
-    }
-    return '00:00'
-  }, [editableMinutes, engine, isLive, timer])
+  if (isLive && engine) {
+    displayValue = engine.display
+  }
 
   const statusLabel = useMemo(() => {
     if (isLive && engine) {
@@ -76,21 +59,16 @@ export const TimerPanel = ({
 
   const progressWidth = useMemo(() => {
     if (timer) {
-      if (isLive && engine) {
+      if (engine) {
         const durationMs = timer.duration * 1000
         if (durationMs <= 0) return 0
         const ratio = Math.max(0, Math.min(1, engine.remainingMs / durationMs))
         return ratio * 100
       }
-      const stagedMinutes = Number(editableMinutes)
-      const stagedTotalMs = Math.max(0, (Number.isNaN(stagedMinutes) ? 0 : stagedMinutes) * 60_000)
-      const durationMs = timer.duration * 1000
-      if (durationMs <= 0) return 100
-      const ratio = Math.max(0, Math.min(1, stagedTotalMs / durationMs))
-      return ratio * 100
+      return 0
     }
     return 0
-  }, [editableMinutes, engine, isLive, timer])
+  }, [engine, timer])
 
   const handleStart = () => {
     if (!timer) return
@@ -116,36 +94,100 @@ export const TimerPanel = ({
     if (isLive) {
       onNudge(deltaMinutes * 60_000)
     } else {
-      const current = Number(editableMinutes)
-      const safeCurrent = Number.isNaN(current) ? 0 : current
-      const next = Math.max(0, safeCurrent + deltaMinutes)
-      setEditableMinutes(String(next))
+      const current = Math.max(0, Math.round((timer.duration ?? 0) / 60))
+      const next = Math.max(0, current + deltaMinutes)
       onSaveDuration(next)
     }
   }
 
-  const handleDetailsSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!timer) return
-    onUpdateDetails({
-      title: titleInput.trim(),
-      speaker: speakerInput.trim(),
-    })
+  const durationDisplay = () => {
+    if (!timer) {
+      return (
+        <div className="flex justify-center">
+          <FitText className="font-display text-white" max={160}>
+            00:00
+          </FitText>
+        </div>
+      )
+    }
+
+    if (isDurationEditing) {
+      return (
+        <div className="flex justify-center">
+          <input
+            type="number"
+            className="w-32 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-center text-2xl font-semibold text-white focus:border-emerald-400 focus:outline-none"
+            value={durationInput}
+            onChange={(event) => setDurationInput(event.target.value)}
+            onBlur={() => {
+              const parsed = Number(durationInput)
+              if (!Number.isNaN(parsed) && parsed >= 0) {
+                onSaveDuration(parsed)
+              } else {
+                setDurationInput(Math.max(0, Math.round(timer.duration / 60)).toString())
+              }
+              setIsDurationEditing(false)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                const parsed = Number(durationInput)
+                if (!Number.isNaN(parsed) && parsed >= 0) {
+                  onSaveDuration(parsed)
+                }
+                setIsDurationEditing(false)
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setDurationInput(Math.max(0, Math.round(timer.duration / 60)).toString())
+                setIsDurationEditing(false)
+              }
+            }}
+          />
+        </div>
+      )
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => setIsDurationEditing(true)}
+        className="flex justify-center"
+      >
+        <FitText className="font-display text-white" max={isLive ? 180 : 160}>
+          {displayValue}
+        </FitText>
+      </button>
+    )
   }
 
   return (
     <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-6 shadow-card">
-      <div className="flex items-center justify-between text-sm text-slate-400">
-        <div>
+      <div className="flex items-start justify-between gap-4 text-sm text-slate-400">
+        <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
             {isLive ? 'Currently Live' : 'Selected Segment'}
           </p>
-          <p className="text-lg font-semibold text-white">
-            {timer ? timer.title : 'Select a timer to edit'}
-          </p>
+          {timer ? (
+            <EditableField
+              value={timer.title}
+              onSave={(next) => onUpdateDetails({ title: next })}
+              className="text-left text-2xl font-semibold text-white hover:text-emerald-300"
+              inputClassName="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white w-64"
+              placeholder="Title"
+            />
+          ) : (
+            <p className="text-lg font-semibold text-white">Select a timer to edit</p>
+          )}
         </div>
-        {timer?.speaker && (
-          <p className="text-xs text-slate-400">Speaker: {timer.speaker}</p>
+        {timer && (
+          <EditableField
+            value={timer.speaker ?? ''}
+            onSave={(next) => onUpdateDetails({ speaker: next })}
+            className="text-sm text-slate-400 hover:text-emerald-200"
+            inputClassName="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            placeholder="Speaker"
+          />
         )}
       </div>
       {isLive && timer && (
@@ -159,19 +201,19 @@ export const TimerPanel = ({
         </div>
       )}
 
-      {!timer ? (
-        <p className="mt-8 rounded-xl border border-dashed border-slate-800 bg-slate-950/60 px-4 py-10 text-center text-sm text-slate-400">
-          Choose a segment from the rundown to stage it here for adjustments.
-        </p>
-      ) : (
+      {timer && (
         <div className="mt-6 flex flex-wrap gap-6 text-sm text-slate-300">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
               Duration
             </p>
-            <p className="text-lg font-semibold text-white">
+            <button
+              type="button"
+              className="text-lg font-semibold text-white hover:text-emerald-300"
+              onClick={() => setIsDurationEditing(true)}
+            >
               {Math.round((timer?.duration ?? 0) / 60)} minutes
-            </p>
+            </button>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
@@ -191,11 +233,7 @@ export const TimerPanel = ({
       )}
 
       <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-8 text-center">
-        <div className="flex justify-center">
-          <FitText className="font-display text-white" max={isLive ? 180 : 160}>
-            {displayValue}
-          </FitText>
-        </div>
+        {durationDisplay()}
         <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">
           Status: {statusLabel}
         </p>
@@ -255,77 +293,6 @@ export const TimerPanel = ({
           + 1 min
         </button>
       </div>
-
-      <form
-        onSubmit={handleDetailsSubmit}
-        className="mt-6 rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-left text-sm text-slate-300"
-      >
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-          Segment Details
-        </p>
-        <div className="mt-3 space-y-3">
-          <label className="block text-slate-300">
-            Title
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
-              value={titleInput}
-              onChange={(event) => setTitleInput(event.target.value)}
-              disabled={!timer}
-            />
-          </label>
-          <label className="block text-slate-300">
-            Speaker
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
-              value={speakerInput}
-              onChange={(event) => setSpeakerInput(event.target.value)}
-              disabled={!timer}
-            />
-          </label>
-          <button
-            type="submit"
-            className="inline-flex items-center rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
-            disabled={!timer}
-          >
-            Save Details
-          </button>
-        </div>
-      </form>
-
-      <form
-        onSubmit={handleDurationSubmit}
-        className="mt-6 rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-left text-sm text-slate-300"
-      >
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-          Set Timer Length
-        </p>
-        <p className="mt-1 text-xs text-slate-400">
-          Enter the total minutes for this segment; updating resets that timer.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <label className="flex flex-1 items-center gap-2">
-            <span className="text-xs text-slate-400">Minutes</span>
-            <input
-              type="number"
-              min={0}
-              className="w-24 rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-white"
-              value={editableMinutes}
-              onChange={(event) => {
-                setEditableMinutes(event.target.value)
-              }}
-              disabled={!timer}
-            />
-          </label>
-          <button
-            type="submit"
-            className="rounded-lg border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-white/70 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!timer}
-          >
-            Update
-          </button>
-        </div>
-      </form>
-
     </div>
   )
 }

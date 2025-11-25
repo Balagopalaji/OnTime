@@ -24,18 +24,40 @@ export const MessagePanel = ({
   const [color, setColor] = useState<MessageColor>(initial.color)
   const [visible, setVisible] = useState(initial.visible)
 
+  const getTextareaClasses = (swatch: MessageColor, isLive: boolean) => {
+    const liveColors: Record<MessageColor, string> = {
+      green: 'bg-emerald-500/80 text-white border-emerald-200/70',
+      yellow: 'bg-amber-400/80 text-slate-900 border-amber-200/70',
+      red: 'bg-rose-500/80 text-white border-rose-300/60',
+      blue: 'bg-sky-500/80 text-white border-sky-300/70',
+      white: 'bg-white text-slate-900 border-white/70',
+      none: 'bg-slate-900/90 text-white border-slate-700',
+    }
+
+    const idleColors: Record<MessageColor, string> = {
+      green: 'bg-emerald-500/15 text-emerald-100 border-emerald-400/30',
+      yellow: 'bg-amber-400/20 text-amber-100 border-amber-300/40',
+      red: 'bg-rose-500/15 text-rose-100 border-rose-300/40',
+      blue: 'bg-sky-500/15 text-sky-100 border-sky-300/40',
+      white: 'bg-white/10 text-white border-white/30',
+      none: 'bg-slate-950/70 text-white border-slate-800',
+    }
+
+    return isLive ? liveColors[swatch] : idleColors[swatch]
+  }
+
   const applyChange = (next: Partial<{ text: string; color: MessageColor }>) => {
     if (next.text !== undefined) setText(next.text)
     if (next.color !== undefined) setColor(next.color)
     onUpdate({ ...next, visible })
   }
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    onUpdate({ text, color, visible })
+  const handleBroadcast = () => {
+    onUpdate({ text, color, visible: true })
+    setVisible(true)
   }
 
-  const toggleVisible = () => {
+  const handleToggle = () => {
     setVisible((prev) => {
       onUpdate({ visible: !prev })
       return !prev
@@ -48,12 +70,14 @@ export const MessagePanel = ({
         <h2 className="text-lg font-semibold text-white">Message Panel</h2>
         <button
           type="button"
-          onClick={toggleVisible}
-          className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-            visible ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-300'
+          onClick={visible ? handleToggle : handleBroadcast}
+          className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide border ${
+            visible
+              ? 'border-rose-500/60 bg-rose-500/30 text-white'
+              : 'border-emerald-400/60 text-emerald-200'
           }`}
         >
-          {visible ? 'Hide Viewer Message' : 'Show Viewer Message'}
+          Broadcast
         </button>
       </div>
 
@@ -70,46 +94,60 @@ export const MessagePanel = ({
         ))}
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-4 space-y-3 text-sm">
-        <label className="block text-slate-300">
+      <div className="mt-4 space-y-3 text-sm">
+        <label className="block rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-white">
           Custom text
           <textarea
-            className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
+            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none ${getTextareaClasses(
+              color,
+              visible,
+            )}`}
             value={text}
             onChange={(event) => setText(event.target.value.slice(0, MAX_MESSAGE_LENGTH))}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                handleBroadcast()
+              }
+            }}
             maxLength={MAX_MESSAGE_LENGTH}
             rows={3}
           />
-          <span className="mt-1 block text-right text-xs text-slate-500">
+          <span className="mt-1 block text-right text-xs text-slate-200">
             {text.length}/{MAX_MESSAGE_LENGTH}
           </span>
         </label>
-        <label className="block text-slate-300">
-          Color
-          <select
-            className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white"
-            value={color}
-            onChange={(event) => {
-              const next = event.target.value as MessageColor
-              setColor(next)
-              onUpdate({ color: next })
-            }}
-          >
-            <option value="none">No color</option>
-            <option value="green">Green</option>
-            <option value="yellow">Yellow</option>
-            <option value="red">Red</option>
-            <option value="blue">Blue</option>
-            <option value="white">White</option>
-          </select>
-        </label>
-        <button
-          type="submit"
-          className="inline-flex items-center rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-        >
-          Save Message
-        </button>
-      </form>
+        <div className="flex items-center gap-3">
+          <span className="text-xs uppercase tracking-[0.3em] text-slate-500">Color</span>
+          <div className="flex flex-wrap gap-2">
+            {(['white', 'green', 'yellow', 'red', 'blue', 'none'] as MessageColor[]).map(
+              (swatch) => (
+                <button
+                  type="button"
+                  key={swatch}
+                  onClick={() => applyChange({ color: swatch })}
+                  className={`h-8 w-8 rounded-full border-2 ${
+                    swatch === 'none'
+                      ? 'border-white/40'
+                      : swatch === 'white'
+                      ? 'bg-white border-transparent'
+                      : swatch === 'yellow'
+                      ? 'bg-amber-400 border-transparent'
+                      : swatch === 'red'
+                      ? 'bg-rose-500 border-transparent'
+                      : swatch === 'blue'
+                      ? 'bg-sky-500 border-transparent'
+                      : 'bg-emerald-500 border-transparent'
+                  } ${color === swatch ? 'ring-2 ring-white' : ''}`}
+                  data-color={swatch}
+                >
+                  <span className="sr-only">{swatch}</span>
+                </button>
+              ),
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
