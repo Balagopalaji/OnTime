@@ -26,10 +26,12 @@ Goals:
 | `isRunning` | boolean | True when timer is actively counting. | Drives controller button state. |
 | `startedAt` | timestamp/null | Firestore timestamp when current run started. | Convert via `.toMillis()` client-side; null when paused/stopped. |
 | `pausedAt` | timestamp/null | Optional timestamp for UI reference. | Stored as raw timestamp to ensure consistent typing. |
-| `elapsedOffset` | number | Accumulated elapsed milliseconds prior to current run. | Defaults to 0 on timer reset. |
+| `elapsedOffset` | number | Accumulated elapsed milliseconds for the *active* timer. | Defaults to 0 on timer reset. |
+| `progress` | map | Map of `timerId` -> `elapsedMs`. | Preserves state of non-active timers. |
+| `showClock` | boolean | Whether to display the current time instead of the timer. | Default false. |
 | `message.text` | string | Overlay message content. | Optional; limit to ≤64 chars. |
 | `message.visible` | boolean | Whether viewer shows message overlay. | Default false. |
-| `message.color` | string | Color theme key (e.g., `red`, `blue`, `white`). | Controlled vocabulary. |
+| `message.color` | string | Color theme key (e.g., `red`, `blue`, `white`, `none`). | Controlled vocabulary. |
 
 ### 2.2 Sub-collection: `timers`
 Path: `/rooms/{roomId}/timers/{timerId}`
@@ -49,11 +51,13 @@ type RoomSyncState = {
   isRunning: boolean;
   startedAt: FirebaseFirestore.Timestamp | null;
   elapsedOffset: number;
+  progress: Record<string, number>;
+  showClock: boolean;
   pausedAt: FirebaseFirestore.Timestamp | null;
   message: {
     text: string;
     visible: boolean;
-    color: 'red' | 'yellow' | 'green' | 'blue' | 'white';
+    color: 'red' | 'yellow' | 'green' | 'blue' | 'white' | 'none';
   };
 };
 ```
@@ -89,14 +93,15 @@ Used by controller actions; all writes require `request.auth.uid == ownerId`.
 ## 4. Timer Synchronization Algorithm
 1. **Start:** Controller writes `isRunning = true`, `startedAt = server timestamp`, leaves `elapsedOffset` as-is, and updates `activeTimerId` in the same batch to avoid mismatched states for viewers.
 2. **Client Calculation:** All clients compute `elapsed = (Date.now() - startedAt.toMillis()) + elapsedOffset`. Remaining countdown = `durationMs - elapsed`.
-3. **Pause:** Controller computes `elapsedOffset` using latest `startedAt` and writes `isRunning = false`, `startedAt = null`.
+3. **Pause:** Controller computes `elapsedOffset` using latest `startedAt` and writes `isRunning = false`, `startedAt = null`. It *also* updates `progress[activeTimerId] = elapsedOffset` to persist the state.
 4. **Resume:** Write new `startedAt = server timestamp` with previously accumulated `elapsedOffset`.
+5. **Switch Timer:** When changing `activeTimerId`, the controller must save the current `elapsedOffset` to `progress[oldTimerId]` and load `progress[newTimerId]` into `elapsedOffset`.
 5. **Overtime:** When remaining < 0, frontend displays overtime but backend continues tracking via negative result. No additional fields required.
 
 This approach avoids transmitting "time remaining" directly, minimizing drift. Clients always anchor to authoritative timestamps.
 
 ## 5. Messaging Channel
-`message` map updated atomically with timer changes if needed. Allowed colors: `red`, `yellow`, `green`, `blue`, `white`. Controller can set `visible` true/false to toggle overlay, and viewer listens accordingly. Future enhancements (animations) can extend the map but remain backward-compatible.
+`message` map updated atomically with timer changes if needed. Allowed colors: `red`, `yellow`, `green`, `blue`, `white`, `none`. Controller can set `visible` true/false to toggle overlay, and viewer listens accordingly. Future enhancements (animations) can extend the map but remain backward-compatible.
 
 ## 6. Security Rules
 ```javascript

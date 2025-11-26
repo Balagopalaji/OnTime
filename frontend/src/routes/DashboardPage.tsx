@@ -2,7 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Clock, PlayCircle, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { useMockData } from '../context/MockDataContext'
+import { useDataContext } from '../context/DataProvider'
 import { formatDate, getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import type { ConnectionStatus } from '../types'
@@ -16,7 +16,7 @@ export const DashboardPage = () => {
     deleteRoom,
     connectionStatus,
     setConnectionStatus,
-  } = useMockData()
+  } = useDataContext()
   const localTimezone = getTimezoneSuggestion()
   const [title, setTitle] = useState('New Broadcast')
   const [timezone, setTimezone] = useState(localTimezone)

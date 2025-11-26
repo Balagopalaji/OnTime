@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
@@ -9,12 +7,12 @@ import {
 } from 'react'
 import { delay, randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
-import type {
-  ConnectionStatus,
-  Room,
-  Timer,
-  MessageColor,
-} from '../types'
+import type { Room, Timer, MessageColor, ConnectionStatus } from '../types'
+import {
+  DataProviderBoundary,
+  useDataContext,
+  type DataContextValue,
+} from './DataContext'
 
 const STORAGE_KEY = 'stagetime.mockState.v1'
 
@@ -91,47 +89,6 @@ type CreateTimerInput = {
   duration: number
   speaker?: string
 }
-
-type MockDataContextValue = {
-  rooms: Room[]
-  connectionStatus: ConnectionStatus
-  setConnectionStatus: (status: ConnectionStatus) => void
-  getRoom: (roomId: string) => Room | undefined
-  getTimers: (roomId: string) => Timer[]
-  createRoom: (input: CreateRoomInput) => Promise<Room>
-  deleteRoom: (roomId: string) => Promise<void>
-  createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer>
-  updateTimer: (
-    roomId: string,
-    timerId: string,
-    patch: Partial<Omit<Timer, 'id' | 'roomId'>>,
-  ) => Promise<void>
-  updateRoomMeta: (
-    roomId: string,
-    patch: Partial<Pick<Room, 'title' | 'timezone'>>,
-  ) => Promise<void>
-  restoreTimer: (roomId: string, timer: Timer) => Promise<void>
-  resetTimerProgress: (roomId: string, timerId: string) => Promise<void>
-  deleteTimer: (roomId: string, timerId: string) => Promise<void>
-  moveTimer: (
-    roomId: string,
-    timerId: string,
-    direction: 'up' | 'down',
-  ) => Promise<void>
-  reorderTimer: (roomId: string, timerId: string, targetIndex: number) => Promise<void>
-  setActiveTimer: (roomId: string, timerId: string) => Promise<void>
-  startTimer: (roomId: string, timerId?: string) => Promise<void>
-  pauseTimer: (roomId: string) => Promise<void>
-  resetTimer: (roomId: string) => Promise<void>
-  nudgeTimer: (roomId: string, deltaMs: number) => Promise<void>
-  setClockMode: (roomId: string, enabled: boolean) => Promise<void>
-  updateMessage: (
-    roomId: string,
-    message: Partial<{ text: string; color: MessageColor; visible: boolean }>,
-  ) => Promise<void>
-}
-
-const MockDataContext = createContext<MockDataContextValue | undefined>(undefined)
 
 const captureProgress = (room: Room) => {
   const progress = { ...(room.state.progress ?? {}) }
@@ -747,7 +704,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [updateRoom],
   )
 
-  const value = useMemo(
+  const value = useMemo<DataContextValue>(
     () => ({
       rooms: state.rooms,
       connectionStatus,
@@ -799,16 +756,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     ],
   )
 
-  return (
-    <MockDataContext.Provider value={value}>{children}</MockDataContext.Provider>
-  )
+  return <DataProviderBoundary value={value}>{children}</DataProviderBoundary>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export const useMockData = () => {
-  const ctx = useContext(MockDataContext)
-  if (!ctx) {
-    throw new Error('useMockData must be used within MockDataProvider')
-  }
-  return ctx
-}
+export const useMockData = () => useDataContext()

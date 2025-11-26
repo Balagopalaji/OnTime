@@ -28,7 +28,7 @@ StageTime MVP1 delivers a real-time event timer platform with a controller inter
   - **Left Panel — Rundown:** Draggable list of timer segments pulled from `/rooms/{roomId}/timers` ordered by `order`. Supports reorder, create, edit, delete.
   - **Center Panel — Active Timer:** Large countdown with `FitText`, transport controls (Start/Pause/Reset), duration adjustments (+/- 1m) using `useTimerEngine`, and color states (green/yellow/red/flashing).
   - **Right Panel — Messaging:** Preset message buttons, custom text field, visibility toggle ("Flash"), and color selector.
-- Writes to room document fields (`activeTimerId`, `isRunning`, `startedAt`, `elapsedOffset`, `message.*`).
+- Writes to room document fields (`activeTimerId`, `isRunning`, `startedAt`, `elapsedOffset`, `progress`, `showClock`, `message.*`).
 
 ### `/room/:roomId/view` (Public Viewer)
 - No auth required (confirmed decision). Full-screen minimalist display defaulting to dark theme.
@@ -56,7 +56,7 @@ StageTime MVP1 delivers a real-time event timer platform with a controller inter
 
 ## 5. State Management & Data Flow
 - **Firestore Subscriptions:** Controller subscribes to `rooms/{roomId}` (sync fields) and `/rooms/{roomId}/timers` (ordered by `order`). Viewer subscribes to room doc only.
-- **Pause Flow:** Controller computes current elapsed, writes `elapsedOffset = currentElapsed`, `isRunning = false`, `startedAt = null`.
+- **Pause Flow:** Controller computes current elapsed, writes `elapsedOffset = currentElapsed`, `isRunning = false`, `startedAt = null`. It must also update the `progress` map for the active timer to persist state when switching.
 - **Hook Contract:** `useTimerEngine` always accepts and outputs millisecond values; any Firestore durations stored in seconds must be multiplied by 1000 prior to invoking the hook to avoid accelerated countdowns.
 - **Drag & Drop Rundown:** On reorder, update each timer doc `order` atomically (batch write). Maintain either dense integer order (1,2,3) or spaced increments (10,20,30) so new segments can insert without full reindexing. UI should optimistically reorder but handle conflicts.
 - **Messaging:** `message` map updates (text, color, visible). Viewer listens and overlays accordingly.

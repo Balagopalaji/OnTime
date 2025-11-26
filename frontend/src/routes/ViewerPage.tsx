@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Maximize2, Minimize2 } from 'lucide-react'
-import { useMockData } from '../context/MockDataContext'
+import { useDataContext } from '../context/DataProvider'
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { FitText } from '../components/core/FitText'
@@ -10,7 +10,7 @@ import { useClock } from '../hooks/useClock'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
-  const { getRoom, getTimers, connectionStatus } = useMockData()
+  const { getRoom, getTimers, connectionStatus } = useDataContext()
   const room = roomId ? getRoom(roomId) : undefined
   const timers = roomId ? getTimers(roomId) : []
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)

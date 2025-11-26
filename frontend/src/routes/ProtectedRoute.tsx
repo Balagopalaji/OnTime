@@ -1,7 +1,7 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom'
 import { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { useMockData } from '../context/MockDataContext'
+import { useDataContext } from '../context/DataProvider'
 
 export const ProtectedRoute = ({
   children,
@@ -11,7 +11,7 @@ export const ProtectedRoute = ({
   requireOwner?: boolean
 }) => {
   const { user, status } = useAuth()
-  const { getRoom } = useMockData()
+  const { getRoom } = useDataContext()
   const params = useParams()
   const location = useLocation()
 

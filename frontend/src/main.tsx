@@ -3,14 +3,14 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 import { AuthProvider } from './context/AuthContext'
-import { MockDataProvider } from './context/MockDataContext'
+import { DataProvider } from './context/DataProvider'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>
-      <MockDataProvider>
+      <DataProvider>
         <App />
-      </MockDataProvider>
+      </DataProvider>
     </AuthProvider>
   </React.StrictMode>,
 )

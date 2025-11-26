@@ -11,7 +11,7 @@ import {
   SkipForward,
   QrCode,
 } from 'lucide-react'
-import { useMockData } from '../context/MockDataContext'
+import { useDataContext } from '../context/DataProvider'
 import type { Timer } from '../types'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
@@ -42,7 +42,7 @@ export const ControllerPage = () => {
     setClockMode,
     updateMessage,
     connectionStatus,
-  } = useMockData()
+  } = useDataContext()
 
   const room = roomId ? getRoom(roomId) : undefined
   const timers = useMemo(
