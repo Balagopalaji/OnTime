@@ -13,6 +13,7 @@ export const LiveTimerPreview = ({
   onPause,
   onReset,
   onNudge,
+  onToggleClock,
   message,
   timezone,
 }: {
@@ -24,6 +25,7 @@ export const LiveTimerPreview = ({
   onPause: () => void
   onReset: () => void
   onNudge: (deltaMs: number) => void
+  onToggleClock: () => void
   message: { text: string; color: MessageColor; visible: boolean }
   timezone: string
 }) => {
@@ -64,18 +66,26 @@ export const LiveTimerPreview = ({
         {timer?.speaker && (
           <p className="text-xs text-slate-400">Speaker: {timer.speaker}</p>
         )}
-      </div>
-      {!showClock && (
-        <div className="mb-4 mt-3">
-          <TransportControls
-            isRunning={isRunning}
-            onStart={onStart}
-            onPause={onPause}
-            onReset={onReset}
-            onNudge={onNudge}
-          />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {showClock && (
+            <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100">
+              Showing Clock
+            </span>
+          )}
         </div>
-      )}
+      </div>
+      <div className="mb-4 mt-3">
+        <TransportControls
+          isRunning={isRunning}
+          onStart={onStart}
+          onPause={onPause}
+          onReset={onReset}
+          onNudge={onNudge}
+          onToggleClock={onToggleClock}
+          showClock={showClock}
+          disableActions={showClock}
+        />
+      </div>
       <div
         className={`mt-6 rounded-xl border border-slate-800 px-4 py-8 text-center ${
           engine.status === 'overtime' && !showClock

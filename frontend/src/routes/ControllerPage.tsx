@@ -504,20 +504,15 @@ export const ControllerPage = () => {
         role="group"
         onClick={() => setShortcutScope('controls')}
       >
-        {shortcutScope === 'controls' && (
-          <span className="absolute -top-3 right-6 rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100">
-            Selected
-          </span>
-        )}
-        <div className="flex flex-wrap items-center gap-3 text-base text-white">
+        <div className="flex flex-wrap items-center gap-2 text-base text-white">
           <button
             type="button"
             onClick={handleStartPrevTimer}
-            className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50 disabled:opacity-30"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30"
             disabled={!prevTimer}
+            aria-label="Previous timer"
           >
-            <SkipBack size={16} />
-            Prev
+            <SkipBack size={20} />
           </button>
           <button
             type="button"
@@ -525,15 +520,15 @@ export const ControllerPage = () => {
               setShortcutScope('controls')
               startActiveTimer()
             }}
-            className={`inline-flex items-center gap-1 rounded-2xl px-5 py-2 font-semibold transition ${
+            className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl font-semibold shadow-sm transition ${
               room.state.isRunning
-                ? 'bg-rose-500/80 text-white'
-                : 'bg-emerald-500/90 text-slate-950 hover:bg-emerald-400'
+                ? 'bg-rose-500/85 text-white shadow-[0_4px_16px_rgba(248,113,113,0.35)]'
+                : 'bg-emerald-500/95 text-slate-950 hover:bg-emerald-400 shadow-[0_4px_16px_rgba(16,185,129,0.35)]'
             }`}
             disabled={room.state.isRunning}
+            aria-label="Play"
           >
-            <Play size={16} />
-            Play
+            <Play size={20} />
           </button>
           <button
             type="button"
@@ -541,24 +536,24 @@ export const ControllerPage = () => {
               setShortcutScope('controls')
               pauseActiveTimer()
             }}
-            className={`inline-flex items-center gap-1 rounded-2xl border px-4 py-2 font-semibold transition ${
+            className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border font-semibold transition ${
               room.state.isRunning
-                ? 'border-rose-400 bg-rose-500/10 text-rose-200 hover:border-rose-200'
-                : 'border-slate-800 bg-slate-900/80 text-white'
+                ? 'border-rose-400/80 bg-rose-500/15 text-rose-100 hover:border-rose-200'
+                : 'border-indigo-300/70 bg-slate-900/90 text-indigo-100 hover:border-indigo-200'
             }`}
             disabled={!room.state.isRunning}
+            aria-label="Pause"
           >
-            <Pause size={16} />
-            Pause
+            <Pause size={20} />
           </button>
           <button
             type="button"
             onClick={handleStartNextTimer}
-            className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50 disabled:opacity-30"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30"
             disabled={!nextTimer}
+            aria-label="Next timer"
           >
-            Next
-            <SkipForward size={16} />
+            <SkipForward size={20} />
           </button>
           <button
             type="button"
@@ -566,36 +561,42 @@ export const ControllerPage = () => {
               setShortcutScope('controls')
               resetActiveTimer()
             }}
-            className="inline-flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-2 font-semibold text-white transition hover:border-white/50"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/70 bg-slate-900/80 text-amber-100 transition hover:border-amber-200"
+            aria-label="Reset timer"
           >
-            <RotateCcw size={16} />
-            Reset
+            <RotateCcw size={20} />
           </button>
+          {shortcutScope === 'controls' && (
+            <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100">
+              Selected
+            </span>
+          )}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:mt-0">
-          <span>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:mt-0">
+          <span className="text-xs font-semibold text-slate-300">
             {activeIndex >= 0 ? activeIndex + 1 : 0} / {timers.length}
           </span>
           <button
             type="button"
             onClick={handleToggleClock}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm font-semibold transition ${
+            className={`inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-sm font-semibold transition ${
               room.state.showClock
                 ? 'border-rose-400 bg-rose-500/20 text-rose-100'
                 : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
             }`}
+            aria-label={room.state.showClock ? 'Hide clock' : 'Show clock'}
           >
-            <Clock3 size={16} />
+            <Clock3 size={18} />
             {room.state.showClock ? 'Hide Clock' : 'Show Clock'}
           </button>
           <div className="relative flex items-center gap-2">
             <button
               type="button"
               onClick={handleShare}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:border-white/50"
+              className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-white/50"
+              aria-label="Share"
             >
-              <Share2 size={16} />
-              Share
+              <Share2 size={20} />
             </button>
             <button
               type="button"
@@ -603,13 +604,14 @@ export const ControllerPage = () => {
                 setQrError(false)
                 setQrOpen((prev) => !prev)
               }}
-              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm font-semibold transition ${
+              className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border px-3 font-semibold transition ${
                 qrOpen
                   ? 'border-emerald-400/70 text-emerald-200'
                   : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
               }`}
+              aria-label="Toggle QR code"
             >
-              <QrCode size={16} />
+              <QrCode size={20} />
             </button>
             {qrOpen && (
               <div className="absolute right-0 top-full z-10 mt-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-3 shadow-lg">
@@ -645,6 +647,7 @@ export const ControllerPage = () => {
           activeTimerDisplay={isRunning && activeTimer ? engine.display : null}
           remainingLookup={remainingLookup}
           selectedTimerId={selectedTimerId}
+          showSelection={shortcutScope === 'rundown'}
           onSelect={(timerId) => {
             setSelectedTimerId(timerId)
             setShortcutScope('rundown')
@@ -687,6 +690,7 @@ export const ControllerPage = () => {
             onPause={pauseActiveTimer}
             onReset={resetActiveTimer}
             onNudge={nudgeActiveTimer}
+            onToggleClock={handleToggleClock}
             message={room.state.message}
             timezone={room.timezone}
           />

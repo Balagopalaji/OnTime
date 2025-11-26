@@ -43,6 +43,7 @@ export const RundownPanel = ({
   activeTimerDisplay,
   remainingLookup,
   selectedTimerId,
+  showSelection,
   onSelect,
   onStart,
   onDelete,
@@ -60,6 +61,7 @@ export const RundownPanel = ({
   activeTimerDisplay: string | null
   remainingLookup: Record<string, string>
   selectedTimerId: string | null
+  showSelection: boolean
   onSelect: (timerId: string) => void
   onStart: (timerId: string) => void
   onDelete: (timerId: string) => void
@@ -130,6 +132,7 @@ export const RundownPanel = ({
           {timers.map((timer, index) => {
             const isActive = timer.id === activeTimerId
             const isSelected = timer.id === selectedTimerId
+            const showSelectedState = isSelected && showSelection
             const durationLabel = formatDuration(timer.duration * 1000)
             const displayValue =
               isActive && activeTimerDisplay
@@ -165,9 +168,11 @@ export const RundownPanel = ({
                 )}
                 <li
                   className={`relative rounded-2xl border px-4 py-4 text-sm transition cursor-pointer ${
-                    isActive
+                    isActive && showSelectedState
+                      ? 'border-emerald-400/80 bg-rose-500/10 shadow-[0_0_25px_rgba(244,114,182,0.2)]'
+                      : isActive
                       ? 'border-rose-400/70 bg-rose-500/10 shadow-[0_0_25px_rgba(244,114,182,0.2)]'
-                      : isSelected
+                      : showSelectedState
                       ? 'border-emerald-400/70 bg-emerald-400/10'
                       : 'border-slate-800 bg-slate-950/30 hover:border-slate-600'
                   } ${draggingId === timer.id ? 'opacity-60' : ''}`}
@@ -205,11 +210,6 @@ export const RundownPanel = ({
                   }}
                 >
                   <div className="relative flex items-start justify-between gap-4">
-                  {isSelected && (
-                    <span className="absolute -top-3 right-0 rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100">
-                      Selected
-                    </span>
-                  )}
                   <div className="flex flex-col gap-1">
                     <EditableField
                       value={timer.title}
@@ -228,6 +228,11 @@ export const RundownPanel = ({
                       {isActive && (
                         <span className="inline-flex items-center rounded-full bg-rose-500/30 px-3 py-0.5 text-[10px] text-rose-100">
                           On Air
+                        </span>
+                      )}
+                      {showSelectedState && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-3 py-0.5 text-[10px] font-semibold tracking-[0.3em] text-emerald-100">
+                          Selected
                         </span>
                       )}
                     </div>
