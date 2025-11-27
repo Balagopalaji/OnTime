@@ -6,6 +6,7 @@
 - [ ] Add `.env.local` with Vite-prefixed keys: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, `VITE_FIREBASE_MEASUREMENT_ID`.
 - [ ] Add `src/lib/firebase.ts` initializing Firebase App, Auth, and Firestore using the v9 modular SDK.
 - [ ] Optionally add Firebase Emulator config for local dev (auth + Firestore) and guard via `VITE_USE_FIREBASE_EMULATOR`.
+  - Feature flags: `VITE_USE_MOCK` (default `true`) keeps the mock provider live; set `VITE_USE_MOCK=false` to use Firebase. Optional `VITE_FIREBASE_FALLBACK_TO_MOCK=true` will drop back to the mock provider if Firebase wiring is incomplete.
 
 ## 2. Feature Flag Provider Swap
 - [ ] Introduce `VITE_USE_MOCK` boolean (default `true` until backend is verified) to toggle data providers.

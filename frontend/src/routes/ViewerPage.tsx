@@ -13,7 +13,8 @@ export const ViewerPage = () => {
   const { getRoom, getTimers, connectionStatus } = useDataContext()
   const room = roomId ? getRoom(roomId) : undefined
   const timers = roomId ? getTimers(roomId) : []
-  const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
+  const activeTimer =
+    timers.find((timer) => timer.id === room?.state.activeTimerId) ?? timers[0]
 
   const engine = useTimerEngine({
     durationSec: activeTimer?.duration ?? 0,
@@ -41,12 +42,12 @@ export const ViewerPage = () => {
     return () => window.removeEventListener('keydown', handleKey)
   }, [toggleFullscreen])
 
-  const clockTime = useClock(room.timezone)
+  const clockTime = useClock(room?.timezone ?? 'UTC')
 
-  if (!room || !roomId) {
+  if (!room || !roomId || timers.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
-        Viewer is offline. Ask the operator for a new link.
+        Viewer is offline or no timers found. Ask the operator for a new link.
       </div>
     )
   }

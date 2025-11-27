@@ -58,6 +58,7 @@ export const ControllerPage = () => {
   )
   const [qrOpen, setQrOpen] = useState(false)
   const [qrError, setQrError] = useState(false)
+  const [qrModalOpen, setQrModalOpen] = useState(false)
   const [isTimezoneEditing, setIsTimezoneEditing] = useState(false)
   const [timezoneInput, setTimezoneInput] = useState(room?.timezone ?? '')
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
@@ -598,12 +599,12 @@ export const ControllerPage = () => {
             >
               <Share2 size={20} />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setQrError(false)
-                setQrOpen((prev) => !prev)
-              }}
+          <button
+            type="button"
+            onClick={() => {
+              setQrError(false)
+              setQrOpen((prev) => !prev)
+            }}
               className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border px-3 font-semibold transition ${
                 qrOpen
                   ? 'border-emerald-400/70 text-emerald-200'
@@ -614,30 +615,67 @@ export const ControllerPage = () => {
               <QrCode size={20} />
             </button>
             {qrOpen && (
-              <div className="absolute right-0 top-full z-10 mt-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-3 shadow-lg">
-                {viewerUrl ? (
-                  qrError ? (
-                    <p className="text-xs text-slate-400">
-                      QR code unavailable offline. Copy the link instead.
-                    </p>
+              <>
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => {
+                    setQrOpen(false)
+                    setQrModalOpen(false)
+                  }}
+                />
+                <div className="absolute right-0 top-full z-30 mt-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-3 shadow-lg">
+                  {viewerUrl ? (
+                    qrError ? (
+                      <p className="text-xs text-slate-400">
+                        QR code unavailable. Copy the link instead.
+                      </p>
+                    ) : (
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                          viewerUrl,
+                        )}`}
+                        alt="Viewer QR"
+                        className="h-32 w-32 object-contain cursor-pointer"
+                        onError={() => setQrError(true)}
+                        onClick={() => setQrModalOpen(true)}
+                      />
+                    )
                   ) : (
-                    <img
-                      src={`https://chart.googleapis.com/chart?cht=qr&chs=160x160&chl=${encodeURIComponent(
-                        viewerUrl,
-                      )}`}
-                      alt="Viewer QR"
-                      className="h-32 w-32"
-                      onError={() => setQrError(true)}
-                    />
-                  )
-                ) : (
-                  <p className="text-xs text-slate-400">QR available once the app loads.</p>
-                )}
-              </div>
+                    <p className="text-xs text-slate-400">QR available once the app loads.</p>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>
       </div>
+      {qrModalOpen && viewerUrl && (
+        <div
+          className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setQrModalOpen(false)}
+        >
+          <div
+            className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                viewerUrl,
+              )}`}
+              alt="Viewer QR"
+              className="h-80 w-80 object-contain"
+              onError={() => setQrError(true)}
+            />
+            <button
+              type="button"
+              className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/60"
+              onClick={() => setQrModalOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <RundownPanel

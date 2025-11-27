@@ -64,7 +64,7 @@ export const DashboardPage = () => {
           <div>
             <h1 className="text-3xl font-semibold text-white">Dashboard</h1>
             <p className="text-sm text-slate-400">
-              Rooms are backed by the mock Firestore provider from `docs/tasks.md`.
+              Rooms use {import.meta.env.VITE_USE_MOCK !== 'false' ? 'the mock provider' : 'Firestore'}.
             </p>
           </div>
           <div className="flex items-center gap-3">

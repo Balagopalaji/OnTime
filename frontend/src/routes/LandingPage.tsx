@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const FEATURES = [
-  'Real-time timer sync with mock Firestore listeners',
+  'Real-time timer sync with Firestore listeners',
   'Drag-and-drop rundown routing for multi-segment shows',
   'Public viewer URL with wake-lock friendly display',
 ]
@@ -31,9 +31,9 @@ export const LandingPage = () => {
           Keep speakers and show callers in sync with deterministic timers.
         </h1>
         <p className="mt-4 max-w-2xl text-lg text-slate-300">
-          This mock frontend mirrors the tasks outlined in `docs/tasks.md`. It
-          includes routing, auth guards, a controller workspace, and a viewer
-          page powered by an in-memory Firestore clone.
+            This frontend mirrors the tasks outlined in `docs/tasks.md`. It
+            includes routing, auth guards, a controller workspace, and a viewer
+            page powered by Firestore.
         </p>
         <div className="mt-8 flex flex-wrap gap-4">
           <button

@@ -1,5 +1,6 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useEffect } from 'react'
 
 export const AppShell = () => {
   const { user, status, login, logout } = useAuth()
@@ -14,6 +15,12 @@ export const AppShell = () => {
       void login()
     }
   }
+
+  useEffect(() => {
+    if (location.pathname !== '/') {
+      window.localStorage.setItem('stagetime.lastPath', location.pathname)
+    }
+  }, [location.pathname])
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -55,7 +62,7 @@ export const AppShell = () => {
                 ? 'Please wait'
                 : isAuthed
                 ? 'Logout'
-                : 'Mock Login'}
+                : 'Login'}
             </button>
           </div>
         </div>

@@ -8,6 +8,15 @@ import {
   type ReactNode,
 } from 'react'
 import { delay } from '../lib/utils'
+import { auth } from '../lib/firebase'
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithPopup,
+  signOut,
+  type User as FirebaseUser,
+} from 'firebase/auth'
 
 export type AuthUser = {
   uid: string
@@ -29,22 +38,62 @@ const DEMO_USER: AuthUser = {
 }
 
 const STORAGE_KEY = 'stagetime.auth.v1'
+const useMockAuth = import.meta.env.VITE_USE_MOCK === 'true'
+const fallbackToMockAuth = import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true'
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
     if (typeof window === 'undefined') return null
-    return window.localStorage.getItem(STORAGE_KEY) ? DEMO_USER : null
+    return window.localStorage.getItem(STORAGE_KEY) && useMockAuth ? DEMO_USER : null
   })
   const [status, setStatus] = useState<'loading' | 'ready'>('loading')
 
   useEffect(() => {
-    const timer = setTimeout(() => setStatus('ready'), 200)
-    return () => clearTimeout(timer)
+    if (useMockAuth) {
+      const timer = setTimeout(() => setStatus('ready'), 200)
+      return () => clearTimeout(timer)
+    }
+
+    const handleFallback = () => {
+      if (fallbackToMockAuth) {
+        setUser(DEMO_USER)
+      }
+      setStatus('ready')
+    }
+
+    let unsub = () => {}
+    try {
+      unsub = onAuthStateChanged(auth, (fbUser: FirebaseUser | null) => {
+        if (fbUser) {
+          setUser({
+            uid: fbUser.uid,
+            displayName: fbUser.displayName ?? 'StageTime Operator',
+          })
+        } else if (fallbackToMockAuth) {
+          setUser(DEMO_USER)
+        } else {
+          setUser(null)
+        }
+        setStatus('ready')
+      })
+    } catch (error) {
+      console.warn('Auth listener failed', error)
+      setTimeout(handleFallback, 0)
+      return
+    }
+
+    // Attempt anonymous sign-in immediately
+    signInAnonymously(auth).catch((error) => {
+      console.warn('Anonymous sign-in failed', error)
+      setTimeout(handleFallback, 0)
+    })
+
+    return () => unsub()
   }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (user) {
+    if (user && useMockAuth) {
       window.localStorage.setItem(STORAGE_KEY, '1')
     } else {
       window.localStorage.removeItem(STORAGE_KEY)
@@ -52,16 +101,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user])
 
   const login = useCallback(async () => {
+    if (useMockAuth) {
+      setStatus('loading')
+      await delay(350)
+      setUser(DEMO_USER)
+      setStatus('ready')
+      return
+    }
     setStatus('loading')
-    await delay(350)
-    setUser(DEMO_USER)
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider())
+    } catch (error) {
+      console.warn('Google sign-in failed, falling back to anonymous', error)
+      await signInAnonymously(auth)
+    }
     setStatus('ready')
   }, [])
 
   const logout = useCallback(async () => {
+    if (useMockAuth) {
+      setStatus('loading')
+      await delay(200)
+      setUser(null)
+      setStatus('ready')
+      return
+    }
     setStatus('loading')
-    await delay(200)
-    setUser(null)
+    await signOut(auth)
     setStatus('ready')
   }, [])
 
