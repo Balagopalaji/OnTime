@@ -116,7 +116,7 @@ const computeProgress = (room: Room) => {
     if (room.state.isRunning && room.state.startedAt) {
       elapsed += Date.now() - room.state.startedAt
     }
-    progress[activeId] = Math.max(0, elapsed)
+    progress[activeId] = elapsed
   }
   return progress
 }
@@ -409,7 +409,7 @@ export const FirebaseDataProvider = ({
     const activeId = room?.state.activeTimerId
     if (!room || !activeId) return
     const progress = computeProgress(room)
-    const nextElapsed = Math.max(0, (progress[activeId] ?? 0) - deltaMs)
+    const nextElapsed = (progress[activeId] ?? 0) - deltaMs
     progress[activeId] = nextElapsed
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.elapsedOffset': nextElapsed,

@@ -142,10 +142,8 @@ export const RundownPanel = ({
               <Fragment key={timer.id}>
                 {undoPlaceholder && undoPlaceholder.index === index && (
                   <li className="rounded-2xl border border-dashed border-slate-600 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
-                    <div className="flex items-center justify-between">
-                      <span>
-                        Removed “{undoPlaceholder.title}”
-                      </span>
+                    <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-center sm:gap-4">
+                      <span>Removed “{undoPlaceholder.title}”</span>
                       {onUndoDelete && (
                         <button
                           type="button"
@@ -337,7 +335,7 @@ export const RundownPanel = ({
           })}
           {undoPlaceholder && undoPlaceholder.index >= timers.length && (
             <li className="rounded-2xl border border-dashed border-slate-600 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-center sm:gap-4">
                 <span>
                   Removed “{undoPlaceholder.title}”
                 </span>

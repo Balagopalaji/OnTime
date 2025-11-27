@@ -7,6 +7,7 @@ import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { FitText } from '../components/core/FitText'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { useClock } from '../hooks/useClock'
+import { useWakeLock } from '../hooks/useWakeLock'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
@@ -27,6 +28,7 @@ export const ViewerPage = () => {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef)
+  useWakeLock(true)
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {

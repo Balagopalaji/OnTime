@@ -93,18 +93,29 @@ export const ControllerPage = () => {
     }
   }, [isTimezoneEditing])
 
-  const startActiveTimer = () => {
-    if (!currentRoomId) return
-    void startTimer(currentRoomId)
+  const controlTargetTimerId =
+    shortcutScope === 'rundown' && selectedTimerId
+      ? selectedTimerId
+      : room?.state.activeTimerId ?? null
+
+  const startControlTimer = () => {
+    if (!currentRoomId || !controlTargetTimerId) return
+    void startTimer(currentRoomId, controlTargetTimerId)
   }
 
-  const pauseActiveTimer = () => {
-    if (!currentRoomId) return
+  const pauseControlTimer = () => {
+    if (!currentRoomId || !controlTargetTimerId) return
+    if (controlTargetTimerId !== room.state.activeTimerId) {
+      void setActiveTimer(room.id, controlTargetTimerId)
+    }
     void pauseTimer(currentRoomId)
   }
 
-  const resetActiveTimer = () => {
-    if (!currentRoomId) return
+  const resetControlTimer = () => {
+    if (!currentRoomId || !controlTargetTimerId) return
+    if (controlTargetTimerId !== room.state.activeTimerId) {
+      void setActiveTimer(room.id, controlTargetTimerId)
+    }
     void resetTimer(currentRoomId)
   }
 
@@ -144,19 +155,19 @@ export const ControllerPage = () => {
       ? timers[activeIndex + 1]
       : null
 
-  const handleStartPrevTimer = () => {
-    if (!prevTimer) return
+  const handleStartPrevTimer = useCallback(() => {
+    if (!prevTimer || !room) return
     setSelectedTimerId(prevTimer.id)
     setShortcutScope('controls')
     void setActiveTimer(room.id, prevTimer.id)
-  }
+  }, [prevTimer, room, setActiveTimer])
 
-  const handleStartNextTimer = () => {
-    if (!nextTimer) return
+  const handleStartNextTimer = useCallback(() => {
+    if (!nextTimer || !room) return
     setSelectedTimerId(nextTimer.id)
     setShortcutScope('controls')
     void setActiveTimer(room.id, nextTimer.id)
-  }
+  }, [nextTimer, room, setActiveTimer])
 
   const handleToggleClock = () => {
     void setClockMode(room.id, !room.state.showClock)
@@ -267,30 +278,35 @@ export const ControllerPage = () => {
       }
     }
 
-    const performArrowAction = (direction: 'up' | 'down') => {
+    const performArrowAction = (direction: 'up' | 'down', deltaMs: number) => {
       const adjustSelected =
         shortcutScope === 'rundown' &&
         selectedTimer &&
         selectedTimer.id !== activeTimer?.id
 
       if (adjustSelected) {
-        const delta = direction === 'up' ? 1 : -1
+        const deltaMinutes =
+          direction === 'up'
+            ? deltaMs / 60_000
+            : -deltaMs / 60_000
         const stagedMinutes = Math.max(
           0,
           Math.round(selectedTimer.duration / 60),
         )
-        const nextMinutes = Math.max(0, stagedMinutes + delta)
+        const nextMinutes = Math.max(0, stagedMinutes + deltaMinutes)
         const duration = Math.max(0, Math.round(nextMinutes * 60))
         void updateTimer(currentRoomId, selectedTimer.id, { duration })
         return
       }
       void nudgeTimer(
         currentRoomId,
-        direction === 'up' ? 60_000 : -60_000,
+        direction === 'up' ? deltaMs : -deltaMs,
       )
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey && event.key.toLowerCase() === 'r') return
+
       const target = event.target as HTMLElement | null
       if (
         target &&
@@ -306,13 +322,7 @@ export const ControllerPage = () => {
         case 'Space': {
           event.preventDefault()
           if (shortcutScope === 'rundown' && selectedTimer) {
-            if (selectedTimer.id !== activeTimer?.id) {
-              void startTimer(currentRoomId, selectedTimer.id)
-            } else if (isRunning) {
-              void pauseTimer(currentRoomId)
-            } else {
-              void startTimer(currentRoomId)
-            }
+            void startTimer(currentRoomId, selectedTimer.id)
           } else if (isRunning) {
             void pauseTimer(currentRoomId)
           } else {
@@ -334,16 +344,31 @@ export const ControllerPage = () => {
         }
         case 'ArrowUp':
         case 'ArrowDown': {
+          const deltaMs = event.shiftKey
+            ? 600_000
+            : event.ctrlKey
+            ? 1_000
+            : 60_000
           event.preventDefault()
           const direction = event.code === 'ArrowUp' ? 'up' : 'down'
-          performArrowAction(direction)
+          performArrowAction(direction, deltaMs)
           stopRepeat()
           repeatTimeout = window.setTimeout(() => {
             repeatInterval = window.setInterval(
-              () => performArrowAction(direction),
+              () => performArrowAction(direction, deltaMs),
               80,
             )
           }, 250)
+          break
+        }
+        case 'BracketLeft': {
+          event.preventDefault()
+          handleStartPrevTimer()
+          break
+        }
+        case 'BracketRight': {
+          event.preventDefault()
+          handleStartNextTimer()
           break
         }
         default:
@@ -377,6 +402,8 @@ export const ControllerPage = () => {
     shortcutScope,
     startTimer,
     updateTimer,
+    handleStartNextTimer,
+    handleStartPrevTimer,
   ])
 
   useEffect(() => {
@@ -511,7 +538,7 @@ export const ControllerPage = () => {
             onClick={handleStartPrevTimer}
             className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30"
             disabled={!prevTimer}
-            aria-label="Previous timer"
+            aria-label="Previous timer (BracketLeft)"
           >
             <SkipBack size={20} />
           </button>
@@ -519,7 +546,7 @@ export const ControllerPage = () => {
             type="button"
             onClick={() => {
               setShortcutScope('controls')
-              startActiveTimer()
+              startControlTimer()
             }}
             className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl font-semibold shadow-sm transition ${
               room.state.isRunning
@@ -535,7 +562,7 @@ export const ControllerPage = () => {
             type="button"
             onClick={() => {
               setShortcutScope('controls')
-              pauseActiveTimer()
+              pauseControlTimer()
             }}
             className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border font-semibold transition ${
               room.state.isRunning
@@ -552,7 +579,7 @@ export const ControllerPage = () => {
             onClick={handleStartNextTimer}
             className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30"
             disabled={!nextTimer}
-            aria-label="Next timer"
+            aria-label="Next timer (BracketRight)"
           >
             <SkipForward size={20} />
           </button>
@@ -560,7 +587,7 @@ export const ControllerPage = () => {
             type="button"
             onClick={() => {
               setShortcutScope('controls')
-              resetActiveTimer()
+              resetControlTimer()
             }}
             className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/70 bg-slate-900/80 text-amber-100 transition hover:border-amber-200"
             aria-label="Reset timer"
@@ -703,7 +730,7 @@ export const ControllerPage = () => {
           onReorder={(timerId, targetIndex) => {
             handleReorderTimer(timerId, targetIndex)
           }}
-          onPauseActive={pauseActiveTimer}
+          onPauseActive={pauseControlTimer}
           onReset={handleResetTimer}
           undoPlaceholder={
             undoTimer ? { index: Math.min(undoTimer.index, timers.length), title: undoTimer.timer.title } : null
@@ -724,9 +751,9 @@ export const ControllerPage = () => {
             showClock={room.state.showClock}
             engine={engine}
             isRunning={isRunning}
-            onStart={startActiveTimer}
-            onPause={pauseActiveTimer}
-            onReset={resetActiveTimer}
+            onStart={startControlTimer}
+            onPause={pauseControlTimer}
+            onReset={resetControlTimer}
             onNudge={nudgeActiveTimer}
             onToggleClock={handleToggleClock}
             message={room.state.message}
