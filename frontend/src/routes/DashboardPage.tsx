@@ -259,7 +259,7 @@ export const DashboardPage = () => {
 
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">Your Rooms</h2>
+          <h2 className="text-xl font-semibold text-white">Rooms</h2>
           <div className="flex items-center gap-3 text-sm text-slate-300">
             <label className="flex items-center gap-2">
               <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Sort</span>
@@ -285,7 +285,7 @@ export const DashboardPage = () => {
             {myRooms.map((room) => (
               <article
                 key={room.id}
-                className="flex flex-col rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)]"
+                className="relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)]"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-2">
@@ -373,13 +373,102 @@ export const DashboardPage = () => {
                         </button>
                       </Tooltip>
                     )}
+                    <div className="flex items-center gap-2">
+                      {drafts[room.id]?.editingTz ? (
+                        <>
+                          <input
+                            list={`tz-${room.id}`}
+                            className="rounded-full border border-emerald-500/40 bg-slate-900 px-3 py-1 text-xs text-white focus:border-emerald-400 focus:outline-none"
+                            name={`room-timezone-${room.id}`}
+                            ref={(node) => {
+                              tzRefs.current[room.id] = node
+                            }}
+                            value={drafts[room.id]?.timezone ?? ''}
+                            onChange={(event) =>
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [room.id]: { ...prev[room.id], timezone: event.target.value },
+                              }))
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                void commitTimezone(room.id)
+                              }
+                              if (event.key === 'Escape') {
+                                setDrafts((prev) => ({
+                                  ...prev,
+                                  [room.id]: {
+                                    ...prev[room.id],
+                                    timezone: room.timezone,
+                                    editingTz: false,
+                                  },
+                                }))
+                              }
+                            }}
+                            onBlur={() => void commitTimezone(room.id)}
+                            autoFocus
+                          />
+                          <datalist id={`tz-${room.id}`}>
+                            <option value={localTimezone}>{`Local (${localTimezone})`}</option>
+                            {allTimezones.map((tz) => (
+                              <option key={tz} value={tz} />
+                            ))}
+                          </datalist>
+                          <button
+                            type="button"
+                            className="rounded-full border border-emerald-500/60 bg-emerald-500/10 p-1.5 text-emerald-300 hover:bg-emerald-500/20"
+                            onClick={() => void commitTimezone(room.id)}
+                            aria-label="Save timezone"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-700 bg-slate-900 p-1.5 text-slate-300 hover:border-slate-500"
+                            onClick={() =>
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [room.id]: {
+                                  ...prev[room.id],
+                                  timezone: room.timezone,
+                                  editingTz: false,
+                                },
+                              }))
+                            }
+                            aria-label="Cancel timezone edit"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <Tooltip
+                          content={`Timezone: ${room.timezone}`}
+                          delay={1500}
+                        >
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-500/60"
+                            onClick={() => {
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [room.id]: { ...prev[room.id], editingTz: true },
+                              }))
+                              window.setTimeout(() => {
+                                const ref = tzRefs.current[room.id]
+                                ref?.focus()
+                                ref?.select()
+                              }, 0)
+                            }}
+                          >
+                            <Globe size={12} />
+                            {room.timezone}
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Tooltip content={`Created ${formatDate(room.createdAt, room.timezone)}`} delay={1500}>
-                      <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-200">
-                        {room.timezone}
-                      </span>
-                    </Tooltip>
+                  <div className="flex items-start gap-2">
                     <Tooltip content="Delete room">
                       <button
                         type="button"
@@ -602,7 +691,10 @@ export const DashboardPage = () => {
                                 setQrModalId(null)
                               }}
                             />
-                            <div className="absolute right-0 top-full z-30 mt-2 min-h-[18rem] min-w-[18rem] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg flex items-center justify-center">
+                            <div
+                              className="absolute right-0 top-full z-30 mt-2 flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg"
+                              style={{ width: 320, height: 320, minWidth: 320, minHeight: 320 }}
+                            >
                               {typeof window !== 'undefined' ? (
                                 qrErrorId === room.id ? (
                                   <p className="text-xs text-slate-400">
@@ -654,37 +746,38 @@ export const DashboardPage = () => {
           </div>
         )}
 
-        {Object.entries(pendingDeletes).map(([roomId, info]) => (
-          <div
-            key={roomId}
-            className="flex items-center justify-between rounded-2xl border border-amber-600/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
-          >
-            <span>
-              Scheduled deletion: “{info.title}”. Undo within 30 seconds.
-            </span>
-            <button
-              type="button"
-              className="rounded-full border border-amber-400/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-50 hover:bg-amber-500/20"
-              onClick={() => {
-                if (info?.timer) {
-                  window.clearTimeout(info.timer)
-                }
-                setPendingDeletes((prev) => {
-                  const next = { ...prev }
-                  delete next[roomId]
-                  return next
-                })
-                setHiddenIds((prev) => {
-                  const next = new Set(prev)
-                  next.delete(roomId)
-                  return next
-                })
-              }}
-            >
-              Undo
-            </button>
-          </div>
-        ))}
+        {Object.entries(pendingDeletes)[0] && (() => {
+          const [roomId, info] = Object.entries(pendingDeletes)[0]
+          return (
+            <div className="fixed bottom-6 left-1/2 z-40 flex w-[360px] max-w-[90vw] -translate-x-1/2 items-center justify-between rounded-2xl border border-amber-600/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 shadow-lg backdrop-blur">
+              <div className="flex flex-col">
+                <span className="font-semibold text-amber-50">Room queued for delete</span>
+                <span className="text-xs text-amber-100/80">“{info.title}” — undo within 30s</span>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-amber-400/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-50 hover:bg-amber-500/20"
+                onClick={() => {
+                  if (info?.timer) {
+                    window.clearTimeout(info.timer)
+                  }
+                  setPendingDeletes((prev) => {
+                    const next = { ...prev }
+                    delete next[roomId]
+                    return next
+                  })
+                  setHiddenIds((prev) => {
+                    const next = new Set(prev)
+                    next.delete(roomId)
+                    return next
+                  })
+                }}
+              >
+                Undo
+              </button>
+            </div>
+          )
+        })()}
       </section>
     </div>
   )
