@@ -5,13 +5,15 @@ import { DashboardPage } from './DashboardPage'
 import { ControllerPage } from './ControllerPage'
 import { ViewerPage } from './ViewerPage'
 import { ProtectedRoute } from './ProtectedRoute'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 const RouteRestorer = () => {
   const navigate = useNavigate()
   const location = useLocation()
+  const hasRestoredRef = useRef(false)
 
   useEffect(() => {
+    if (hasRestoredRef.current) return
     const navEntry =
       (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined) ??
       (performance as Performance & { navigation?: PerformanceNavigation }).navigation
@@ -25,6 +27,7 @@ const RouteRestorer = () => {
         navigate(last, { replace: true })
       }
     }
+    hasRestoredRef.current = true
   }, [location.pathname, navigate])
 
   return null

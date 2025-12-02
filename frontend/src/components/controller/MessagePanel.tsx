@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { MessageColor } from '../../types'
+import { Tooltip } from '../core/Tooltip'
 
 const PRESETS = [
   { label: 'Wrap Up', text: 'Wrap Up', color: 'yellow' as MessageColor },
@@ -68,17 +69,18 @@ export const MessagePanel = ({
     <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">Message Panel</h2>
-        <button
-          type="button"
-          onClick={visible ? handleToggle : handleBroadcast}
-          className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide border ${
-            visible
-              ? 'border-rose-500/60 bg-rose-500/30 text-white'
-              : 'border-emerald-400/60 text-emerald-200'
-          }`}
-        >
-          Broadcast
-        </button>
+        <Tooltip content="Show message on viewer">
+          <button
+            type="button"
+            onClick={visible ? handleToggle : handleBroadcast}
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide border ${visible
+                ? 'border-rose-500/60 bg-rose-500/30 text-white'
+                : 'border-emerald-400/60 text-emerald-200'
+              }`}
+          >
+            Broadcast
+          </button>
+        </Tooltip>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -126,19 +128,18 @@ export const MessagePanel = ({
                   type="button"
                   key={swatch}
                   onClick={() => applyChange({ color: swatch })}
-                  className={`h-8 w-8 rounded-full border-2 ${
-                    swatch === 'none'
+                  className={`h-8 w-8 rounded-full border-2 ${swatch === 'none'
                       ? 'border-white/40'
                       : swatch === 'white'
-                      ? 'bg-white border-transparent'
-                      : swatch === 'yellow'
-                      ? 'bg-amber-400 border-transparent'
-                      : swatch === 'red'
-                      ? 'bg-rose-500 border-transparent'
-                      : swatch === 'blue'
-                      ? 'bg-sky-500 border-transparent'
-                      : 'bg-emerald-500 border-transparent'
-                  } ${color === swatch ? 'ring-2 ring-white' : ''}`}
+                        ? 'bg-white border-transparent'
+                        : swatch === 'yellow'
+                          ? 'bg-amber-400 border-transparent'
+                          : swatch === 'red'
+                            ? 'bg-rose-500 border-transparent'
+                            : swatch === 'blue'
+                              ? 'bg-sky-500 border-transparent'
+                              : 'bg-emerald-500 border-transparent'
+                    } ${color === swatch ? 'ring-2 ring-white' : ''}`}
                   data-color={swatch}
                 >
                   <span className="sr-only">{swatch}</span>

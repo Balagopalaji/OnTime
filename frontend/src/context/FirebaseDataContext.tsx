@@ -243,13 +243,13 @@ export const FirebaseDataProvider = ({
       },
     }
 
-    const batch = writeBatch(db)
-    batch.set(roomRef, {
+    // Write the room first so Firestore rules can validate timer writes against an existing ownerId
+    await setDoc(roomRef, {
       ...room,
       createdAt: serverTimestamp(),
     })
-    batch.set(defaultTimerRef, defaultTimer)
-    await batch.commit()
+    await setDoc(defaultTimerRef, defaultTimer)
+
     return room
   }, [])
 

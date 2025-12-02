@@ -4,10 +4,17 @@ import { FirebaseDataProvider } from './FirebaseDataContext'
 import { MockDataProvider } from './MockDataContext'
 import { useDataContext } from './DataContext'
 
-// Default to Firebase unless explicitly set to "true"
-const shouldUseMock = import.meta.env.VITE_USE_MOCK === 'true'
+const hasFirebaseConfig = Boolean(
+  import.meta.env.VITE_FIREBASE_API_KEY &&
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID,
+)
+
+// Default to mock unless explicitly disabled and Firebase is configured
+const shouldUseMock =
+  import.meta.env.VITE_USE_MOCK !== 'false' || !hasFirebaseConfig
 const shouldFallbackToMock =
-  import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true'
+  import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true' || !hasFirebaseConfig
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
   if (shouldUseMock) {

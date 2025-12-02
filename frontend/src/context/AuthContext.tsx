@@ -38,8 +38,14 @@ const DEMO_USER: AuthUser = {
 }
 
 const STORAGE_KEY = 'stagetime.auth.v1'
-const useMockAuth = import.meta.env.VITE_USE_MOCK === 'true'
-const fallbackToMockAuth = import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true'
+const hasFirebaseConfig = Boolean(
+  import.meta.env.VITE_FIREBASE_API_KEY &&
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID,
+)
+const useMockAuth = import.meta.env.VITE_USE_MOCK !== 'false' || !hasFirebaseConfig
+const fallbackToMockAuth =
+  import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true' || !hasFirebaseConfig
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
@@ -61,7 +67,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setStatus('ready')
     }
 
-    let unsub = () => {}
+    let unsub = () => { }
     try {
       unsub = onAuthStateChanged(auth, (fbUser: FirebaseUser | null) => {
         if (fbUser) {
@@ -73,6 +79,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(DEMO_USER)
         } else {
           setUser(null)
+          // Attempt anonymous sign-in if no user is found
+          signInAnonymously(auth).catch((error) => {
+            console.warn('Anonymous sign-in failed', error)
+            setTimeout(handleFallback, 0)
+          })
         }
         setStatus('ready')
       })
@@ -81,12 +92,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setTimeout(handleFallback, 0)
       return
     }
-
-    // Attempt anonymous sign-in immediately
-    signInAnonymously(auth).catch((error) => {
-      console.warn('Anonymous sign-in failed', error)
-      setTimeout(handleFallback, 0)
-    })
 
     return () => unsub()
   }, [])

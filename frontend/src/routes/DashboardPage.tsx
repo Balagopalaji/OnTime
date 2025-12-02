@@ -1,12 +1,20 @@
-import { type FormEvent, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, PlayCircle, Trash2 } from 'lucide-react'
+import { Check, Clock, Globe, Plus, QrCode, Share2, Trash2, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
 import { formatDate, getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import type { ConnectionStatus } from '../types'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
+import { Tooltip } from '../components/core/Tooltip'
+
+type DraftState = {
+  title: string
+  timezone: string
+  editingTitle: boolean
+  editingTz: boolean
+}
 
 export const DashboardPage = () => {
   const { user } = useAuth()
@@ -14,19 +22,80 @@ export const DashboardPage = () => {
     rooms,
     createRoom,
     deleteRoom,
+    updateRoomMeta,
+    getTimers,
     connectionStatus,
     setConnectionStatus,
   } = useDataContext()
   const localTimezone = getTimezoneSuggestion()
-  const [title, setTitle] = useState('New Broadcast')
-  const [timezone, setTimezone] = useState(localTimezone)
-  const [isCreating, setIsCreating] = useState(false)
   const allTimezones = useMemo(() => getAllTimezones(), [])
+  const [isCreating, setIsCreating] = useState(false)
+  const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
+  const [now, setNow] = useState(() => Date.now())
+  const [pendingDeletes, setPendingDeletes] = useState<Record<string, { timer: number; title: string }>>({})
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title'>('newest')
+  const titleRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const tzRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const [qrOpenId, setQrOpenId] = useState<string | null>(null)
+  const [qrErrorId, setQrErrorId] = useState<string | null>(null)
+  const [qrModalId, setQrModalId] = useState<string | null>(null)
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setQrOpenId(null)
+        setQrModalId(null)
+        setPendingDeletes((prev) => {
+          Object.values(prev).forEach((info) => {
+            if (info.timer) {
+              window.clearTimeout(info.timer)
+            }
+          })
+          setHiddenIds(new Set())
+          return {}
+        })
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [])
 
   const myRooms = useMemo(() => {
     if (!user) return []
-    return rooms.filter((room) => room.ownerId === user.uid)
-  }, [rooms, user])
+    const owned = rooms.filter((room) => room.ownerId === user.uid && !hiddenIds.has(room.id))
+    const sorted = [...owned]
+    sorted.sort((a, b) => {
+      if (sortBy === 'title') {
+        return a.title.localeCompare(b.title)
+      }
+      return sortBy === 'oldest' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt
+    })
+    return sorted
+  }, [rooms, user, hiddenIds, sortBy])
+
+  useEffect(() => {
+    setDrafts((prev) => {
+      const next: Record<string, DraftState> = { ...prev }
+      myRooms.forEach((room) => {
+        const existing = next[room.id] ?? {}
+        next[room.id] = {
+          ...existing,
+          title: room.title,
+          timezone: room.timezone,
+          editingTitle: existing.editingTitle ?? false,
+          editingTz: existing.editingTz ?? false,
+        }
+      })
+      return next
+    })
+  }, [myRooms])
+
+  const hasRunning = myRooms.some((room) => room.state.isRunning)
+  useEffect(() => {
+    if (!hasRunning) return
+    const id = window.setInterval(() => setNow(Date.now()), 250)
+    return () => window.clearInterval(id)
+  }, [hasRunning])
 
   if (!user) {
     return (
@@ -36,103 +105,179 @@ export const DashboardPage = () => {
     )
   }
 
-  const handleCreateRoom = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const handleQuickCreate = async () => {
     setIsCreating(true)
     try {
-      await createRoom({ title, timezone, ownerId: user.uid })
-      setTitle('New Broadcast')
-      setTimezone(localTimezone)
+      await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
     } finally {
       setIsCreating(false)
     }
   }
 
   const handleDeleteRoom = async (roomId: string) => {
+    const room = rooms.find((r) => r.id === roomId)
+    if (!room) return
     if (!window.confirm('Delete this room and its rundown?')) return
-    await deleteRoom(roomId)
+    setHiddenIds((prev) => {
+      const next = new Set(prev)
+      next.add(roomId)
+      return next
+    })
+    if (pendingDeletes[roomId]?.timer) {
+      window.clearTimeout(pendingDeletes[roomId].timer)
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        await deleteRoom(roomId)
+      } catch (error) {
+        console.error('Failed to delete room', error, {
+          roomOwner: room.ownerId,
+          currentUser: user?.uid,
+        })
+        window.alert('Could not delete room (permission issue).')
+        setHiddenIds((prev) => {
+          const next = new Set(prev)
+          next.delete(roomId)
+          return next
+        })
+      } finally {
+        setPendingDeletes((prev) => {
+          const next = { ...prev }
+          delete next[roomId]
+          return next
+        })
+      }
+    }, 30000)
+    setPendingDeletes((prev) => ({ ...prev, [roomId]: { timer, title: room.title } }))
   }
 
   const handleConnectionChange = (status: ConnectionStatus) => {
     setConnectionStatus(status)
   }
 
+  const commitTitle = async (roomId: string) => {
+    const draft = drafts[roomId]
+    if (!draft) return
+    const next = draft.title.trim()
+    if (!next) {
+      setDrafts((prev) => ({
+        ...prev,
+        [roomId]: {
+          ...prev[roomId],
+          title: rooms.find((room) => room.id === roomId)?.title ?? 'Room',
+          editingTitle: false,
+        },
+      }))
+      return
+    }
+    if (rooms.find((room) => room.id === roomId)?.title !== next) {
+      await updateRoomMeta(roomId, { title: next })
+    }
+    setDrafts((prev) => ({
+      ...prev,
+      [roomId]: { ...prev[roomId], editingTitle: false },
+    }))
+  }
+
+  const commitTimezone = async (roomId: string) => {
+    const draft = drafts[roomId]
+    if (!draft) return
+    const next = draft.timezone.trim()
+    if (!next) {
+      setDrafts((prev) => ({
+        ...prev,
+        [roomId]: {
+          ...prev[roomId],
+          timezone: rooms.find((room) => room.id === roomId)?.timezone ?? localTimezone,
+          editingTz: false,
+        },
+      }))
+      return
+    }
+    if (rooms.find((room) => room.id === roomId)?.timezone !== next) {
+      await updateRoomMeta(roomId, { timezone: next })
+    }
+    setDrafts((prev) => ({
+      ...prev,
+      [roomId]: { ...prev[roomId], editingTz: false },
+    }))
+  }
+
+  const formatRemaining = (roomId: string) => {
+    const room = rooms.find((r) => r.id === roomId)
+    if (!room) return '—'
+    const timers = getTimers(roomId)
+    const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+    if (!active) return 'No active timer'
+    const baseElapsed = room.state.progress?.[active.id] ?? 0
+    const runningElapsed =
+      room.state.isRunning && room.state.startedAt
+        ? now - room.state.startedAt + baseElapsed
+        : baseElapsed
+    const remainingMs = active.duration * 1000 - runningElapsed
+    const isNegative = remainingMs < 0
+    const absMs = Math.abs(remainingMs)
+    const minutes = Math.floor(absMs / 60000)
+    const seconds = Math.floor((absMs % 60000) / 1000)
+    return `${isNegative ? '-' : ''}${String(minutes).padStart(2, '0')}:${String(
+      seconds,
+    ).padStart(2, '0')}`
+  }
+
   return (
     <div className="space-y-8">
-      <header className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold text-white">Dashboard</h1>
-            <p className="text-sm text-slate-400">
-              Rooms use {import.meta.env.VITE_USE_MOCK !== 'false' ? 'the mock provider' : 'Firestore'}.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <ConnectionIndicator status={connectionStatus} />
-            <select
-              value={connectionStatus}
-              onChange={(event) =>
-                handleConnectionChange(event.target.value as ConnectionStatus)
-              }
-              className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs uppercase tracking-wide text-slate-200"
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 shadow-card">
+        <div className="flex items-center gap-3">
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Rooms</p>
+          <Tooltip content="Quick-create a room with default timer" shortcut="+">
+            <button
+              type="button"
+              onClick={handleQuickCreate}
+              disabled={isCreating}
+              className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-70"
             >
-              <option value="online">Online</option>
-              <option value="reconnecting">Reconnecting</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
+              <Plus size={16} />
+              {isCreating ? 'Creating…' : 'New Room'}
+            </button>
+          </Tooltip>
         </div>
-      </header>
-
-      <form
-        onSubmit={handleCreateRoom}
-        className="rounded-2xl border border-slate-900 bg-slate-900/60 p-6"
-      >
-        <h2 className="font-semibold text-white">Create Room</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="text-sm text-slate-300">
-            Title
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-              maxLength={80}
-            />
-          </label>
-          <label className="text-sm text-slate-300">
-            Timezone
-            <input
-              list="all-timezones"
-              className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-            />
-            <datalist id="all-timezones">
-              <option value={localTimezone}>{`Local (${localTimezone})`}</option>
-              {allTimezones.map((tz) => (
-                <option key={tz} value={tz} />
-              ))}
-            </datalist>
-          </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <ConnectionIndicator status={connectionStatus} />
+          <select
+            value={connectionStatus}
+            onChange={(event) =>
+              handleConnectionChange(event.target.value as ConnectionStatus)
+            }
+            className="rounded-full border border-slate-800 bg-slate-900 px-3 py-2 text-xs uppercase tracking-wide text-slate-200"
+          >
+            <option value="online">Online</option>
+            <option value="reconnecting">Reconnecting</option>
+            <option value="offline">Offline</option>
+          </select>
         </div>
-        <button
-          type="submit"
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
-          disabled={isCreating}
-        >
-          <PlayCircle size={16} />
-          {isCreating ? 'Creating...' : 'Create Room'}
-        </button>
-      </form>
+      </div>
 
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-white">Your Rooms</h2>
-          <span className="text-sm text-slate-400">{myRooms.length} total</span>
+          <div className="flex items-center gap-3 text-sm text-slate-300">
+            <label className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Sort</span>
+              <select
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
+                className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs uppercase tracking-wide text-slate-200"
+              >
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="title">Title</option>
+              </select>
+            </label>
+            <span className="text-sm text-slate-400">{myRooms.length} total</span>
+          </div>
         </div>
         {myRooms.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 p-8 text-center text-sm text-slate-400">
+          <div className="rounded-2xl border border-dashed border-emerald-900/60 bg-emerald-500/5 p-10 text-center text-sm text-slate-300">
             Create a room to start building a rundown.
           </div>
         ) : (
@@ -140,57 +285,406 @@ export const DashboardPage = () => {
             {myRooms.map((room) => (
               <article
                 key={room.id}
-                className="flex flex-col rounded-2xl border border-slate-900 bg-slate-900/60 p-5"
+                className="flex flex-col rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)]"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">
-                      {room.title}
-                    </h3>
-                    <p className="text-sm text-slate-400">{room.timezone}</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                      Room
+                    </p>
+                    {drafts[room.id]?.editingTitle ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="w-full min-w-[180px] rounded-xl border border-emerald-500/40 bg-slate-900 px-3 py-2 text-base font-semibold text-white focus:border-emerald-400 focus:outline-none"
+                          name={`room-title-${room.id}`}
+                          ref={(node) => {
+                            titleRefs.current[room.id] = node
+                          }}
+                          value={drafts[room.id]?.title ?? ''}
+                          onChange={(event) =>
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [room.id]: { ...prev[room.id], title: event.target.value },
+                            }))
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              void commitTitle(room.id)
+                            }
+                            if (event.key === 'Escape') {
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [room.id]: {
+                                  ...prev[room.id],
+                                  title: room.title,
+                                  editingTitle: false,
+                                },
+                              }))
+                            }
+                          }}
+                          onBlur={() => void commitTitle(room.id)}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="rounded-full border border-emerald-500/60 bg-emerald-500/10 p-2 text-emerald-300 hover:bg-emerald-500/20"
+                          onClick={() => void commitTitle(room.id)}
+                          aria-label="Save title"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-700 bg-slate-900 p-2 text-slate-300 hover:border-slate-500"
+                          onClick={() =>
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [room.id]: {
+                                ...prev[room.id],
+                                title: room.title,
+                                editingTitle: false,
+                              },
+                            }))
+                          }
+                          aria-label="Cancel title edit"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <Tooltip content="Click to rename">
+                        <button
+                          type="button"
+                          className="text-left text-lg font-semibold text-white hover:text-emerald-200"
+                          onClick={() => {
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [room.id]: { ...prev[room.id], editingTitle: true },
+                            }))
+                            window.setTimeout(() => {
+                              const ref = titleRefs.current[room.id]
+                              ref?.focus()
+                              ref?.select()
+                            }, 0)
+                          }}
+                        >
+                          {room.title}
+                        </button>
+                      </Tooltip>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteRoom(room.id)}
-                    className="rounded-full border border-transparent p-2 text-slate-400 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300"
-                    aria-label="Delete room"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Tooltip content={`Created ${formatDate(room.createdAt, room.timezone)}`} delay={1500}>
+                      <span className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-200">
+                        {room.timezone}
+                      </span>
+                    </Tooltip>
+                    <Tooltip content="Delete room">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRoom(room.id)}
+                        className="rounded-full border border-transparent p-2 text-slate-400 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300"
+                        aria-label="Delete room"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </Tooltip>
+                  </div>
                 </div>
-                <dl className="mt-4 grid grid-cols-2 gap-4 text-xs text-slate-400">
-                  <div>
-                    <dt>Created</dt>
-                    <dd className="text-slate-200">
-                      {formatDate(room.createdAt, room.timezone)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Active Timer</dt>
-                    <dd className="text-slate-200">
-                      {room.state.activeTimerId ?? 'None'}
-                    </dd>
-                  </div>
-                </dl>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <Link
-                    to={`/room/${room.id}/control`}
-                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+
+                <div className="mt-5 flex flex-col items-center gap-4">
+                  <div
+                    className={`flex min-w-[200px] flex-col items-center gap-2 rounded-2xl border px-4 py-3 text-center ${
+                      (() => {
+                        const timers = getTimers(room.id)
+                        const active = timers.find(
+                          (timer) => timer.id === room.state.activeTimerId,
+                        )
+                        const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                        const runningElapsed =
+                          active && room.state.isRunning && room.state.startedAt
+                            ? now - room.state.startedAt + baseElapsed
+                            : baseElapsed
+                        const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                        const warningMs = ((room.config?.warningSec ?? 120) * 1000)
+                        const criticalMs = ((room.config?.criticalSec ?? 30) * 1000)
+                        if (remainingMs < 0) {
+                          return 'border-rose-500/40 bg-rose-500/10'
+                        }
+                        if (remainingMs <= criticalMs) {
+                          return 'border-amber-500/40 bg-amber-500/10'
+                        }
+                        if (remainingMs <= warningMs) {
+                          return 'border-yellow-500/30 bg-yellow-500/5'
+                        }
+                        return 'border-slate-800 bg-slate-900'
+                      })()
+                    }`}
                   >
-                    <Clock size={16} />
-                    Controller
-                  </Link>
-                  <Link
-                    to={`/room/${room.id}/view`}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70"
-                  >
-                    Viewer
-                  </Link>
+                    <div className="flex items-center justify-center gap-2">
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          (() => {
+                            const timers = getTimers(room.id)
+                            const active = timers.find(
+                              (timer) => timer.id === room.state.activeTimerId,
+                            )
+                            const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                            const runningElapsed =
+                              active && room.state.isRunning && room.state.startedAt
+                                ? now - room.state.startedAt + baseElapsed
+                                : baseElapsed
+                            const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                            const warningMs = (room.config?.warningSec ?? 120) * 1000
+                            const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                            if (remainingMs < 0) return 'bg-rose-400'
+                            if (remainingMs <= criticalMs) return 'bg-amber-400'
+                            if (remainingMs <= warningMs) return 'bg-yellow-400'
+                            return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
+                          })()
+                        }`}
+                      />
+                      <span className="text-lg font-semibold text-white">
+                        {formatRemaining(room.id)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] tracking-[0.28em] text-slate-500 uppercase">
+                      {(() => {
+                        const timers = getTimers(room.id)
+                        const active = timers.find(
+                          (timer) => timer.id === room.state.activeTimerId,
+                        )
+                        const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                        const runningElapsed =
+                          active && room.state.isRunning && room.state.startedAt
+                            ? now - room.state.startedAt + baseElapsed
+                            : baseElapsed
+                        const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                        const warningMs = ((room.config?.warningSec ?? 120) * 1000)
+                        const criticalMs = ((room.config?.criticalSec ?? 30) * 1000)
+                        if (remainingMs < 0) return 'Overtime'
+                        if (remainingMs <= criticalMs) return 'Critical'
+                        if (remainingMs <= warningMs) return 'Warning'
+                        return room.state.isRunning ? 'Counting' : 'Paused'
+                      })()}
+                    </p>
+                    <p className="text-[10px] tracking-[0.24em] text-slate-500 uppercase">
+                      {(() => {
+                        const timers = getTimers(room.id)
+                        const activeIndex = timers.findIndex(
+                          (timer) => timer.id === room.state.activeTimerId,
+                        )
+                        const total = timers.length
+                        if (activeIndex === -1) return `0/${total || 0}`
+                        return `${activeIndex + 1}/${total}`
+                      })()}
+                    </p>
+                    <div className="flex h-1 w-full overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-full ${
+                          (() => {
+                            const timers = getTimers(room.id)
+                            const active = timers.find(
+                              (timer) => timer.id === room.state.activeTimerId,
+                            )
+                            const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                            const runningElapsed =
+                              active && room.state.isRunning && room.state.startedAt
+                                ? now - room.state.startedAt + baseElapsed
+                                : baseElapsed
+                            const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                            const warningMs = (room.config?.warningSec ?? 120) * 1000
+                            const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                            if (remainingMs < 0) return 'bg-rose-400'
+                            if (remainingMs <= criticalMs) return 'bg-amber-400'
+                            if (remainingMs <= warningMs) return 'bg-yellow-400'
+                            return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
+                          })()
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(
+                              0,
+                              (() => {
+                                const timers = getTimers(room.id)
+                                const active = timers.find(
+                                  (timer) => timer.id === room.state.activeTimerId,
+                                )
+                                if (!active) return 0
+                                const baseElapsed =
+                                  room.state.progress?.[active.id] ?? 0
+                                const runningElapsed =
+                                  room.state.isRunning && room.state.startedAt
+                                    ? now - room.state.startedAt + baseElapsed
+                                    : baseElapsed
+                                const remainingMs =
+                                  active.duration * 1000 - runningElapsed
+                                const remainingPct =
+                                  (Math.max(0, remainingMs) / (active.duration * 1000)) * 100
+                                const pct = isNaN(remainingPct) ? 0 : remainingPct
+                                return isNaN(pct) ? 0 : pct
+                              })(),
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <Tooltip content="Open controller">
+                      <Link
+                        to={`/room/${room.id}/control`}
+                        className="inline-flex items-center gap-2 rounded-full bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+                      >
+                        <Clock size={16} />
+                        Controller
+                      </Link>
+                    </Tooltip>
+                    <Tooltip content="Open viewer">
+                      <Link
+                        to={`/room/${room.id}/view`}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70"
+                      >
+                        Viewer
+                      </Link>
+                    </Tooltip>
+                    <div className="flex items-center gap-2">
+                      <Tooltip content="Share viewer link">
+                        <button
+                          type="button"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-white/50"
+                          onClick={() => {
+                            const origin =
+                              typeof window !== 'undefined' && window.location.origin
+                                ? window.location.origin
+                                : 'https://stagetime.app'
+                            const viewerUrl = `${origin}/room/${room.id}/view`
+                            if (navigator.share) {
+                              void navigator.share({ title: room.title, url: viewerUrl }).catch(() => {})
+                            } else {
+                              void navigator.clipboard.writeText(viewerUrl).then(() =>
+                                window.alert('Viewer link copied to clipboard'),
+                              )
+                            }
+                          }}
+                          aria-label="Share viewer link"
+                        >
+                          <Share2 size={18} />
+                        </button>
+                      </Tooltip>
+                      <div className="relative">
+                        <Tooltip content="Show QR Code">
+                          <button
+                            type="button"
+                            className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border px-3 font-semibold transition ${
+                              qrOpenId === room.id
+                                ? 'border-emerald-400/70 text-emerald-200'
+                                : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
+                            }`}
+                            onClick={() => {
+                              setQrErrorId(null)
+                              setQrOpenId((prev) => (prev === room.id ? null : room.id))
+                            }}
+                            aria-label="Toggle QR code"
+                          >
+                            <QrCode size={18} />
+                          </button>
+                        </Tooltip>
+                        {qrOpenId === room.id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-20"
+                              onClick={() => {
+                                setQrOpenId(null)
+                                setQrModalId(null)
+                              }}
+                            />
+                            <div className="absolute right-0 top-full z-30 mt-2 min-h-[18rem] min-w-[18rem] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg flex items-center justify-center">
+                              {typeof window !== 'undefined' ? (
+                                qrErrorId === room.id ? (
+                                  <p className="text-xs text-slate-400">
+                                    QR code unavailable. Copy the link instead.
+                                  </p>
+                                ) : (
+                                  <img
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                                      `${window.location.origin}/room/${room.id}/view`,
+                                    )}`}
+                                    alt="Viewer QR"
+                                    className="h-72 w-72 cursor-pointer object-contain"
+                                    onError={() => setQrErrorId(room.id)}
+                                    onClick={() => setQrModalId(room.id)}
+                                  />
+                                )
+                              ) : (
+                                <p className="text-xs text-slate-400">QR available once loaded.</p>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </article>
             ))}
           </div>
         )}
+
+        {qrModalId && typeof window !== 'undefined' && (
+          <div
+            className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 px-4"
+            onClick={() => setQrModalId(null)}
+          >
+            <div
+              className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                  `${window.location.origin}/room/${qrModalId}/view`,
+                )}`}
+                alt="Viewer QR"
+                className="h-80 w-80 object-contain"
+              />
+            </div>
+          </div>
+        )}
+
+        {Object.entries(pendingDeletes).map(([roomId, info]) => (
+          <div
+            key={roomId}
+            className="flex items-center justify-between rounded-2xl border border-amber-600/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+          >
+            <span>
+              Scheduled deletion: “{info.title}”. Undo within 30 seconds.
+            </span>
+            <button
+              type="button"
+              className="rounded-full border border-amber-400/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-50 hover:bg-amber-500/20"
+              onClick={() => {
+                if (info?.timer) {
+                  window.clearTimeout(info.timer)
+                }
+                setPendingDeletes((prev) => {
+                  const next = { ...prev }
+                  delete next[roomId]
+                  return next
+                })
+                setHiddenIds((prev) => {
+                  const next = new Set(prev)
+                  next.delete(roomId)
+                  return next
+                })
+              }}
+            >
+              Undo
+            </button>
+          </div>
+        ))}
       </section>
     </div>
   )

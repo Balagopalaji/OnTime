@@ -4,6 +4,7 @@ import { FitText } from '../core/FitText'
 import type { TimerEngineState } from '../../hooks/useTimerEngine'
 import { formatDuration } from '../../lib/time'
 import { EditableField } from '../core/EditableField'
+import { Tooltip } from '../core/Tooltip'
 
 export const TimerPanel = ({
   timer,
@@ -220,11 +221,10 @@ export const TimerPanel = ({
               Status
             </p>
             <span
-              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                isLive
-                  ? 'bg-rose-500/30 text-rose-100 animate-pulse shadow-[0_0_8px_rgba(248,113,113,0.5)]'
-                  : 'bg-slate-800 text-slate-200'
-              }`}
+              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${isLive
+                ? 'bg-rose-500/30 text-rose-100 animate-pulse shadow-[0_0_8px_rgba(248,113,113,0.5)]'
+                : 'bg-slate-800 text-slate-200'
+                }`}
             >
               {isLive ? 'On Air' : 'Staged'}
             </span>
@@ -239,59 +239,68 @@ export const TimerPanel = ({
         </p>
         <div className="mt-6 h-2 rounded-full bg-slate-800">
           <div
-            className={`h-full rounded-full transition-all ${
-              statusLabel === 'OVERTIME' || statusLabel === 'CRITICAL'
-                ? 'bg-rose-400'
-                : statusLabel === 'WARNING'
+            className={`h-full rounded-full transition-all ${statusLabel === 'OVERTIME' || statusLabel === 'CRITICAL'
+              ? 'bg-rose-400'
+              : statusLabel === 'WARNING'
                 ? 'bg-amber-300'
                 : 'bg-emerald-400'
-            }`}
+              }`}
             style={{ width: `${progressWidth}%` }}
           />
         </div>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={handleStart}
-          className="rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
-          disabled={!timer || (isLive && isRunning)}
-        >
-          Start
-        </button>
-        <button
-          type="button"
-          onClick={handlePause}
-          className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-50"
-          disabled={!timer || !isLive || !isRunning}
-        >
-          Pause
-        </button>
-        <button
-          type="button"
-          onClick={handleReset}
-          className="rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-200 transition hover:border-rose-300 disabled:opacity-50"
-          disabled={!timer || !isLive}
-        >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMinuteAdjust(-1)}
-          className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
-          disabled={!timer}
-        >
-          - 1 min
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMinuteAdjust(1)}
-          className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
-          disabled={!timer}
-        >
-          + 1 min
-        </button>
+        <Tooltip content="Start Timer">
+          <button
+            type="button"
+            onClick={handleStart}
+            className="rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
+            disabled={!timer || (isLive && isRunning)}
+          >
+            Start
+          </button>
+        </Tooltip>
+        <Tooltip content="Pause Timer">
+          <button
+            type="button"
+            onClick={handlePause}
+            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-50"
+            disabled={!timer || !isLive || !isRunning}
+          >
+            Pause
+          </button>
+        </Tooltip>
+        <Tooltip content="Reset Timer">
+          <button
+            type="button"
+            onClick={handleReset}
+            className="rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-200 transition hover:border-rose-300 disabled:opacity-50"
+            disabled={!timer || !isLive}
+          >
+            Reset
+          </button>
+        </Tooltip>
+        <Tooltip content="Remove 1 minute">
+          <button
+            type="button"
+            onClick={() => handleMinuteAdjust(-1)}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+            disabled={!timer}
+          >
+            - 1 min
+          </button>
+        </Tooltip>
+        <Tooltip content="Add 1 minute">
+          <button
+            type="button"
+            onClick={() => handleMinuteAdjust(1)}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-white/60 disabled:opacity-50"
+            disabled={!timer}
+          >
+            + 1 min
+          </button>
+        </Tooltip>
       </div>
     </div>
   )

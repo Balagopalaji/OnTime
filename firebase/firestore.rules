@@ -3,8 +3,12 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /rooms/{roomId} {
       allow read: if request.auth != null; // authenticated users can read rooms
-      allow create, update, delete: if request.auth != null
-        && request.auth.uid == request.resource.data.ownerId;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
 
       match /timers/{timerId} {
         allow read: if request.auth != null;
