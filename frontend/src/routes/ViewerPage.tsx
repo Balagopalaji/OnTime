@@ -167,7 +167,7 @@ export const ViewerPage = () => {
             </div>
           )}
           {!room.state.showClock && (
-            <div className="mt-8 h-3 w-full max-w-3xl rounded-full bg-white/10">
+            <div className="mt-10 h-4 w-full max-w-6xl rounded-full bg-white/10">
               <div
                 className={`h-full rounded-full transition-all ${progressColor}`}
                 style={{ width: `${progressPercent}%` }}

@@ -12,7 +12,14 @@ const RouteRestorer = () => {
   const location = useLocation()
 
   useEffect(() => {
-    if (location.pathname === '/') {
+    const navEntry =
+      (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined) ??
+      (performance as Performance & { navigation?: PerformanceNavigation }).navigation
+    const isReload =
+      (navEntry && 'type' in navEntry && (navEntry as PerformanceNavigationTiming).type === 'reload') ||
+      (navEntry && 'type' in navEntry && (navEntry as PerformanceNavigation).type === 1)
+
+    if (location.pathname === '/' && isReload) {
       const last = window.localStorage.getItem('stagetime.lastPath')
       if (last) {
         navigate(last, { replace: true })

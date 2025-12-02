@@ -395,10 +395,11 @@ export const FirebaseDataProvider = ({
     if (activeId) {
       progress[activeId] = 0
     }
+    const nextElapsedOffset = 0
     const updates: Record<string, unknown> = {
       'state.isRunning': false,
       'state.startedAt': null,
-      'state.elapsedOffset': 0,
+      'state.elapsedOffset': nextElapsedOffset,
       'state.progress': progress,
     }
     await updateDoc(doc(db, 'rooms', roomId), updates)
@@ -409,10 +410,12 @@ export const FirebaseDataProvider = ({
     const activeId = room?.state.activeTimerId
     if (!room || !activeId) return
     const progress = computeProgress(room)
-    const nextElapsed = (progress[activeId] ?? 0) - deltaMs
+    const nextElapsed = Math.max(0, (progress[activeId] ?? 0) - deltaMs)
     progress[activeId] = nextElapsed
+    const isActiveRunning = room.state.isRunning && room.state.activeTimerId === activeId
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.elapsedOffset': nextElapsed,
+      'state.startedAt': isActiveRunning ? Date.now() : room.state.startedAt,
       'state.progress': progress,
     })
   }, [getRoom])

@@ -256,7 +256,7 @@ export const ControllerPage = () => {
   const handleResetTimer = (timerId: string) => {
     if (!currentRoomId) return
     if (room.state.activeTimerId === timerId) {
-      resetActiveTimer()
+      resetControlTimer()
     } else {
       void resetTimerProgress(currentRoomId, timerId)
     }
@@ -285,17 +285,13 @@ export const ControllerPage = () => {
         selectedTimer.id !== activeTimer?.id
 
       if (adjustSelected) {
-        const deltaMinutes =
+        const deltaSeconds = Math.round(deltaMs / 1000)
+        const stagedSeconds = Math.max(0, Math.round(selectedTimer.duration))
+        const nextSeconds =
           direction === 'up'
-            ? deltaMs / 60_000
-            : -deltaMs / 60_000
-        const stagedMinutes = Math.max(
-          0,
-          Math.round(selectedTimer.duration / 60),
-        )
-        const nextMinutes = Math.max(0, stagedMinutes + deltaMinutes)
-        const duration = Math.max(0, Math.round(nextMinutes * 60))
-        void updateTimer(currentRoomId, selectedTimer.id, { duration })
+            ? stagedSeconds + deltaSeconds
+            : Math.max(0, stagedSeconds - deltaSeconds)
+        void updateTimer(currentRoomId, selectedTimer.id, { duration: nextSeconds })
         return
       }
       void nudgeTimer(
@@ -346,7 +342,7 @@ export const ControllerPage = () => {
         case 'ArrowDown': {
           const deltaMs = event.shiftKey
             ? 600_000
-            : event.ctrlKey
+            : event.ctrlKey || event.metaKey
             ? 1_000
             : 60_000
           event.preventDefault()
@@ -545,7 +541,6 @@ export const ControllerPage = () => {
           <button
             type="button"
             onClick={() => {
-              setShortcutScope('controls')
               startControlTimer()
             }}
             className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl font-semibold shadow-sm transition ${
@@ -553,7 +548,6 @@ export const ControllerPage = () => {
                 ? 'bg-rose-500/85 text-white shadow-[0_4px_16px_rgba(248,113,113,0.35)]'
                 : 'bg-emerald-500/95 text-slate-950 hover:bg-emerald-400 shadow-[0_4px_16px_rgba(16,185,129,0.35)]'
             }`}
-            disabled={room.state.isRunning}
             aria-label="Play"
           >
             <Play size={20} />
@@ -561,7 +555,6 @@ export const ControllerPage = () => {
           <button
             type="button"
             onClick={() => {
-              setShortcutScope('controls')
               pauseControlTimer()
             }}
             className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border font-semibold transition ${
@@ -586,7 +579,6 @@ export const ControllerPage = () => {
           <button
             type="button"
             onClick={() => {
-              setShortcutScope('controls')
               resetControlTimer()
             }}
             className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/70 bg-slate-900/80 text-amber-100 transition hover:border-amber-200"
