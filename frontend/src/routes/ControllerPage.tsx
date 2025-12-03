@@ -12,7 +12,6 @@ import {
   QrCode,
 } from 'lucide-react'
 import { useDataContext } from '../context/DataProvider'
-import type { Timer } from '../types'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
 import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
@@ -37,12 +36,14 @@ export const ControllerPage = () => {
     reorderTimer,
     updateTimer,
     updateRoomMeta,
-    restoreTimer,
     resetTimerProgress,
     setActiveTimer,
     setClockMode,
     updateMessage,
     connectionStatus,
+    pendingTimerPlaceholders,
+    undoTimerDelete,
+    redoTimerDelete,
   } = useDataContext()
 
   const room = roomId ? getRoom(roomId) : undefined
@@ -63,9 +64,11 @@ export const ControllerPage = () => {
   const [isTimezoneEditing, setIsTimezoneEditing] = useState(false)
   const [timezoneInput, setTimezoneInput] = useState(room?.timezone ?? '')
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
-  const [undoTimer, setUndoTimer] = useState<{ timer: Timer; index: number } | null>(null)
-  const undoTimeoutRef = useRef<number | null>(null)
   const [shortcutScope, setShortcutScope] = useState<'controls' | 'rundown'>('controls')
+  const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
+  const [dismissedTimerPlaceholders, setDismissedTimerPlaceholders] = useState<Set<string>>(
+    new Set(),
+  )
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -78,14 +81,18 @@ export const ControllerPage = () => {
     timers.find((timer) => timer.id === effectiveSelectedTimerId) ?? activeTimer
   const timezoneOptions = useMemo(() => getAllTimezones(), [])
   const timezoneListId = room ? `timezone-${room.id}` : 'timezone-global'
-
-  useEffect(() => {
-    return () => {
-      if (undoTimeoutRef.current) {
-        window.clearTimeout(undoTimeoutRef.current)
-      }
-    }
-  }, [])
+  const undoPlaceholder = useMemo(() => {
+    if (!roomId) return null
+    const placeholders = (pendingTimerPlaceholders[roomId] ?? []).filter(
+      (entry) => entry.expiresAt > placeholderNow && !dismissedTimerPlaceholders.has(entry.timerId),
+    )
+    if (!placeholders.length) return null
+    const first = [...placeholders].sort((a, b) => a.order - b.order)[0]
+    const orderedTimers = [...timers].sort((a, b) => a.order - b.order)
+    const insertion = orderedTimers.findIndex((timer) => timer.order > first.order)
+    const index = insertion === -1 ? orderedTimers.length : insertion
+    return { index, title: first.title, timerId: first.timerId, expiresAt: first.expiresAt }
+  }, [dismissedTimerPlaceholders, pendingTimerPlaceholders, placeholderNow, roomId, timers])
 
   useEffect(() => {
     if (isTimezoneEditing && timezoneInputRef.current) {
@@ -93,6 +100,31 @@ export const ControllerPage = () => {
       timezoneInputRef.current.select()
     }
   }, [isTimezoneEditing])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setPlaceholderNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [setPlaceholderNow])
+
+  useEffect(() => {
+    const handleUndoShortcut = (event: KeyboardEvent) => {
+      const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
+      const metaPressed = isMac ? event.metaKey : event.ctrlKey
+      if (!metaPressed || !roomId) return
+      const key = event.key.toLowerCase()
+      const isUndo = key === 'z' && !event.shiftKey
+      const isRedo = (key === 'z' && event.shiftKey) || key === 'y'
+      if (isUndo) {
+        event.preventDefault()
+        void undoTimerDelete(roomId)
+      } else if (isRedo) {
+        event.preventDefault()
+        void redoTimerDelete(roomId)
+      }
+    }
+    window.addEventListener('keydown', handleUndoShortcut)
+    return () => window.removeEventListener('keydown', handleUndoShortcut)
+  }, [redoTimerDelete, roomId, undoTimerDelete])
 
   const controlTargetTimerId =
     shortcutScope === 'rundown' && selectedTimerId
@@ -231,29 +263,8 @@ export const ControllerPage = () => {
 
   const handleDeleteTimer = (timerId: string) => {
     if (!room) return
-    const index = timers.findIndex((timer) => timer.id === timerId)
-    const snapshot = index >= 0 ? timers[index] : undefined
-    if (snapshot) {
-      if (undoTimeoutRef.current) {
-        window.clearTimeout(undoTimeoutRef.current)
-      }
-      setUndoTimer({ timer: snapshot, index })
-      undoTimeoutRef.current = window.setTimeout(() => {
-        setUndoTimer(null)
-      }, 8000)
-    }
     void deleteTimer(room.id, timerId)
   }
-
-  const handleUndoDelete = useCallback(() => {
-    if (!room || !undoTimer) return
-    void restoreTimer(room.id, undoTimer.timer)
-    setUndoTimer(null)
-    if (undoTimeoutRef.current) {
-      window.clearTimeout(undoTimeoutRef.current)
-      undoTimeoutRef.current = null
-    }
-  }, [room, undoTimer, restoreTimer])
 
   const handleResetTimer = (timerId: string) => {
     if (!currentRoomId) return
@@ -404,26 +415,6 @@ export const ControllerPage = () => {
     handleStartPrevTimer,
   ])
 
-  useEffect(() => {
-    return () => {
-      if (undoTimeoutRef.current) {
-        window.clearTimeout(undoTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleUndoShortcut = (event: KeyboardEvent) => {
-      const isUndo = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z'
-      if (isUndo && undoTimer) {
-        event.preventDefault()
-        handleUndoDelete()
-      }
-    }
-    window.addEventListener('keydown', handleUndoShortcut)
-    return () => window.removeEventListener('keydown', handleUndoShortcut)
-  }, [undoTimer, handleUndoDelete])
-
   if (!room || !roomId) {
     return (
       <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
@@ -505,6 +496,24 @@ export const ControllerPage = () => {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <ConnectionIndicator status={connectionStatus} />
+              <Tooltip content="Undo timer delete (Cmd/Ctrl+Z)">
+                <button
+                  type="button"
+                  onClick={() => roomId && void undoTimerDelete(roomId)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                >
+                  ↺
+                </button>
+              </Tooltip>
+              <Tooltip content="Redo timer delete (Shift+Cmd/Ctrl+Z)">
+                <button
+                  type="button"
+                  onClick={() => roomId && void redoTimerDelete(roomId)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                >
+                  ↻
+                </button>
+              </Tooltip>
               <Tooltip content="Open Viewer in new tab">
                 <a
                   href={`/room/${room.id}/view`}
@@ -740,10 +749,17 @@ export const ControllerPage = () => {
             }}
             onPauseActive={pauseControlTimer}
             onReset={handleResetTimer}
-            undoPlaceholder={
-              undoTimer ? { index: Math.min(undoTimer.index, timers.length), title: undoTimer.timer.title } : null
+            undoPlaceholder={undoPlaceholder}
+            onDismissUndoPlaceholder={() =>
+              setDismissedTimerPlaceholders((prev) => {
+                const next = new Set(prev)
+                if (undoPlaceholder?.timerId) {
+                  next.add(undoPlaceholder.timerId)
+                }
+                return next
+              })
             }
-            onUndoDelete={undoTimer ? handleUndoDelete : undefined}
+            onUndoDelete={roomId ? () => void undoTimerDelete(roomId) : undefined}
           />
 
           <div className="space-y-4">

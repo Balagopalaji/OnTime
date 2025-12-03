@@ -12,8 +12,8 @@ import { auth } from '../lib/firebase'
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
-  signInAnonymously,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User as FirebaseUser,
 } from 'firebase/auth'
@@ -38,14 +38,10 @@ const DEMO_USER: AuthUser = {
 }
 
 const STORAGE_KEY = 'stagetime.auth.v1'
-const hasFirebaseConfig = Boolean(
-  import.meta.env.VITE_FIREBASE_API_KEY &&
-    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-    import.meta.env.VITE_FIREBASE_APP_ID,
-)
-const useMockAuth = import.meta.env.VITE_USE_MOCK !== 'false' || !hasFirebaseConfig
-const fallbackToMockAuth =
-  import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true' || !hasFirebaseConfig
+// Only use mocks when explicitly opted in.
+const useMockAuth = import.meta.env.VITE_USE_MOCK === 'true'
+// Default to popup unless explicitly told to redirect.
+const preferRedirect = import.meta.env.VITE_AUTH_METHOD === 'redirect'
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
@@ -60,14 +56,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return () => clearTimeout(timer)
     }
 
-    const handleFallback = () => {
-      if (fallbackToMockAuth) {
-        setUser(DEMO_USER)
-      }
-      setStatus('ready')
-    }
-
-    let unsub = () => { }
+    let unsub = () => {}
     try {
       unsub = onAuthStateChanged(auth, (fbUser: FirebaseUser | null) => {
         if (fbUser) {
@@ -75,21 +64,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             uid: fbUser.uid,
             displayName: fbUser.displayName ?? 'StageTime Operator',
           })
-        } else if (fallbackToMockAuth) {
-          setUser(DEMO_USER)
         } else {
           setUser(null)
-          // Attempt anonymous sign-in if no user is found
-          signInAnonymously(auth).catch((error) => {
-            console.warn('Anonymous sign-in failed', error)
-            setTimeout(handleFallback, 0)
-          })
         }
         setStatus('ready')
       })
     } catch (error) {
       console.warn('Auth listener failed', error)
-      setTimeout(handleFallback, 0)
+      setStatus('ready')
       return
     }
 
@@ -115,12 +97,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     setStatus('loading')
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider())
+      const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: 'select_account' })
+      const shouldRedirectFirst =
+        preferRedirect && (typeof window === 'undefined' || window.crossOriginIsolated)
+      if (shouldRedirectFirst) {
+        await signInWithRedirect(auth, provider)
+      } else {
+        try {
+          await signInWithPopup(auth, provider)
+        } catch (error) {
+          console.warn('Popup sign-in failed, falling back to redirect', error)
+          await signInWithRedirect(auth, provider)
+        }
+      }
     } catch (error) {
-      console.warn('Google sign-in failed, falling back to anonymous', error)
-      await signInAnonymously(auth)
+      console.error('Google sign-in failed', error)
+    } finally {
+      setStatus('ready')
     }
-    setStatus('ready')
   }, [])
 
   const logout = useCallback(async () => {
@@ -132,8 +127,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return
     }
     setStatus('loading')
-    await signOut(auth)
-    setStatus('ready')
+    try {
+      await signOut(auth)
+    } finally {
+      setStatus('ready')
+    }
   }, [])
 
   const value = useMemo(() => ({ user, status, login, logout }), [

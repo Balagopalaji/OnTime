@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -9,10 +10,23 @@ import { delay, randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
 import type { Room, Timer, MessageColor, ConnectionStatus } from '../types'
 import {
+  clearStack,
+  loadStack,
+  persistStack,
+  popRedo,
+  popUndo,
+  pushRedo,
+  pushWithCap,
+  type UndoEntry,
+  type UndoStack,
+} from '../lib/undoStack'
+import { roomStackKey, timerStackKey } from '../lib/undoKeys'
+import {
   DataProviderBoundary,
   useDataContext,
   type DataContextValue,
 } from './DataContext'
+import { useAuth } from './AuthContext'
 
 const STORAGE_KEY = 'stagetime.mockState.v1'
 
@@ -20,6 +34,10 @@ const DEFAULT_CONFIG = {
   warningSec: 120,
   criticalSec: 30,
 }
+
+const STACK_CAP = 10
+const PLACEHOLDER_TTL = 10_000
+const createEmptyStack = (): UndoStack => ({ undo: [], redo: [] })
 
 type MockState = {
   rooms: Room[]
@@ -101,6 +119,55 @@ const captureProgress = (room: Room) => {
     progress[activeId] = Math.max(0, elapsed)
   }
   return progress
+}
+
+const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
+  const next: Record<string, Set<string>> = {}
+  Object.entries(stacks).forEach(([roomId, stack]) => {
+    const pending = new Set(
+      stack.undo
+        .filter((entry) => entry.kind === 'timer')
+        .map((entry) => entry.snapshot.timer.id),
+    )
+    if (pending.size) {
+      next[roomId] = pending
+    }
+  })
+  return next
+}
+
+const buildRoomSnapshot = (room: Room, timers: Timer[]): UndoEntry & { kind: 'room' }['snapshot'] => ({
+  id: room.id,
+  ownerId: room.ownerId,
+  title: room.title,
+  timezone: room.timezone,
+  createdAt: room.createdAt,
+  config: { ...room.config },
+  state: {
+    ...room.state,
+    progress: captureProgress(room),
+  },
+  timers: timers.map((timer) => ({ ...timer })),
+})
+
+const buildTimerSnapshot = (room: Room, timer: Timer): UndoEntry & { kind: 'timer' }['snapshot'] => ({
+  roomId: room.id,
+  timer: { ...timer },
+  progress: captureProgress(room)[timer.id] ?? 0,
+})
+
+const loadTimerStacksForUser = (userId: string): Record<string, UndoStack> => {
+  if (typeof window === 'undefined') return {}
+  const next: Record<string, UndoStack> = {}
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i)
+    const prefix = `stagetime.undo.timers.${userId}.`
+    if (key && key.startsWith(prefix)) {
+      const roomId = key.slice(prefix.length)
+      next[roomId] = loadStack(key)
+    }
+  }
+  return next
 }
 
 const createSeedState = (): MockState => {
@@ -197,6 +264,92 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     'online',
   )
+  const [pendingRooms, setPendingRooms] = useState<Set<string>>(new Set())
+  const [pendingRoomPlaceholders, setPendingRoomPlaceholders] = useState<
+    Array<{ roomId: string; title: string; expiresAt: number }>
+  >([])
+  const [pendingTimers, setPendingTimers] = useState<Record<string, Set<string>>>({})
+  const [pendingTimerPlaceholders, setPendingTimerPlaceholders] = useState<
+    Record<string, Array<{ timerId: string; title: string; order: number; expiresAt: number }>>
+  >({})
+  const roomStackRef = useRef<UndoStack>(createEmptyStack())
+  const timerStacksRef = useRef<Record<string, UndoStack>>({})
+  const lastUserIdRef = useRef<string | null>(null)
+  const { user } = useAuth()
+  const roomStackKeyForUser = user ? roomStackKey(user.uid) : null
+
+  const syncPendingState = useCallback(() => {
+    const roomEntries = roomStackRef.current.undo.filter((entry) => entry.kind === 'room')
+    setPendingRooms(new Set(roomEntries.map((entry) => entry.roomId)))
+    setPendingRoomPlaceholders(
+      roomEntries.map((entry) => ({
+        roomId: entry.roomId,
+        title: entry.snapshot.room.title,
+        expiresAt: entry.expiresAt,
+      })),
+    )
+
+    const timerPlaceholders: Record<
+      string,
+      Array<{ timerId: string; title: string; order: number; expiresAt: number }>
+    > = {}
+    Object.entries(timerStacksRef.current).forEach(([roomId, stack]) => {
+      const entries = stack.undo.filter((entry) => entry.kind === 'timer')
+      if (!entries.length) return
+      timerPlaceholders[roomId] = entries.map((entry) => ({
+        timerId: entry.snapshot.timer.id,
+        title: entry.snapshot.timer.title,
+        order: entry.snapshot.timer.order,
+        expiresAt: entry.expiresAt,
+      }))
+    })
+    setPendingTimerPlaceholders(timerPlaceholders)
+    setPendingTimers(derivePendingTimers(timerStacksRef.current))
+  }, [])
+
+  const persistRoomStack = useCallback(
+    (stack: UndoStack) => {
+      if (!roomStackKeyForUser) return
+      persistStack(roomStackKeyForUser, stack)
+    },
+    [roomStackKeyForUser],
+  )
+
+  const persistTimerStack = useCallback(
+    (roomId: string, stack: UndoStack) => {
+      if (!user) return
+      persistStack(timerStackKey(user.uid, roomId), stack)
+    },
+    [user],
+  )
+
+  useEffect(() => {
+    const previous = lastUserIdRef.current
+    if (previous && !user) {
+      clearStack(roomStackKey(previous))
+      Object.keys(timerStacksRef.current).forEach((roomId) =>
+        clearStack(timerStackKey(previous, roomId)),
+      )
+      roomStackRef.current = createEmptyStack()
+      timerStacksRef.current = {}
+      syncPendingState()
+    }
+    lastUserIdRef.current = user?.uid ?? null
+  }, [syncPendingState, user])
+
+  useEffect(() => {
+    if (!user) return
+    const loaded = loadStack(roomStackKey(user.uid))
+    roomStackRef.current = loaded
+    syncPendingState()
+  }, [syncPendingState, user])
+
+  useEffect(() => {
+    if (!user) return
+    const stacks = loadTimerStacksForUser(user.uid)
+    timerStacksRef.current = stacks
+    syncPendingState()
+  }, [syncPendingState, user])
 
   const setState = useCallback<React.Dispatch<React.SetStateAction<MockState>>>(
     (value) => {
@@ -239,15 +392,24 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     window.addEventListener('storage', handleStorage)
     return () => window.removeEventListener('storage', handleStorage)
   }, [])
+  const visibleRooms = useMemo(
+    () => state.rooms.filter((room) => !pendingRooms.has(room.id)),
+    [pendingRooms, state.rooms],
+  )
+
   const getRoom = useCallback(
-    (roomId: string) => state.rooms.find((room) => room.id === roomId),
-    [state.rooms],
+    (roomId: string) => visibleRooms.find((room) => room.id === roomId),
+    [visibleRooms],
   )
 
   const getTimers = useCallback(
-    (roomId: string) =>
-      [...(state.timers[roomId] ?? [])].sort((a, b) => a.order - b.order),
-    [state.timers],
+    (roomId: string) => {
+      const pendingForRoom = pendingTimers[roomId]
+      return [...(state.timers[roomId] ?? [])]
+        .filter((timer) => !pendingForRoom?.has(timer.id))
+        .sort((a, b) => a.order - b.order)
+    },
+    [pendingTimers, state.timers],
   )
 
   const updateTimers = useCallback(
@@ -385,15 +547,34 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [setState],
   )
 
-  const deleteRoom = useCallback(async (roomId: string) => {
-    setState((prev) => ({
-      rooms: prev.rooms.filter((room) => room.id !== roomId),
-      timers: Object.fromEntries(
-        Object.entries(prev.timers).filter(([id]) => id !== roomId),
-      ),
-    }))
-    await delay(200)
-  }, [setState])
+  const deleteRoom = useCallback(
+    async (roomId: string) => {
+      if (!user) return
+      const room = state.rooms.find((candidate) => candidate.id === roomId)
+      const timersForRoom = [...(state.timers[roomId] ?? [])].sort((a, b) => a.order - b.order)
+      if (!room) return
+      const entry: UndoEntry = {
+        kind: 'room',
+        id: randomId(),
+        roomId,
+        expiresAt: Date.now() + PLACEHOLDER_TTL,
+        snapshot: buildRoomSnapshot(room, timersForRoom),
+      }
+
+      const { stack, evicted } = pushWithCap(roomStackRef.current, entry, STACK_CAP)
+      roomStackRef.current = stack
+      if (evicted && evicted.kind === 'room') {
+        setState((prev) => ({
+          rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
+          timers: Object.fromEntries(Object.entries(prev.timers).filter(([id]) => id !== evicted.roomId)),
+        }))
+      }
+      syncPendingState()
+      persistRoomStack(stack)
+      await delay(50)
+    },
+    [persistRoomStack, setState, state.rooms, state.timers, syncPendingState, user],
+  )
 
   const createTimer = useCallback(
     async (roomId: string, input: CreateTimerInput) => {
@@ -457,37 +638,143 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const deleteTimer = useCallback(
     async (roomId: string, timerId: string) => {
-      updateTimers(roomId, (timers) => timers.filter((timer) => timer.id !== timerId))
+      const room = state.rooms.find((candidate) => candidate.id === roomId)
+      const timer = (state.timers[roomId] ?? []).find((candidate) => candidate.id === timerId)
+      if (!room || !timer || !user) return
+      const entry: UndoEntry = {
+        kind: 'timer',
+        id: randomId(),
+        roomId,
+        expiresAt: Date.now() + PLACEHOLDER_TTL,
+        snapshot: buildTimerSnapshot(room, timer),
+      }
+
+      const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
+      const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
+      if (evicted && evicted.kind === 'timer') {
+        updateTimers(evicted.roomId, (timers) =>
+          timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
+        )
+      }
+      timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
+      syncPendingState()
+      persistTimerStack(roomId, stack)
+      await delay()
+    },
+    [persistTimerStack, state.rooms, state.timers, syncPendingState, updateTimers, user],
+  )
+
+  const undoRoomDelete: DataContextValue['undoRoomDelete'] = useCallback(async () => {
+    if (!user) return
+    const { entry, stack } = popUndo(roomStackRef.current)
+    if (!entry || entry.kind !== 'room') return
+    const nextStack = pushRedo(stack, entry, STACK_CAP)
+    roomStackRef.current = nextStack
+    syncPendingState()
+    persistRoomStack(nextStack)
+
+    const snapshot = entry.snapshot
+    const restoredRoom: Room = {
+      id: snapshot.id,
+      ownerId: snapshot.ownerId,
+      title: snapshot.title,
+      timezone: snapshot.timezone,
+      createdAt: snapshot.createdAt,
+      config: snapshot.config,
+      state: snapshot.state,
+    }
+    setState((prev) => ({
+      rooms: [...prev.rooms, restoredRoom],
+      timers: {
+        ...prev.timers,
+        [snapshot.id]: snapshot.timers.map((timer) => ({ ...timer })),
+      },
+    }))
+    syncPendingState()
+    await delay(50)
+  }, [persistRoomStack, setState, syncPendingState, user])
+
+  const redoRoomDelete: DataContextValue['redoRoomDelete'] = useCallback(async () => {
+    if (!user) return
+    const { entry, stack } = popRedo(roomStackRef.current)
+    if (!entry || entry.kind !== 'room') return
+    const nextUndo = [entry, ...stack.undo].slice(0, STACK_CAP)
+    const nextStack: UndoStack = { undo: nextUndo, redo: stack.redo }
+    roomStackRef.current = nextStack
+    syncPendingState()
+    persistRoomStack(nextStack)
+
+    syncPendingState()
+    setState((prev) => ({
+      rooms: prev.rooms.filter((candidate) => candidate.id !== entry?.roomId),
+      timers: Object.fromEntries(
+        Object.entries(prev.timers).filter(([id]) => id !== entry?.roomId),
+      ),
+    }))
+    await delay(80)
+  }, [persistRoomStack, setState, syncPendingState, user])
+
+  const undoTimerDelete: DataContextValue['undoTimerDelete'] = useCallback(
+    async (roomId) => {
+      if (!user) return
+      const current = timerStacksRef.current[roomId] ?? createEmptyStack()
+      const { entry, stack } = popUndo(current)
+      if (!entry || entry.kind !== 'timer') return
+      const nextStack = pushRedo(stack, entry, STACK_CAP)
+      timerStacksRef.current = { ...timerStacksRef.current, [roomId]: nextStack }
+      syncPendingState()
+      persistTimerStack(roomId, nextStack)
+    },
+    [persistTimerStack, syncPendingState, user],
+  )
+
+  const redoTimerDelete: DataContextValue['redoTimerDelete'] = useCallback(
+    async (roomId) => {
+      if (!user) return
+      const current = timerStacksRef.current[roomId] ?? createEmptyStack()
+      const { entry, stack } = popRedo(current)
+      if (!entry || entry.kind !== 'timer') return
+      const nextUndo = [entry, ...stack.undo].slice(0, STACK_CAP)
+      const nextStack: UndoStack = { undo: nextUndo, redo: stack.redo }
+      timerStacksRef.current = { ...timerStacksRef.current, [roomId]: nextStack }
+      syncPendingState()
+      persistTimerStack(roomId, nextStack)
+
+      const targetId = entry.snapshot.timer.id
+      updateTimers(roomId, (timers) => timers.filter((timer) => timer.id !== targetId))
       updateRoom(roomId, (room) => {
         const progress = { ...(room.state.progress ?? {}) }
-        if (progress[timerId] !== undefined) {
-          delete progress[timerId]
-        }
-        if (room.state.activeTimerId !== timerId) {
-          return {
-            ...room,
-            state: {
-              ...room.state,
-              progress,
-            },
-          }
-        }
+        delete progress[targetId]
+        const isActive = room.state.activeTimerId === targetId
         return {
           ...room,
           state: {
             ...room.state,
-            activeTimerId: null,
-            isRunning: false,
-            startedAt: null,
-            elapsedOffset: 0,
+            activeTimerId: isActive ? null : room.state.activeTimerId,
+            isRunning: isActive ? false : room.state.isRunning,
+            startedAt: isActive ? null : room.state.startedAt,
+            elapsedOffset: isActive ? 0 : room.state.elapsedOffset,
             progress,
           },
         }
       })
-      await delay()
+      await delay(50)
     },
-    [updateRoom, updateTimers],
+    [persistTimerStack, syncPendingState, updateRoom, updateTimers, user],
   )
+
+  const clearUndoStacks: DataContextValue['clearUndoStacks'] = useCallback(async () => {
+    const currentUserId = user?.uid
+    if (currentUserId) {
+      clearStack(roomStackKey(currentUserId))
+      Object.keys(timerStacksRef.current).forEach((roomId) =>
+        clearStack(timerStackKey(currentUserId, roomId)),
+      )
+    }
+    roomStackRef.current = createEmptyStack()
+    timerStacksRef.current = {}
+    syncPendingState()
+  }, [syncPendingState, user])
 
   const moveTimer = useCallback(
     async (roomId: string, timerId: string, direction: 'up' | 'down') => {
@@ -706,9 +993,18 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const value = useMemo<DataContextValue>(
     () => ({
-      rooms: state.rooms,
+      rooms: visibleRooms,
       connectionStatus,
       setConnectionStatus,
+      pendingRooms,
+      pendingRoomPlaceholders,
+      pendingTimers,
+      pendingTimerPlaceholders,
+      undoRoomDelete,
+      redoRoomDelete,
+      undoTimerDelete,
+      redoTimerDelete,
+      clearUndoStacks,
       getRoom,
       getTimers,
       createRoom,
@@ -719,7 +1015,6 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       restoreTimer,
       resetTimerProgress,
       reorderTimer,
-      setClockMode,
       deleteTimer,
       moveTimer,
       setActiveTimer,
@@ -731,9 +1026,18 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       updateMessage,
     }),
     [
-      state.rooms,
+      visibleRooms,
       connectionStatus,
       setConnectionStatus,
+      pendingRooms,
+      pendingRoomPlaceholders,
+      pendingTimers,
+      pendingTimerPlaceholders,
+      undoRoomDelete,
+      redoRoomDelete,
+      undoTimerDelete,
+      redoTimerDelete,
+      clearUndoStacks,
       getRoom,
       getTimers,
       createRoom,

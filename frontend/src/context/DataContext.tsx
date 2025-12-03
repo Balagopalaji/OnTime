@@ -19,6 +19,18 @@ export type DataContextValue = {
   rooms: Room[]
   connectionStatus: ConnectionStatus
   setConnectionStatus: (status: ConnectionStatus) => void
+  pendingRooms: Set<string>
+  pendingRoomPlaceholders: Array<{ roomId: string; title: string; expiresAt: number }>
+  pendingTimers: Record<string, Set<string>>
+  pendingTimerPlaceholders: Record<
+    string,
+    Array<{ timerId: string; title: string; order: number; expiresAt: number }>
+  >
+  undoRoomDelete: () => Promise<void>
+  redoRoomDelete: () => Promise<void>
+  undoTimerDelete: (roomId: string) => Promise<void>
+  redoTimerDelete: (roomId: string) => Promise<void>
+  clearUndoStacks: () => Promise<void>
   getRoom: (roomId: string) => Room | undefined
   getTimers: (roomId: string) => Timer[]
   createRoom: (input: CreateRoomInput) => Promise<Room>

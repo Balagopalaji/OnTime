@@ -71,8 +71,9 @@ export const RundownPanel = ({
   onReorder: (timerId: string, targetIndex: number) => void
   onPauseActive: () => void
   onReset: (timerId: string) => void
-  undoPlaceholder?: { index: number; title: string } | null
+  undoPlaceholder?: { index: number; title: string; timerId?: string; expiresAt?: number } | null
   onUndoDelete?: () => void
+  onDismissUndoPlaceholder?: () => void
 }) => {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -142,8 +143,19 @@ export const RundownPanel = ({
               return (
                 <Fragment key={timer.id}>
                   {undoPlaceholder && undoPlaceholder.index === index && (
-                    <li className="rounded-2xl border border-dashed border-slate-600 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
-                      <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:justify-center sm:gap-4">
+                    <li className="relative flex justify-center px-4 py-3 text-sm text-slate-200">
+                      <button
+                        type="button"
+                        aria-label="Dismiss placeholder"
+                        className="absolute right-4 top-2 text-lg text-slate-300 transition hover:text-white"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onDismissUndoPlaceholder?.()
+                        }}
+                      >
+                        ×
+                      </button>
+                      <div className="flex items-center gap-3">
                         <span>Removed “{undoPlaceholder.title}”</span>
                         {onUndoDelete && (
                           <button
