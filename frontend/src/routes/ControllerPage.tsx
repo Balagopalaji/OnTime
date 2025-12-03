@@ -66,9 +66,6 @@ export const ControllerPage = () => {
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
   const [shortcutScope, setShortcutScope] = useState<'controls' | 'rundown'>('controls')
   const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
-  const [dismissedTimerPlaceholders, setDismissedTimerPlaceholders] = useState<Set<string>>(
-    new Set(),
-  )
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -84,7 +81,7 @@ export const ControllerPage = () => {
   const undoPlaceholder = useMemo(() => {
     if (!roomId) return null
     const placeholders = (pendingTimerPlaceholders[roomId] ?? []).filter(
-      (entry) => entry.expiresAt > placeholderNow && !dismissedTimerPlaceholders.has(entry.timerId),
+      (entry) => entry.expiresAt > placeholderNow,
     )
     if (!placeholders.length) return null
     const first = [...placeholders].sort((a, b) => a.order - b.order)[0]
@@ -92,7 +89,7 @@ export const ControllerPage = () => {
     const insertion = orderedTimers.findIndex((timer) => timer.order > first.order)
     const index = insertion === -1 ? orderedTimers.length : insertion
     return { index, title: first.title, timerId: first.timerId, expiresAt: first.expiresAt }
-  }, [dismissedTimerPlaceholders, pendingTimerPlaceholders, placeholderNow, roomId, timers])
+  }, [pendingTimerPlaceholders, placeholderNow, roomId, timers])
 
   useEffect(() => {
     if (isTimezoneEditing && timezoneInputRef.current) {
@@ -750,15 +747,6 @@ export const ControllerPage = () => {
             onPauseActive={pauseControlTimer}
             onReset={handleResetTimer}
             undoPlaceholder={undoPlaceholder}
-            onDismissUndoPlaceholder={() =>
-              setDismissedTimerPlaceholders((prev) => {
-                const next = new Set(prev)
-                if (undoPlaceholder?.timerId) {
-                  next.add(undoPlaceholder.timerId)
-                }
-                return next
-              })
-            }
             onUndoDelete={roomId ? () => void undoTimerDelete(roomId) : undefined}
           />
 
