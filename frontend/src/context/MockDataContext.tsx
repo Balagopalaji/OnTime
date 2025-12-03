@@ -17,6 +17,8 @@ import {
   popUndo,
   pushRedo,
   pushWithCap,
+  type RoomUpdatePatch,
+  type TimerUpdatePatch,
   type UndoEntry,
   type UndoStack,
 } from '../lib/undoStack'
@@ -126,7 +128,7 @@ const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
   Object.entries(stacks).forEach(([roomId, stack]) => {
     const pending = new Set(
       stack.undo
-        .filter((entry) => entry.kind === 'timer')
+        .filter((entry) => entry.kind === 'timer' && entry.action === 'delete')
         .map((entry) => entry.snapshot.timer.id),
     )
     if (pending.size) {
@@ -279,12 +281,14 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const roomStackKeyForUser = user ? roomStackKey(user.uid) : null
 
   const syncPendingState = useCallback(() => {
-    const roomEntries = roomStackRef.current.undo.filter((entry) => entry.kind === 'room')
+    const roomEntries = roomStackRef.current.undo.filter(
+      (entry) => entry.kind === 'room' && entry.action === 'delete',
+    )
     setPendingRooms(new Set(roomEntries.map((entry) => entry.roomId)))
     setPendingRoomPlaceholders(
       roomEntries.map((entry) => ({
         roomId: entry.roomId,
-        title: entry.snapshot.room.title,
+        title: entry.snapshot.title,
         expiresAt: entry.expiresAt,
       })),
     )
@@ -294,7 +298,9 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       Array<{ timerId: string; title: string; order: number; expiresAt: number }>
     > = {}
     Object.entries(timerStacksRef.current).forEach(([roomId, stack]) => {
-      const entries = stack.undo.filter((entry) => entry.kind === 'timer')
+      const entries = stack.undo.filter(
+        (entry) => entry.kind === 'timer' && entry.action === 'delete',
+      )
       if (!entries.length) return
       timerPlaceholders[roomId] = entries.map((entry) => ({
         timerId: entry.snapshot.timer.id,
@@ -439,13 +445,48 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const updateRoomMeta = useCallback(
     async (roomId: string, patch: Partial<Pick<Room, 'title' | 'timezone'>>) => {
+      const room = state.rooms.find((candidate) => candidate.id === roomId)
+      if (room) {
+        const before: RoomUpdatePatch = {}
+        if (patch.title !== undefined) before.title = room.title
+        if (patch.timezone !== undefined) before.timezone = room.timezone
+        if (Object.keys(before).length > 0) {
+          const { stack, evicted } = pushWithCap(
+            roomStackRef.current,
+            {
+              kind: 'room',
+              action: 'update',
+              id: randomId(),
+              roomId,
+              expiresAt: Date.now(),
+              before,
+              patch: {
+                ...(patch.title !== undefined ? { title: patch.title } : {}),
+                ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}),
+              },
+            },
+            STACK_CAP,
+          )
+          roomStackRef.current = stack
+          if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
+            setState((prev) => ({
+              rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
+              timers: Object.fromEntries(
+                Object.entries(prev.timers).filter(([id]) => id !== evicted.roomId),
+              ),
+            }))
+          }
+          syncPendingState()
+          persistRoomStack(stack)
+        }
+      }
       updateRoom(roomId, (room) => ({
         ...room,
         ...patch,
       }))
       await delay()
     },
-    [updateRoom],
+    [persistRoomStack, setState, state.rooms, syncPendingState, updateRoom],
   )
 
   const restoreTimer = useCallback(
@@ -516,9 +557,9 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         timezone,
         ownerId,
         createdAt: Date.now(),
-        config: DEFAULT_CONFIG,
-        state: {
-          activeTimerId: defaultTimer.id,
+      config: DEFAULT_CONFIG,
+      state: {
+        activeTimerId: defaultTimer.id,
           isRunning: false,
           startedAt: null,
           elapsedOffset: 0,
@@ -540,11 +581,32 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         },
       }))
 
+      const entry: UndoEntry = {
+        kind: 'room',
+        action: 'create',
+        id: randomId(),
+        roomId: id,
+        expiresAt: Date.now() + PLACEHOLDER_TTL,
+        snapshot: buildRoomSnapshot(room, [defaultTimer]),
+      }
+      const { stack, evicted } = pushWithCap(roomStackRef.current, entry, STACK_CAP)
+      roomStackRef.current = stack
+      if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
+        setState((prev) => ({
+          rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
+          timers: Object.fromEntries(
+            Object.entries(prev.timers).filter(([idToKeep]) => idToKeep !== evicted.roomId),
+          ),
+        }))
+      }
+      syncPendingState()
+      persistRoomStack(stack)
+
       await delay()
 
       return room
     },
-    [setState],
+    [persistRoomStack, setState, syncPendingState],
   )
 
   const deleteRoom = useCallback(
@@ -555,6 +617,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       if (!room) return
       const entry: UndoEntry = {
         kind: 'room',
+        action: 'delete',
         id: randomId(),
         roomId,
         expiresAt: Date.now() + PLACEHOLDER_TTL,
@@ -563,7 +626,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
       const { stack, evicted } = pushWithCap(roomStackRef.current, entry, STACK_CAP)
       roomStackRef.current = stack
-      if (evicted && evicted.kind === 'room') {
+      if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
         setState((prev) => ({
           rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
           timers: Object.fromEntries(Object.entries(prev.timers).filter(([id]) => id !== evicted.roomId)),
@@ -595,11 +658,33 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           .map((item, index) => ({ ...item, order: (index + 1) * 10 }))
       })
 
+      const room = getRoom(roomId)
+      if (room) {
+        const entry: UndoEntry = {
+          kind: 'timer',
+          action: 'create',
+          id: randomId(),
+          roomId,
+          expiresAt: Date.now() + PLACEHOLDER_TTL,
+          snapshot: buildTimerSnapshot(room, timer),
+        }
+        const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
+        const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
+        if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
+          updateTimers(evicted.roomId, (timers) =>
+            timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
+          )
+        }
+        timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
+        syncPendingState()
+        persistTimerStack(roomId, stack)
+      }
+
       await delay()
 
       return timer
     },
-    [updateTimers],
+    [getRoom, persistTimerStack, syncPendingState, updateTimers],
   )
 
   const updateTimer = useCallback(
@@ -608,6 +693,41 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       timerId: string,
       patch: Partial<Omit<Timer, 'id' | 'roomId'>>,
     ) => {
+      const timer = (state.timers[roomId] ?? []).find((candidate) => candidate.id === timerId)
+      if (timer) {
+        const before: TimerUpdatePatch = {}
+        ;(['title', 'duration', 'speaker', 'type', 'order'] as const).forEach((key) => {
+          if (patch[key] !== undefined) {
+            // @ts-expect-error index by key
+            before[key] = timer[key]
+          }
+        })
+        if (Object.keys(before).length > 0) {
+          const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
+          const { stack, evicted } = pushWithCap(
+            currentStack,
+            {
+              kind: 'timer',
+              action: 'update',
+              id: randomId(),
+              roomId,
+              timerId,
+              expiresAt: Date.now(),
+              before,
+              patch,
+            },
+            STACK_CAP,
+          )
+          if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
+            updateTimers(evicted.roomId, (timers) =>
+              timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
+            )
+          }
+          timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
+          syncPendingState()
+          persistTimerStack(roomId, stack)
+        }
+      }
       updateTimers(roomId, (timers) =>
         timers.map((timer) =>
           timer.id === timerId
@@ -633,7 +753,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       }
       await delay()
     },
-    [updateRoom, updateTimers],
+    [persistTimerStack, state.timers, syncPendingState, updateRoom, updateTimers],
   )
 
   const deleteTimer = useCallback(
@@ -643,6 +763,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       if (!room || !timer || !user) return
       const entry: UndoEntry = {
         kind: 'timer',
+        action: 'delete',
         id: randomId(),
         roomId,
         expiresAt: Date.now() + PLACEHOLDER_TTL,
@@ -651,7 +772,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
       const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
       const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
-      if (evicted && evicted.kind === 'timer') {
+      if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
         updateTimers(evicted.roomId, (timers) =>
           timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
         )
@@ -673,25 +794,51 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     syncPendingState()
     persistRoomStack(nextStack)
 
-    const snapshot = entry.snapshot
-    const restoredRoom: Room = {
-      id: snapshot.id,
-      ownerId: snapshot.ownerId,
-      title: snapshot.title,
-      timezone: snapshot.timezone,
-      createdAt: snapshot.createdAt,
-      config: snapshot.config,
-      state: snapshot.state,
+    if (entry.action === 'delete') {
+      const snapshot = entry.snapshot
+      const restoredRoom: Room = {
+        id: snapshot.id,
+        ownerId: snapshot.ownerId,
+        title: snapshot.title,
+        timezone: snapshot.timezone,
+        createdAt: snapshot.createdAt,
+        config: snapshot.config,
+        state: snapshot.state,
+      }
+      setState((prev) => ({
+        rooms: [...prev.rooms, restoredRoom],
+        timers: {
+          ...prev.timers,
+          [snapshot.id]: snapshot.timers.map((timer) => ({ ...timer })),
+        },
+      }))
+      syncPendingState()
+      await delay(50)
+    } else if (entry.action === 'create') {
+      setState((prev) => ({
+        rooms: prev.rooms.filter((candidate) => candidate.id !== entry.roomId),
+        timers: Object.fromEntries(
+          Object.entries(prev.timers).filter(([id]) => id !== entry.roomId),
+        ),
+      }))
+      syncPendingState()
+      await delay(20)
+    } else if (entry.action === 'update') {
+      setState((prev) => ({
+        ...prev,
+        rooms: prev.rooms.map((room) =>
+          room.id === entry.roomId
+            ? {
+                ...room,
+                ...(entry.before.title !== undefined ? { title: entry.before.title } : {}),
+                ...(entry.before.timezone !== undefined ? { timezone: entry.before.timezone } : {}),
+              }
+            : room,
+        ),
+      }))
+      syncPendingState()
+      await delay(20)
     }
-    setState((prev) => ({
-      rooms: [...prev.rooms, restoredRoom],
-      timers: {
-        ...prev.timers,
-        [snapshot.id]: snapshot.timers.map((timer) => ({ ...timer })),
-      },
-    }))
-    syncPendingState()
-    await delay(50)
   }, [persistRoomStack, setState, syncPendingState, user])
 
   const redoRoomDelete: DataContextValue['redoRoomDelete'] = useCallback(async () => {
@@ -704,14 +851,51 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     syncPendingState()
     persistRoomStack(nextStack)
 
-    syncPendingState()
-    setState((prev) => ({
-      rooms: prev.rooms.filter((candidate) => candidate.id !== entry?.roomId),
-      timers: Object.fromEntries(
-        Object.entries(prev.timers).filter(([id]) => id !== entry?.roomId),
-      ),
-    }))
-    await delay(80)
+    if (entry.action === 'delete') {
+      syncPendingState()
+      setState((prev) => ({
+        rooms: prev.rooms.filter((candidate) => candidate.id !== entry?.roomId),
+        timers: Object.fromEntries(
+          Object.entries(prev.timers).filter(([id]) => id !== entry?.roomId),
+        ),
+      }))
+      await delay(80)
+    } else if (entry.action === 'create') {
+      const snapshot = entry.snapshot
+      const restoredRoom: Room = {
+        id: snapshot.id,
+        ownerId: snapshot.ownerId,
+        title: snapshot.title,
+        timezone: snapshot.timezone,
+        createdAt: snapshot.createdAt,
+        config: snapshot.config,
+        state: snapshot.state,
+      }
+      setState((prev) => ({
+        rooms: [...prev.rooms, restoredRoom],
+        timers: {
+          ...prev.timers,
+          [snapshot.id]: snapshot.timers.map((timer) => ({ ...timer })),
+        },
+      }))
+      syncPendingState()
+      await delay(40)
+    } else if (entry.action === 'update') {
+      setState((prev) => ({
+        ...prev,
+        rooms: prev.rooms.map((room) =>
+          room.id === entry.roomId
+            ? {
+                ...room,
+                ...(entry.patch.title !== undefined ? { title: entry.patch.title } : {}),
+                ...(entry.patch.timezone !== undefined ? { timezone: entry.patch.timezone } : {}),
+              }
+            : room,
+        ),
+      }))
+      syncPendingState()
+      await delay(30)
+    }
   }, [persistRoomStack, setState, syncPendingState, user])
 
   const undoTimerDelete: DataContextValue['undoTimerDelete'] = useCallback(
@@ -724,8 +908,44 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       timerStacksRef.current = { ...timerStacksRef.current, [roomId]: nextStack }
       syncPendingState()
       persistTimerStack(roomId, nextStack)
+      if (entry.action === 'create') {
+        updateTimers(roomId, (timers) =>
+          timers.filter((timer) => timer.id !== entry.snapshot.timer.id),
+        )
+        updateRoom(roomId, (room) => {
+          const progress = { ...(room.state.progress ?? {}) }
+          delete progress[entry.snapshot.timer.id]
+          const isActive = room.state.activeTimerId === entry.snapshot.timer.id
+          return {
+            ...room,
+            state: {
+              ...room.state,
+              activeTimerId: isActive ? null : room.state.activeTimerId,
+              isRunning: isActive ? false : room.state.isRunning,
+              startedAt: isActive ? null : room.state.startedAt,
+              elapsedOffset: isActive ? 0 : room.state.elapsedOffset,
+              progress,
+            },
+          }
+        })
+      } else if (entry.action === 'update') {
+        updateTimers(roomId, (timers) =>
+          timers.map((timer) =>
+            timer.id === entry.timerId
+              ? {
+                  ...timer,
+                  ...(entry.before.title !== undefined ? { title: entry.before.title } : {}),
+                  ...(entry.before.duration !== undefined ? { duration: entry.before.duration } : {}),
+                  ...(entry.before.speaker !== undefined ? { speaker: entry.before.speaker } : {}),
+                  ...(entry.before.type !== undefined ? { type: entry.before.type } : {}),
+                  ...(entry.before.order !== undefined ? { order: entry.before.order } : {}),
+                }
+              : timer,
+          ),
+        )
+      }
     },
-    [persistTimerStack, syncPendingState, user],
+    [persistTimerStack, syncPendingState, updateRoom, updateTimers, user],
   )
 
   const redoTimerDelete: DataContextValue['redoTimerDelete'] = useCallback(
@@ -740,25 +960,61 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       syncPendingState()
       persistTimerStack(roomId, nextStack)
 
-      const targetId = entry.snapshot.timer.id
-      updateTimers(roomId, (timers) => timers.filter((timer) => timer.id !== targetId))
-      updateRoom(roomId, (room) => {
-        const progress = { ...(room.state.progress ?? {}) }
-        delete progress[targetId]
-        const isActive = room.state.activeTimerId === targetId
-        return {
-          ...room,
-          state: {
-            ...room.state,
-            activeTimerId: isActive ? null : room.state.activeTimerId,
-            isRunning: isActive ? false : room.state.isRunning,
-            startedAt: isActive ? null : room.state.startedAt,
-            elapsedOffset: isActive ? 0 : room.state.elapsedOffset,
-            progress,
-          },
-        }
-      })
-      await delay(50)
+      if (entry.action === 'delete') {
+        const targetId = entry.snapshot.timer.id
+        updateTimers(roomId, (timers) => timers.filter((timer) => timer.id !== targetId))
+        updateRoom(roomId, (room) => {
+          const progress = { ...(room.state.progress ?? {}) }
+          delete progress[targetId]
+          const isActive = room.state.activeTimerId === targetId
+          return {
+            ...room,
+            state: {
+              ...room.state,
+              activeTimerId: isActive ? null : room.state.activeTimerId,
+              isRunning: isActive ? false : room.state.isRunning,
+              startedAt: isActive ? null : room.state.startedAt,
+              elapsedOffset: isActive ? 0 : room.state.elapsedOffset,
+              progress,
+            },
+          }
+        })
+        await delay(50)
+      } else if (entry.action === 'create') {
+        const targetId = entry.snapshot.timer.id
+        updateTimers(roomId, (timers) => {
+          const filtered = timers.filter((timer) => timer.id !== targetId)
+          return [...filtered, entry.snapshot.timer].sort((a, b) => a.order - b.order)
+        })
+        updateRoom(roomId, (room) => {
+          const progress = { ...(room.state.progress ?? {}) }
+          progress[targetId] = entry.snapshot.progress ?? 0
+          return {
+            ...room,
+            state: {
+              ...room.state,
+              progress,
+            },
+          }
+        })
+        await delay(30)
+      } else if (entry.action === 'update') {
+        updateTimers(roomId, (timers) =>
+          timers.map((timer) =>
+            timer.id === entry.timerId
+              ? {
+                  ...timer,
+                  ...(entry.patch.title !== undefined ? { title: entry.patch.title } : {}),
+                  ...(entry.patch.duration !== undefined ? { duration: entry.patch.duration } : {}),
+                  ...(entry.patch.speaker !== undefined ? { speaker: entry.patch.speaker } : {}),
+                  ...(entry.patch.type !== undefined ? { type: entry.patch.type } : {}),
+                  ...(entry.patch.order !== undefined ? { order: entry.patch.order } : {}),
+                }
+              : timer,
+          ),
+        )
+        await delay(20)
+      }
     },
     [persistTimerStack, syncPendingState, updateRoom, updateTimers, user],
   )

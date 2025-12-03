@@ -104,3 +104,19 @@
 
 10) **Documentation**
     - Update README or docs with brief behavior summary and env expectations (no confirm dialogs, 10s visual, undo persistent).
+
+## Tasklist v3 – Extend Undo/Redo to Creations
+1) **Types & Helpers**
+   - Extend undo entry model to include `action: 'create' | 'delete'` for rooms and timers (update `src/context/undoTypes.ts`, `src/lib/undoStack.ts`).
+2) **Providers (Firebase + Mock)**
+   - On createRoom/createTimer, push a `create` entry (cap 10, clear redo). Undo create hides/removes the new item; redo create restores it. Overflow eviction finalizes removal. Keep existing soft-delete behavior unchanged.
+3) **UI**
+   - No new placeholders for create; reuse existing undo/redo buttons and shortcuts in `DashboardPage.tsx`, `ControllerPage.tsx`, and `components/controller/RundownPanel.tsx` to operate on the unified stacks.
+4) **Docs/Tests**
+   - Note that undo/redo now covers both creates and deletes; deletes finalize on redo/overflow; creates remove on undo and re-add on redo. Add/update helper/provider tests if present.
+
+## Tasklist v3.1 – Undo/Redo for Edits
+1) **Actions**: Add `action: 'update'` entries with before/patch payloads for room meta (title/timezone) and timers (title/duration/speaker/type/order).
+2) **Providers**: Push update entries on `updateRoomMeta`/`updateTimer`; undo applies `before`, redo reapplies `patch`; placeholders remain delete-only.
+3) **UI**: No new UI required; existing undo/redo controls act on the unified stack (Controller now has room undo/redo buttons; Dashboard already has them).
+4) **Tests/Docs**: Note edit support; add helper/provider tests if available. Note Firestore rules must allow owner updates for undo/redo writes.

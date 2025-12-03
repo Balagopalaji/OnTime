@@ -44,6 +44,8 @@ export const ControllerPage = () => {
     pendingTimerPlaceholders,
     undoTimerDelete,
     redoTimerDelete,
+    undoRoomDelete,
+    redoRoomDelete,
   } = useDataContext()
 
   const room = roomId ? getRoom(roomId) : undefined
@@ -61,6 +63,9 @@ export const ControllerPage = () => {
   const [qrOpen, setQrOpen] = useState(false)
   const [qrError, setQrError] = useState(false)
   const [qrModalOpen, setQrModalOpen] = useState(false)
+  const [isTitleEditing, setIsTitleEditing] = useState(false)
+  const [titleInput, setTitleInput] = useState(room?.title ?? '')
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
   const [isTimezoneEditing, setIsTimezoneEditing] = useState(false)
   const [timezoneInput, setTimezoneInput] = useState(room?.timezone ?? '')
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
@@ -96,12 +101,24 @@ export const ControllerPage = () => {
       timezoneInputRef.current.focus()
       timezoneInputRef.current.select()
     }
-  }, [isTimezoneEditing])
+    if (isTitleEditing && titleInputRef.current) {
+      titleInputRef.current.focus()
+      titleInputRef.current.select()
+    }
+  }, [isTimezoneEditing, isTitleEditing])
 
   useEffect(() => {
     const id = window.setInterval(() => setPlaceholderNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [setPlaceholderNow])
+
+  useEffect(() => {
+    if (!room) return
+    setTitleInput(room.title)
+    setTimezoneInput(room.timezone)
+    // This effect mirrors incoming room props to local inputs; avoids stale values when switching rooms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.id, room?.title, room?.timezone])
 
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {
@@ -113,15 +130,15 @@ export const ControllerPage = () => {
       const isRedo = (key === 'z' && event.shiftKey) || key === 'y'
       if (isUndo) {
         event.preventDefault()
-        void undoTimerDelete(roomId)
+        void undoRoomDelete()
       } else if (isRedo) {
         event.preventDefault()
-        void redoTimerDelete(roomId)
+        void redoRoomDelete()
       }
     }
     window.addEventListener('keydown', handleUndoShortcut)
     return () => window.removeEventListener('keydown', handleUndoShortcut)
-  }, [redoTimerDelete, roomId, undoTimerDelete])
+  }, [redoRoomDelete, roomId, undoRoomDelete])
 
   const controlTargetTimerId =
     shortcutScope === 'rundown' && selectedTimerId
@@ -230,6 +247,18 @@ export const ControllerPage = () => {
     }
     void updateRoomMeta(room.id, { timezone: next })
     setIsTimezoneEditing(false)
+  }
+
+  const handleTitleSave = () => {
+    if (!room) return
+    const next = titleInput.trim()
+    if (!next || next === room.title) {
+      setTitleInput(room.title)
+      setIsTitleEditing(false)
+      return
+    }
+    void updateRoomMeta(room.id, { title: next })
+    setIsTitleEditing(false)
   }
 
   const handleShare = async () => {
@@ -440,7 +469,37 @@ export const ControllerPage = () => {
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
                   Current Room
                 </p>
-                <p className="text-2xl font-semibold text-white">{room.title}</p>
+                {isTitleEditing ? (
+                  <input
+                    ref={titleInputRef}
+                    value={titleInput}
+                    onChange={(event) => setTitleInput(event.target.value)}
+                    onBlur={handleTitleSave}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleTitleSave()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        setTitleInput(room.title)
+                        setIsTitleEditing(false)
+                      }
+                    }}
+                    className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1 text-lg font-semibold text-white"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="text-left text-2xl font-semibold text-white hover:text-emerald-200"
+                    onClick={() => {
+                      setTitleInput(room.title)
+                      setIsTitleEditing(true)
+                    }}
+                  >
+                    {room.title}
+                  </button>
+                )}
                 <p className="text-xs text-slate-500">
                   Created {formatDate(room.createdAt, room.timezone)}
                 </p>
@@ -491,23 +550,41 @@ export const ControllerPage = () => {
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <ConnectionIndicator status={connectionStatus} />
-              <Tooltip content="Undo timer delete (Cmd/Ctrl+Z)">
-                <button
-                  type="button"
-                  onClick={() => roomId && void undoTimerDelete(roomId)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
-                >
-                  ↺
-                </button>
-              </Tooltip>
-              <Tooltip content="Redo timer delete (Shift+Cmd/Ctrl+Z)">
-                <button
-                  type="button"
-                  onClick={() => roomId && void redoTimerDelete(roomId)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
-                >
+              <div className="flex flex-wrap items-center gap-3">
+                <ConnectionIndicator status={connectionStatus} />
+                <Tooltip content="Undo room change (Cmd/Ctrl+Z)">
+                  <button
+                    type="button"
+                    onClick={() => void undoRoomDelete()}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                  >
+                    ↺
+                  </button>
+                </Tooltip>
+                <Tooltip content="Redo room change (Shift+Cmd/Ctrl+Z)">
+                  <button
+                    type="button"
+                    onClick={() => void redoRoomDelete()}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                  >
+                    ↻
+                  </button>
+                </Tooltip>
+                <Tooltip content="Undo timer delete (use buttons; Cmd/Ctrl+Z now targets room)">
+                  <button
+                    type="button"
+                    onClick={() => roomId && void undoTimerDelete(roomId)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                  >
+                    ↺
+                  </button>
+                </Tooltip>
+                <Tooltip content="Redo timer delete">
+                  <button
+                    type="button"
+                    onClick={() => roomId && void redoTimerDelete(roomId)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                  >
                   ↻
                 </button>
               </Tooltip>

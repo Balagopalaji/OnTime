@@ -25,6 +25,8 @@ import {
   toMillis,
   type RoomSnapshot,
   type TimerSnapshot,
+  type RoomUpdatePatch,
+  type TimerUpdatePatch,
   type UndoEntry,
   type UndoStack,
 } from '../lib/undoStack'
@@ -133,7 +135,9 @@ const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
   Object.entries(stacks).forEach(([roomId, stack]) => {
     const pending = new Set(
       stack.undo
-        .filter((entry) => entry.kind === 'timer')
+        .filter((entry): entry is UndoEntry & { kind: 'timer'; snapshot: TimerSnapshot } => {
+          return entry.kind === 'timer' && entry.action === 'delete'
+        })
         .map((entry) => entry.snapshot.timer.id),
     )
     if (pending.size) {
@@ -165,6 +169,46 @@ const buildTimerSnapshot = (room: Room, timer: Timer): TimerSnapshot => ({
   timer: { ...timer, speaker: timer.speaker ?? '' },
   progress: computeProgress(room)[timer.id] ?? 0,
 })
+
+const finalizeRoomRemoval = async (snapshot: RoomSnapshot) => {
+  const batch = writeBatch(db)
+  snapshot.timers.forEach((timer) => {
+    batch.delete(doc(db, 'rooms', snapshot.id, 'timers', timer.id))
+  })
+  batch.delete(doc(db, 'rooms', snapshot.id))
+  await batch.commit()
+}
+
+const restoreRoomFromSnapshot = async (snapshot: RoomSnapshot) => {
+  const roomRef = doc(db, 'rooms', snapshot.id)
+  await setDoc(roomRef, {
+    ownerId: snapshot.ownerId,
+    title: snapshot.title,
+    timezone: snapshot.timezone,
+    createdAt: snapshot.createdAt,
+    config: snapshot.config,
+    state: snapshot.state,
+  })
+  const batch = writeBatch(db)
+  snapshot.timers.forEach((timer) => {
+    batch.set(doc(db, 'rooms', snapshot.id, 'timers', timer.id), timer)
+  })
+  await batch.commit()
+}
+
+const finalizeTimerRemoval = async (snapshot: TimerSnapshot) => {
+  await deleteDoc(doc(db, 'rooms', snapshot.roomId, 'timers', snapshot.timer.id))
+  await updateDoc(doc(db, 'rooms', snapshot.roomId), {
+    [`state.progress.${snapshot.timer.id}`]: 0,
+  })
+}
+
+const restoreTimerFromSnapshot = async (snapshot: TimerSnapshot) => {
+  await setDoc(doc(db, 'rooms', snapshot.roomId, 'timers', snapshot.timer.id), snapshot.timer)
+  await updateDoc(doc(db, 'rooms', snapshot.roomId), {
+    [`state.progress.${snapshot.timer.id}`]: snapshot.progress ?? 0,
+  })
+}
 
 const loadTimerStacksForUser = (userId: string): Record<string, UndoStack> => {
   if (typeof window === 'undefined') return {}
@@ -208,7 +252,10 @@ export const FirebaseDataProvider = ({
   const roomStackKeyForUser = user ? roomStackKey(user.uid) : null
 
   const syncPendingState = useCallback(() => {
-    const roomEntries = roomStackRef.current.undo.filter((entry) => entry.kind === 'room')
+    const roomEntries = roomStackRef.current.undo.filter(
+      (entry): entry is UndoEntry & { kind: 'room'; snapshot: RoomSnapshot } =>
+        entry.kind === 'room' && entry.action === 'delete',
+    )
     setPendingRooms(new Set(roomEntries.map((entry) => entry.roomId)))
     setPendingRoomPlaceholders(
       roomEntries.map((entry) => ({
@@ -223,7 +270,10 @@ export const FirebaseDataProvider = ({
       Array<{ timerId: string; title: string; order: number; expiresAt: number }>
     > = {}
     Object.entries(timerStacksRef.current).forEach(([roomId, stack]) => {
-      const entries = stack.undo.filter((entry) => entry.kind === 'timer')
+      const entries = stack.undo.filter(
+        (entry): entry is UndoEntry & { kind: 'timer'; snapshot: TimerSnapshot } =>
+          entry.kind === 'timer' && entry.action === 'delete',
+      )
       if (!entries.length) return
       timerPlaceholders[roomId] = entries.map((entry) => ({
         timerId: entry.snapshot.timer.id,
@@ -401,9 +451,30 @@ export const FirebaseDataProvider = ({
       createdAt: serverTimestamp(),
     })
     await setDoc(defaultTimerRef, defaultTimer)
+    const entry: UndoEntry = {
+      kind: 'room',
+      action: 'create',
+      id: randomId(),
+      roomId: room.id,
+      expiresAt: Date.now() + PLACEHOLDER_TTL,
+      snapshot: buildRoomSnapshot(room, [defaultTimer]),
+    }
+
+    const { stack, evicted } = pushWithCap(roomStackRef.current, entry, STACK_CAP)
+    roomStackRef.current = stack
+    if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
+      const batch = writeBatch(db)
+      evicted.snapshot.timers.forEach((timer) => {
+        batch.delete(doc(db, 'rooms', evicted.roomId, 'timers', timer.id))
+      })
+      batch.delete(doc(db, 'rooms', evicted.roomId))
+      await batch.commit()
+    }
+    syncPendingState()
+    persistRoomStack(stack)
 
     return room
-  }, [])
+  }, [persistRoomStack, syncPendingState])
 
   const deleteRoom: DataContextValue['deleteRoom'] = useCallback(
     async (roomId) => {
@@ -413,6 +484,7 @@ export const FirebaseDataProvider = ({
       if (!room) return
       const entry: UndoEntry = {
         kind: 'room',
+        action: 'delete',
         id: randomId(),
         roomId,
         expiresAt: Date.now() + PLACEHOLDER_TTL,
@@ -421,13 +493,8 @@ export const FirebaseDataProvider = ({
 
       const { stack, evicted } = pushWithCap(roomStackRef.current, entry, STACK_CAP)
       roomStackRef.current = stack
-      if (evicted && evicted.kind === 'room') {
-        const batch = writeBatch(db)
-        evicted.snapshot.timers.forEach((timer) => {
-          batch.delete(doc(db, 'rooms', evicted.roomId, 'timers', timer.id))
-        })
-        batch.delete(doc(db, 'rooms', evicted.roomId))
-        await batch.commit()
+      if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
+        await finalizeRoomRemoval(evicted.snapshot)
       }
       syncPendingState()
       persistRoomStack(stack)
@@ -451,16 +518,109 @@ export const FirebaseDataProvider = ({
       [`state.progress.${timer.id}`]: 0,
       'state.activeTimerId': getRoom(roomId)?.state.activeTimerId ?? timer.id,
     })
+    const room = getRoom(roomId)
+    if (room) {
+      const entry: UndoEntry = {
+        kind: 'timer',
+        action: 'create',
+        id: randomId(),
+        roomId,
+        expiresAt: Date.now() + PLACEHOLDER_TTL,
+        snapshot: buildTimerSnapshot(room, timer),
+      }
+      const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
+      const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
+      timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
+      if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
+        await deleteDoc(doc(db, 'rooms', roomId, 'timers', evicted.snapshot.timer.id))
+      }
+      syncPendingState()
+      persistTimerStack(roomId, stack)
+    }
     return timer
-  }, [getRoom])
+  }, [getRoom, persistTimerStack, syncPendingState])
 
-  const updateTimer: DataContextValue['updateTimer'] = useCallback(async (roomId, timerId, patch) => {
-    await updateDoc(doc(db, 'rooms', roomId, 'timers', timerId), patch)
-  }, [])
+  const updateTimer: DataContextValue['updateTimer'] = useCallback(
+    async (roomId, timerId, patch) => {
+      const timer = (timers[roomId] ?? []).find((candidate) => candidate.id === timerId)
+      if (timer) {
+        const before: TimerUpdatePatch = {}
+        ;(['title', 'duration', 'speaker', 'type', 'order'] as const).forEach((key) => {
+          if (patch[key] !== undefined) {
+            // @ts-expect-error index by key
+            before[key] = timer[key]
+          }
+        })
+        if (Object.keys(before).length > 0) {
+          const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
+          const { stack, evicted } = pushWithCap(
+            currentStack,
+            {
+              kind: 'timer',
+              action: 'update',
+              id: randomId(),
+              roomId,
+              timerId,
+              expiresAt: Date.now(),
+              before,
+              patch,
+            },
+            STACK_CAP,
+          )
+          timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
+          // Only finalize evicted deletes; updates just drop.
+          if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
+            await finalizeTimerRemoval(evicted.snapshot)
+          }
+          syncPendingState()
+          persistTimerStack(roomId, stack)
+        }
+      }
+      try {
+        await updateDoc(doc(db, 'rooms', roomId, 'timers', timerId), patch)
+      } catch (error) {
+        console.warn('Failed to update timer', error)
+      }
+    },
+    [persistTimerStack, syncPendingState, timers],
+  )
 
-  const updateRoomMeta: DataContextValue['updateRoomMeta'] = useCallback(async (roomId, patch) => {
-    await updateDoc(doc(db, 'rooms', roomId), patch)
-  }, [])
+  const updateRoomMeta: DataContextValue['updateRoomMeta'] = useCallback(
+    async (roomId, patch) => {
+      const room = rooms.find((candidate) => candidate.id === roomId)
+      if (room) {
+        const before: RoomUpdatePatch = {}
+        if (patch.title !== undefined) before.title = room.title
+        if (patch.timezone !== undefined) before.timezone = room.timezone
+        if (Object.keys(before).length > 0) {
+          const { stack, evicted } = pushWithCap(
+            roomStackRef.current,
+            {
+              kind: 'room',
+              action: 'update',
+              id: randomId(),
+              roomId,
+              expiresAt: Date.now(),
+              before,
+              patch: {
+                ...(patch.title !== undefined ? { title: patch.title } : {}),
+                ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}),
+              },
+            },
+            STACK_CAP,
+          )
+          roomStackRef.current = stack
+          if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
+            await finalizeRoomRemoval(evicted.snapshot)
+          }
+          syncPendingState()
+          persistRoomStack(stack)
+        }
+      }
+      await updateDoc(doc(db, 'rooms', roomId), patch)
+    },
+    [persistRoomStack, rooms, syncPendingState],
+  )
 
   const restoreTimer: DataContextValue['restoreTimer'] = useCallback(async (roomId, timer) => {
     await setDoc(doc(db, 'rooms', roomId, 'timers', timer.id), timer)
@@ -486,6 +646,7 @@ export const FirebaseDataProvider = ({
       if (!room || !timer) return
       const entry: UndoEntry = {
         kind: 'timer',
+        action: 'delete',
         id: randomId(),
         roomId,
         expiresAt: Date.now() + PLACEHOLDER_TTL,
@@ -494,8 +655,8 @@ export const FirebaseDataProvider = ({
 
       const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
       const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
-      if (evicted && evicted.kind === 'timer') {
-        await deleteDoc(doc(db, 'rooms', evicted.roomId, 'timers', evicted.snapshot.timer.id))
+      if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
+        await finalizeTimerRemoval(evicted.snapshot)
       }
       timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
       syncPendingState()
@@ -514,6 +675,24 @@ export const FirebaseDataProvider = ({
     roomStackRef.current = nextStack
     syncPendingState()
     persistRoomStack(nextStack)
+    if (entry.action === 'create') {
+      try {
+        await finalizeRoomRemoval(entry.snapshot)
+      } catch (error) {
+        console.warn('Failed to finalize room create undo', error)
+      }
+    } else if (entry.action === 'update') {
+      const updates: Partial<Record<string, string>> = {}
+      if (entry.before.title !== undefined) updates.title = entry.before.title
+      if (entry.before.timezone !== undefined) updates.timezone = entry.before.timezone
+      if (Object.keys(updates).length) {
+        try {
+          await updateDoc(doc(db, 'rooms', entry.roomId), updates)
+        } catch (error) {
+          console.warn('Failed to undo room update', error)
+        }
+      }
+    }
   }, [persistRoomStack, syncPendingState, user])
 
   const redoRoomDelete: DataContextValue['redoRoomDelete'] = useCallback(async () => {
@@ -526,13 +705,22 @@ export const FirebaseDataProvider = ({
     syncPendingState()
     persistRoomStack(nextStack)
 
-    const snapshot = entry.snapshot
-    const batch = writeBatch(db)
-    snapshot.timers.forEach((timer) => {
-      batch.delete(doc(db, 'rooms', snapshot.id, 'timers', timer.id))
-    })
-    batch.delete(doc(db, 'rooms', snapshot.id))
-    await batch.commit()
+    try {
+      if (entry.action === 'delete') {
+        await finalizeRoomRemoval(entry.snapshot)
+      } else if (entry.action === 'create') {
+        await restoreRoomFromSnapshot(entry.snapshot)
+      } else if (entry.action === 'update') {
+        const updates: Partial<Record<string, string>> = {}
+        if (entry.patch.title !== undefined) updates.title = entry.patch.title
+        if (entry.patch.timezone !== undefined) updates.timezone = entry.patch.timezone
+        if (Object.keys(updates).length) {
+          await updateDoc(doc(db, 'rooms', entry.roomId), updates)
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to redo room action', error)
+    }
     syncPendingState()
   }, [persistRoomStack, syncPendingState, user])
 
@@ -546,6 +734,27 @@ export const FirebaseDataProvider = ({
       timerStacksRef.current = { ...timerStacksRef.current, [roomId]: nextStack }
       syncPendingState()
       persistTimerStack(roomId, nextStack)
+      if (entry.action === 'create') {
+        try {
+          await finalizeTimerRemoval(entry.snapshot)
+        } catch (error) {
+          console.warn('Failed to undo timer create', error)
+        }
+      } else if (entry.action === 'update') {
+        const updates: Record<string, unknown> = {}
+        ;(['title', 'duration', 'speaker', 'type', 'order'] as const).forEach((key) => {
+          if (entry.before[key] !== undefined) {
+            updates[key] = entry.before[key] as unknown
+          }
+        })
+        if (Object.keys(updates).length) {
+          try {
+            await updateDoc(doc(db, 'rooms', roomId, 'timers', entry.timerId), updates)
+          } catch (error) {
+            console.warn('Failed to undo timer update', error)
+          }
+        }
+      }
     },
     [persistTimerStack, syncPendingState, user],
   )
@@ -562,11 +771,25 @@ export const FirebaseDataProvider = ({
       syncPendingState()
       persistTimerStack(roomId, nextStack)
 
-      const timerSnapshot = entry.snapshot
-      await deleteDoc(doc(db, 'rooms', roomId, 'timers', timerSnapshot.timer.id))
-      await updateDoc(doc(db, 'rooms', roomId), {
-        [`state.progress.${timerSnapshot.timer.id}`]: 0,
-      })
+      try {
+        if (entry.action === 'delete') {
+          await finalizeTimerRemoval(entry.snapshot)
+        } else if (entry.action === 'create') {
+          await restoreTimerFromSnapshot(entry.snapshot)
+        } else if (entry.action === 'update') {
+          const updates: Record<string, unknown> = {}
+          ;(['title', 'duration', 'speaker', 'type', 'order'] as const).forEach((key) => {
+            if (entry.patch[key] !== undefined) {
+              updates[key] = entry.patch[key] as unknown
+            }
+          })
+          if (Object.keys(updates).length) {
+            await updateDoc(doc(db, 'rooms', roomId, 'timers', entry.timerId), updates)
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to redo timer action', error)
+      }
     },
     [persistTimerStack, syncPendingState, user],
   )

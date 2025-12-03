@@ -55,9 +55,23 @@ export type TimerSnapshot = {
   progress: number
 }
 
+export type RoomUpdatePatch = Partial<{
+  title: string
+  timezone: string
+}>
+
+export type TimerUpdatePatch = Partial<{
+  title: string
+  duration: number
+  speaker: string
+  type: string
+  order: number
+}>
+
 export type UndoEntry =
   | {
       kind: 'room'
+      action: 'create' | 'delete'
       id: string
       roomId: string
       expiresAt: number
@@ -65,10 +79,30 @@ export type UndoEntry =
     }
   | {
       kind: 'timer'
+      action: 'create' | 'delete'
       id: string
       roomId: string
       expiresAt: number
       snapshot: TimerSnapshot
+    }
+  | {
+      kind: 'room'
+      action: 'update'
+      id: string
+      roomId: string
+      expiresAt: number
+      before: RoomUpdatePatch
+      patch: RoomUpdatePatch
+    }
+  | {
+      kind: 'timer'
+      action: 'update'
+      id: string
+      roomId: string
+      timerId: string
+      expiresAt: number
+      before: TimerUpdatePatch
+      patch: TimerUpdatePatch
     }
 
 export type UndoStack = {
@@ -118,7 +152,16 @@ export const loadStack = (key: string): UndoStack => {
   try {
     const parsed = JSON.parse(raw)
     if (parsed && Array.isArray(parsed.undo) && Array.isArray(parsed.redo)) {
-      return parsed as UndoStack
+      const normalizeEntry = (
+        entry: UndoEntry & { action?: 'create' | 'delete' | 'update' },
+      ): UndoEntry => ({
+        ...entry,
+        action: entry.action ?? 'delete',
+      })
+      return {
+        undo: parsed.undo.map((entry: UndoEntry) => normalizeEntry(entry)),
+        redo: parsed.redo.map((entry: UndoEntry) => normalizeEntry(entry)),
+      }
     }
   } catch (e) {
     console.warn('Failed to load undo stack', e)

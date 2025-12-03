@@ -12,6 +12,7 @@ export type TimerUndoSnapshot = {
 
 export type RoomUndoEntry = {
   kind: 'room'
+  action: 'create' | 'delete'
   id: string
   roomId: string
   expiresAt: number
@@ -20,6 +21,7 @@ export type RoomUndoEntry = {
 
 export type TimerUndoEntry = {
   kind: 'timer'
+  action: 'create' | 'delete'
   id: string
   roomId: string
   expiresAt: number
