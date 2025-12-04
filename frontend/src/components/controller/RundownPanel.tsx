@@ -121,7 +121,7 @@ export const RundownPanel = ({
     [timers],
   )
 
-  const { draggingId, overIndex, getItemProps, getHandleProps } = useSortableList({
+  const { draggingId, overIndex, getItemProps } = useSortableList({
     items: sortableItems,
     onReorder: (from, to) => {
       const clamped = Math.max(0, Math.min(to, timers.length))
@@ -130,8 +130,37 @@ export const RundownPanel = ({
       if (movingId) {
         onReorder(movingId, targetIndex)
       }
+      if (movingId) {
+        if (dropFlashTimeoutRef.current) {
+          window.clearTimeout(dropFlashTimeoutRef.current)
+        }
+        setJustDroppedId(movingId)
+        dropFlashTimeoutRef.current = window.setTimeout(() => setJustDroppedId(null), 200)
+      }
     },
   })
+
+  const displayTimers = useMemo(() => {
+    if (!draggingId || overIndex === null) return timers
+    const current = [...timers]
+    const fromIndex = current.findIndex((timer) => timer.id === draggingId)
+    if (fromIndex === -1) return timers
+    const [moving] = current.splice(fromIndex, 1)
+    const target = Math.max(0, Math.min(current.length, overIndex))
+    current.splice(target, 0, moving)
+    return current
+  }, [draggingId, overIndex, timers])
+
+  const [justDroppedId, setJustDroppedId] = useState<string | null>(null)
+  const dropFlashTimeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (dropFlashTimeoutRef.current) {
+        window.clearTimeout(dropFlashTimeoutRef.current)
+      }
+    }
+  }, [])
 
   return (
     <div className="rounded-3xl border border-slate-900/70 bg-slate-950/60 p-4 shadow-card sm:p-5">
@@ -148,7 +177,7 @@ export const RundownPanel = ({
       ) : (
         <>
           <SortableList className="mt-4 space-y-3">
-            {timers.map((timer, index) => {
+            {displayTimers.map((timer, index) => {
               const isActive = timer.id === activeTimerId
               const isSelected = timer.id === selectedTimerId
               const showSelectedState = isSelected && showSelection
@@ -158,7 +187,6 @@ export const RundownPanel = ({
                   ? activeTimerDisplay
                   : remainingLookup[timer.id] ?? durationLabel
               const itemProps = getItemProps(timer.id, index)
-              const handleProps = getHandleProps(timer.id, index)
               return (
                 <Fragment key={timer.id}>
                   {undoPlaceholder && undoPlaceholder.index === index && (
@@ -180,11 +208,6 @@ export const RundownPanel = ({
                       </div>
                     </li>
                   )}
-                  {draggingId && overIndex === index && (
-                    <div className="pointer-events-none px-8">
-                      <div className="h-0.5 rounded-full bg-slate-600/70" />
-                    </div>
-                  )}
                   <SortableItem
                     {...itemProps}
                     dragging={draggingId === timer.id}
@@ -197,6 +220,11 @@ export const RundownPanel = ({
                             ? 'border-emerald-400/70 bg-emerald-400/10'
                             : 'border-slate-800 bg-slate-950/30 hover:border-slate-600'
                       }`}
+                    style={
+                      justDroppedId === timer.id
+                        ? { transform: 'scale(1.01)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
+                        : undefined
+                    }
                     onClick={() => onSelect(timer.id)}
                   >
                     <div className="relative flex items-start justify-between gap-4">
@@ -228,14 +256,6 @@ export const RundownPanel = ({
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2 text-right text-xs text-slate-500">
-                        <button
-                          type="button"
-                          aria-label="Drag handle"
-                          className="self-end rounded-full border border-slate-700 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-400"
-                          {...handleProps}
-                        >
-                          Drag
-                        </button>
                         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
                           Duration
                         </p>

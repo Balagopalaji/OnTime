@@ -1,11 +1,13 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 
 export const SortableList = ({
   children,
   className = '',
-}: {
-  children: ReactNode
-  className?: string
-}) => {
-  return <ul className={className}>{children}</ul>
+  ...rest
+}: { children: ReactNode; className?: string } & HTMLAttributes<HTMLUListElement>) => {
+  return (
+    <ul className={className} {...rest}>
+      {children}
+    </ul>
+  )
 }

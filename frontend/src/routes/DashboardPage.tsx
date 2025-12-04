@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, Clock, Globe, GripVertical, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
+import { Check, Clock, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
 import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
 import { Tooltip } from '../components/core/Tooltip'
-import { useSortableList } from '../hooks/useSortableList'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
 import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
+
+const DEBUG_SORTABLE = false
 
 type DraftState = {
   title: string
@@ -57,6 +58,20 @@ export const DashboardPage = () => {
   const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
   const [dismissedPlaceholders, setDismissedPlaceholders] = useState<Set<string>>(new Set())
   const isCustomSort = sortBy === 'custom'
+  const [columnCount, setColumnCount] = useState<1 | 2 | 3 | 4>(() => {
+    if (typeof window === 'undefined') return 2
+    const saved = window.localStorage.getItem('stagetime.columns')
+    if (saved === '1' || saved === '2' || saved === '3' || saved === '4') return Number(saved) as 1 | 2 | 3 | 4
+    return 2
+  })
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+  const [justDroppedId, setJustDroppedId] = useState<string | null>(null)
+  const dragFromIndexRef = useRef<number | null>(null)
+  const overIndexRef = useRef<number | null>(null)
+  const itemRefs = useRef<Record<string, HTMLElement | null>>({})
+  const dragRectsRef = useRef<Array<{ id: string; index: number; centerX: number; centerY: number }>>([])
+  const dropFlashTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -68,6 +83,20 @@ export const DashboardPage = () => {
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (dropFlashTimeoutRef.current) {
+        window.clearTimeout(dropFlashTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('stagetime.columns', String(columnCount))
+    }
+  }, [columnCount])
 
   const orderKey = useCallback(
     (item: { order?: number; createdAt: number }) => item.order ?? item.createdAt,
@@ -106,85 +135,254 @@ export const DashboardPage = () => {
     [compareCards, visiblePlaceholders],
   )
 
-  const sortableItems = useMemo(
-    () => (isCustomSort ? sortedRooms.map((room) => ({ id: room.id, value: room })) : []),
-    [isCustomSort, sortedRooms],
+  const renderEntries = useMemo(
+    () =>
+      [...sortedRooms, ...sortedPlaceholders]
+        .map((entry) =>
+          'id' in entry && 'ownerId' in entry
+            ? { kind: 'room' as const, id: entry.id, order: orderKey(entry), room: entry }
+            : {
+                kind: 'placeholder' as const,
+                id: `placeholder-${(entry as PlaceholderEntry).roomId}`,
+                order: orderKey(entry as PlaceholderEntry),
+                placeholder: entry as PlaceholderEntry,
+              },
+        )
+        .sort((a, b) => a.order - b.order),
+    [orderKey, sortedPlaceholders, sortedRooms],
   )
 
-  const { draggingId, overIndex, getItemProps, getHandleProps } = useSortableList({
-    items: sortableItems,
-    onReorder: (from, to) => {
-      if (!isCustomSort) return
-      const movingId = sortableItems[from]?.id
-      if (movingId && reorderRoom) {
-        void reorderRoom(movingId, to)
+  const displayEntries = useMemo(() => {
+    if (!draggingId || overIndex === null) return renderEntries
+    const current = [...renderEntries]
+    const fromIndex = current.findIndex((entry) => entry.id === draggingId)
+    if (fromIndex === -1) return renderEntries
+    const [moving] = current.splice(fromIndex, 1)
+    const target = Math.max(0, Math.min(current.length, overIndex))
+    current.splice(target, 0, moving)
+    return current
+  }, [draggingId, overIndex, renderEntries])
+
+  useEffect(() => {
+    const validKeys = new Set(renderEntries.map((entry) => entry.id))
+    Object.keys(itemRefs.current).forEach((key) => {
+      if (!validKeys.has(key)) {
+        delete itemRefs.current[key]
       }
-    },
-  })
+    })
+  }, [renderEntries])
 
-  const renderDropIndicator = (key: string) => (
-    <li key={key} className="col-span-full px-2">
-      <div className="h-0.5 rounded-full bg-slate-700/70" />
-    </li>
-  )
+  const resolveTargetIndex = useCallback((clientX: number, clientY: number) => {
+    const rects = dragRectsRef.current
+    if (!rects.length) return null
+    let best = rects[0]
+    let bestDist =
+      (best.centerX - clientX) * (best.centerX - clientX) + (best.centerY - clientY) * (best.centerY - clientY)
+    rects.slice(1).forEach((r) => {
+      const dist = (r.centerX - clientX) * (r.centerX - clientX) + (r.centerY - clientY) * (r.centerY - clientY)
+      if (dist < bestDist) {
+        best = r
+        bestDist = dist
+      }
+    })
+    return best.index
+  }, [])
 
-  const renderPlaceholderItem = (placeholder: PlaceholderEntry) => (
-    <li
-      key={`placeholder-${placeholder.roomId}`}
-      className="flex items-center justify-center rounded-3xl border border-dashed border-slate-800/70 bg-slate-950/50 p-6 text-center text-sm text-slate-200"
-    >
-      <div className="flex flex-col items-center gap-2">
-        <span className="font-semibold text-slate-100">Removed “{placeholder.title}”</span>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="rounded-full border border-emerald-400/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
-            onClick={() => void undoRoomDelete()}
-          >
-            Undo
-          </button>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            className="text-slate-500 transition hover:text-slate-200"
-            onClick={() =>
-              setDismissedPlaceholders((prev) => {
-                const next = new Set(prev)
-                next.add(placeholder.roomId)
-                return next
-              })
+  const pointerMoveHandler = useRef<(event: PointerEvent) => void>()
+  const pointerUpHandler = useRef<(event: PointerEvent) => void>()
+
+  const endDrag = useCallback(() => {
+    window.setTimeout(() => {
+      setDraggingId(null)
+      setOverIndex(null)
+      dragFromIndexRef.current = null
+      overIndexRef.current = null
+      dragRectsRef.current = []
+      if (pointerMoveHandler.current) {
+        document.removeEventListener('pointermove', pointerMoveHandler.current)
+      }
+      if (pointerUpHandler.current) {
+        document.removeEventListener('pointerup', pointerUpHandler.current)
+      }
+      pointerMoveHandler.current = undefined
+      pointerUpHandler.current = undefined
+    }, 48)
+  }, [])
+
+  const startPointerDrag = useCallback(
+    (id: string, listIndex: number, event: React.PointerEvent) => {
+      event.preventDefault()
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      dragRectsRef.current = renderEntries
+        .map((entry, idx) => {
+          const el = itemRefs.current[entry.id]
+          const rect = el?.getBoundingClientRect()
+          return rect
+            ? {
+                id: entry.id,
+                index: idx,
+                centerX: rect.left + rect.width / 2,
+                centerY: rect.top + rect.height / 2,
+              }
+            : null
+        })
+        .filter((entry): entry is { id: string; index: number; centerX: number; centerY: number } => entry !== null)
+      dragFromIndexRef.current = listIndex
+      overIndexRef.current = listIndex
+      setDraggingId(id)
+      setOverIndex(listIndex)
+      pointerMoveHandler.current = (nativeEvent: PointerEvent) => {
+        const target = resolveTargetIndex(nativeEvent.clientX, nativeEvent.clientY)
+        if (target !== null) {
+          setOverIndex(target)
+          overIndexRef.current = target
+        }
+      }
+      pointerUpHandler.current = () => {
+        const fromIndex = dragFromIndexRef.current
+        const toIndex = overIndexRef.current ?? listIndex
+        const movingEntry = fromIndex != null ? renderEntries[fromIndex] : null
+        if (
+          isCustomSort &&
+          reorderRoom &&
+          movingEntry &&
+          movingEntry.kind === 'room' &&
+          fromIndex != null &&
+          toIndex != null &&
+          fromIndex !== toIndex
+        ) {
+          const working = [...renderEntries]
+          const [moved] = working.splice(fromIndex, 1)
+          working.splice(toIndex, 0, moved)
+          const roomOrder = working.filter((entry) => entry.kind === 'room').map((entry) => entry.id)
+          const targetRoomIndex = roomOrder.indexOf(movingEntry.id)
+          if (targetRoomIndex >= 0) {
+            if (dropFlashTimeoutRef.current) {
+              window.clearTimeout(dropFlashTimeoutRef.current)
             }
-          >
-            ×
-          </button>
-        </div>
-      </div>
-    </li>
+            setJustDroppedId(movingEntry.id)
+            dropFlashTimeoutRef.current = window.setTimeout(() => setJustDroppedId(null), 200)
+            void reorderRoom(movingEntry.id, targetRoomIndex)
+          }
+        }
+        endDrag()
+      }
+      document.addEventListener('pointermove', pointerMoveHandler.current)
+      document.addEventListener('pointerup', pointerUpHandler.current)
+    },
+    [endDrag, isCustomSort, renderEntries, reorderRoom, resolveTargetIndex],
   )
 
-  const renderRoomCard = (room: (typeof sortedRooms)[number], index: number, enableSort: boolean) => {
-    const itemProps = enableSort ? getItemProps(room.id, index) : {}
-    const handleProps = enableSort ? getHandleProps(room.id, index) : null
+  const renderPlaceholderItem = (placeholder: PlaceholderEntry, listIndex: number) => {
+    return (
+      <SortableItem
+        key={`placeholder-${placeholder.roomId}`}
+        ref={(node) => {
+          itemRefs.current[`placeholder-${placeholder.roomId}`] = node
+        }}
+        over={draggingId !== null && overIndex === listIndex}
+        className="relative flex items-center justify-center rounded-3xl border border-dashed border-slate-800/70 bg-slate-950/50 p-6 text-center text-sm text-slate-200"
+        data-sort-index={listIndex}
+        draggable={false}
+      >
+        {DEBUG_SORTABLE && (
+          <span className="absolute left-2 top-2 rounded bg-slate-800 px-2 py-1 text-[10px] font-semibold text-emerald-200">
+            {listIndex + 1}
+          </span>
+        )}
+        <div className="flex flex-col items-center gap-2">
+          <span className="font-semibold text-slate-100">Removed “{placeholder.title}”</span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="rounded-full border border-emerald-400/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
+              onClick={() => void undoRoomDelete()}
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              className="text-slate-500 transition hover:text-slate-200"
+              onClick={() =>
+                setDismissedPlaceholders((prev) => {
+                  const next = new Set(prev)
+                  next.add(placeholder.roomId)
+                  return next
+                })
+              }
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      </SortableItem>
+    )
+  }
+
+  const renderRoomCard = (
+    room: (typeof sortedRooms)[number],
+    listIndex: number,
+    enableSort: boolean,
+  ) => {
+    const cardDragProps =
+      enableSort && isCustomSort
+        ? {
+            onPointerDown: (event: React.PointerEvent) => {
+              const target = event.target as HTMLElement
+              const blocker = target.closest(
+                'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
+              )
+              if (blocker && blocker !== event.currentTarget) {
+                return
+              }
+              startPointerDrag(room.id, listIndex, event)
+            },
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key === ' ' || event.key.toLowerCase() === 'enter') {
+                const target = event.target as HTMLElement
+                const blocker = target.closest(
+                  'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
+                )
+                if (blocker && blocker !== event.currentTarget) {
+                  return
+                }
+                event.preventDefault()
+                startPointerDrag(room.id, listIndex, event as unknown as React.PointerEvent)
+              }
+            },
+            tabIndex: 0,
+            role: 'button' as const,
+            'aria-grabbed': draggingId === room.id,
+          }
+        : {}
     return (
       <SortableItem
         key={room.id}
-        {...itemProps}
+        ref={(node) => {
+          itemRefs.current[room.id] = node
+        }}
         dragging={enableSort && draggingId === room.id}
-        over={enableSort && overIndex === index}
-        className={`relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${enableSort ? 'cursor-grab' : ''}`}
+        over={enableSort && overIndex === listIndex}
+        dataIndex={listIndex}
+        draggable={false}
+        className={`group relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${
+          enableSort ? 'cursor-grab select-none transition-transform duration-150' : ''
+        }`}
+        {...cardDragProps}
+        style={
+          justDroppedId === room.id
+            ? { transform: 'scale(1.01)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
+            : undefined
+        }
       >
+        {DEBUG_SORTABLE && (
+          <span className="absolute left-2 top-2 rounded bg-slate-800 px-2 py-1 text-[10px] font-semibold text-emerald-200">
+            {listIndex + 1}
+          </span>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2">
-            {enableSort && handleProps && (
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-300 transition hover:border-emerald-500/70 hover:text-emerald-200"
-                aria-label="Drag to reorder"
-                {...handleProps}
-              >
-                <GripVertical size={14} />
-              </button>
-            )}
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Room</p>
           </div>
           <div className="flex items-start gap-2">
@@ -762,6 +960,21 @@ export const DashboardPage = () => {
               <option value="custom">Custom</option>
             </select>
           </label>
+          {isCustomSort && (
+            <label className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Columns</span>
+              <select
+                value={columnCount}
+                onChange={(event) => setColumnCount(Number(event.target.value) as 1 | 2 | 3 | 4)}
+                className="rounded-full border border-slate-800 bg-slate-900 px-2 py-1 text-xs uppercase tracking-wide text-slate-200"
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={4}>4</option>
+              </select>
+            </label>
+          )}
           <span className="text-sm text-slate-400">{ownedRooms.length} total</span>
           <div className="flex items-center gap-2">
             <Tooltip content="Undo (Cmd/Ctrl+Z)">
@@ -789,33 +1002,42 @@ export const DashboardPage = () => {
       </div>
 
       <section className="space-y-4">
-        {sortedRooms.length === 0 && sortedPlaceholders.length === 0 ? (
+        {renderEntries.filter((entry) => entry.kind === 'room').length === 0 && sortedPlaceholders.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-emerald-900/60 bg-emerald-500/5 p-10 text-center text-sm text-slate-300">
             Create a room to start building a rundown.
           </div>
         ) : isCustomSort ? (
-          <SortableList className="grid gap-4 md:grid-cols-2">
-            {(() => {
-              const placeholderQueue = [...sortedPlaceholders]
-              const nodes: ReactNode[] = []
-              sortedRooms.forEach((room, index) => {
-                while (placeholderQueue.length && orderKey(placeholderQueue[0]) <= orderKey(room)) {
-                  nodes.push(renderPlaceholderItem(placeholderQueue.shift()!))
-                }
-                if (draggingId && overIndex === index) {
-                  nodes.push(renderDropIndicator(`drop-${room.id}-before`))
-                }
-                nodes.push(renderRoomCard(room, index, true))
-              })
-              placeholderQueue.forEach((placeholder) => nodes.push(renderPlaceholderItem(placeholder)))
-              if (draggingId && overIndex === sortedRooms.length) {
-                nodes.push(renderDropIndicator('drop-end'))
-              }
-              return nodes
-            })()}
+          <SortableList
+            className={`grid grid-cols-1 gap-4 ${
+              columnCount === 1
+                ? 'md:grid-cols-1'
+                : columnCount === 2
+                  ? 'md:grid-cols-2'
+                  : columnCount === 3
+                    ? 'md:grid-cols-3'
+                    : 'md:grid-cols-4'
+            }`}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => event.preventDefault()}
+          >
+            {displayEntries.map((entry, listIndex) =>
+              entry.kind === 'room'
+                ? renderRoomCard(entry.room, listIndex, true)
+                : renderPlaceholderItem(entry.placeholder, listIndex),
+            )}
           </SortableList>
         ) : (
-          <SortableList className="grid gap-4 md:grid-cols-2">
+          <SortableList
+            className={`grid grid-cols-1 gap-4 ${
+              columnCount === 1
+                ? 'md:grid-cols-1'
+                : columnCount === 2
+                  ? 'md:grid-cols-2'
+                  : columnCount === 3
+                    ? 'md:grid-cols-3'
+                    : 'md:grid-cols-4'
+            }`}
+          >
             {[...sortedRooms.map((room) => ({
               kind: 'room' as const,
               createdAt: room.createdAt,
