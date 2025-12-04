@@ -68,6 +68,7 @@ export type DataContextValue = {
   resetTimer: (roomId: string) => Promise<void>
   nudgeTimer: (roomId: string, deltaMs: number) => Promise<void>
   setClockMode: (roomId: string, enabled: boolean) => Promise<void>
+  setClockFormat: (roomId: string, format: '24h' | 'ampm') => Promise<void>
   updateMessage: (
     roomId: string,
     message: Partial<{ text: string; color: MessageColor; visible: boolean }>,

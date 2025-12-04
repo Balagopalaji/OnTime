@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export const useClock = (timezone?: string) => {
+export const useClock = (timezone?: string, mode: '24h' | 'ampm' = '24h') => {
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -15,5 +15,6 @@ export const useClock = (timezone?: string) => {
     minute: '2-digit',
     second: '2-digit',
     timeZone: timezone,
+    hour12: mode === 'ampm',
   }).format(now)
 }

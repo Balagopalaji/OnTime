@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef } from 'react'
 import { Clock3, Minus, Pause, Play, Plus, RotateCcw } from 'lucide-react'
 import { Tooltip } from '../core/Tooltip'
 
@@ -20,6 +21,44 @@ export const TransportControls = ({
   showClock?: boolean
   disableActions?: boolean
 }) => {
+  const holdRef = useRef<number | null>(null)
+  const holdDirectionRef = useRef<-1 | 1>(1)
+  const holdStartRef = useRef<number | null>(null)
+
+  const stopHold = useCallback(() => {
+    if (holdRef.current) {
+      window.clearInterval(holdRef.current)
+      holdRef.current = null
+    }
+    holdStartRef.current = null
+  }, [])
+
+  const startHold = useCallback(
+    (direction: -1 | 1) => {
+      if (disableActions) return
+      stopHold()
+      holdDirectionRef.current = direction
+      holdStartRef.current = Date.now()
+      onNudge(direction * 60_000)
+      holdRef.current = window.setInterval(() => {
+        const elapsed = holdStartRef.current ? Date.now() - holdStartRef.current : 0
+        const stepMinutes = elapsed >= 3000 ? 10 : 1
+        onNudge(stepMinutes * 60_000 * holdDirectionRef.current)
+      }, 140)
+    },
+    [disableActions, onNudge, stopHold],
+  )
+
+  useEffect(() => {
+    const handleUp = () => stopHold()
+    window.addEventListener('mouseup', handleUp)
+    window.addEventListener('touchend', handleUp)
+    return () => {
+      window.removeEventListener('mouseup', handleUp)
+      window.removeEventListener('touchend', handleUp)
+    }
+  }, [stopHold])
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Tooltip content="Start Timer">
@@ -42,20 +81,19 @@ export const TransportControls = ({
           <Pause size={18} />
         </button>
       </Tooltip>
-      <Tooltip content="Reset Timer">
-        <button
-          type="button"
-          onClick={onReset}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-rose-500/50 text-rose-200 transition hover:border-rose-200 disabled:opacity-40"
-          disabled={disableActions}
-        >
-          <RotateCcw size={18} />
-        </button>
-      </Tooltip>
       <Tooltip content="Remove 1 minute">
         <button
           type="button"
-          onClick={() => onNudge(-60_000)}
+          onMouseDown={(event) => {
+            event.preventDefault()
+            startHold(-1)
+          }}
+          onMouseUp={stopHold}
+          onTouchStart={(event) => {
+            event.preventDefault()
+            startHold(-1)
+          }}
+          onTouchEnd={stopHold}
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
           disabled={disableActions}
         >
@@ -65,11 +103,30 @@ export const TransportControls = ({
       <Tooltip content="Add 1 minute">
         <button
           type="button"
-          onClick={() => onNudge(60_000)}
+          onMouseDown={(event) => {
+            event.preventDefault()
+            startHold(1)
+          }}
+          onMouseUp={stopHold}
+          onTouchStart={(event) => {
+            event.preventDefault()
+            startHold(1)
+          }}
+          onTouchEnd={stopHold}
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
           disabled={disableActions}
         >
           <Plus size={18} />
+        </button>
+      </Tooltip>
+      <Tooltip content="Reset Timer">
+        <button
+          type="button"
+          onClick={onReset}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-rose-500/50 text-rose-200 transition hover:border-rose-200 disabled:opacity-40"
+          disabled={disableActions}
+        >
+          <RotateCcw size={18} />
         </button>
       </Tooltip>
       {onToggleClock && (

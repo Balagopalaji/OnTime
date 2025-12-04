@@ -55,6 +55,7 @@ export const RundownPanel = ({
   onEdit,
   onReorder,
   onPauseActive,
+  onActiveNudge,
   onReset,
   undoPlaceholder,
   onUndoDelete,
@@ -73,10 +74,54 @@ export const RundownPanel = ({
   onEdit: (timerId: string, patch: { title?: string; speaker?: string; duration?: number }) => void
   onReorder: (timerId: string, targetIndex: number) => void
   onPauseActive: () => void
+  onActiveNudge: (deltaMs: number) => void
   onReset: (timerId: string) => void
   undoPlaceholder?: { index: number; title: string; timerId?: string; expiresAt?: number } | null
   onUndoDelete?: () => void
 }) => {
+  const holdIntervalRef = useRef<number | null>(null)
+  const holdAccumRef = useRef(0)
+  const holdStartRef = useRef<number | null>(null)
+  const holdTargetRef = useRef<string | null>(null)
+  const holdDirectionRef = useRef<-1 | 1>(1)
+
+  const applyDurationDelta = (timerId: string, deltaMinutes: number) => {
+    const timer = timers.find((candidate) => candidate.id === timerId)
+    if (!timer) return
+    if (timer.id === activeTimerId && isRunning) {
+      onActiveNudge(deltaMinutes * 60_000)
+      return
+    }
+    const nextSeconds = Math.max(0, timer.duration + deltaMinutes * 60)
+    onEdit(timerId, { duration: nextSeconds })
+  }
+
+  const stopHoldAdjust = () => {
+    if (holdIntervalRef.current) {
+      window.clearInterval(holdIntervalRef.current)
+      holdIntervalRef.current = null
+    }
+    holdTargetRef.current = null
+    holdAccumRef.current = 0
+    holdStartRef.current = null
+  }
+
+  const startHoldAdjust = (timerId: string, direction: -1 | 1) => {
+    stopHoldAdjust()
+    holdTargetRef.current = timerId
+    holdDirectionRef.current = direction
+    holdAccumRef.current = 0
+    holdStartRef.current = Date.now()
+    applyDurationDelta(timerId, direction)
+    holdIntervalRef.current = window.setInterval(() => {
+      if (!holdTargetRef.current) return
+      const elapsedMs = holdStartRef.current ? Date.now() - holdStartRef.current : 0
+      const step = elapsedMs >= 3000 ? 10 : 1
+      applyDurationDelta(holdTargetRef.current, holdDirectionRef.current * step)
+      holdAccumRef.current += step
+    }, 130)
+  }
+
   const [editingDuration, setEditingDuration] = useState<{
     id: string
     value: string
@@ -85,6 +130,20 @@ export const RundownPanel = ({
   const listRef = useRef<HTMLUListElement | null>(null)
 
   const focusedIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    return () => stopHoldAdjust()
+  }, [])
+
+  useEffect(() => {
+    const stop = () => stopHoldAdjust()
+    window.addEventListener('mouseup', stop)
+    window.addEventListener('touchend', stop)
+    return () => {
+      window.removeEventListener('mouseup', stop)
+      window.removeEventListener('touchend', stop)
+    }
+  }, [])
 
   useEffect(() => {
     if (!editingDuration) {
@@ -308,17 +367,17 @@ export const RundownPanel = ({
                                     value: formatDurationInput(timer.duration),
                                   })
                                 }
-                              >
-                                {displayValue}
-                              </button>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <Tooltip content="Start Segment">
-                              <button
-                                type="button"
-                                onClick={() => onStart(timer.id)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/70 text-emerald-200 transition hover:border-emerald-200"
+                          >
+                            {displayValue}
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Tooltip content="Start Segment">
+                          <button
+                            type="button"
+                            onClick={() => onStart(timer.id)}
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/70 text-emerald-200 transition hover:border-emerald-200"
                               >
                                 <Play size={16} />
                               </button>
@@ -329,17 +388,51 @@ export const RundownPanel = ({
                                 onClick={() => {
                                   if (isActive) onPauseActive()
                                 }}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
-                                disabled={!isActive || !isRunning}
-                              >
-                                <Pause size={16} />
-                              </button>
-                            </Tooltip>
-                            <Tooltip content="Reset Segment">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onReset(timer.id)
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
+                            disabled={!isActive || !isRunning}
+                          >
+                            <Pause size={16} />
+                          </button>
+                        </Tooltip>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            startHoldAdjust(timer.id, -1)
+                          }}
+                          onMouseUp={stopHoldAdjust}
+                          onTouchStart={(event) => {
+                            event.preventDefault()
+                            startHoldAdjust(timer.id, -1)
+                          }}
+                          onTouchEnd={stopHoldAdjust}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
+                          aria-label="Decrease duration"
+                        >
+                          −
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            startHoldAdjust(timer.id, 1)
+                          }}
+                          onMouseUp={stopHoldAdjust}
+                          onTouchStart={(event) => {
+                            event.preventDefault()
+                            startHoldAdjust(timer.id, 1)
+                          }}
+                          onTouchEnd={stopHoldAdjust}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
+                          aria-label="Increase duration"
+                        >
+                          +
+                        </button>
+                        <Tooltip content="Reset Segment">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onReset(timer.id)
                                 }}
                                 className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
                               >

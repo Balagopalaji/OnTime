@@ -24,6 +24,7 @@ export type RoomState = {
   elapsedOffset: number // ms
   progress: Record<string, number> // timerId -> elapsed ms
   showClock: boolean
+  clockMode?: '24h' | 'ampm'
   message: {
     text: string
     visible: boolean

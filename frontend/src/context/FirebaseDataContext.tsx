@@ -62,6 +62,7 @@ type RoomDoc = {
     elapsedOffset?: number
     progress?: Record<string, number>
     showClock?: boolean
+    clockMode?: '24h' | 'ampm'
     message?: {
       text?: string
       visible?: boolean
@@ -92,6 +93,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
       elapsedOffset: data.state?.elapsedOffset ?? 0,
       progress: data.state?.progress ?? {},
       showClock: data.state?.showClock ?? false,
+      clockMode: data.state?.clockMode ?? '24h',
       message: {
         text: data.state?.message?.text ?? '',
         visible: data.state?.message?.visible ?? false,
@@ -161,6 +163,7 @@ const buildRoomSnapshot = (room: Room, timers: Timer[]): RoomSnapshot => ({
   config: { ...room.config },
   state: {
     ...room.state,
+    clockMode: room.state.clockMode ?? '24h',
     progress: computeProgress(room),
   },
   timers: timers.map((timer) => ({
@@ -193,7 +196,10 @@ const restoreRoomFromSnapshot = async (snapshot: RoomSnapshot) => {
     order: snapshot.order,
     createdAt: snapshot.createdAt,
     config: snapshot.config,
-    state: snapshot.state,
+    state: {
+      ...snapshot.state,
+      clockMode: snapshot.state.clockMode ?? '24h',
+    },
   })
   const batch = writeBatch(db)
   snapshot.timers.forEach((timer) => {
@@ -456,6 +462,7 @@ export const FirebaseDataProvider = ({
         elapsedOffset: 0,
         progress: { [defaultTimer.id]: 0 },
         showClock: false,
+        clockMode: '24h',
         message: { text: '', visible: false, color: 'green' },
       },
     }
@@ -464,6 +471,10 @@ export const FirebaseDataProvider = ({
     await setDoc(roomRef, {
       ...room,
       createdAt: serverTimestamp(),
+      state: {
+        ...room.state,
+        clockMode: '24h',
+      },
     })
     await setDoc(defaultTimerRef, defaultTimer)
     const entry: UndoEntry = {
@@ -558,6 +569,7 @@ export const FirebaseDataProvider = ({
   const updateTimer: DataContextValue['updateTimer'] = useCallback(
     async (roomId, timerId, patch) => {
       const timer = (timers[roomId] ?? []).find((candidate) => candidate.id === timerId)
+      const room = rooms.find((candidate) => candidate.id === roomId)
       if (timer) {
         const before: TimerUpdatePatch = {}
         ;(['title', 'duration', 'speaker', 'type', 'order'] as const).forEach((key) => {
@@ -593,11 +605,21 @@ export const FirebaseDataProvider = ({
       }
       try {
         await updateDoc(doc(db, 'rooms', roomId, 'timers', timerId), patch)
+        if (patch.duration !== undefined && room) {
+          const stateUpdates: Record<string, unknown> = {
+            [`state.progress.${timerId}`]: 0,
+          }
+          if (room.state.activeTimerId === timerId) {
+            stateUpdates['state.elapsedOffset'] = 0
+            stateUpdates['state.startedAt'] = room.state.isRunning ? Date.now() : null
+          }
+          await updateDoc(doc(db, 'rooms', roomId), stateUpdates)
+        }
       } catch (error) {
         console.warn('Failed to update timer', error)
       }
     },
-    [persistTimerStack, syncPendingState, timers],
+    [persistTimerStack, rooms, syncPendingState, timers],
   )
 
   const updateRoomMeta: DataContextValue['updateRoomMeta'] = useCallback(
@@ -645,13 +667,18 @@ export const FirebaseDataProvider = ({
   }, [])
 
   const resetTimerProgress: DataContextValue['resetTimerProgress'] = useCallback(async (roomId, timerId) => {
-    await updateDoc(doc(db, 'rooms', roomId), {
+    const room = rooms.find((candidate) => candidate.id === roomId)
+    const isActive = room?.state.activeTimerId === timerId
+    const updates: Record<string, unknown> = {
       [`state.progress.${timerId}`]: 0,
-      'state.elapsedOffset': 0,
-      'state.startedAt': null,
-      'state.isRunning': false,
-    })
-  }, [])
+    }
+    if (isActive) {
+      updates['state.elapsedOffset'] = 0
+      updates['state.startedAt'] = null
+      updates['state.isRunning'] = false
+    }
+    await updateDoc(doc(db, 'rooms', roomId), updates)
+  }, [rooms])
 
   const deleteTimer: DataContextValue['deleteTimer'] = useCallback(
     async (roomId, timerId) => {
@@ -954,13 +981,12 @@ export const FirebaseDataProvider = ({
     const room = getRoom(roomId)
     const activeId = room?.state.activeTimerId
     if (!room || !activeId) return
-    const progress = computeProgress(room)
-    const nextElapsed = Math.max(0, (progress[activeId] ?? 0) - deltaMs)
-    progress[activeId] = nextElapsed
-    const isActiveRunning = room.state.isRunning && room.state.activeTimerId === activeId
+    const nextElapsedOffset = room.state.elapsedOffset - deltaMs
+    const progress = { ...(room.state.progress ?? {}) }
+    progress[activeId] = Math.max(0, nextElapsedOffset)
     await updateDoc(doc(db, 'rooms', roomId), {
-      'state.elapsedOffset': nextElapsed,
-      'state.startedAt': isActiveRunning ? Date.now() : room.state.startedAt,
+      'state.elapsedOffset': nextElapsedOffset,
+      'state.startedAt': room.state.startedAt,
       'state.progress': progress,
     })
   }, [getRoom])
@@ -968,6 +994,12 @@ export const FirebaseDataProvider = ({
   const setClockMode: DataContextValue['setClockMode'] = useCallback(async (roomId, enabled) => {
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.showClock': enabled,
+    })
+  }, [])
+
+  const setClockFormat: DataContextValue['setClockFormat'] = useCallback(async (roomId, format) => {
+    await updateDoc(doc(db, 'rooms', roomId), {
+      'state.clockMode': format,
     })
   }, [])
 
@@ -1013,6 +1045,7 @@ export const FirebaseDataProvider = ({
       resetTimer,
       nudgeTimer,
       setClockMode,
+      setClockFormat,
       updateMessage,
     }),
     [
@@ -1047,6 +1080,7 @@ export const FirebaseDataProvider = ({
       resetTimer,
       nudgeTimer,
       setClockMode,
+      setClockFormat,
       updateMessage,
     ],
   )

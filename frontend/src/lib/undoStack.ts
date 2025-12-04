@@ -29,6 +29,7 @@ export type RoomSnapshot = {
     elapsedOffset: number
     progress: Record<string, number>
     showClock: boolean
+    clockMode?: '24h' | 'ampm'
     message: { text: string; visible: boolean; color: string }
   }
   timers: Array<{

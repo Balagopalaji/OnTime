@@ -16,6 +16,7 @@ export const LiveTimerPreview = ({
   onToggleClock,
   message,
   timezone,
+  clockMode = '24h',
 }: {
   timer: Timer | undefined
   showClock: boolean
@@ -28,8 +29,9 @@ export const LiveTimerPreview = ({
   onToggleClock: () => void
   message: { text: string; color: MessageColor; visible: boolean }
   timezone: string
+  clockMode?: '24h' | 'ampm'
 }) => {
-  const clockTime = useClock(timezone)
+  const clockTime = useClock(timezone, clockMode)
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
     yellow: 'bg-amber-400/90 text-slate-900',

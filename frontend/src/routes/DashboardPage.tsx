@@ -975,7 +975,9 @@ export const DashboardPage = () => {
               </select>
             </label>
           )}
-          <span className="text-sm text-slate-400">{ownedRooms.length} total</span>
+          <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
+            {ownedRooms.length} rooms
+          </span>
           <div className="flex items-center gap-2">
             <Tooltip content="Undo (Cmd/Ctrl+Z)">
               <button

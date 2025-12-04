@@ -39,6 +39,7 @@ export const ControllerPage = () => {
     resetTimerProgress,
     setActiveTimer,
     setClockMode,
+    setClockFormat,
     updateMessage,
     connectionStatus,
     pendingTimerPlaceholders,
@@ -160,10 +161,11 @@ export const ControllerPage = () => {
 
   const resetControlTimer = () => {
     if (!currentRoomId || !controlTargetTimerId) return
-    if (controlTargetTimerId !== room.state.activeTimerId) {
-      void setActiveTimer(room.id, controlTargetTimerId)
+    if (controlTargetTimerId === room.state.activeTimerId) {
+      void resetTimer(currentRoomId)
+      return
     }
-    void resetTimer(currentRoomId)
+    void resetTimerProgress(currentRoomId, controlTargetTimerId)
   }
 
   const nudgeActiveTimer = (deltaMs: number) => {
@@ -301,6 +303,38 @@ export const ControllerPage = () => {
     }
   }
 
+  const pendingLiveNudge = useRef(0)
+  const liveNudgeFlush = useRef<number | null>(null)
+  const flushLiveNudge = useCallback(() => {
+    if (!currentRoomId) return
+    const delta = pendingLiveNudge.current
+    pendingLiveNudge.current = 0
+    if (delta !== 0) {
+      void nudgeTimer(currentRoomId, delta)
+    }
+    if (liveNudgeFlush.current) {
+      window.clearTimeout(liveNudgeFlush.current)
+      liveNudgeFlush.current = null
+    }
+  }, [currentRoomId, nudgeTimer])
+
+  const pendingStagedDelta = useRef(0)
+  const stagedFlush = useRef<number | null>(null)
+  const flushStaged = useCallback(() => {
+    if (!currentRoomId || !selectedTimer) return
+    const deltaMs = pendingStagedDelta.current
+    pendingStagedDelta.current = 0
+    if (deltaMs !== 0) {
+      const deltaMinutes = Math.round(deltaMs / 60_000)
+      const next = Math.max(0, Math.round(selectedTimer.duration / 60) + deltaMinutes)
+      void updateTimer(currentRoomId, selectedTimer.id, { duration: next * 60 })
+    }
+    if (stagedFlush.current) {
+      window.clearTimeout(stagedFlush.current)
+      stagedFlush.current = null
+    }
+  }, [currentRoomId, selectedTimer, updateTimer])
+
   useEffect(() => {
     if (!currentRoomId) return
     let repeatInterval: ReturnType<typeof window.setInterval> | null = null
@@ -323,20 +357,20 @@ export const ControllerPage = () => {
         selectedTimer &&
         selectedTimer.id !== activeTimer?.id
 
+      const signedDelta = direction === 'up' ? deltaMs : -deltaMs
+
       if (adjustSelected) {
-        const deltaSeconds = Math.round(deltaMs / 1000)
-        const stagedSeconds = Math.max(0, Math.round(selectedTimer.duration))
-        const nextSeconds =
-          direction === 'up'
-            ? stagedSeconds + deltaSeconds
-            : Math.max(0, stagedSeconds - deltaSeconds)
-        void updateTimer(currentRoomId, selectedTimer.id, { duration: nextSeconds })
+        pendingStagedDelta.current += signedDelta
+        if (!stagedFlush.current) {
+          stagedFlush.current = window.setTimeout(flushStaged, 100)
+        }
         return
       }
-      void nudgeTimer(
-        currentRoomId,
-        direction === 'up' ? deltaMs : -deltaMs,
-      )
+
+      pendingLiveNudge.current += signedDelta
+      if (!liveNudgeFlush.current) {
+        liveNudgeFlush.current = window.setTimeout(flushLiveNudge, 100)
+      }
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -391,9 +425,9 @@ export const ControllerPage = () => {
           repeatTimeout = window.setTimeout(() => {
             repeatInterval = window.setInterval(
               () => performArrowAction(direction, deltaMs),
-              80,
+              110,
             )
-          }, 250)
+          }, 180)
           break
         }
         case 'BracketLeft': {
@@ -422,6 +456,8 @@ export const ControllerPage = () => {
     window.addEventListener('blur', stopRepeat)
     return () => {
       stopRepeat()
+      flushLiveNudge()
+      flushStaged()
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', stopRepeat)
@@ -439,6 +475,8 @@ export const ControllerPage = () => {
     updateTimer,
     handleStartNextTimer,
     handleStartPrevTimer,
+    flushLiveNudge,
+    flushStaged,
   ])
 
   if (!room || !roomId) {
@@ -537,54 +575,60 @@ export const ControllerPage = () => {
                     </datalist>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    className="inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-400/60"
-                    onClick={() => {
-                      setTimezoneInput(room.timezone)
-                      setIsTimezoneEditing(true)
-                    }}
-                  >
-                    {room.timezone}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-400/60"
+                      onClick={() => {
+                        setTimezoneInput(room.timezone)
+                        setIsTimezoneEditing(true)
+                      }}
+                    >
+                      {room.timezone}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-emerald-400/60"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        if (room) {
+                          const next = (room.state.clockMode ?? '24h') === '24h' ? 'ampm' : '24h'
+                          void setClockFormat(room.id, next)
+                        }
+                      }}
+                      aria-label="Toggle 12/24 hour clock"
+                    >
+                      {(room?.state.clockMode ?? '24h') === '24h' ? '24h' : 'AM·PM'}
+                    </button>
+                  </div>
                 )}
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                    Clock
+                  </span>
+                  <span className="text-xs text-slate-300">
+                    {(room?.state.clockMode ?? '24h') === '24h' ? '24-hour' : 'AM/PM'}
+                  </span>
+                </div>
               </div>
             </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <ConnectionIndicator status={connectionStatus} />
-                <Tooltip content="Undo room change (Cmd/Ctrl+Z)">
-                  <button
-                    type="button"
-                    onClick={() => void undoRoomDelete()}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
-                  >
-                    ↺
-                  </button>
-                </Tooltip>
-                <Tooltip content="Redo room change (Shift+Cmd/Ctrl+Z)">
-                  <button
-                    type="button"
-                    onClick={() => void redoRoomDelete()}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
-                  >
-                    ↻
-                  </button>
-                </Tooltip>
-                <Tooltip content="Undo timer delete (use buttons; Cmd/Ctrl+Z now targets room)">
-                  <button
-                    type="button"
-                    onClick={() => roomId && void undoTimerDelete(roomId)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
-                  >
-                    ↺
-                  </button>
-                </Tooltip>
-                <Tooltip content="Redo timer delete">
-                  <button
-                    type="button"
-                    onClick={() => roomId && void redoTimerDelete(roomId)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
-                  >
+            <div className="flex flex-wrap items-center gap-3">
+              <ConnectionIndicator status={connectionStatus} />
+              <Tooltip content="Undo timer delete (Cmd/Ctrl+Z)">
+                <button
+                  type="button"
+                  onClick={() => roomId && void undoTimerDelete(roomId)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                >
+                  ↺
+                </button>
+              </Tooltip>
+              <Tooltip content="Redo timer delete (Shift+Cmd/Ctrl+Z)">
+                <button
+                  type="button"
+                  onClick={() => roomId && void redoTimerDelete(roomId)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                >
                   ↻
                 </button>
               </Tooltip>
@@ -822,6 +866,7 @@ export const ControllerPage = () => {
               handleReorderTimer(timerId, targetIndex)
             }}
             onPauseActive={pauseControlTimer}
+            onActiveNudge={nudgeActiveTimer}
             onReset={handleResetTimer}
             undoPlaceholder={undoPlaceholder}
             onUndoDelete={roomId ? () => void undoTimerDelete(roomId) : undefined}
@@ -845,6 +890,7 @@ export const ControllerPage = () => {
               onReset={resetControlTimer}
               onNudge={nudgeActiveTimer}
               onToggleClock={handleToggleClock}
+              clockMode={room.state.clockMode ?? '24h'}
               message={room.state.message}
               timezone={room.timezone}
             />
