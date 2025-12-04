@@ -84,6 +84,7 @@ export const RundownPanel = ({
   const holdStartRef = useRef<number | null>(null)
   const holdTargetRef = useRef<string | null>(null)
   const holdDirectionRef = useRef<-1 | 1>(1)
+  const holdingRef = useRef(false)
 
   const applyDurationDelta = (timerId: string, deltaMinutes: number) => {
     const timer = timers.find((candidate) => candidate.id === timerId)
@@ -104,22 +105,24 @@ export const RundownPanel = ({
     holdTargetRef.current = null
     holdAccumRef.current = 0
     holdStartRef.current = null
+    holdingRef.current = false
   }
 
   const startHoldAdjust = (timerId: string, direction: -1 | 1) => {
     stopHoldAdjust()
+    holdingRef.current = true
     holdTargetRef.current = timerId
     holdDirectionRef.current = direction
     holdAccumRef.current = 0
     holdStartRef.current = Date.now()
     applyDurationDelta(timerId, direction)
     holdIntervalRef.current = window.setInterval(() => {
-      if (!holdTargetRef.current) return
+      if (!holdingRef.current || !holdTargetRef.current) return
       const elapsedMs = holdStartRef.current ? Date.now() - holdStartRef.current : 0
       const step = elapsedMs >= 3000 ? 10 : 1
       applyDurationDelta(holdTargetRef.current, holdDirectionRef.current * step)
       holdAccumRef.current += step
-    }, 130)
+    }, 150)
   }
 
   const [editingDuration, setEditingDuration] = useState<{
@@ -137,11 +140,11 @@ export const RundownPanel = ({
 
   useEffect(() => {
     const stop = () => stopHoldAdjust()
-    window.addEventListener('mouseup', stop)
-    window.addEventListener('touchend', stop)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
     return () => {
-      window.removeEventListener('mouseup', stop)
-      window.removeEventListener('touchend', stop)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
     }
   }, [])
 
@@ -396,35 +399,31 @@ export const RundownPanel = ({
                         </Tooltip>
                         <button
                           type="button"
-                          onMouseDown={(event) => {
+                          onPointerDown={(event) => {
                             event.preventDefault()
+                            event.currentTarget.setPointerCapture?.(event.pointerId)
                             startHoldAdjust(timer.id, -1)
                           }}
-                          onMouseUp={stopHoldAdjust}
-                          onTouchStart={(event) => {
-                            event.preventDefault()
-                            startHoldAdjust(timer.id, -1)
-                          }}
-                          onTouchEnd={stopHoldAdjust}
+                          onPointerUp={stopHoldAdjust}
+                          onPointerCancel={stopHoldAdjust}
                           className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
                           aria-label="Decrease duration"
+                          style={{ touchAction: 'none' }}
                         >
                           −
                         </button>
                         <button
                           type="button"
-                          onMouseDown={(event) => {
+                          onPointerDown={(event) => {
                             event.preventDefault()
+                            event.currentTarget.setPointerCapture?.(event.pointerId)
                             startHoldAdjust(timer.id, 1)
                           }}
-                          onMouseUp={stopHoldAdjust}
-                          onTouchStart={(event) => {
-                            event.preventDefault()
-                            startHoldAdjust(timer.id, 1)
-                          }}
-                          onTouchEnd={stopHoldAdjust}
+                          onPointerUp={stopHoldAdjust}
+                          onPointerCancel={stopHoldAdjust}
                           className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
                           aria-label="Increase duration"
+                          style={{ touchAction: 'none' }}
                         >
                           +
                         </button>

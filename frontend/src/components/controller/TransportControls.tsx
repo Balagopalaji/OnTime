@@ -24,12 +24,14 @@ export const TransportControls = ({
   const holdRef = useRef<number | null>(null)
   const holdDirectionRef = useRef<-1 | 1>(1)
   const holdStartRef = useRef<number | null>(null)
+  const holdingRef = useRef(false)
 
   const stopHold = useCallback(() => {
     if (holdRef.current) {
       window.clearInterval(holdRef.current)
       holdRef.current = null
     }
+    holdingRef.current = false
     holdStartRef.current = null
   }, [])
 
@@ -37,25 +39,27 @@ export const TransportControls = ({
     (direction: -1 | 1) => {
       if (disableActions) return
       stopHold()
+      holdingRef.current = true
       holdDirectionRef.current = direction
       holdStartRef.current = Date.now()
       onNudge(direction * 60_000)
       holdRef.current = window.setInterval(() => {
+        if (!holdingRef.current) return
         const elapsed = holdStartRef.current ? Date.now() - holdStartRef.current : 0
         const stepMinutes = elapsed >= 3000 ? 10 : 1
         onNudge(stepMinutes * 60_000 * holdDirectionRef.current)
-      }, 140)
+      }, 150)
     },
     [disableActions, onNudge, stopHold],
   )
 
   useEffect(() => {
     const handleUp = () => stopHold()
-    window.addEventListener('mouseup', handleUp)
-    window.addEventListener('touchend', handleUp)
+    window.addEventListener('pointerup', handleUp)
+    window.addEventListener('pointercancel', handleUp)
     return () => {
-      window.removeEventListener('mouseup', handleUp)
-      window.removeEventListener('touchend', handleUp)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleUp)
     }
   }, [stopHold])
 
@@ -81,40 +85,36 @@ export const TransportControls = ({
           <Pause size={18} />
         </button>
       </Tooltip>
-      <Tooltip content="Remove 1 minute">
+      <Tooltip content="Remove 1 minute (hold to repeat)">
         <button
           type="button"
-          onMouseDown={(event) => {
+          onPointerDown={(event) => {
             event.preventDefault()
+            event.currentTarget.setPointerCapture?.(event.pointerId)
             startHold(-1)
           }}
-          onMouseUp={stopHold}
-          onTouchStart={(event) => {
-            event.preventDefault()
-            startHold(-1)
-          }}
-          onTouchEnd={stopHold}
+          onPointerUp={stopHold}
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
           disabled={disableActions}
+          aria-label="Remove time"
+          style={{ touchAction: 'none' }}
         >
           <Minus size={18} />
         </button>
       </Tooltip>
-      <Tooltip content="Add 1 minute">
+      <Tooltip content="Add 1 minute (hold to repeat)">
         <button
           type="button"
-          onMouseDown={(event) => {
+          onPointerDown={(event) => {
             event.preventDefault()
+            event.currentTarget.setPointerCapture?.(event.pointerId)
             startHold(1)
           }}
-          onMouseUp={stopHold}
-          onTouchStart={(event) => {
-            event.preventDefault()
-            startHold(1)
-          }}
-          onTouchEnd={stopHold}
+          onPointerUp={stopHold}
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
           disabled={disableActions}
+          aria-label="Add time"
+          style={{ touchAction: 'none' }}
         >
           <Plus size={18} />
         </button>
