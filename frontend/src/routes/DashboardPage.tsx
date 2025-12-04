@@ -372,7 +372,7 @@ export const DashboardPage = () => {
         {...cardDragProps}
         style={
           justDroppedId === room.id
-            ? { transform: 'scale(1.01)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
+            ? { transform: 'scale(0.99)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
             : undefined
         }
       >

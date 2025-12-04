@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type RefObject } from 'react'
 
 type SortableItem<T> = {
   id: string
@@ -44,7 +44,8 @@ type UseSortableListResult<T> = {
 export const useSortableList = <T,>({
   items,
   onReorder,
-}: UseSortableListProps<T>): UseSortableListResult<T> => {
+  containerRef,
+}: UseSortableListProps<T> & { containerRef?: RefObject<HTMLElement | null> }): UseSortableListResult<T> => {
   const [dragState, setDragState] = useState<DragState>({ draggingId: null, overIndex: null })
   const draggingIdRef = useRef<string | null>(null)
   const dragFromIndexRef = useRef<number | null>(null)
@@ -88,7 +89,8 @@ export const useSortableList = <T,>({
   }
 
   const hydrateRects = () => {
-    const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-sort-index]'))
+    const root: ParentNode = (containerRef?.current as ParentNode | null) ?? document
+    const elements = Array.from(root.querySelectorAll<HTMLElement>('[data-sort-index]'))
     rectsRef.current = elements
       .map((el) => {
         const idx = Number(el.dataset.sortIndex)

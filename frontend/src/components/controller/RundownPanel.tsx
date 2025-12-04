@@ -82,6 +82,7 @@ export const RundownPanel = ({
     value: string
   } | null>(null)
   const durationInputRef = useRef<HTMLInputElement | null>(null)
+  const listRef = useRef<HTMLUListElement | null>(null)
 
   const focusedIdRef = useRef<string | null>(null)
 
@@ -123,6 +124,7 @@ export const RundownPanel = ({
 
   const { draggingId, overIndex, getItemProps } = useSortableList({
     items: sortableItems,
+    containerRef: listRef,
     onReorder: (from, to) => {
       const clamped = Math.max(0, Math.min(to, timers.length))
       const targetIndex = clamped
@@ -176,7 +178,7 @@ export const RundownPanel = ({
         </p>
       ) : (
         <>
-          <SortableList className="mt-4 space-y-3">
+          <SortableList ref={listRef} className="mt-4 space-y-3">
             {displayTimers.map((timer, index) => {
               const isActive = timer.id === activeTimerId
               const isSelected = timer.id === selectedTimerId
@@ -222,7 +224,7 @@ export const RundownPanel = ({
                       }`}
                     style={
                       justDroppedId === timer.id
-                        ? { transform: 'scale(1.01)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
+                        ? { transform: 'scale(0.99)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
                         : undefined
                     }
                     onClick={() => onSelect(timer.id)}
