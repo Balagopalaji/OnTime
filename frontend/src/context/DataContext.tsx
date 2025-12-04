@@ -20,7 +20,13 @@ export type DataContextValue = {
   connectionStatus: ConnectionStatus
   setConnectionStatus: (status: ConnectionStatus) => void
   pendingRooms: Set<string>
-  pendingRoomPlaceholders: Array<{ roomId: string; title: string; expiresAt: number; createdAt: number }>
+  pendingRoomPlaceholders: Array<{
+    roomId: string
+    title: string
+    expiresAt: number
+    createdAt: number
+    order?: number
+  }>
   pendingTimers: Record<string, Set<string>>
   pendingTimerPlaceholders: Record<
     string,
@@ -45,6 +51,8 @@ export type DataContextValue = {
     roomId: string,
     patch: Partial<Pick<Room, 'title' | 'timezone'>>,
   ) => Promise<void>
+  moveRoom?: (roomId: string, direction: 'up' | 'down') => Promise<void>
+  reorderRoom?: (roomId: string, targetIndex: number) => Promise<void>
   restoreTimer: (roomId: string, timer: Timer) => Promise<void>
   resetTimerProgress: (roomId: string, timerId: string) => Promise<void>
   deleteTimer: (roomId: string, timerId: string) => Promise<void>

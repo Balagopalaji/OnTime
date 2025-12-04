@@ -37,6 +37,8 @@ const DEFAULT_CONFIG = {
   criticalSec: 30,
 }
 
+const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
+
 const STACK_CAP = 10
 const PLACEHOLDER_TTL = 10_000
 const createEmptyStack = (): UndoStack => ({ undo: [], redo: [] })
@@ -52,6 +54,10 @@ const normalizeState = (state: MockState): MockState => {
     const timers = state.timers[room.id] ?? []
     const progress = { ...(room.state.progress ?? {}) }
     let nextRoom = room
+    if (nextRoom.order === undefined) {
+      didChange = true
+      nextRoom = { ...nextRoom, order: nextRoom.createdAt }
+    }
 
     let progressChanged = false
     timers.forEach((timer) => {
@@ -144,6 +150,7 @@ const buildRoomSnapshot = (room: Room, timers: Timer[]): UndoEntry & { kind: 'ro
   title: room.title,
   timezone: room.timezone,
   createdAt: room.createdAt,
+  order: room.order,
   config: { ...room.config },
   state: {
     ...room.state,
@@ -212,6 +219,7 @@ const createSeedState = (): MockState => {
       title: 'StageTime Demo Room',
       timezone: getTimezoneSuggestion(),
       createdAt: Date.now() - 1000 * 60 * 60 * 24,
+      order: 10,
       config: DEFAULT_CONFIG,
       state: {
         activeTimerId: timers[0].id,
@@ -268,7 +276,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   )
   const [pendingRooms, setPendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders, setPendingRoomPlaceholders] = useState<
-    Array<{ roomId: string; title: string; expiresAt: number; createdAt: number }>
+    Array<{ roomId: string; title: string; expiresAt: number; createdAt: number; order?: number }>
   >([])
   const [pendingTimers, setPendingTimers] = useState<Record<string, Set<string>>>({})
   const [pendingTimerPlaceholders, setPendingTimerPlaceholders] = useState<
@@ -291,6 +299,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         title: entry.snapshot.title,
         expiresAt: entry.expiresAt,
         createdAt: entry.snapshot.createdAt,
+        order: entry.snapshot.order,
       })),
     )
 
@@ -400,7 +409,10 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener('storage', handleStorage)
   }, [])
   const visibleRooms = useMemo(
-    () => state.rooms.filter((room) => !pendingRooms.has(room.id)),
+    () =>
+      state.rooms
+        .filter((room) => !pendingRooms.has(room.id))
+        .sort((a, b) => roomOrderKey(a) - roomOrderKey(b)),
     [pendingRooms, state.rooms],
   )
 
@@ -542,6 +554,10 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const createRoom = useCallback(
     async ({ title, timezone, ownerId }: CreateRoomInput) => {
+      const ownedRooms = state.rooms.filter(
+        (candidate) => candidate.ownerId === ownerId && !pendingRooms.has(candidate.id),
+      )
+      const nextOrder = ownedRooms.reduce((max, room) => Math.max(max, roomOrderKey(room)), 0) + 10
       const id = randomId()
       const defaultTimer = {
         id: randomId(),
@@ -558,9 +574,10 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         timezone,
         ownerId,
         createdAt: Date.now(),
-      config: DEFAULT_CONFIG,
-      state: {
-        activeTimerId: defaultTimer.id,
+        order: nextOrder,
+        config: DEFAULT_CONFIG,
+        state: {
+          activeTimerId: defaultTimer.id,
           isRunning: false,
           startedAt: null,
           elapsedOffset: 0,
@@ -607,7 +624,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
       return room
     },
-    [persistRoomStack, setState, syncPendingState],
+    [pendingRooms, persistRoomStack, setState, state.rooms, syncPendingState],
   )
 
   const deleteRoom = useCallback(
@@ -803,6 +820,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         title: snapshot.title,
         timezone: snapshot.timezone,
         createdAt: snapshot.createdAt,
+        order: snapshot.order,
         config: snapshot.config,
         state: snapshot.state,
       }
@@ -869,6 +887,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         title: snapshot.title,
         timezone: snapshot.timezone,
         createdAt: snapshot.createdAt,
+        order: snapshot.order,
         config: snapshot.config,
         state: snapshot.state,
       }
@@ -1032,6 +1051,63 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     timerStacksRef.current = {}
     syncPendingState()
   }, [syncPendingState, user])
+
+  const moveRoom: DataContextValue['moveRoom'] = useCallback(
+    async (roomId: string, direction: 'up' | 'down') => {
+      if (!user) return
+      setState((prev) => {
+        const owned = prev.rooms
+          .filter((room) => room.ownerId === user.uid && !pendingRooms.has(room.id))
+          .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
+        const index = owned.findIndex((room) => room.id === roomId)
+        const swapIndex = direction === 'up' ? index - 1 : index + 1
+        if (index === -1 || swapIndex < 0 || swapIndex >= owned.length) {
+          return prev
+        }
+        ;[owned[index], owned[swapIndex]] = [owned[swapIndex], owned[index]]
+        const updatedOrders = owned.reduce<Record<string, number>>((acc, room, idx) => {
+          acc[room.id] = (idx + 1) * 10
+          return acc
+        }, {})
+        return {
+          ...prev,
+          rooms: prev.rooms.map((room) =>
+            updatedOrders[room.id] !== undefined ? { ...room, order: updatedOrders[room.id] } : room,
+          ),
+        }
+      })
+      await delay()
+    },
+    [pendingRooms, setState, user],
+  )
+
+  const reorderRoom: DataContextValue['reorderRoom'] = useCallback(
+    async (roomId: string, targetIndex: number) => {
+      if (!user) return
+      setState((prev) => {
+        const owned = prev.rooms
+          .filter((room) => room.ownerId === user.uid && !pendingRooms.has(room.id))
+          .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
+        const fromIndex = owned.findIndex((room) => room.id === roomId)
+        if (fromIndex === -1) return prev
+        const [moved] = owned.splice(fromIndex, 1)
+        const clampedIndex = Math.max(0, Math.min(targetIndex, owned.length))
+        owned.splice(clampedIndex, 0, moved)
+        const updatedOrders = owned.reduce<Record<string, number>>((acc, room, idx) => {
+          acc[room.id] = (idx + 1) * 10
+          return acc
+        }, {})
+        return {
+          ...prev,
+          rooms: prev.rooms.map((room) =>
+            updatedOrders[room.id] !== undefined ? { ...room, order: updatedOrders[room.id] } : room,
+          ),
+        }
+      })
+      await delay()
+    },
+    [pendingRooms, setState, user],
+  )
 
   const moveTimer = useCallback(
     async (roomId: string, timerId: string, direction: 'up' | 'down') => {
@@ -1269,6 +1345,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       createTimer,
       updateTimer,
       updateRoomMeta,
+      moveRoom,
+      reorderRoom,
       restoreTimer,
       resetTimerProgress,
       reorderTimer,
@@ -1302,6 +1380,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       createTimer,
       updateTimer,
       updateRoomMeta,
+      moveRoom,
+      reorderRoom,
       restoreTimer,
       resetTimerProgress,
       reorderTimer,

@@ -30,3 +30,8 @@
 6) **Docs**
    - Brief usage note for the sortable hook/components (props, callbacks, handle usage).
    - Note room custom sort + reusable DnD in docs/tasklist.
+
+## Usage Notes
+- `useSortableList` consumes `{ items: Array<{ id, value }>, onReorder(from, to) }` and returns `getItemProps` (spread on the list item for drag/drop) plus `getHandleProps` (spread on a grab handle; Enter/Space toggles drag, ArrowUp/ArrowDown moves focus target).
+- `SortableList`/`SortableItem` are unstyled `<ul>/<li>` wrappers; consumers supply layout classes and keep placeholders inline.
+- Dashboard rooms now support a **Custom** sort that reuses the shared sortable and keeps inline delete placeholders plus undo/redo intact; drops call `reorderRoom` for persistence.

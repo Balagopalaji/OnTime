@@ -49,6 +49,7 @@ type RoomDoc = {
   title: string
   ownerId: string
   timezone: string
+  order?: number
   createdAt: number | { seconds: number; nanoseconds: number }
   config?: {
     warningSec?: number
@@ -79,6 +80,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
     title: data.title,
     timezone: data.timezone,
     createdAt: createdAtMs,
+    order: data.order ?? createdAtMs,
     config: {
       warningSec: data.config?.warningSec ?? DEFAULT_CONFIG.warningSec,
       criticalSec: data.config?.criticalSec ?? DEFAULT_CONFIG.criticalSec,
@@ -117,6 +119,8 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
   order: data.order ?? 0,
 })
 
+const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
+
 const computeProgress = (room: Room) => {
   const progress = { ...(room.state.progress ?? {}) }
   const activeId = room.state.activeTimerId
@@ -153,6 +157,7 @@ const buildRoomSnapshot = (room: Room, timers: Timer[]): RoomSnapshot => ({
   title: room.title,
   timezone: room.timezone,
   createdAt: room.createdAt,
+  order: room.order,
   config: { ...room.config },
   state: {
     ...room.state,
@@ -185,6 +190,7 @@ const restoreRoomFromSnapshot = async (snapshot: RoomSnapshot) => {
     ownerId: snapshot.ownerId,
     title: snapshot.title,
     timezone: snapshot.timezone,
+    order: snapshot.order,
     createdAt: snapshot.createdAt,
     config: snapshot.config,
     state: snapshot.state,
@@ -238,7 +244,7 @@ export const FirebaseDataProvider = ({
   )
   const [pendingRooms, setPendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders, setPendingRoomPlaceholders] = useState<
-    Array<{ roomId: string; title: string; expiresAt: number; createdAt: number }>
+    Array<{ roomId: string; title: string; expiresAt: number; createdAt: number; order?: number }>
   >([])
   const [pendingTimers, setPendingTimers] = useState<Record<string, Set<string>>>({})
   const [pendingTimerPlaceholders, setPendingTimerPlaceholders] = useState<
@@ -263,6 +269,7 @@ export const FirebaseDataProvider = ({
         title: entry.snapshot.title,
         expiresAt: entry.expiresAt,
         createdAt: entry.snapshot.createdAt,
+        order: entry.snapshot.order,
       })),
     )
 
@@ -308,9 +315,9 @@ export const FirebaseDataProvider = ({
     const unsubscribe = onSnapshot(
       collection(db, 'rooms'),
       (snapshot) => {
-        const next = snapshot.docs.map((docSnap) =>
-          mapRoom(docSnap.id, docSnap.data() as RoomDoc),
-        )
+        const next = snapshot.docs
+          .map((docSnap) => mapRoom(docSnap.id, docSnap.data() as RoomDoc))
+          .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
         setRooms(next)
         setConnectionStatus('online')
       },
@@ -380,7 +387,10 @@ export const FirebaseDataProvider = ({
   }, [fallbackToMock, syncPendingState, user])
 
   const visibleRooms = useMemo(
-    () => rooms.filter((room) => !pendingRooms.has(room.id)),
+    () =>
+      rooms
+        .filter((room) => !pendingRooms.has(room.id))
+        .sort((a, b) => roomOrderKey(a) - roomOrderKey(b)),
     [pendingRooms, rooms],
   )
 
@@ -416,6 +426,9 @@ export const FirebaseDataProvider = ({
   }, [getTimers, visibleRooms])
 
   const createRoom: DataContextValue['createRoom'] = useCallback(async ({ title, timezone, ownerId }) => {
+    const ownerRooms = rooms.filter((candidate) => candidate.ownerId === ownerId && !pendingRooms.has(candidate.id))
+    const nextOrder =
+      ownerRooms.reduce((max, room) => Math.max(max, roomOrderKey(room)), 0) + 10
     const roomRef = doc(collection(db, 'rooms'))
     const defaultTimerRef = doc(collection(roomRef, 'timers'))
     const defaultTimer: Timer = {
@@ -434,6 +447,7 @@ export const FirebaseDataProvider = ({
       title,
       timezone,
       createdAt: Date.now(),
+      order: nextOrder,
       config: DEFAULT_CONFIG,
       state: {
         activeTimerId: defaultTimer.id,
@@ -475,7 +489,7 @@ export const FirebaseDataProvider = ({
     persistRoomStack(stack)
 
     return room
-  }, [persistRoomStack, syncPendingState])
+  }, [pendingRooms, persistRoomStack, rooms, syncPendingState])
 
   const deleteRoom: DataContextValue['deleteRoom'] = useCallback(
     async (roomId) => {
@@ -808,6 +822,47 @@ export const FirebaseDataProvider = ({
     syncPendingState()
   }, [syncPendingState, user])
 
+  const moveRoom: DataContextValue['moveRoom'] = useCallback(
+    async (roomId: string, direction: 'up' | 'down') => {
+      if (!user) return
+      const owned = rooms.filter(
+        (room) => room.ownerId === user.uid && !pendingRooms.has(room.id),
+      )
+      const ordered = [...owned].sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
+      const index = ordered.findIndex((room) => room.id === roomId)
+      const swapIndex = direction === 'up' ? index - 1 : index + 1
+      if (index === -1 || swapIndex < 0 || swapIndex >= ordered.length) return
+      ;[ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]]
+      const batch = writeBatch(db)
+      ordered.forEach((room, idx) => {
+        batch.update(doc(db, 'rooms', room.id), { order: (idx + 1) * 10 })
+      })
+      await batch.commit()
+    },
+    [pendingRooms, rooms, user],
+  )
+
+  const reorderRoom: DataContextValue['reorderRoom'] = useCallback(
+    async (roomId: string, targetIndex: number) => {
+      if (!user) return
+      const owned = rooms.filter(
+        (room) => room.ownerId === user.uid && !pendingRooms.has(room.id),
+      )
+      const ordered = [...owned].sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
+      const fromIndex = ordered.findIndex((room) => room.id === roomId)
+      if (fromIndex === -1) return
+      const [moved] = ordered.splice(fromIndex, 1)
+      const clampedIndex = Math.max(0, Math.min(targetIndex, ordered.length))
+      ordered.splice(clampedIndex, 0, moved)
+      const batch = writeBatch(db)
+      ordered.forEach((room, idx) => {
+        batch.update(doc(db, 'rooms', room.id), { order: (idx + 1) * 10 })
+      })
+      await batch.commit()
+    },
+    [pendingRooms, rooms, user],
+  )
+
   const moveTimer: DataContextValue['moveTimer'] = useCallback(async (roomId, timerId, direction) => {
     const list = getTimers(roomId)
     const ordered = [...list].sort((a, b) => a.order - b.order)
@@ -945,6 +1000,8 @@ export const FirebaseDataProvider = ({
       createTimer,
       updateTimer,
       updateRoomMeta,
+      moveRoom,
+      reorderRoom,
       restoreTimer,
       resetTimerProgress,
       deleteTimer,
@@ -977,6 +1034,8 @@ export const FirebaseDataProvider = ({
       createTimer,
       updateTimer,
       updateRoomMeta,
+      moveRoom,
+      reorderRoom,
       restoreTimer,
       resetTimerProgress,
       deleteTimer,

@@ -20,6 +20,7 @@ export type RoomSnapshot = {
   title: string
   timezone: string
   createdAt: number
+  order?: number
   config: { warningSec: number; criticalSec: number }
   state: {
     activeTimerId: string | null

@@ -37,6 +37,7 @@ export type Room = {
   title: string
   timezone: string
   createdAt: number
+  order?: number
   config: RoomConfig
   state: RoomState
 }

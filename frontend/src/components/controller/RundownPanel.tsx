@@ -1,9 +1,12 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Timer } from '../../types'
 import { formatDuration } from '../../lib/time'
 import { EditableField } from '../core/EditableField'
 import { Pause, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { Tooltip } from '../core/Tooltip'
+import { useSortableList } from '../../hooks/useSortableList'
+import { SortableList } from '../sortable/SortableList'
+import { SortableItem } from '../sortable/SortableItem'
 
 const formatDurationInput = (durationSec: number) => {
   const hours = Math.floor(durationSec / 3600)
@@ -74,8 +77,6 @@ export const RundownPanel = ({
   undoPlaceholder?: { index: number; title: string; timerId?: string; expiresAt?: number } | null
   onUndoDelete?: () => void
 }) => {
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [editingDuration, setEditingDuration] = useState<{
     id: string
     value: string
@@ -115,6 +116,23 @@ export const RundownPanel = ({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [editingDuration, onEdit])
 
+  const sortableItems = useMemo(
+    () => timers.map((timer) => ({ id: timer.id, value: timer })),
+    [timers],
+  )
+
+  const { draggingId, overIndex, getItemProps, getHandleProps } = useSortableList({
+    items: sortableItems,
+    onReorder: (from, to) => {
+      const clamped = Math.max(0, Math.min(to, timers.length))
+      const targetIndex = clamped
+      const movingId = timers[from]?.id
+      if (movingId) {
+        onReorder(movingId, targetIndex)
+      }
+    },
+  })
+
   return (
     <div className="rounded-3xl border border-slate-900/70 bg-slate-950/60 p-4 shadow-card sm:p-5">
       <div className="flex items-center justify-between gap-2">
@@ -129,7 +147,7 @@ export const RundownPanel = ({
         </p>
       ) : (
         <>
-          <ul className="mt-4 space-y-3">
+          <SortableList className="mt-4 space-y-3">
             {timers.map((timer, index) => {
               const isActive = timer.id === activeTimerId
               const isSelected = timer.id === selectedTimerId
@@ -139,6 +157,8 @@ export const RundownPanel = ({
                 isActive && activeTimerDisplay
                   ? activeTimerDisplay
                   : remainingLookup[timer.id] ?? durationLabel
+              const itemProps = getItemProps(timer.id, index)
+              const handleProps = getHandleProps(timer.id, index)
               return (
                 <Fragment key={timer.id}>
                   {undoPlaceholder && undoPlaceholder.index === index && (
@@ -160,12 +180,15 @@ export const RundownPanel = ({
                       </div>
                     </li>
                   )}
-                  {draggingId && hoverIndex === index && (
+                  {draggingId && overIndex === index && (
                     <div className="pointer-events-none px-8">
                       <div className="h-0.5 rounded-full bg-slate-600/70" />
                     </div>
                   )}
-                  <li
+                  <SortableItem
+                    {...itemProps}
+                    dragging={draggingId === timer.id}
+                    over={overIndex === index}
                     className={`relative rounded-2xl border px-4 py-4 text-sm transition cursor-pointer ${isActive && showSelectedState
                         ? 'border-emerald-400/80 bg-rose-500/10 shadow-[0_0_25px_rgba(244,114,182,0.2)]'
                         : isActive
@@ -173,39 +196,8 @@ export const RundownPanel = ({
                           : showSelectedState
                             ? 'border-emerald-400/70 bg-emerald-400/10'
                             : 'border-slate-800 bg-slate-950/30 hover:border-slate-600'
-                      } ${draggingId === timer.id ? 'opacity-60' : ''}`}
+                      }`}
                     onClick={() => onSelect(timer.id)}
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = 'move'
-                      setDraggingId(timer.id)
-                      setHoverIndex(index)
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault()
-                      if (!draggingId || draggingId === timer.id) return
-                      const rect = event.currentTarget.getBoundingClientRect()
-                      const offset = event.clientY - rect.top
-                      const nextIndex = offset < rect.height / 2 ? index : index + 1
-                      setHoverIndex(nextIndex)
-                    }}
-                    onDragLeave={() => {
-                      if (hoverIndex === index || hoverIndex === index + 1) {
-                        setHoverIndex(null)
-                      }
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      if (draggingId && hoverIndex !== null) {
-                        onReorder(draggingId, hoverIndex)
-                      }
-                      setHoverIndex(null)
-                      setDraggingId(null)
-                    }}
-                    onDragEnd={() => {
-                      setHoverIndex(null)
-                      setDraggingId(null)
-                    }}
                   >
                     <div className="relative flex items-start justify-between gap-4">
                       <div className="flex flex-col gap-1">
@@ -236,6 +228,14 @@ export const RundownPanel = ({
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2 text-right text-xs text-slate-500">
+                        <button
+                          type="button"
+                          aria-label="Drag handle"
+                          className="self-end rounded-full border border-slate-700 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-400"
+                          {...handleProps}
+                        >
+                          Drag
+                        </button>
                         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
                           Duration
                         </p>
@@ -337,7 +337,7 @@ export const RundownPanel = ({
                         </div>
                       </div>
                     </div>
-                  </li>
+                  </SortableItem>
                 </Fragment>
               )
             })}
@@ -362,8 +362,8 @@ export const RundownPanel = ({
                 </div>
               </li>
             )}
-          </ul>
-          {draggingId && hoverIndex === timers.length && (
+          </SortableList>
+          {draggingId && overIndex === timers.length && (
             <div className="pointer-events-none px-8">
               <div className="h-0.5 rounded-full bg-slate-600/70" />
             </div>
