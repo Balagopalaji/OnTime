@@ -20,7 +20,7 @@ export type DataContextValue = {
   connectionStatus: ConnectionStatus
   setConnectionStatus: (status: ConnectionStatus) => void
   pendingRooms: Set<string>
-  pendingRoomPlaceholders: Array<{ roomId: string; title: string; expiresAt: number }>
+  pendingRoomPlaceholders: Array<{ roomId: string; title: string; expiresAt: number; createdAt: number }>
   pendingTimers: Record<string, Set<string>>
   pendingTimerPlaceholders: Record<
     string,

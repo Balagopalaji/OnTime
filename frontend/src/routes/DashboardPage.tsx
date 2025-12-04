@@ -275,42 +275,59 @@ export const DashboardPage = () => {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {visiblePlaceholders.map((pending) => {
-              return (
-                <article
-                  key={pending.roomId}
-                  className="flex items-center justify-center rounded-3xl bg-transparent p-6 text-center text-sm text-slate-200"
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <button
-                      type="button"
-                      aria-label="Dismiss"
-                      className="self-end text-slate-500 transition hover:text-slate-200"
-                      onClick={() =>
-                        setDismissedPlaceholders((prev) => {
-                          const next = new Set(prev)
-                          next.add(pending.roomId)
-                          return next
-                        })
-                      }
-                    >
-                      ×
-                    </button>
-                    <span className="font-semibold text-slate-100">
-                      Removed “{pending.title}”
-                    </span>
-                    <button
-                      type="button"
-                      className="rounded-full border border-emerald-400/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
-                      onClick={() => void undoRoomDelete()}
-                    >
-                      Undo
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
-            {myRooms.map((room) => {
+            {[...myRooms.map((room) => ({
+              kind: 'room' as const,
+              createdAt: room.createdAt,
+              title: room.title,
+              room,
+            })),
+            ...visiblePlaceholders.map((pending) => ({
+              kind: 'placeholder' as const,
+              createdAt: pending.createdAt,
+              title: pending.title,
+              roomId: pending.roomId,
+            }))].sort((a, b) => {
+              if (sortBy === 'title') return a.title.localeCompare(b.title)
+              return sortBy === 'oldest' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt
+            }).map((card) => {
+              if (card.kind === 'placeholder') {
+                return (
+                  <article
+                    key={`placeholder-${card.roomId}`}
+                    className="flex items-center justify-center rounded-3xl border border-dashed border-slate-800/70 bg-slate-950/50 p-6 text-center text-sm text-slate-200"
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="font-semibold text-slate-100">
+                        Removed “{card.title}”
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          className="rounded-full border border-emerald-400/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
+                          onClick={() => void undoRoomDelete()}
+                        >
+                          Undo
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Dismiss"
+                          className="text-slate-500 transition hover:text-slate-200"
+                          onClick={() =>
+                            setDismissedPlaceholders((prev) => {
+                              const next = new Set(prev)
+                              next.add(card.roomId)
+                              return next
+                            })
+                          }
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                )
+              }
+              const room = card.room
               return (
                 <article
                   key={room.id}

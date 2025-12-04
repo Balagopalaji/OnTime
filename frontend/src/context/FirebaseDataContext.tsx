@@ -238,7 +238,7 @@ export const FirebaseDataProvider = ({
   )
   const [pendingRooms, setPendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders, setPendingRoomPlaceholders] = useState<
-    Array<{ roomId: string; title: string; expiresAt: number }>
+    Array<{ roomId: string; title: string; expiresAt: number; createdAt: number }>
   >([])
   const [pendingTimers, setPendingTimers] = useState<Record<string, Set<string>>>({})
   const [pendingTimerPlaceholders, setPendingTimerPlaceholders] = useState<
@@ -262,6 +262,7 @@ export const FirebaseDataProvider = ({
         roomId: entry.roomId,
         title: entry.snapshot.title,
         expiresAt: entry.expiresAt,
+        createdAt: entry.snapshot.createdAt,
       })),
     )
 
