@@ -99,7 +99,7 @@ export const RundownPanel = ({
 
   const stopHoldAdjust = () => {
     if (holdIntervalRef.current) {
-      window.clearInterval(holdIntervalRef.current)
+      window.clearTimeout(holdIntervalRef.current)
       holdIntervalRef.current = null
     }
     holdTargetRef.current = null
@@ -113,16 +113,19 @@ export const RundownPanel = ({
     holdingRef.current = true
     holdTargetRef.current = timerId
     holdDirectionRef.current = direction
-    holdAccumRef.current = 0
+    holdAccumRef.current = 1
     holdStartRef.current = Date.now()
     applyDurationDelta(timerId, direction)
-    holdIntervalRef.current = window.setInterval(() => {
+    const tick = () => {
       if (!holdingRef.current || !holdTargetRef.current) return
       const elapsedMs = holdStartRef.current ? Date.now() - holdStartRef.current : 0
-      const step = elapsedMs >= 3000 ? 10 : 1
-      applyDurationDelta(holdTargetRef.current, holdDirectionRef.current * step)
+      const step = holdAccumRef.current >= 30 || elapsedMs >= 4000 ? 10 : 1
       holdAccumRef.current += step
-    }, 150)
+      applyDurationDelta(holdTargetRef.current, holdDirectionRef.current * step)
+      const nextDelay = holdAccumRef.current >= 30 ? 140 : 200
+      holdIntervalRef.current = window.setTimeout(tick, nextDelay)
+    }
+    holdIntervalRef.current = window.setTimeout(tick, 250)
   }
 
   const [editingDuration, setEditingDuration] = useState<{

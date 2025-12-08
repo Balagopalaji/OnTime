@@ -17,9 +17,11 @@ export const SortableItem = forwardRef<HTMLLIElement, SortableItemProps>(
         ref={ref}
         role={role}
         data-sort-index={dataIndex}
-        className={`${className} ${dragging ? 'opacity-60' : ''} ${
+        className={`${className} transition transform ${
+          dragging ? 'opacity-60 scale-[1.01]' : ''
+        } ${
           over
-            ? 'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-900/80 bg-sky-500/5'
+            ? 'ring-2 ring-sky-400/70 ring-offset-2 ring-offset-slate-900/80 bg-sky-500/8'
             : ''
         }`}
       >

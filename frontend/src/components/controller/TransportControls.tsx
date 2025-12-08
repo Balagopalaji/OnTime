@@ -23,17 +23,24 @@ export const TransportControls = ({
 }) => {
   const holdRef = useRef<number | null>(null)
   const holdDirectionRef = useRef<-1 | 1>(1)
-  const holdStartRef = useRef<number | null>(null)
   const holdingRef = useRef(false)
+  const holdAccumRef = useRef(0)
 
   const stopHold = useCallback(() => {
-    if (holdRef.current) {
-      window.clearInterval(holdRef.current)
-      holdRef.current = null
-    }
+    if (holdRef.current) window.clearTimeout(holdRef.current)
+    holdRef.current = null
     holdingRef.current = false
-    holdStartRef.current = null
+    holdAccumRef.current = 0
   }, [])
+
+  const scheduleHoldTick = useCallback(function tick() {
+      if (!holdingRef.current) return
+      const step = holdAccumRef.current >= 30 ? 10 : 1
+      holdAccumRef.current += step
+      onNudge(step * 60_000 * holdDirectionRef.current)
+      const nextDelay = holdAccumRef.current >= 30 ? 140 : 200
+      holdRef.current = window.setTimeout(tick, nextDelay)
+    }, [onNudge])
 
   const startHold = useCallback(
     (direction: -1 | 1) => {
@@ -41,16 +48,11 @@ export const TransportControls = ({
       stopHold()
       holdingRef.current = true
       holdDirectionRef.current = direction
-      holdStartRef.current = Date.now()
+      holdAccumRef.current = 1
       onNudge(direction * 60_000)
-      holdRef.current = window.setInterval(() => {
-        if (!holdingRef.current) return
-        const elapsed = holdStartRef.current ? Date.now() - holdStartRef.current : 0
-        const stepMinutes = elapsed >= 3000 ? 10 : 1
-        onNudge(stepMinutes * 60_000 * holdDirectionRef.current)
-      }, 150)
+      holdRef.current = window.setTimeout(scheduleHoldTick, 250)
     },
-    [disableActions, onNudge, stopHold],
+    [disableActions, onNudge, scheduleHoldTick, stopHold],
   )
 
   useEffect(() => {

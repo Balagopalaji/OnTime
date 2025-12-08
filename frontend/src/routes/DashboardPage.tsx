@@ -56,6 +56,8 @@ export const DashboardPage = () => {
   const [qrOpenId, setQrOpenId] = useState<string | null>(null)
   const [qrErrorId, setQrErrorId] = useState<string | null>(null)
   const [qrModalId, setQrModalId] = useState<string | null>(null)
+  const qrButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [qrAnchors, setQrAnchors] = useState<Record<string, DOMRect | null>>({})
   const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
   const [dismissedPlaceholders, setDismissedPlaceholders] = useState<Set<string>>(new Set())
   const isCustomSort = sortBy === 'custom'
@@ -577,7 +579,7 @@ export const DashboardPage = () => {
 
         <div className="mt-5 flex flex-col items-center gap-4">
           <div
-            className={`flex min-w-[200px] flex-col items-center gap-2 rounded-2xl border px-4 py-3 text-center ${(() => {
+            className={`flex w-full max-w-[240px] flex-col items-center gap-1 rounded-2xl border px-5 py-3 text-center ${(() => {
               const timers = getTimers(room.id)
               const active = timers.find((timer) => timer.id === room.state.activeTimerId)
               const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
@@ -600,35 +602,37 @@ export const DashboardPage = () => {
               return 'border-slate-800 bg-slate-900'
             })()}`}
           >
-            <p className="text-sm font-semibold text-slate-200">
+            <p className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 leading-tight line-clamp-1 truncate">
               {(() => {
                 const timers = getTimers(room.id)
                 const active = timers.find((timer) => timer.id === room.state.activeTimerId)
                 return active?.title ?? 'No active segment'
               })()}
             </p>
-            <div className="flex items-center justify-center gap-2 pt-1">
-              <span
-                className={`h-2 w-2 rounded-full ${(() => {
-                  const timers = getTimers(room.id)
-                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                  const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                  const runningElapsed =
-                    active && room.state.isRunning && room.state.startedAt
-                      ? now - room.state.startedAt + baseElapsed
-                      : baseElapsed
-                  const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                  const warningMs = (room.config?.warningSec ?? 120) * 1000
-                  const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                  if (remainingMs < 0) return 'bg-rose-400'
-                  if (remainingMs <= criticalMs) return 'bg-amber-400'
-                  if (remainingMs <= warningMs) return 'bg-yellow-400'
-                  return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
-                })()}`}
-              />
-              <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
+            <div className="flex w-full items-center justify-center pt-0.5">
+              <span className="relative inline-flex items-center justify-center">
+                <span
+                  className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${(() => {
+                    const timers = getTimers(room.id)
+                    const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                    const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                    const runningElapsed =
+                      active && room.state.isRunning && room.state.startedAt
+                        ? now - room.state.startedAt + baseElapsed
+                        : baseElapsed
+                    const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                    const warningMs = (room.config?.warningSec ?? 120) * 1000
+                    const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                    if (remainingMs < 0) return 'bg-rose-400'
+                    if (remainingMs <= criticalMs) return 'bg-amber-400'
+                    if (remainingMs <= warningMs) return 'bg-yellow-400'
+                    return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
+                  })()}`}
+                />
+                <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
+              </span>
             </div>
-            <p className="text-[11px] tracking-[0.28em] text-slate-500 uppercase">
+            <p className="w-full text-[11px] tracking-[0.2em] text-slate-500 uppercase">
               {(() => {
                 const timers = getTimers(room.id)
                 const active = timers.find((timer) => timer.id === room.state.activeTimerId)
@@ -646,7 +650,7 @@ export const DashboardPage = () => {
                 return room.state.isRunning ? 'Counting' : 'Paused'
               })()}
             </p>
-            <p className="text-[10px] tracking-[0.24em] text-slate-500 uppercase">
+            <p className="w-full text-[10px] tracking-[0.24em] text-slate-500 uppercase">
               {(() => {
                 const timers = getTimers(room.id)
                 const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
@@ -748,58 +752,81 @@ export const DashboardPage = () => {
                         ? 'border-emerald-400/70 text-emerald-200'
                         : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
                     }`}
+                    ref={(node) => {
+                      qrButtonRefs.current[room.id] = node
+                    }}
                     onClick={() => {
                       setQrErrorId(null)
-                      setQrOpenId((prev) => (prev === room.id ? null : room.id))
+                      setQrOpenId((prev) => {
+                        const next = prev === room.id ? null : room.id
+                        if (next) {
+                          const rect = qrButtonRefs.current[room.id]?.getBoundingClientRect() ?? null
+                          setQrAnchors((prevAnchors) => ({ ...prevAnchors, [room.id]: rect }))
+                        }
+                        return next
+                      })
                     }}
                     aria-label="Toggle QR code"
                   >
                     <QrCode size={18} />
                   </button>
                 </Tooltip>
-                {qrOpenId === room.id && (
-                  <>
-                    {createPortal(
-                      <div
-                        className="fixed inset-0 z-[90] cursor-default"
-                        role="presentation"
-                        onClick={() => {
-                          setQrOpenId(null)
-                          setQrModalId(null)
-                        }}
-                        style={{ touchAction: 'none' }}
-                        onPointerDown={(event) => {
-                          event.preventDefault()
-                          setQrOpenId(null)
-                          setQrModalId(null)
-                        }}
-                      />,
-                      document.body,
-                    )}
-                    <div
-                      className="absolute right-0 top-full z-[100] mt-2 flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg"
-                      style={{ width: 320, height: 320, minWidth: 320, minHeight: 320 }}
-                    >
-                      {typeof window !== 'undefined' ? (
-                        qrErrorId === room.id ? (
-                          <p className="text-xs text-slate-400">QR code unavailable. Copy the link instead.</p>
-                        ) : (
-                          <img
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                              `${window.location.origin}/room/${room.id}/view`,
-                            )}`}
-                            alt="Viewer QR"
-                            className="h-72 w-72 cursor-pointer object-contain"
-                            onError={() => setQrErrorId(room.id)}
-                            onClick={() => setQrModalId(room.id)}
-                          />
-                        )
-                      ) : (
-                        <p className="text-xs text-slate-400">QR available once loaded.</p>
-                      )}
-                    </div>
-                  </>
-                )}
+                {qrOpenId === room.id &&
+                  createPortal(
+                    (() => {
+                      const rect = qrAnchors[room.id]
+                      const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
+                      const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
+                      const margin = 12
+                      const top =
+                        rect && typeof window !== 'undefined'
+                          ? Math.min(viewportHeight - 340 - margin, Math.max(margin, rect.top + rect.height + 8))
+                          : 0
+                      let preferredLeft =
+                        rect && typeof window !== 'undefined' ? rect.left + rect.width + 8 : margin
+                      const overflowRight = preferredLeft + 320 + margin - viewportWidth
+                      if (overflowRight > 0 && rect) {
+                        const leftSide = rect.left - 8 - 320
+                        preferredLeft = leftSide >= margin ? leftSide : Math.max(margin, viewportWidth - 320 - margin)
+                      }
+                      const clampedRight = Math.min(viewportWidth - 320 - margin, Math.max(margin, preferredLeft))
+                      const centerLeft =
+                        rect && typeof window !== 'undefined'
+                          ? Math.min(
+                              viewportWidth - 320 - margin,
+                              Math.max(margin, rect.left + rect.width / 2 - 160),
+                            )
+                          : clampedRight
+                      const left = rect && overflowRight <= 0 ? clampedRight : centerLeft
+                      return (
+                        <div
+                          className="fixed z-[140] flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg"
+                          style={{ width: 320, height: 320, minWidth: 320, minHeight: 320, top, left }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {typeof window !== 'undefined' ? (
+                            qrErrorId === room.id ? (
+                              <p className="text-xs text-slate-400">QR code unavailable. Copy the link instead.</p>
+                            ) : (
+                              <img
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                                  `${window.location.origin}/room/${room.id}/view`,
+                                )}`}
+                                alt="Viewer QR"
+                                className="h-72 w-72 cursor-pointer object-contain"
+                                onError={() => setQrErrorId(room.id)}
+                                onClick={() => setQrModalId(room.id)}
+                              />
+                            )
+                          ) : (
+                            <p className="text-xs text-slate-400">QR available once loaded.</p>
+                          )}
+                        </div>
+                      )
+                    })(),
+                    document.body,
+                  )}
               </div>
             </div>
           </div>
@@ -933,6 +960,25 @@ export const DashboardPage = () => {
     return `${isNegative ? '-' : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
   }
 
+  const qrOverlay =
+    qrOpenId && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[120] cursor-default bg-transparent"
+            role="presentation"
+            onPointerDown={() => {
+              setQrOpenId(null)
+              setQrModalId(null)
+            }}
+            onClick={() => {
+              setQrOpenId(null)
+              setQrModalId(null)
+            }}
+          />,
+          document.body,
+        )
+      : null
+
   if (!user) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center text-slate-300">
@@ -943,6 +989,7 @@ export const DashboardPage = () => {
 
   return (
     <div className="space-y-8">
+      {qrOverlay}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 shadow-card">
         <div className="flex items-center gap-3">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Rooms</p>
