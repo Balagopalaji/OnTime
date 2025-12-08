@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, Clock, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
@@ -599,7 +600,14 @@ export const DashboardPage = () => {
               return 'border-slate-800 bg-slate-900'
             })()}`}
           >
-            <div className="flex items-center justify-center gap-2">
+            <p className="text-sm font-semibold text-slate-200">
+              {(() => {
+                const timers = getTimers(room.id)
+                const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                return active?.title ?? 'No active segment'
+              })()}
+            </p>
+            <div className="flex items-center justify-center gap-2 pt-1">
               <span
                 className={`h-2 w-2 rounded-full ${(() => {
                   const timers = getTimers(room.id)
@@ -751,15 +759,25 @@ export const DashboardPage = () => {
                 </Tooltip>
                 {qrOpenId === room.id && (
                   <>
+                    {createPortal(
+                      <div
+                        className="fixed inset-0 z-[90] cursor-default"
+                        role="presentation"
+                        onClick={() => {
+                          setQrOpenId(null)
+                          setQrModalId(null)
+                        }}
+                        style={{ touchAction: 'none' }}
+                        onPointerDown={(event) => {
+                          event.preventDefault()
+                          setQrOpenId(null)
+                          setQrModalId(null)
+                        }}
+                      />,
+                      document.body,
+                    )}
                     <div
-                      className="fixed inset-0 z-20"
-                      onClick={() => {
-                        setQrOpenId(null)
-                        setQrModalId(null)
-                      }}
-                    />
-                    <div
-                      className="absolute right-0 top-full z-30 mt-2 flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg"
+                      className="absolute right-0 top-full z-[100] mt-2 flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg"
                       style={{ width: 320, height: 320, minWidth: 320, minHeight: 320 }}
                     >
                       {typeof window !== 'undefined' ? (
@@ -909,9 +927,10 @@ export const DashboardPage = () => {
     const remainingMs = active.duration * 1000 - runningElapsed
     const isNegative = remainingMs < 0
     const absMs = Math.abs(remainingMs)
-    const minutes = Math.floor(absMs / 60000)
-    const seconds = Math.floor((absMs % 60000) / 1000)
-    return `${isNegative ? '-' : ''}${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    const hours = Math.floor(absMs / 3_600_000)
+    const minutes = Math.floor((absMs % 3_600_000) / 60_000)
+    const seconds = Math.floor((absMs % 60_000) / 1000)
+    return `${isNegative ? '-' : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
   }
 
   if (!user) {

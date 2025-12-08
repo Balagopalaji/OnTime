@@ -779,13 +779,16 @@ export const ControllerPage = () => {
               {qrOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-20"
+                    className="fixed inset-0 z-20 bg-transparent"
                     onClick={() => {
                       setQrOpen(false)
                       setQrModalOpen(false)
                     }}
                   />
-                  <div className="absolute right-0 top-full z-30 mt-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-3 shadow-lg">
+                  <div
+                    className="absolute right-0 top-full z-30 mt-2 flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg"
+                    style={{ width: 320, height: 320, minWidth: 320, minHeight: 320 }}
+                  >
                     {viewerUrl ? (
                       qrError ? (
                         <p className="text-xs text-slate-400">
@@ -793,11 +796,11 @@ export const ControllerPage = () => {
                         </p>
                       ) : (
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
                             viewerUrl,
                           )}`}
                           alt="Viewer QR"
-                          className="h-32 w-32 object-contain cursor-pointer"
+                          className="h-72 w-72 cursor-pointer object-contain"
                           onError={() => setQrError(true)}
                           onClick={() => setQrModalOpen(true)}
                         />
@@ -817,17 +820,17 @@ export const ControllerPage = () => {
             onClick={() => setQrModalOpen(false)}
           >
             <div
-              className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                  viewerUrl,
-                )}`}
-                alt="Viewer QR"
-                className="h-80 w-80 object-contain"
-                onError={() => setQrError(true)}
-              />
+            className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                viewerUrl,
+              )}`}
+              alt="Viewer QR"
+              className="h-80 w-80 object-contain"
+              onError={() => setQrError(true)}
+            />
               <button
                 type="button"
                 className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/60"
