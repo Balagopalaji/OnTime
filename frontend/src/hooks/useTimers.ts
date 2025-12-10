@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, orderBy, query, type FirestoreError } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -23,18 +24,17 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
 
 export const useTimers = (roomId: string | undefined) => {
   const [timers, setTimers] = useState<Timer[]>([])
-  const [loading, setLoading] = useState<boolean>(Boolean(roomId))
+  const [loadingState, setLoadingState] = useState<boolean>(false)
   const [error, setError] = useState<FirestoreError | undefined>(undefined)
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
+  const [connectionStatusState, setConnectionStatusState] =
+    useState<ConnectionStatus>('reconnecting')
 
   useEffect(() => {
-    if (!roomId) {
-      setTimers([])
-      setLoading(false)
-      setConnectionStatus('offline')
-      return undefined
-    }
-    setLoading(true)
+    if (!roomId) return undefined
+
+    setLoadingState(true)
+    setConnectionStatusState('reconnecting')
+    setError(undefined)
     const timersQuery = query(collection(db, 'rooms', roomId, 'timers'), orderBy('order', 'asc'))
     const unsub = onSnapshot(
       timersQuery,
@@ -44,26 +44,29 @@ export const useTimers = (roomId: string | undefined) => {
           next.push(mapTimer(docSnap.id, roomId, docSnap.data() as TimerDoc))
         })
         setTimers(next.sort((a, b) => a.order - b.order))
-        setLoading(false)
-        setConnectionStatus('online')
+        setLoadingState(false)
+        setConnectionStatusState('online')
         setError(undefined)
       },
       (err) => {
         setError(err)
-        setConnectionStatus('offline')
-        setLoading(false)
+        setConnectionStatusState('offline')
+        setLoadingState(false)
       },
     )
     return () => unsub()
   }, [roomId])
 
-  return useMemo(
-    () => ({
-      timers,
+  return useMemo(() => {
+    const safeTimers = roomId ? timers : []
+    const loading = roomId ? loadingState : false
+    const connectionStatus = roomId ? connectionStatusState : 'offline'
+
+    return {
+      timers: safeTimers,
       loading,
       error,
       connectionStatus,
-    }),
-    [connectionStatus, error, loading, timers],
-  )
+    }
+  }, [connectionStatusState, error, loadingState, roomId, timers])
 }

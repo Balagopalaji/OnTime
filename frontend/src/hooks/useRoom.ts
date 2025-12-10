@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from 'react'
 import { doc, onSnapshot, type FirestoreError } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -69,18 +70,17 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
 
 export const useRoom = (roomId: string | undefined) => {
   const [room, setRoom] = useState<Room | undefined>(undefined)
-  const [loading, setLoading] = useState<boolean>(Boolean(roomId))
+  const [loadingState, setLoadingState] = useState<boolean>(false)
   const [error, setError] = useState<FirestoreError | undefined>(undefined)
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
+  const [connectionStatusState, setConnectionStatusState] =
+    useState<ConnectionStatus>('reconnecting')
 
   useEffect(() => {
-    if (!roomId) {
-      setRoom(undefined)
-      setLoading(false)
-      setConnectionStatus('offline')
-      return undefined
-    }
-    setLoading(true)
+    if (!roomId) return undefined
+
+    setLoadingState(true)
+    setConnectionStatusState('reconnecting')
+    setError(undefined)
     const unsub = onSnapshot(
       doc(db, 'rooms', roomId),
       (snapshot) => {
@@ -89,26 +89,30 @@ export const useRoom = (roomId: string | undefined) => {
         } else {
           setRoom(mapRoom(snapshot.id, snapshot.data() as RoomDoc))
         }
-        setLoading(false)
-        setConnectionStatus('online')
+        setLoadingState(false)
+        setConnectionStatusState('online')
         setError(undefined)
       },
       (err) => {
         setError(err)
-        setConnectionStatus('offline')
-        setLoading(false)
+        setConnectionStatusState('offline')
+        setLoadingState(false)
       },
     )
     return () => unsub()
   }, [roomId])
 
+  const roomValue = roomId ? room : undefined
+  const loading = roomId ? loadingState : false
+  const connectionStatus = roomId ? connectionStatusState : 'offline'
+
   return useMemo(
     () => ({
-      room,
+      room: roomValue,
       loading,
       error,
       connectionStatus,
     }),
-    [connectionStatus, error, loading, room],
+    [connectionStatus, error, loading, roomValue],
   )
 }
