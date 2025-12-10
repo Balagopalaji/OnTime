@@ -256,6 +256,7 @@ export const FirebaseDataProvider = ({
   const [pendingTimerPlaceholders, setPendingTimerPlaceholders] = useState<
     Record<string, Array<{ timerId: string; title: string; order: number; expiresAt: number }>>
   >({})
+  const [subscriptionEpoch, setSubscriptionEpoch] = useState(0)
   const roomStackRef = useRef<UndoStack>(createEmptyStack())
   const timerStacksRef = useRef<Record<string, UndoStack>>({})
   const lastUserIdRef = useRef<string | null>(null)
@@ -317,7 +318,10 @@ export const FirebaseDataProvider = ({
   )
 
   useEffect(() => {
-    const handleOnline = () => setConnectionStatus('reconnecting')
+    const handleOnline = () => {
+      setConnectionStatus('reconnecting')
+      setSubscriptionEpoch((prev) => prev + 1)
+    }
     const handleOffline = () => setConnectionStatus('offline')
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
@@ -344,7 +348,7 @@ export const FirebaseDataProvider = ({
       },
     )
     return unsubscribe
-  }, [fallbackToMock, user])
+  }, [fallbackToMock, subscriptionEpoch, user])
 
   useEffect(() => {
     if (fallbackToMock || !user) return undefined
@@ -375,7 +379,7 @@ export const FirebaseDataProvider = ({
     return () => {
       unsubs.forEach((unsub) => unsub && unsub())
     }
-  }, [fallbackToMock, user, rooms])
+  }, [fallbackToMock, subscriptionEpoch, user, rooms])
 
   useEffect(() => {
     const previous = lastUserIdRef.current
