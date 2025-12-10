@@ -28,9 +28,9 @@
 
 ## 4. Auth & Security
 - [x] Implement Auth context with Firebase Auth v9 (Google Sign-In + Anonymous auth). Provide `loginWithGoogle`, `loginAnonymously`, `logout`, and auth state listener.
-- [ ] Wire `ProtectedRoute` to Firebase Auth state and owner checks using `room.ownerId`.
+- [x] Wire `ProtectedRoute` to Firebase Auth state and owner checks using `room.ownerId`.
 - [x] Add `firestore.rules` matching backend PRD (public read, owner-only writes on rooms/timers, auth required for create).
-- [ ] Add rules deployment step (`firebase deploy --only firestore:rules`) and emulator config for local validation.
+- [x] Add rules deployment step (`firebase deploy --only firestore:rules`) and emulator config for local validation.
 
 ## 5. Cleanup & Stabilization
 - [ ] Verify end-to-end flows with `VITE_USE_MOCK=false`: dashboard list, create room, controller start/pause/reset, viewer sync, messaging overlay.
