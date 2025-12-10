@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Maximize2, Minimize2 } from 'lucide-react'
-import { useDataContext } from '../context/DataProvider'
+import { useRoom } from '../hooks/useRoom'
+import { useTimers } from '../hooks/useTimers'
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { FitText } from '../components/core/FitText'
@@ -11,9 +12,25 @@ import { useWakeLock } from '../hooks/useWakeLock'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
-  const { getRoom, getTimers, connectionStatus } = useDataContext()
-  const room = roomId ? getRoom(roomId) : undefined
-  const timers = roomId ? getTimers(roomId) : []
+  const {
+    room,
+    loading: roomLoading,
+    connectionStatus: roomStatus,
+  } = useRoom(roomId)
+  const {
+    timers,
+    loading: timersLoading,
+    connectionStatus: timerStatus,
+  } = useTimers(roomId)
+
+  const connectionStatus =
+    roomStatus === 'online' && timerStatus === 'online'
+      ? 'online'
+      : roomStatus === 'offline' || timerStatus === 'offline'
+      ? 'offline'
+      : 'reconnecting'
+
+  const isLoading = roomLoading || timersLoading
   const activeTimer =
     timers.find((timer) => timer.id === room?.state.activeTimerId) ?? timers[0]
 
@@ -46,6 +63,14 @@ export const ViewerPage = () => {
 
   const clockTime = useClock(room?.timezone ?? 'UTC')
 
+  if (isLoading) {
+    return (
+      <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
+        Connecting to room...
+      </div>
+    )
+  }
+
   if (!room || !roomId || timers.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
@@ -65,6 +90,8 @@ export const ViewerPage = () => {
 
   const isOvertime = engine.status === 'overtime'
   const timerLabel = activeTimer ? activeTimer.title : 'Standby'
+
+  if (!room) return null
 
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',

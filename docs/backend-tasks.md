@@ -15,8 +15,8 @@
 - [x] Keep mock provider available for tests/demo; document toggle behavior in README.
 
 ## 3. Data Layer Implementation (Hooks & Core Operations)
-- [ ] Implement `useRoom(roomId)` hook using Firestore `onSnapshot` on `/rooms/{roomId}`; map `Timestamp` to millis where needed.
-- [ ] Implement `useTimers(roomId)` hook using Firestore `onSnapshot` on `/rooms/{roomId}/timers` ordered by `order`.
+- [x] Implement `useRoom(roomId)` hook using Firestore `onSnapshot` on `/rooms/{roomId}`; map `Timestamp` to millis where needed.
+- [x] Implement `useTimers(roomId)` hook using Firestore `onSnapshot` on `/rooms/{roomId}/timers` ordered by `order`.
 - [x] Implement create room operation: authenticated user writes `rooms` doc with `ownerId`, `title`, `timezone`, defaults (`config.warningSec`, `config.criticalSec`, sync fields), `createdAt = serverTimestamp()`.
 - [x] Implement timer CRUD operations on `/timers` subcollection with batch writes for reorder; enforce unique `order` values (dense or spaced increments).
 - [x] Implement start timer flow per PRD §4: batch update `activeTimerId`, `isRunning = true`, `startedAt = serverTimestamp()`, preserve `elapsedOffset`.
@@ -29,8 +29,7 @@
 ## 4. Auth & Security
 - [x] Implement Auth context with Firebase Auth v9 (Google Sign-In + Anonymous auth). Provide `loginWithGoogle`, `loginAnonymously`, `logout`, and auth state listener.
 - [ ] Wire `ProtectedRoute` to Firebase Auth state and owner checks using `room.ownerId`.
-- [ ] Add `firestore.rules` matching backend PRD (public read, owner-only writes on rooms/timers, auth required for create).
-  - *Current status: Read requires auth, needs update to public read.*
+- [x] Add `firestore.rules` matching backend PRD (public read, owner-only writes on rooms/timers, auth required for create).
 - [ ] Add rules deployment step (`firebase deploy --only firestore:rules`) and emulator config for local validation.
 
 ## 5. Cleanup & Stabilization
