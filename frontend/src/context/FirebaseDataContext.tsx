@@ -245,8 +245,8 @@ export const FirebaseDataProvider = ({
 }) => {
   const [rooms, setRooms] = useState<Room[]>([])
   const [timers, setTimers] = useState<Record<string, Timer[]>>({})
-  const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(
-    'online',
+  const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(() =>
+    typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
   )
   const [pendingRooms, setPendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders, setPendingRoomPlaceholders] = useState<
@@ -315,6 +315,17 @@ export const FirebaseDataProvider = ({
     },
     [user],
   )
+
+  useEffect(() => {
+    const handleOnline = () => setConnectionStatus('reconnecting')
+    const handleOffline = () => setConnectionStatus('offline')
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   useEffect(() => {
     if (fallbackToMock || !user) return undefined
