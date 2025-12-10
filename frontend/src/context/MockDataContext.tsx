@@ -295,6 +295,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const roomStackRef = useRef<UndoStack>(createEmptyStack())
   const timerStacksRef = useRef<Record<string, UndoStack>>({})
   const lastUserIdRef = useRef<string | null>(null)
+  const pendingNudgeRef = useRef<Record<string, number>>({})
   const { user } = useAuth()
   const roomStackKeyForUser = user ? roomStackKey(user.uid) : null
 
@@ -397,6 +398,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   }, [state])
+
+  useEffect(() => {
+    state.rooms.forEach((room) => {
+      pendingNudgeRef.current[room.id] = 0
+    })
+  }, [state.rooms])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1282,9 +1289,18 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       const room = prev.rooms.find((candidate) => candidate.id === roomId)
       const activeId = room?.state.activeTimerId
       if (!room || !activeId) return prev
-      const nextElapsedOffset = room.state.elapsedOffset - deltaMs
+      const currentElapsed =
+        room.state.elapsedOffset +
+        (room.state.isRunning && room.state.startedAt
+          ? Date.now() - room.state.startedAt
+          : 0)
+      const pending = pendingNudgeRef.current[roomId] ?? 0
+      const base = currentElapsed + pending
+      const nextElapsedOffset = base - deltaMs
+      pendingNudgeRef.current[roomId] = pending + (nextElapsedOffset - base)
+      const nextStartedAt = room.state.isRunning ? Date.now() : room.state.startedAt
       const nextProgress = { ...(room.state.progress ?? {}) }
-      nextProgress[activeId] = Math.max(0, nextElapsedOffset)
+      nextProgress[activeId] = nextElapsedOffset
       return {
         ...prev,
         rooms: prev.rooms.map((candidate) =>
@@ -1294,7 +1310,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
                 state: {
                   ...candidate.state,
                   elapsedOffset: nextElapsedOffset,
-                  startedAt: candidate.state.startedAt,
+                  startedAt: nextStartedAt,
                   progress: nextProgress,
                 },
               }

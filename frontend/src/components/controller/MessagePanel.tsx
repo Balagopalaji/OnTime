@@ -1,4 +1,5 @@
-import { useState } from 'react'
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useState, useEffect } from 'react'
 import type { MessageColor } from '../../types'
 import { Tooltip } from '../core/Tooltip'
 
@@ -24,6 +25,19 @@ export const MessagePanel = ({
   const [text, setText] = useState(initial.text)
   const [color, setColor] = useState<MessageColor>(initial.color)
   const [visible, setVisible] = useState(initial.visible)
+  const [lastBroadcast, setLastBroadcast] = useState<{ text: string; color: MessageColor }>({
+    text: initial.text,
+    color: initial.color,
+  })
+  const [pulse, setPulse] = useState(false)
+
+  useEffect(() => {
+    // Sync local state when upstream message changes (e.g., undo/reset)
+    setText(initial.text)
+    setColor(initial.color)
+    setVisible(initial.visible)
+    setLastBroadcast({ text: initial.text, color: initial.color })
+  }, [initial.color, initial.text, initial.visible])
 
   const getTextareaClasses = (swatch: MessageColor, isLive: boolean) => {
     const liveColors: Record<MessageColor, string> = {
@@ -55,14 +69,24 @@ export const MessagePanel = ({
 
   const handleBroadcast = () => {
     onUpdate({ text, color, visible: true })
+    setLastBroadcast({ text, color })
     setVisible(true)
+    setPulse(true)
+    window.setTimeout(() => setPulse(false), 180)
   }
 
   const handleToggle = () => {
-    setVisible((prev) => {
-      onUpdate({ visible: !prev })
-      return !prev
-    })
+    if (visible) {
+      const hasNewContent = text !== lastBroadcast.text || color !== lastBroadcast.color
+      if (hasNewContent) {
+        handleBroadcast()
+        return
+      }
+      onUpdate({ visible: false })
+      setVisible(false)
+      return
+    }
+    handleBroadcast()
   }
 
   return (
@@ -73,10 +97,12 @@ export const MessagePanel = ({
           <button
             type="button"
             onClick={visible ? handleToggle : handleBroadcast}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide border ${visible
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide border transition transform active:scale-[0.97] ${visible
                 ? 'border-rose-500/60 bg-rose-500/30 text-white'
                 : 'border-emerald-400/60 text-emerald-200'
-              }`}
+              } ${pulse ? 'shadow-[0_0_0_6px_rgba(16,185,129,0.25)] scale-[0.98]' : ''} ${
+              visible ? '' : 'hover:shadow-[0_0_0_4px_rgba(16,185,129,0.18)] hover:scale-[0.99]'
+            }`}
           >
             Broadcast
           </button>

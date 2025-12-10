@@ -169,8 +169,15 @@ export const ControllerPage = () => {
   }
 
   const nudgeActiveTimer = (deltaMs: number) => {
-    if (!currentRoomId) return
-    void nudgeTimer(currentRoomId, deltaMs)
+    if (!currentRoomId || !room) return
+    if (room.state.isRunning) {
+      void nudgeTimer(currentRoomId, deltaMs)
+      return
+    }
+    if (activeTimer) {
+      const nextDurationSec = Math.max(0, Math.round(activeTimer.duration + deltaMs / 1000))
+      void updateTimer(currentRoomId, activeTimer.id, { duration: nextDurationSec })
+    }
   }
 
   const handleEditTimer = (
@@ -303,21 +310,6 @@ export const ControllerPage = () => {
     }
   }
 
-  const pendingLiveNudge = useRef(0)
-  const liveNudgeFlush = useRef<number | null>(null)
-  const flushLiveNudge = useCallback(() => {
-    if (!currentRoomId) return
-    const delta = pendingLiveNudge.current
-    pendingLiveNudge.current = 0
-    if (delta !== 0) {
-      void nudgeTimer(currentRoomId, delta)
-    }
-    if (liveNudgeFlush.current) {
-      window.clearTimeout(liveNudgeFlush.current)
-      liveNudgeFlush.current = null
-    }
-  }, [currentRoomId, nudgeTimer])
-
   const pendingStagedDelta = useRef(0)
   const stagedFlush = useRef<number | null>(null)
   const flushStaged = useCallback(() => {
@@ -367,9 +359,15 @@ export const ControllerPage = () => {
         return
       }
 
-      pendingLiveNudge.current += signedDelta
-      if (!liveNudgeFlush.current) {
-        liveNudgeFlush.current = window.setTimeout(flushLiveNudge, 100)
+      if (!currentRoomId || !room) return
+      if (room.state.isRunning) {
+        void nudgeTimer(currentRoomId, signedDelta)
+      } else if (activeTimer) {
+        const nextDurationSec = Math.max(
+          0,
+          Math.round(activeTimer.duration + signedDelta / 1000),
+        )
+        void updateTimer(currentRoomId, activeTimer.id, { duration: nextDurationSec })
       }
     }
 
@@ -390,12 +388,15 @@ export const ControllerPage = () => {
       switch (event.code) {
         case 'Space': {
           event.preventDefault()
-          if (shortcutScope === 'rundown' && selectedTimer) {
-            void startTimer(currentRoomId, selectedTimer.id)
-          } else if (isRunning) {
+          const activeId = room?.state.activeTimerId
+          const targetId = shortcutScope === 'rundown' && selectedTimer ? selectedTimer.id : activeId
+          if (!targetId) break
+
+          const isActiveTarget = targetId === activeId
+          if (isActiveTarget && isRunning) {
             void pauseTimer(currentRoomId)
           } else {
-            void startTimer(currentRoomId)
+            void startTimer(currentRoomId, targetId)
           }
           break
         }
@@ -456,14 +457,13 @@ export const ControllerPage = () => {
     window.addEventListener('blur', stopRepeat)
     return () => {
       stopRepeat()
-      flushLiveNudge()
       flushStaged()
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', stopRepeat)
     }
   }, [
-    activeTimer?.id,
+    activeTimer,
     currentRoomId,
     isRunning,
     nudgeTimer,
@@ -471,11 +471,11 @@ export const ControllerPage = () => {
     resetTimer,
     selectedTimer,
     shortcutScope,
+    room,
     startTimer,
     updateTimer,
     handleStartNextTimer,
     handleStartPrevTimer,
-    flushLiveNudge,
     flushStaged,
   ])
 

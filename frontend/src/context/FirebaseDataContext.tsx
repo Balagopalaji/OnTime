@@ -260,6 +260,7 @@ export const FirebaseDataProvider = ({
   const roomStackRef = useRef<UndoStack>(createEmptyStack())
   const timerStacksRef = useRef<Record<string, UndoStack>>({})
   const lastUserIdRef = useRef<string | null>(null)
+  const pendingNudgeRef = useRef<Record<string, number>>({})
 
   const { user } = useAuth()
   const roomStackKeyForUser = user ? roomStackKey(user.uid) : null
@@ -340,6 +341,9 @@ export const FirebaseDataProvider = ({
           .map((docSnap) => mapRoom(docSnap.id, docSnap.data() as RoomDoc))
           .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
         setRooms(next)
+        next.forEach((room) => {
+          pendingNudgeRef.current[room.id] = 0
+        })
         setConnectionStatus('online')
       },
       (error: FirestoreError) => {
@@ -996,12 +1000,17 @@ export const FirebaseDataProvider = ({
     const room = getRoom(roomId)
     const activeId = room?.state.activeTimerId
     if (!room || !activeId) return
-    const nextElapsedOffset = room.state.elapsedOffset - deltaMs
+    const pending = pendingNudgeRef.current[roomId] ?? 0
+    const currentProgress = computeProgress(room)[activeId] ?? room.state.elapsedOffset ?? 0
+    const base = currentProgress + pending
+    const nextElapsedOffset = base - deltaMs
+    pendingNudgeRef.current[roomId] = pending + (nextElapsedOffset - base)
     const progress = { ...(room.state.progress ?? {}) }
-    progress[activeId] = Math.max(0, nextElapsedOffset)
+    progress[activeId] = nextElapsedOffset
+    const nextStartedAt = room.state.isRunning ? Date.now() : room.state.startedAt
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.elapsedOffset': nextElapsedOffset,
-      'state.startedAt': room.state.startedAt,
+      'state.startedAt': nextStartedAt,
       'state.progress': progress,
     })
   }, [getRoom])
