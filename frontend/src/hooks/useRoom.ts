@@ -76,6 +76,17 @@ export const useRoom = (roomId: string | undefined) => {
     useState<ConnectionStatus>('reconnecting')
 
   useEffect(() => {
+    const handleOnline = () => setConnectionStatusState('reconnecting')
+    const handleOffline = () => setConnectionStatusState('offline')
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!roomId) return undefined
 
     setLoadingState(true)
