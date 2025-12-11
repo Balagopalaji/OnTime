@@ -19,7 +19,7 @@ const fullscreenElement = () => {
   )
 }
 
-export const useFullscreen = (targetRef: RefObject<HTMLElement>) => {
+export const useFullscreen = (targetRef: RefObject<HTMLElement | null>) => {
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   useEffect(() => {

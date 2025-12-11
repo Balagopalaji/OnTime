@@ -32,11 +32,13 @@ describe('useFullscreen', () => {
   })
 
   it('enters and exits fullscreen while tracking state', async () => {
-    const element = document.createElement('div') as HTMLElement & {
-      requestFullscreen: ReturnType<typeof vi.fn>
+    const element = document.createElement('div')
+    const ref = {
+      current: element as unknown as HTMLElement & {
+        requestFullscreen: ReturnType<typeof vi.fn>
+      },
     }
-    element.requestFullscreen = vi.fn().mockResolvedValue(undefined)
-    const ref = { current: element }
+    ref.current.requestFullscreen = vi.fn().mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useFullscreen(ref))
     expect(result.current.isFullscreen).toBe(false)
@@ -65,11 +67,13 @@ describe('useFullscreen', () => {
   })
 
   it('toggleFullscreen switches between enter and exit actions', async () => {
-    const element = document.createElement('div') as HTMLElement & {
-      requestFullscreen: ReturnType<typeof vi.fn>
+    const element = document.createElement('div')
+    const ref = {
+      current: element as unknown as HTMLElement & {
+        requestFullscreen: ReturnType<typeof vi.fn>
+      },
     }
-    element.requestFullscreen = vi.fn().mockResolvedValue(undefined)
-    const ref = { current: element }
+    ref.current.requestFullscreen = vi.fn().mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useFullscreen(ref))
 

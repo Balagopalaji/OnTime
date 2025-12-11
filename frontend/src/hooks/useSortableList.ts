@@ -85,7 +85,7 @@ export const useSortableList = <T,>({
         best = { index: entry.index, dist }
       }
     })
-    return best?.index ?? null
+    return (best as { index: number; dist: number } | null)?.index ?? null
   }
 
   const hydrateRects = () => {

@@ -1,60 +1,12 @@
-export type TimestampLike = { seconds: number; nanoseconds: number }
+export type TimestampLike = { seconds: number; nanoseconds?: number }
 
 export const toMillis = (value: unknown, fallback: number | null = null): number | null => {
   if (typeof value === 'number') return value
-  if (
-    value &&
-    typeof value === 'object' &&
-    'seconds' in (value as Record<string, unknown>) &&
-    'nanoseconds' in (value as Record<string, unknown>)
-  ) {
+  if (value && typeof value === 'object' && 'seconds' in (value as Record<string, unknown>)) {
     const ts = value as TimestampLike
-    return ts.seconds * 1000 + Math.floor(ts.nanoseconds / 1_000_000)
+    return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000)
   }
   return fallback
-}
-
-export type RoomSnapshot = {
-  id: string
-  ownerId: string
-  title: string
-  timezone: string
-  createdAt: number
-  order?: number
-  config: { warningSec: number; criticalSec: number }
-  state: {
-    activeTimerId: string | null
-    isRunning: boolean
-    startedAt: number | null
-    elapsedOffset: number
-    progress: Record<string, number>
-    showClock: boolean
-    clockMode?: '24h' | 'ampm'
-    message: { text: string; visible: boolean; color: string }
-  }
-  timers: Array<{
-    id: string
-    roomId: string
-    title: string
-    duration: number
-    speaker: string
-    type: string
-    order: number
-  }>
-}
-
-export type TimerSnapshot = {
-  roomId: string
-  timer: {
-    id: string
-    roomId: string
-    title: string
-    duration: number
-    speaker: string
-    type: string
-    order: number
-  }
-  progress: number
 }
 
 export type RoomUpdatePatch = Partial<{
@@ -70,42 +22,17 @@ export type TimerUpdatePatch = Partial<{
   order: number
 }>
 
-export type UndoEntry =
-  | {
-      kind: 'room'
-      action: 'create' | 'delete'
-      id: string
-      roomId: string
-      expiresAt: number
-      snapshot: RoomSnapshot
-    }
-  | {
-      kind: 'timer'
-      action: 'create' | 'delete'
-      id: string
-      roomId: string
-      expiresAt: number
-      snapshot: TimerSnapshot
-    }
-  | {
-      kind: 'room'
-      action: 'update'
-      id: string
-      roomId: string
-      expiresAt: number
-      before: RoomUpdatePatch
-      patch: RoomUpdatePatch
-    }
-  | {
-      kind: 'timer'
-      action: 'update'
-      id: string
-      roomId: string
-      timerId: string
-      expiresAt: number
-      before: TimerUpdatePatch
-      patch: TimerUpdatePatch
-    }
+export type UndoEntry = {
+  kind: 'room' | 'timer'
+  action: string
+  id: string
+  roomId: string
+  expiresAt: number
+  timerId?: string
+  before?: unknown
+  patch?: unknown
+  snapshot?: unknown
+}
 
 export type UndoStack = {
   undo: UndoEntry[]
@@ -144,34 +71,33 @@ export const pushRedo = (stack: UndoStack, entry: UndoEntry, cap: number): UndoS
 
 export const persistStack = (key: string, stack: UndoStack) => {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(key, JSON.stringify(stack))
+  try {
+    window.localStorage.setItem(key, JSON.stringify(stack))
+  } catch {
+    // ignore
+  }
 }
 
 export const loadStack = (key: string): UndoStack => {
   if (typeof window === 'undefined') return { undo: [], redo: [] }
-  const raw = window.localStorage.getItem(key)
-  if (!raw) return { undo: [], redo: [] }
   try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return { undo: [], redo: [] }
     const parsed = JSON.parse(raw)
     if (parsed && Array.isArray(parsed.undo) && Array.isArray(parsed.redo)) {
-      const normalizeEntry = (
-        entry: UndoEntry & { action?: 'create' | 'delete' | 'update' },
-      ): UndoEntry => ({
-        ...entry,
-        action: entry.action ?? 'delete',
-      })
-      return {
-        undo: parsed.undo.map((entry: UndoEntry) => normalizeEntry(entry)),
-        redo: parsed.redo.map((entry: UndoEntry) => normalizeEntry(entry)),
-      }
+      return { undo: parsed.undo as UndoEntry[], redo: parsed.redo as UndoEntry[] }
     }
-  } catch (e) {
-    console.warn('Failed to load undo stack', e)
+  } catch {
+    // ignore
   }
   return { undo: [], redo: [] }
 }
 
 export const clearStack = (key: string) => {
   if (typeof window === 'undefined') return
-  window.localStorage.removeItem(key)
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // ignore
+  }
 }

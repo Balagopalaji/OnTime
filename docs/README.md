@@ -1,31 +1,101 @@
-# StageTime Documentation
+# OnTime Documentation Index
 
-Welcome to the StageTime documentation.
+## 📚 Quick Start Guide
 
-## Core Documentation
-- [Frontend PRD](frontend-prd.md) - Product Requirements for the Frontend.
-- [Backend PRD](backend-prd.md) - Product Requirements for the Backend (Firebase).
-- [Backend Tasks](backend-tasks.md) - Checklist of backend integration tasks.
+### New to OnTime?
+1. **Product Overview**: [`frontend-prd.md`](frontend-prd.md) + [`backend-prd.md`](backend-prd.md) (Current MVP)
+2. **Phase 1 Architecture**: [`local-mode-plan.md`](local-mode-plan.md) → [`modularity-architecture.md`](modularity-architecture.md)
+3. **Implementation**: [`tasks.md`](tasks.md) for current phase
 
-## Guides & Features
-- [Offline/Local Mode](offline-local-mode.md) - Planning and guide for offline and local-first capabilities.
-- [Drag & Drop Tasklist](drag-drop-tasklist.md) - Details on the drag and drop implementation.
-- [Delete/Undo Tasklist](delete-undo-tasklist.md) - Details on delete and undo functionality.
+### Starting Phase 1A Implementation?
+1. [`local-mode-plan.md`](local-mode-plan.md) § 4 (Phased Implementation)
+2. [`websocket-protocol.md`](websocket-protocol.md) (WebSocket API)
+3. [`modularity-architecture.md`](modularity-architecture.md) (Feature flags & tiers)
 
-## Task Tracking
-- [General Tasks](tasks.md) - General project task tracking.
+---
 
-## Environment & Toggles
-- `VITE_USE_MOCK`: set to `false` for Firebase (production path). Keep `true` only for legacy demos/tests with the mock provider.
-- `VITE_FIREBASE_FALLBACK_TO_MOCK`: set to `false` in production; `true` only if you want an automatic mock fallback when Firebase config is missing.
-- `VITE_USE_FIREBASE_EMULATOR`: `true` to point at local emulators (Auth + Firestore); `false` for real Firebase.
-- Required Firebase env vars (in `.env.local`): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, `VITE_FIREBASE_MEASUREMENT_ID`.
+## 📄 Core Documentation
 
-## Manual QA Checklist (Firebase, no mock)
-- Room CRUD/list: sign in, create a room, verify it lists/sorts correctly; delete/undo if available.
-- Controller flows: start/pause/resume/reset/nudge timers; switch active timer and confirm progress persists; toggle message text/color/visibility.
-- Viewer (unauthenticated): open `/room/:id/view` in a logged-out browser; verify live sync during controller actions and overtime handling; toggle showClock if exposed.
-- Drift check: let controller + viewer run for a few minutes; confirm no noticeable drift.
-- Auth gating: signed-out users are redirected from `/dashboard` and `/room/:id/control`; viewer stays public.
-- Connection/offline: simulate network loss; ensure connection indicator shows offline/reconnect and recovers.
-- Rules sanity (if using emulator): public reads succeed; non-owner writes fail; owner writes succeed.
+### Product Requirements (Current MVP)
+- [`frontend-prd.md`](frontend-prd.md) - React frontend spec (controller + viewer)
+- [`backend-prd.md`](backend-prd.md) - Firebase data model + security rules
+
+**Note:** PRDs describe the **current system** (no Companion App). Phase 1 docs below describe **future architecture**.
+
+### Phase 1 Architecture (Local Mode + Show Control)
+- **[`local-mode-plan.md`](local-mode-plan.md)** - **START HERE** - Companion App, offline mode, phases
+- **[`modularity-architecture.md`](modularity-architecture.md)** - Feature flags, tiers, resource optimization
+- **[`websocket-protocol.md`](websocket-protocol.md)** - Complete WebSocket API spec
+- [`show-control-architecture.md`](show-control-architecture.md) - PowerPoint, live cues (Phase 2+)
+
+### Decision Logs
+- [`show-control-decisions.md`](show-control-decisions.md) - Design decisions for show control
+- [`architecture-update-2025-12.md`](architecture-update-2025-12.md) - **CHANGELOG** - Modularity updates (Dec 2025)
+
+### Task Management
+- [`tasks.md`](tasks.md) - Current implementation checklist
+- [`backend-tasks.md`](backend-tasks.md) - Backend-specific tasks
+
+---
+
+## 🔄 Data Model Evolution
+
+### Current MVP (Firebase-only)
+```
+/rooms/{roomId} { activeTimerId, isRunning, startedAt, ... }
+/rooms/{roomId}/timers/{timerId} { title, duration, order, ... }
+```
+
+### Phase 1 (Modular Architecture)
+```
+/rooms/{roomId} { tier, features }  ← Config (read once)
+/rooms/{roomId}/state/current { activeTimerId, isRunning, ... }  ← Real-time
+/rooms/{roomId}/liveCues/{id} { ... }  ← Show Control tier+
+```
+
+**Why?** Reduces sync overhead by 80% - config cached, only state syncs every second.
+
+---
+
+## 🎯 Implementation Phases
+
+### Phase 1A: Proof of Concept (Weeks 1-2)
+**Goal:** Offline timers via WebSocket  
+**Read:** `local-mode-plan.md` § 4.1, `websocket-protocol.md` § 8.1
+
+### Phase 1B: Production (Weeks 3-5)
+**Goal:** Secure offline mode + tiers  
+**Read:** `modularity-architecture.md` § 2-4
+
+### Phase 1C: File Ops (Weeks 6-7)
+**Goal:** Prep for show control  
+**Read:** `local-mode-plan.md` § 4.3
+
+---
+
+## 🔍 Common Questions
+
+**Q: Which data model is correct?**  
+PRDs = Current MVP | Architecture docs = Phase 1+ design
+
+**Q: What's the difference between local-mode-plan and show-control?**  
+`local-mode-plan` = Foundation (offline, WebSocket) | `show-control` = Advanced features (PowerPoint, Phase 2)
+
+**Q: Where's the WebSocket spec?**  
+[`websocket-protocol.md`](websocket-protocol.md)
+
+---
+
+## Environment Variables (Current MVP)
+- `VITE_USE_MOCK`: `false` for Firebase
+- `VITE_USE_FIREBASE_EMULATOR`: `true` for local dev
+- Required: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, etc.
+
+## Manual QA Checklist
+- Room CRUD: Create, list, delete
+- Controller: Start/pause/reset timers, switch active timer
+- Viewer: Open `/room/:id/view` unauthenticated, verify sync
+- Offline: Simulate network loss, verify reconnection
+
+**For detailed architecture navigation, see the full document tree above.**
+

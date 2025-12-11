@@ -11,10 +11,9 @@ export const useWakeLock = (enabled: boolean) => {
   useEffect(() => {
     const requestWakeLock = async () => {
       try {
-        // @ts-expect-error - wakeLock is experimental
-        if ('wakeLock' in navigator) {
-          // @ts-expect-error - wakeLock is experimental
-          const sentinel = await navigator.wakeLock.request('screen')
+        const nav = navigator as Navigator & { wakeLock?: { request?: (type: 'screen') => Promise<WakeLockSentinel> } }
+        if (nav.wakeLock?.request) {
+          const sentinel = await nav.wakeLock.request('screen')
           wakeLockRef.current = sentinel
           sentinel.addEventListener('release', () => {
             wakeLockRef.current = null

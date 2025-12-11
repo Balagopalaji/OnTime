@@ -1,5 +1,5 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom'
-import { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
 

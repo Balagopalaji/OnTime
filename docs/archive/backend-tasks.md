@@ -45,3 +45,5 @@
 - [ ] Deploy rules and run Firebase Emulator Suite tests (if configured) to confirm security parity with PRD.
 
 Cross-reference: backend-prd.md (schema, sync algorithm, rules) and frontend-prd.md (consumer expectations, duration conversion, batching requirements).
+
+

@@ -145,7 +145,10 @@ const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
     const pending = new Set(
       stack.undo
         .filter((entry) => entry.kind === 'timer' && entry.action === 'delete')
-        .map((entry) => entry.snapshot.timer.id),
+        .map((entry) => {
+          const snap = entry.snapshot as { timer?: { id?: string } } | undefined
+          return snap?.timer?.id ?? ''
+        }),
     )
     if (pending.size) {
       next[roomId] = pending
@@ -154,7 +157,7 @@ const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
   return next
 }
 
-const buildRoomSnapshot = (room: Room, timers: Timer[]): UndoEntry & { kind: 'room' }['snapshot'] => ({
+const buildRoomSnapshot = (room: Room, timers: Timer[]): Record<string, unknown> => ({
   id: room.id,
   ownerId: room.ownerId,
   title: room.title,
@@ -169,7 +172,7 @@ const buildRoomSnapshot = (room: Room, timers: Timer[]): UndoEntry & { kind: 'ro
   timers: timers.map((timer) => ({ ...timer })),
 })
 
-const buildTimerSnapshot = (room: Room, timer: Timer): UndoEntry & { kind: 'timer' }['snapshot'] => ({
+const buildTimerSnapshot = (room: Room, timer: Timer): Record<string, unknown> => ({
   roomId: room.id,
   timer: { ...timer },
   progress: captureProgress(room)[timer.id] ?? 0,
@@ -740,9 +743,9 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       if (timer) {
         const before: TimerUpdatePatch = {}
         ;(['title', 'duration', 'speaker', 'type', 'order'] as const).forEach((key) => {
+          const currentValue = timer[key]
           if (patch[key] !== undefined) {
-            // @ts-expect-error index by key
-            before[key] = timer[key]
+            before[key] = currentValue as never
           }
         })
         if (Object.keys(before).length > 0) {
@@ -859,7 +862,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         rooms: [...prev.rooms, restoredRoom],
         timers: {
           ...prev.timers,
-          [snapshot.id]: snapshot.timers.map((timer) => ({ ...timer })),
+          [snapshot.id]: snapshot.timers.map((timer: Timer) => ({ ...timer })),
         },
       }))
       syncPendingState()
@@ -880,8 +883,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           room.id === entry.roomId
             ? {
                 ...room,
-                ...(entry.before.title !== undefined ? { title: entry.before.title } : {}),
-                ...(entry.before.timezone !== undefined ? { timezone: entry.before.timezone } : {}),
+                ...((entry.before as { title?: string; timezone?: string })?.title !== undefined
+                  ? { title: (entry.before as { title?: string }).title }
+                  : {}),
+                ...((entry.before as { title?: string; timezone?: string })?.timezone !== undefined
+                  ? { timezone: (entry.before as { timezone?: string }).timezone }
+                  : {}),
               }
             : room,
         ),
@@ -926,7 +933,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         rooms: [...prev.rooms, restoredRoom],
         timers: {
           ...prev.timers,
-          [snapshot.id]: snapshot.timers.map((timer) => ({ ...timer })),
+          [snapshot.id]: snapshot.timers.map((timer: Timer) => ({ ...timer })),
         },
       }))
       syncPendingState()
@@ -938,8 +945,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           room.id === entry.roomId
             ? {
                 ...room,
-                ...(entry.patch.title !== undefined ? { title: entry.patch.title } : {}),
-                ...(entry.patch.timezone !== undefined ? { timezone: entry.patch.timezone } : {}),
+                ...((entry.patch as { title?: string; timezone?: string })?.title !== undefined
+                  ? { title: (entry.patch as { title?: string }).title }
+                  : {}),
+                ...((entry.patch as { title?: string; timezone?: string })?.timezone !== undefined
+                  ? { timezone: (entry.patch as { timezone?: string }).timezone }
+                  : {}),
               }
             : room,
         ),
@@ -981,18 +992,29 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         })
       } else if (entry.action === 'update') {
         updateTimers(roomId, (timers) =>
-          timers.map((timer) =>
-            timer.id === entry.timerId
-              ? {
-                  ...timer,
-                  ...(entry.before.title !== undefined ? { title: entry.before.title } : {}),
-                  ...(entry.before.duration !== undefined ? { duration: entry.before.duration } : {}),
-                  ...(entry.before.speaker !== undefined ? { speaker: entry.before.speaker } : {}),
-                  ...(entry.before.type !== undefined ? { type: entry.before.type } : {}),
-                  ...(entry.before.order !== undefined ? { order: entry.before.order } : {}),
-                }
-              : timer,
-          ),
+          timers
+            .map((timer) =>
+              timer.id === entry.timerId
+                ? {
+                    ...timer,
+                    ...((entry.before as Record<string, unknown>)?.title !== undefined
+                      ? { title: (entry.before as { title?: string }).title }
+                      : {}),
+                    ...((entry.before as Record<string, unknown>)?.duration !== undefined
+                      ? { duration: (entry.before as { duration?: number }).duration }
+                      : {}),
+                    ...((entry.before as Record<string, unknown>)?.speaker !== undefined
+                      ? { speaker: (entry.before as { speaker?: string }).speaker }
+                      : {}),
+                    ...((entry.before as Record<string, unknown>)?.type !== undefined
+                      ? { type: (entry.before as { type?: Timer['type'] }).type }
+                      : {}),
+                    ...((entry.before as Record<string, unknown>)?.order !== undefined
+                      ? { order: (entry.before as { order?: number }).order }
+                      : {}),
+                  }
+                : timer,
+            ) as Timer[],
         )
       }
     },
@@ -1051,18 +1073,29 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         await delay(30)
       } else if (entry.action === 'update') {
         updateTimers(roomId, (timers) =>
-          timers.map((timer) =>
-            timer.id === entry.timerId
-              ? {
-                  ...timer,
-                  ...(entry.patch.title !== undefined ? { title: entry.patch.title } : {}),
-                  ...(entry.patch.duration !== undefined ? { duration: entry.patch.duration } : {}),
-                  ...(entry.patch.speaker !== undefined ? { speaker: entry.patch.speaker } : {}),
-                  ...(entry.patch.type !== undefined ? { type: entry.patch.type } : {}),
-                  ...(entry.patch.order !== undefined ? { order: entry.patch.order } : {}),
-                }
-              : timer,
-          ),
+          timers
+            .map((timer) =>
+              timer.id === entry.timerId
+                ? {
+                    ...timer,
+                    ...((entry.patch as Record<string, unknown>)?.title !== undefined
+                      ? { title: (entry.patch as { title?: string }).title }
+                      : {}),
+                    ...((entry.patch as Record<string, unknown>)?.duration !== undefined
+                      ? { duration: (entry.patch as { duration?: number }).duration }
+                      : {}),
+                    ...((entry.patch as Record<string, unknown>)?.speaker !== undefined
+                      ? { speaker: (entry.patch as { speaker?: string }).speaker }
+                      : {}),
+                    ...((entry.patch as Record<string, unknown>)?.type !== undefined
+                      ? { type: (entry.patch as { type?: Timer['type'] }).type }
+                      : {}),
+                    ...((entry.patch as Record<string, unknown>)?.order !== undefined
+                      ? { order: (entry.patch as { order?: number }).order }
+                      : {}),
+                  }
+                : timer,
+            ) as Timer[],
         )
         await delay(20)
       }

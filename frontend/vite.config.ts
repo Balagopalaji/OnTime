@@ -9,9 +9,4 @@ export default defineConfig({
   preview: {
     headers: {},
   },
-  test: {
-    globals: true,
-    environment: 'happy-dom',
-    setupFiles: './src/setupTests.ts',
-  },
 })

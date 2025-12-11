@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import { useParams } from 'react-router-dom'
 import { Maximize2, Minimize2 } from 'lucide-react'
 import { useRoom } from '../hooks/useRoom'
@@ -44,7 +44,7 @@ export const ViewerPage = () => {
   })
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef)
+  const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef as unknown as RefObject<HTMLElement | null>)
   useWakeLock(true)
 
   useEffect(() => {
@@ -164,7 +164,6 @@ export const ViewerPage = () => {
                 max={480}
                 min={140}
                 ratio={2.2}
-                style={{ fontVariantNumeric: 'tabular-nums' }}
               >
                 <span className="inline-flex items-baseline gap-3 justify-center text-white leading-none">
                   <span className="text-white">
@@ -186,13 +185,7 @@ export const ViewerPage = () => {
                 </FitText>
               </div>
               <div className="flex justify-center w-full">
-                <FitText
-                  className="font-semibold text-rose-100 leading-[0.95]"
-                  max={380}
-                  min={220}
-                  ratio={2.1}
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
+                <FitText className="font-semibold text-rose-100 leading-[0.95]" max={380} min={220} ratio={2.1}>
                   {engine.display}
                 </FitText>
               </div>

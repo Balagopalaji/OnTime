@@ -191,8 +191,8 @@ export const DashboardPage = () => {
     return best.index
   }, [])
 
-  const pointerMoveHandler = useRef<(event: PointerEvent) => void>()
-  const pointerUpHandler = useRef<(event: PointerEvent) => void>()
+  const pointerMoveHandler = useRef<((event: PointerEvent) => void) | null>(null)
+  const pointerUpHandler = useRef<((event: PointerEvent) => void) | null>(null)
 
   const endDrag = useCallback(() => {
     window.setTimeout(() => {
@@ -207,8 +207,8 @@ export const DashboardPage = () => {
       if (pointerUpHandler.current) {
         document.removeEventListener('pointerup', pointerUpHandler.current)
       }
-      pointerMoveHandler.current = undefined
-      pointerUpHandler.current = undefined
+      pointerMoveHandler.current = null
+      pointerUpHandler.current = null
     }, 48)
   }, [])
 
@@ -1120,13 +1120,16 @@ export const DashboardPage = () => {
               order: pending.order,
             }))].sort((a, b) => compareCards(a, b)).map((card, index) => {
               if (card.kind === 'placeholder') {
-                return renderPlaceholderItem({
-                  roomId: card.roomId,
-                  title: card.title,
-                  createdAt: card.createdAt,
-                  expiresAt: 0,
-                  order: card.order,
-                })
+                return renderPlaceholderItem(
+                  {
+                    roomId: card.roomId,
+                    title: card.title,
+                    createdAt: card.createdAt,
+                    expiresAt: 0,
+                    order: card.order,
+                  },
+                  index,
+                )
               }
               return renderRoomCard(card.room, index, false)
             })}
