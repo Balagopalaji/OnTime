@@ -62,6 +62,10 @@ export const ViewerPage = () => {
   }, [toggleFullscreen])
 
   const clockTime = useClock(room?.timezone ?? 'UTC', room?.state.clockMode ?? '24h')
+  const [clockBody, clockSuffix] = clockTime.split(' ')
+  const clockSegments = clockBody.split(':')
+  const clockHours = clockSegments[0] ?? ''
+  const clockMinutes = clockSegments[1] ?? ''
 
   if (isLoading) {
     return (
@@ -102,15 +106,6 @@ export const ViewerPage = () => {
     none: 'border border-white/40 bg-transparent text-white',
   }[room.state.message.color]
 
-  const getMessageFitProps = (length: number) => {
-    if (length > 160) {
-      return { max: 80, min: 20, ratio: 9 }
-    }
-    if (length > 100) {
-      return { max: 120, min: 28, ratio: 7 }
-    }
-    return { max: 160, min: 40, ratio: 6 }
-  }
 
   const durationMs = (activeTimer?.duration ?? 0) * 1000
   const progressPercent =
@@ -163,24 +158,40 @@ export const ViewerPage = () => {
 
         <div className="mt-6 flex flex-1 flex-col items-center justify-center">
           {room.state.showClock ? (
-            <div className="flex justify-center w-full">
-              <FitText className="font-semibold text-white" max={360} min={140} ratio={2}>
-                {clockTime}
+            <div className="flex justify-center w-full px-4" style={{ maxHeight: '45vh' }}>
+              <FitText
+                className="font-semibold text-white leading-[0.9] font-[inherit]"
+                max={480}
+                min={140}
+                ratio={2.2}
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                <span className="inline-flex items-baseline gap-3 justify-center text-white leading-none">
+                  <span className="text-white">
+                    {clockHours}:{clockMinutes}
+                  </span>
+                  {clockSuffix && (
+                    <span className="text-5xl font-semibold uppercase text-slate-200 align-middle">
+                      {clockSuffix}
+                    </span>
+                  )}
+                </span>
               </FitText>
             </div>
           ) : isOvertime ? (
             <div className="flex w-full flex-col items-center gap-4 text-white">
               <div className="flex justify-center w-full">
-                <FitText className="font-semibold text-white" max={320} min={90} ratio={3.4}>
+                <FitText className="font-semibold text-white" max={260} min={120} ratio={2.6}>
                   Time is up!
                 </FitText>
               </div>
               <div className="flex justify-center w-full">
                 <FitText
-                  className="font-semibold text-rose-100"
-                  max={220}
-                  min={60}
-                  ratio={4}
+                  className="font-semibold text-rose-100 leading-[0.95]"
+                  max={380}
+                  min={220}
+                  ratio={2.1}
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
                 >
                   {engine.display}
                 </FitText>
@@ -205,14 +216,24 @@ export const ViewerPage = () => {
 
         {room.state.message.visible && room.state.message.text && messageBg && (
           <div
-            className={`mt-8 flex w-full items-center justify-center rounded-3xl px-5 py-8 text-lg font-semibold break-words ${messageBg}`}
+            className={`mt-8 flex w-full items-center justify-center rounded-3xl px-5 py-4 text-lg font-semibold break-words ${messageBg}`}
+            style={{ maxHeight: '40vh' }}
           >
-            <FitText
-              className="w-full text-center font-semibold leading-[1.05] break-words"
-              {...getMessageFitProps(room.state.message.text.length)}
-            >
-              {room.state.message.text}
-            </FitText>
+            <div className="w-full text-center font-semibold leading-tight break-words">
+              <p
+                className="mx-auto"
+                style={{
+                  fontSize: 'clamp(16px, 4vw, 56px)',
+                  lineHeight: 1.05,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 8,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {room.state.message.text}
+              </p>
+            </div>
           </div>
         )}
       </div>

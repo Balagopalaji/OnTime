@@ -32,6 +32,10 @@ export const LiveTimerPreview = ({
   clockMode?: '24h' | 'ampm'
 }) => {
   const clockTime = useClock(timezone, clockMode)
+  const [clockBody, clockSuffix] = clockTime.split(' ')
+  const clockSegments = clockBody.split(':')
+  const clockPrimary =
+    clockSegments.length >= 2 ? `${clockSegments[0]}:${clockSegments[1]}` : clockBody
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
     yellow: 'bg-amber-400/90 text-slate-900',
@@ -97,7 +101,18 @@ export const LiveTimerPreview = ({
       >
         <div className="flex justify-center">
           <FitText className="font-display text-white" max={140}>
-            {showClock ? clockTime : engine.display}
+            {showClock ? (
+              <span className="inline-flex items-baseline gap-2 justify-center align-middle leading-none">
+                <span className="text-white">{clockPrimary}</span>
+                {clockSuffix && (
+                  <span className="text-2xl font-semibold uppercase text-slate-200 align-middle">
+                    {clockSuffix}
+                  </span>
+                )}
+              </span>
+            ) : (
+              engine.display
+            )}
           </FitText>
         </div>
         <p className="mt-4 text-sm uppercase tracking-[0.35em] text-slate-400">

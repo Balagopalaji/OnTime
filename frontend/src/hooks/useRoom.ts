@@ -74,9 +74,13 @@ export const useRoom = (roomId: string | undefined) => {
   const [error, setError] = useState<FirestoreError | undefined>(undefined)
   const [connectionStatusState, setConnectionStatusState] =
     useState<ConnectionStatus>('reconnecting')
+  const [subscriptionEpoch, setSubscriptionEpoch] = useState(0)
 
   useEffect(() => {
-    const handleOnline = () => setConnectionStatusState('reconnecting')
+    const handleOnline = () => {
+      setConnectionStatusState('reconnecting')
+      setSubscriptionEpoch((prev) => prev + 1)
+    }
     const handleOffline = () => setConnectionStatusState('offline')
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
@@ -111,7 +115,7 @@ export const useRoom = (roomId: string | undefined) => {
       },
     )
     return () => unsub()
-  }, [roomId])
+  }, [roomId, subscriptionEpoch])
 
   const roomValue = roomId ? room : undefined
   const loading = roomId ? loadingState : false
