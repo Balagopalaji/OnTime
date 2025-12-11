@@ -86,6 +86,13 @@ PRDs = Current MVP | Architecture docs = Phase 1+ design
 
 ---
 
+## Known Issues
+
+**Undo/Redo Temporarily Disabled**  
+The undo/redo system is currently stubbed out (buttons do nothing). This was done to unblock Phase 1A development. See [`undo-redo-future-plan.md`](undo-redo-future-plan.md) for the implementation plan. Will be addressed after Phase 1C, before production.
+
+---
+
 ## Environment Variables (Current MVP)
 - `VITE_USE_MOCK`: `false` for Firebase
 - `VITE_USE_FIREBASE_EMULATOR`: `true` for local dev

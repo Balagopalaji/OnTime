@@ -81,17 +81,29 @@ Add WebSocket server to Companion app:
 
 ### ✅ Acceptance Criteria
 - [ ] WebSocket server starts on port 4000
-- [ ] Can connect via browser console: `new WebSocket('ws://localhost:4000')`
+- [ ] Can connect via Socket.io client (see test below)
 - [ ] Sending invalid PIN returns HANDSHAKE_ERROR
 - [ ] Sending valid PIN returns HANDSHAKE_ACK with capabilities
 
 **Test command:**
 ```javascript
-// Browser console test
+// Browser console test (using Socket.io client)
+// Option 1: Install Socket.io client CDN in a test HTML page
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+  const socket = io('http://localhost:4000');
+  socket.emit('JOIN_ROOM', {roomId: 'test', token: '123456', clientType: 'viewer'});
+  socket.on('HANDSHAKE_ACK', (data) => console.log('Connected:', data));
+</script>
+
+// Option 2: Accept raw WebSocket for Minimal Mode
+// If builder implements raw ws support, test with:
 const ws = new WebSocket('ws://localhost:4000');
 ws.onmessage = (e) => console.log(JSON.parse(e.data));
 ws.send(JSON.stringify({type: 'JOIN_ROOM', token: '123456', roomId: 'test'}));
 ```
+
+**Note:** Prefer Socket.io for consistency with frontend. Raw WebSocket is acceptable for Minimal Mode only.
 
 ---
 
@@ -153,12 +165,14 @@ Update /frontend/src/types to include:
 - RoomFeatures interface
 - Tier type: 'basic' | 'show_control' | 'production'
 - Keep backward compatibility with existing Timer interface
+- IMPORTANT: Export legacy types alongside new ones (e.g., keep existing Room type as RoomLegacy)
 ```
 
 ### ✅ Acceptance Criteria
 - [ ] No TypeScript errors in /frontend
 - [ ] Existing FirebaseDataContext still compiles (may have type warnings - OK for now)
 - [ ] New types exported from types/index.ts
+- [ ] Legacy types still available (e.g., `RoomLegacy` for old code)
 
 ---
 
@@ -182,17 +196,26 @@ frontend/src/types/index.ts
 Create /frontend/src/context/CompanionDataContext.tsx:
 - React context provider using Socket.io client
 - Connect to ws://localhost:4000
-- Implement same interface as FirebaseDataContext (read-only subset for now)
+- Implement same interface as FirebaseDataContext (READ-ONLY subset for now)
 - Handle JOIN_ROOM, HANDSHAKE_ACK, ROOM_STATE_SNAPSHOT, ROOM_STATE_DELTA
 - Update local React state on server events
 - Expose companionMode and capabilities from HANDSHAKE_ACK
 - Add connection status indicator (connected/disconnected/reconnecting)
+
+READ-ONLY methods to implement:
+- getRoomState() - returns current room state
+- subscribeToRoom() - sets up listeners
+
+STUBBED methods (log "Not yet implemented"):
+- startTimer(), pauseTimer(), resetTimer() (these will be added in Step 6)
+- createTimer(), updateTimer(), deleteTimer() (defer to Phase 1B)
 ```
 
 ### ✅ Acceptance Criteria
 - [ ] Provider can replace FirebaseDataProvider in a test page
 - [ ] Connection status updates correctly
 - [ ] Room state syncs from Companion to frontend
+- [ ] Timer control methods are stubbed (log warnings, don't throw errors)
 - [ ] No timer control yet (read-only for now)
 
 **Test:** Create `/test-companion` route that uses CompanionDataProvider, verify state displays.
@@ -259,8 +282,13 @@ Prepare for tier-based features:
 
 ### ✅ Acceptance Criteria
 - [ ] New rooms created with tier and features fields
-- [ ] Firestore rules allow reading /rooms/{id} and /rooms/{id}/state/current
+- [ ] Firestore rules updated (see note below)
 - [ ] Existing rooms still work (backward compatible)
+
+**Firestore Rules Deployment:**
+- **Emulator (local dev):** Rules auto-reload from `firebase/firestore.rules`
+- **Production:** Run `firebase deploy --only firestore:rules` (Phase 1B, not now)
+- **Test:** Use emulator for Phase 1A, defer production deployment
 
 ---
 
