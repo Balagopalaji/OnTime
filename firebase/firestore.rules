@@ -1,6 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isOwner(roomId) {
+      return request.auth != null
+        && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid;
+    }
+
     match /rooms/{roomId} {
       // Viewer is public; controller writes are owner-only.
       allow read: if true;
@@ -16,6 +21,12 @@ service cloud.firestore {
         allow read: if true;
         allow create, update, delete: if request.auth != null
           && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid;
+      }
+
+      // Room state (v2): /rooms/{roomId}/state/current
+      match /state/{docId} {
+        allow read: if true;
+        allow write: if isOwner(roomId);
       }
     }
   }

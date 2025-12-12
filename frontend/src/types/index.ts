@@ -64,6 +64,7 @@ export type Room = RoomLegacy & {
   tier?: Tier
   features?: RoomFeatures
   state: RoomState
+  _version?: number
 }
 
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting'

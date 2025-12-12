@@ -3,6 +3,8 @@ import { io, type Socket } from 'socket.io-client'
 import type { DataContextValue } from './DataContext'
 import { DataProviderBoundary } from './DataContext'
 import type { ConnectionStatus, Room, RoomFeatures, RoomState, Timer } from '../types'
+import { db } from '../lib/firebase'
+import { doc, setDoc } from 'firebase/firestore'
 
 type HandshakeAck = {
   type: 'HANDSHAKE_ACK'
@@ -101,6 +103,8 @@ const buildRoom = (roomId: string, state: RoomState): Room => ({
   state,
   tier: 'basic',
   features: defaultRoomFeatures,
+  // Future version detection could flow from server; default legacy
+  _version: 1,
 })
 
 export const CompanionDataProvider = ({ children }: { children: ReactNode }) => {
@@ -193,6 +197,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setRooms((prev) =>
         prev.map((room) => {
           if (room.id !== payload.roomId) return room
+          if (payload.clientId && payload.clientId === clientIdRef.current) return room
           const nextState: RoomState = {
             ...room.state,
             ...payload.changes,
@@ -388,6 +393,31 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         console.info('[companion] queue TIMER_ACTION (offline)', payload)
         enqueueAction(roomId, payload)
       }
+
+      // Firestore write-through (best effort) to new path; fallback to legacy on error
+      const stateRefV2 = doc(db, 'rooms', roomId, 'state', 'current')
+      const legacyRef = doc(db, 'rooms', roomId)
+      const stateUpdate: Record<string, unknown> = {
+        activeTimerId: timerId,
+        isRunning: action === 'START',
+        lastUpdate: timestamp,
+      }
+      if (action === 'RESET') {
+        stateUpdate.currentTime = 0
+      }
+      void setDoc(stateRefV2, stateUpdate, { merge: true })
+        .then(() => console.info('[companion] Firestore v2 state write ok', { roomId, stateUpdate }))
+        .catch((err) => {
+          console.warn('[companion] Firestore v2 state write failed, falling back to legacy', err)
+          const legacyPayload: Record<string, unknown> = {}
+          if (stateUpdate.activeTimerId !== undefined) legacyPayload['state.activeTimerId'] = stateUpdate.activeTimerId
+          if (stateUpdate.isRunning !== undefined) legacyPayload['state.isRunning'] = stateUpdate.isRunning
+          if (stateUpdate.lastUpdate !== undefined) legacyPayload['state.lastUpdate'] = stateUpdate.lastUpdate
+          if (stateUpdate.currentTime !== undefined) legacyPayload['state.currentTime'] = stateUpdate.currentTime
+          return setDoc(legacyRef, legacyPayload, { merge: true })
+            .then(() => console.info('[companion] Firestore legacy state write ok', { roomId, legacyPayload }))
+            .catch((errLegacy) => console.warn('[companion] Firestore legacy state write failed', errLegacy))
+        })
     },
     [connectionStatus, handshakeStatus, enqueueAction],
   )

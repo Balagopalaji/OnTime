@@ -17,6 +17,7 @@ import type { MessageColor, Room, Timer } from '../types'
 import { DataProviderBoundary, type DataContextValue } from './DataContext'
 import { MockDataProvider } from './MockDataContext'
 import { useAuth } from './AuthContext'
+import { doc as firestoreDoc, updateDoc as updateDocFs } from 'firebase/firestore'
 
 const DEFAULT_CONFIG = {
   warningSec: 120,
@@ -30,6 +31,7 @@ type RoomDoc = {
   timezone: string
   order?: number
   createdAt: number | { seconds: number; nanoseconds: number }
+  _version?: number
   config?: {
     warningSec?: number
     criticalSec?: number
@@ -74,6 +76,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
       warningSec: data.config?.warningSec ?? DEFAULT_CONFIG.warningSec,
       criticalSec: data.config?.criticalSec ?? DEFAULT_CONFIG.criticalSec,
     },
+    _version: data._version ?? 1,
     state: {
       activeTimerId: data.state?.activeTimerId ?? null,
       isRunning: data.state?.isRunning ?? false,
@@ -147,6 +150,7 @@ export const FirebaseDataProvider = ({
     Record<string, Array<{ timerId: string; title: string; order: number; expiresAt: number }>>
   >({})
   const [subscriptionEpoch, setSubscriptionEpoch] = useState(0)
+  const [stateOverrides, setStateOverrides] = useState<Record<string, Room['state']>>({})
   const pendingNudgeRef = useRef<Record<string, number>>({})
 
   const { user } = useAuth()
@@ -194,7 +198,44 @@ export const FirebaseDataProvider = ({
         collection(db, 'rooms', room.id, 'timers'),
         orderBy('order', 'asc'),
       )
-      return onSnapshot(
+      const roomVersion = room._version ?? 1
+      const stateDocRef = roomVersion === 2 ? firestoreDoc(db, 'rooms', room.id, 'state', 'current') : firestoreDoc(db, 'rooms', room.id)
+
+      const stateUnsub = onSnapshot(
+        stateDocRef,
+        (docSnap) => {
+          if (!docSnap.exists()) return
+          const raw = docSnap.data()
+          if (!raw) return
+          const statePayload =
+            (raw as RoomDoc).state ??
+            (raw as RoomDoc['state']) ??
+            {}
+          setStateOverrides((prev) => ({
+            ...prev,
+            [room.id]: {
+              activeTimerId: statePayload?.activeTimerId ?? room.state.activeTimerId ?? null,
+              isRunning: statePayload?.isRunning ?? room.state.isRunning ?? false,
+              startedAt: toMillis(statePayload?.startedAt, room.state.startedAt) ?? room.state.startedAt ?? null,
+              elapsedOffset: statePayload?.elapsedOffset ?? room.state.elapsedOffset ?? 0,
+              progress: statePayload?.progress ?? room.state.progress ?? {},
+              showClock: statePayload?.showClock ?? room.state.showClock ?? false,
+              clockMode: statePayload?.clockMode ?? room.state.clockMode ?? '24h',
+              message: {
+                text: statePayload?.message?.text ?? room.state.message.text ?? '',
+                visible: statePayload?.message?.visible ?? room.state.message.visible ?? false,
+                color: statePayload?.message?.color ?? room.state.message.color ?? 'green',
+              },
+            },
+          }))
+          setConnectionStatus('online')
+        },
+        (error: FirestoreError) => {
+          console.error('room state snapshot error', error)
+        },
+      )
+
+      const timersUnsub = onSnapshot(
         timersQuery,
         (snapshot) => {
           const timersForRoom: Timer[] = []
@@ -212,6 +253,10 @@ export const FirebaseDataProvider = ({
           setConnectionStatus('offline')
         },
       )
+      return () => {
+        stateUnsub()
+        timersUnsub()
+      }
     })
     return () => {
       unsubs.forEach((unsub) => unsub && unsub())
@@ -219,13 +264,24 @@ export const FirebaseDataProvider = ({
   }, [fallbackToMock, subscriptionEpoch, user, rooms])
 
 
-  const visibleRooms = useMemo(
-    () =>
-      rooms
-        .filter((room) => !pendingRooms.has(room.id))
-        .sort((a, b) => roomOrderKey(a) - roomOrderKey(b)),
-    [pendingRooms, rooms],
-  )
+const visibleRooms = useMemo(
+  () =>
+    rooms
+      .filter((room) => !pendingRooms.has(room.id))
+      .map((room) =>
+        stateOverrides[room.id]
+          ? {
+              ...room,
+              state: {
+                ...room.state,
+                ...stateOverrides[room.id],
+              },
+            }
+          : room,
+      )
+      .sort((a, b) => roomOrderKey(a) - roomOrderKey(b)),
+  [pendingRooms, rooms, stateOverrides],
+)
 
   const getRoom = useCallback(
     (roomId: string) => visibleRooms.find((room) => room.id === roomId),
@@ -522,12 +578,14 @@ export const FirebaseDataProvider = ({
     if (!targetTimerId || !room) return
     const progress = computeProgress(room)
     const elapsedOffset = progress[targetTimerId] ?? 0
-    await updateDoc(doc(db, 'rooms', roomId), {
-      'state.activeTimerId': targetTimerId,
-      'state.isRunning': true,
-      'state.startedAt': Date.now(),
-      'state.elapsedOffset': elapsedOffset,
-      'state.progress': progress,
+    const stateRef =
+      room._version === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+    await updateDocFs(stateRef, {
+      activeTimerId: targetTimerId,
+      isRunning: true,
+      startedAt: Date.now(),
+      elapsedOffset,
+      progress,
     })
   }, [getRoom])
 
@@ -537,11 +595,13 @@ export const FirebaseDataProvider = ({
     const activeId = room.state.activeTimerId
     const progress = computeProgress(room)
     const elapsed = progress[activeId] ?? 0
-    await updateDoc(doc(db, 'rooms', roomId), {
-      'state.isRunning': false,
-      'state.startedAt': null,
-      'state.elapsedOffset': elapsed,
-      'state.progress': progress,
+    const stateRef =
+      room._version === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+    await updateDocFs(stateRef, {
+      isRunning: false,
+      startedAt: null,
+      elapsedOffset: elapsed,
+      progress,
     })
   }, [getRoom])
 
@@ -553,13 +613,14 @@ export const FirebaseDataProvider = ({
       progress[activeId] = 0
     }
     const nextElapsedOffset = 0
-    const updates: Record<string, unknown> = {
-      'state.isRunning': false,
-      'state.startedAt': null,
-      'state.elapsedOffset': nextElapsedOffset,
-      'state.progress': progress,
-    }
-    await updateDoc(doc(db, 'rooms', roomId), updates)
+    const stateRef =
+      room?._version === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+    await updateDocFs(stateRef, {
+      isRunning: false,
+      startedAt: null,
+      elapsedOffset: nextElapsedOffset,
+      progress,
+    })
   }, [getRoom])
 
   const nudgeTimer: DataContextValue['nudgeTimer'] = useCallback(async (roomId, deltaMs) => {
