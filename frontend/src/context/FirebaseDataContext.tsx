@@ -24,6 +24,13 @@ const DEFAULT_CONFIG = {
   criticalSec: 30,
 }
 
+const DEFAULT_FEATURES = {
+  localMode: true,
+  showControl: false,
+  powerpoint: false,
+  externalVideo: false,
+}
+
 
 type RoomDoc = {
   title: string
@@ -77,6 +84,8 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
       criticalSec: data.config?.criticalSec ?? DEFAULT_CONFIG.criticalSec,
     },
     _version: data._version ?? 1,
+    tier: (data as any).tier ?? 'basic',
+    features: (data as any).features ?? DEFAULT_FEATURES,
     state: {
       activeTimerId: data.state?.activeTimerId ?? null,
       isRunning: data.state?.isRunning ?? false,
@@ -178,6 +187,9 @@ export const FirebaseDataProvider = ({
           .map((docSnap) => mapRoom(docSnap.id, docSnap.data() as RoomDoc))
           .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
         setRooms(next)
+        next.forEach((room) => {
+          console.info(`[firebase] room ${room.id} v${room._version ?? 1} tier=${room.tier ?? 'basic'}`)
+        })
         next.forEach((room) => {
           pendingNudgeRef.current[room.id] = 0
         })
@@ -338,6 +350,9 @@ const visibleRooms = useMemo(
       createdAt: Date.now(),
       order: nextOrder,
       config: DEFAULT_CONFIG,
+      _version: 2,
+      tier: 'basic',
+      features: DEFAULT_FEATURES,
       state: {
         activeTimerId: defaultTimer.id,
         isRunning: false,
@@ -351,13 +366,22 @@ const visibleRooms = useMemo(
     }
 
     // Write the room first so Firestore rules can validate timer writes against an existing ownerId
-    await setDoc(roomRef, {
+    const roomPayload = {
       ...room,
       createdAt: serverTimestamp(),
       state: {
         ...room.state,
         clockMode: '24h',
       },
+    }
+
+    await setDoc(roomRef, roomPayload)
+    // Seed v2 state doc
+    await setDoc(firestoreDoc(db, 'rooms', roomRef.id, 'state', 'current'), {
+      activeTimerId: defaultTimer.id,
+      isRunning: false,
+      currentTime: 0,
+      lastUpdate: Date.now(),
     })
     await setDoc(defaultTimerRef, defaultTimer)
 
