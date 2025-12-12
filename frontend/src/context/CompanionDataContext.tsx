@@ -55,6 +55,15 @@ const DEFAULT_CONFIG = {
 const SESSION_TOKEN_KEY = 'ontime:companionToken'
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
+type QueueWarning = 'full' | null
+type QueuedAction = {
+  action: 'START' | 'PAUSE' | 'RESET'
+  timestamp: number
+  roomId: string
+  timerId: string
+  clientId: string
+}
+const MAX_QUEUE = 100
 
 const defaultRoomFeatures: RoomFeatures = {
   localMode: true,
@@ -126,6 +135,10 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   })
   const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('idle')
   const socketCreatedRef = useRef(false)
+  const [queueWarning, setQueueWarning] = useState<QueueWarning>(null)
+  const [queueDepth, setQueueDepth] = useState(0)
+  const [isReplayingQueue, setIsReplayingQueue] = useState(false)
+  const isReplayingRef = useRef(false)
 
   useEffect(() => {
     if (socketCreatedRef.current) return
@@ -214,6 +227,79 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     }
   }, [connectionStatus, lastJoinArgs])
 
+  const loadQueue = useCallback((roomId: string): QueuedAction[] => {
+    if (typeof localStorage === 'undefined') return []
+    try {
+      const raw = localStorage.getItem(`ontime:queue:${roomId}`)
+      if (!raw) return []
+      const parsed = JSON.parse(raw) as QueuedAction[]
+      return Array.isArray(parsed) ? parsed : []
+    } catch (error) {
+      console.warn('[companion] Failed to load queue', error)
+      return []
+    }
+  }, [])
+
+  const saveQueue = useCallback((roomId: string, queue: QueuedAction[]) => {
+    if (typeof localStorage === 'undefined') return
+    try {
+      localStorage.setItem(`ontime:queue:${roomId}`, JSON.stringify(queue))
+      setQueueDepth(queue.length)
+    } catch (error) {
+      console.warn('[companion] Failed to save queue', error)
+    }
+  }, [])
+
+  const enqueueAction = useCallback(
+    (roomId: string, action: QueuedAction) => {
+      let queue = loadQueue(roomId)
+      queue.push(action)
+      if (queue.length > MAX_QUEUE) {
+        const dropped = queue.length - MAX_QUEUE
+        queue = queue.slice(dropped)
+        setQueueWarning('full')
+        console.warn('[companion] Queue full, dropping oldest actions', { dropped, roomId })
+      } else {
+        setQueueWarning(null)
+      }
+      console.info('[companion] Queue depth', { roomId, depth: queue.length })
+      saveQueue(roomId, queue)
+    },
+    [loadQueue, saveQueue],
+  )
+
+  const replayQueue = useCallback(
+    (roomId: string) => {
+      if (!socketRef.current) return
+      const queue = loadQueue(roomId)
+      if (!queue.length) return
+      setIsReplayingQueue(true)
+      isReplayingRef.current = true
+      const sorted = [...queue].sort((a, b) => a.timestamp - b.timestamp)
+      sorted.forEach((item) => {
+        socketRef.current?.emit('TIMER_ACTION', {
+          type: 'TIMER_ACTION',
+          action: item.action,
+          roomId: item.roomId,
+          timerId: item.timerId,
+          timestamp: item.timestamp,
+          clientId: item.clientId,
+        })
+      })
+      saveQueue(roomId, [])
+      setQueueWarning(null)
+      setIsReplayingQueue(false)
+      isReplayingRef.current = false
+    },
+    [loadQueue, saveQueue],
+  )
+
+  useEffect(() => {
+    if (connectionStatus === 'online' && handshakeStatus === 'ack' && lastJoinArgs) {
+      replayQueue(lastJoinArgs.roomId)
+    }
+  }, [connectionStatus, handshakeStatus, lastJoinArgs, replayQueue])
+
   const getRoom = useCallback(
     (roomId: string) => rooms.find((room) => room.id === roomId),
     [rooms],
@@ -234,6 +320,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     (roomId: string, token: string, clientType: 'controller' | 'viewer' = 'controller') => {
       setLastJoinArgs({ roomId, token, clientType })
       sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+      setQueueDepth(loadQueue(roomId).length)
       if (!socketRef.current) return
       ensureSocketConnection()
       setHandshakeStatus('pending')
@@ -245,7 +332,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         clientId: clientIdRef.current,
       })
     },
-    [ensureSocketConnection],
+    [ensureSocketConnection, loadQueue],
   )
 
   const getRoomState = useCallback(
@@ -274,17 +361,35 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   const emitTimerAction = useCallback(
     (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET') => {
       const timestamp = Date.now()
-      console.info('[companion] emit TIMER_ACTION', { roomId, timerId, action, timestamp })
-      socketRef.current?.emit('TIMER_ACTION', {
-        type: 'TIMER_ACTION',
+      const payload: QueuedAction = {
         action,
         roomId,
         timerId,
         timestamp,
         clientId: clientIdRef.current,
-      })
+      }
+      const canEmit =
+        connectionStatus === 'online' &&
+        handshakeStatus === 'ack' &&
+        socketRef.current?.connected &&
+        !isReplayingRef.current
+
+      if (canEmit) {
+        console.info('[companion] emit TIMER_ACTION', { roomId, timerId, action, timestamp })
+        socketRef.current?.emit('TIMER_ACTION', {
+          type: 'TIMER_ACTION',
+          action,
+          roomId,
+          timerId,
+          timestamp,
+          clientId: clientIdRef.current,
+        })
+      } else {
+        console.info('[companion] queue TIMER_ACTION (offline)', payload)
+        enqueueAction(roomId, payload)
+      }
     },
-    [],
+    [connectionStatus, handshakeStatus, enqueueAction],
   )
 
   const value: DataContextValue & {
@@ -294,6 +399,9 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     getRoomState: typeof getRoomState
     handshakeStatus: HandshakeStatus
     ensureSocketConnection: typeof ensureSocketConnection
+    queueDepth: number
+    queueWarning: QueueWarning
+    isReplayingQueue: boolean
   } = useMemo(
     () => ({
       rooms,
@@ -384,6 +492,9 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       emitTimerAction,
       handshakeStatus,
       ensureSocketConnection,
+      queueDepth,
+      queueWarning,
+      isReplayingQueue,
     }),
     [
       rooms,
@@ -402,6 +513,9 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       emitTimerAction,
       handshakeStatus,
       ensureSocketConnection,
+      queueDepth,
+      queueWarning,
+      isReplayingQueue,
     ],
   )
 

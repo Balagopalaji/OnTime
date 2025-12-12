@@ -120,6 +120,13 @@ const CompanionTestInner = () => {
             ? JSON.stringify(ctx.capabilities)
             : 'unavailable'}
         </div>
+        <div className="flex items-center gap-3">
+          <span>Queue depth: {ctx.queueDepth ?? 0}</span>
+          {ctx.isReplayingQueue ? <span className="text-amber-400">📤 Syncing...</span> : null}
+          {ctx.queueWarning === 'full' ? (
+            <span className="text-red-400">Queue full, some actions may be lost</span>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-x-2">
