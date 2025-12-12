@@ -1,7 +1,12 @@
-import { app, Menu, Tray, nativeImage } from 'electron';
+import { app, Menu, Tray, nativeImage, clipboard } from 'electron';
 import { createServer, Server as HttpServer } from 'node:http';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
 import { Server as SocketIOServer, Socket } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import { machineId } from 'node-machine-id';
 
 let tray: Tray | null = null;
 
@@ -9,6 +14,17 @@ const APP_LABEL = 'OnTime Companion';
 const MODE_LABEL = 'Minimal Mode';
 const COMPANION_MODE = 'minimal';
 const COMPANION_VERSION = '0.1.0';
+const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TOKEN_SERVICE = 'OnTime Companion Token';
+const TOKEN_ACCOUNT = 'default';
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://[::1]:5173',
+  'http://[::1]:3000'
+];
 
 type JoinRoomPayload = {
   type: 'JOIN_ROOM';
@@ -53,6 +69,7 @@ type TimerActionPayload = {
   roomId: string;
   timerId: string;
   timestamp?: number;
+  clientId?: string;
 };
 
 type RoomStateSnapshot = {
@@ -66,19 +83,142 @@ type RoomStateDelta = {
   type: 'ROOM_STATE_DELTA';
   roomId: string;
   changes: Partial<RoomState>;
+  clientId?: string;
   timestamp: number;
 };
 
 let io: SocketIOServer | null = null;
 let httpServer: HttpServer | null = null;
+let tokenServerV4: HttpServer | null = null;
+let tokenServerV6: HttpServer | null = null;
 const roomStateStore: Map<string, RoomState> = new Map();
+let currentToken: string | null = null;
+let currentTokenExpiresAt: number | null = null;
+let jwtSecret: string | null = null;
 
-function generatePin(): string {
-  const pin = Math.floor(Math.random() * 1_000_000);
-  return pin.toString().padStart(6, '0');
+type StoredTokenPayload = {
+  token: string;
+  expiresAt: number;
+};
+
+type EncryptedPayload = {
+  iv: string;
+  authTag: string;
+  data: string;
+};
+
+async function getMachineId(): Promise<string> {
+  try {
+    return await machineId();
+  } catch (error) {
+    console.warn('[auth] Failed to read machine id, falling back to hostname');
+    return os.hostname();
+  }
 }
 
-function createTray(pin: string) {
+function generateJwt(): { token: string; expiresAt: number; secret: string } {
+  const secret = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + TOKEN_TTL_MS;
+  const token = jwt.sign(
+    {
+      scope: 'companion',
+      exp: Math.floor(expiresAt / 1000),
+    },
+    secret
+  );
+  return { token, expiresAt, secret };
+}
+
+async function saveTokenToKeychain(token: string, expiresAt: number): Promise<void> {
+  try {
+    const keytar = await import('keytar');
+    await keytar.setPassword(TOKEN_SERVICE, TOKEN_ACCOUNT, JSON.stringify({ token, expiresAt }));
+  } catch (error) {
+    throw error;
+  }
+}
+
+function getFallbackTokenPath(): string {
+  const base =
+    process.platform === 'win32'
+      ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'OnTime')
+      : process.platform === 'darwin'
+        ? path.join(os.homedir(), 'Library', 'Application Support', 'OnTime')
+        : path.join(os.homedir(), '.config', 'ontime');
+  return path.join(base, 'tokens.enc');
+}
+
+async function ensureDir(filePath: string) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+}
+
+async function deriveKey(): Promise<Buffer> {
+  const salt = await getMachineId();
+  return await new Promise((resolve, reject) => {
+    crypto.pbkdf2(APP_LABEL, salt, 100_000, 32, 'sha256', (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve(derivedKey);
+    });
+  });
+}
+
+async function encryptToken(data: StoredTokenPayload): Promise<EncryptedPayload> {
+  const key = await deriveKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const json = JSON.stringify(data);
+  const encrypted = Buffer.concat([cipher.update(json, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    iv: iv.toString('hex'),
+    authTag: authTag.toString('hex'),
+    data: encrypted.toString('hex'),
+  };
+}
+
+async function saveTokenToFileFallback(token: string, expiresAt: number): Promise<void> {
+  const filePath = getFallbackTokenPath();
+  await ensureDir(filePath);
+  const payload = await encryptToken({ token, expiresAt });
+  await fs.writeFile(filePath, JSON.stringify(payload), 'utf8');
+  console.warn('[auth] Using file-based token storage (less secure than keychain)');
+}
+
+async function persistToken(token: string, expiresAt: number) {
+  try {
+    await saveTokenToKeychain(token, expiresAt);
+  } catch (error) {
+    console.warn('[auth] keytar unavailable, falling back to encrypted file storage', error);
+    await saveTokenToFileFallback(token, expiresAt);
+  }
+}
+
+function isLoopback(remoteAddress?: string | null): boolean {
+  if (!remoteAddress) return false;
+  const normalized = remoteAddress.replace(/^::ffff:/, '');
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized === '::ffff:127.0.0.1';
+}
+
+function parseAllowedOrigins(): string[] {
+  const envOrigins = process.env.COMPANION_ALLOWED_ORIGINS;
+  if (!envOrigins) return DEFAULT_ALLOWED_ORIGINS;
+  return envOrigins
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
+function validateOrigin(origin: string | undefined, allowedOrigins: string[]): boolean {
+  if (!origin) return true; // allow CLI tools like curl without Origin
+  try {
+    const url = new URL(origin);
+    return allowedOrigins.includes(`${url.protocol}//${url.host}`);
+  } catch {
+    return false;
+  }
+}
+
+function createTray(token: string, expiresAt: number) {
   const icon = nativeImage.createFromBuffer(getTrayPng());
   if (process.platform === 'darwin') {
     icon.setTemplateImage(true);
@@ -87,10 +227,17 @@ function createTray(pin: string) {
   tray = new Tray(icon);
   tray.setToolTip(`${APP_LABEL} - ${MODE_LABEL}`);
 
+  const expiryDate = new Date(expiresAt).toLocaleString();
   const contextMenu = Menu.buildFromTemplate([
     { label: `${APP_LABEL} - ${MODE_LABEL}`, enabled: false },
     { type: 'separator' },
-    { label: `PIN: ${pin}`, enabled: false },
+    {
+      label: 'Copy token',
+      click: () => {
+        clipboard.writeText(token);
+      }
+    },
+    { label: `Expires: ${expiryDate}`, enabled: false },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ]);
@@ -125,15 +272,24 @@ async function bootstrap() {
 
   await app.whenReady();
 
+  const { token, expiresAt, secret } = generateJwt();
+  currentToken = token;
+  currentTokenExpiresAt = expiresAt;
+  jwtSecret = secret;
+  console.log(`[auth] Generated Companion token (expires ${new Date(expiresAt).toISOString()})`);
+  try {
+    await persistToken(token, expiresAt);
+  } catch (error) {
+    console.warn('[auth] Failed to persist token', error);
+  }
+
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
   }
 
-  const pin = generatePin();
-  console.log(`Companion PIN: ${pin}`);
-
-  createTray(pin);
-  startSocketServer(pin);
+  createTray(token, expiresAt);
+  startSocketServer();
+  startTokenServer(token, expiresAt);
 }
 
 bootstrap().catch((error) => {
@@ -141,7 +297,7 @@ bootstrap().catch((error) => {
   app.quit();
 });
 
-function startSocketServer(pin: string) {
+function startSocketServer() {
   httpServer = createServer();
   io = new SocketIOServer(httpServer, {
     serveClient: false,
@@ -150,7 +306,7 @@ function startSocketServer(pin: string) {
 
   io.on('connection', (socket) => {
     console.log(`[ws] client connected: ${socket.id}`);
-    socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload, pin));
+    socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('TIMER_ACTION', (payload) => handleTimerAction(socket, payload));
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
@@ -168,10 +324,23 @@ function startSocketServer(pin: string) {
   app.on('before-quit', () => {
     io?.close();
     httpServer?.close();
+    tokenServerV4?.close();
+    tokenServerV6?.close();
   });
 }
 
-function handleJoinRoom(socket: Socket, payload: unknown, pin: string) {
+function verifyToken(token: string | undefined): boolean {
+  if (!token || !jwtSecret) return false;
+  try {
+    jwt.verify(token, jwtSecret);
+    return true;
+  } catch (error) {
+    console.warn('[auth] Token verification failed', error);
+    return false;
+  }
+}
+
+function handleJoinRoom(socket: Socket, payload: unknown) {
   if (!isValidJoinRoomPayload(payload)) {
     console.warn(`[ws] Invalid JOIN_ROOM payload from socket=${socket.id}`);
     const error: HandshakeError = {
@@ -184,19 +353,22 @@ function handleJoinRoom(socket: Socket, payload: unknown, pin: string) {
     return;
   }
 
-  if (payload.token !== pin) {
+  if (!verifyToken(payload.token)) {
     console.warn(
-      `[ws] Invalid PIN from socket=${socket.id}, room=${payload.roomId ?? 'unknown'}`
+      `[ws] Invalid token from socket=${socket.id}, room=${payload.roomId ?? 'unknown'}`
     );
     const error: HandshakeError = {
       type: 'HANDSHAKE_ERROR',
       code: 'INVALID_TOKEN',
-      message: 'Invalid PIN. Please check the Companion app system tray.'
+      message: 'Invalid or expired token.'
     };
     socket.emit('HANDSHAKE_ERROR', error);
     socket.disconnect(true);
     return;
   }
+
+  const clientId = payload.clientId ?? socket.id;
+  socket.data.clientId = clientId;
 
   const ack: HandshakeAck = {
     type: 'HANDSHAKE_ACK',
@@ -242,8 +414,7 @@ function isValidJoinRoomPayload(payload: unknown): payload is JoinRoomPayload {
   return (
     data.type === 'JOIN_ROOM' &&
     typeof data.roomId === 'string' &&
-    typeof data.token === 'string' &&
-    /^\d{6}$/.test(data.token)
+    typeof data.token === 'string'
   );
 }
 
@@ -295,6 +466,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
     type: 'ROOM_STATE_DELTA',
     roomId: payload.roomId,
     changes,
+    clientId: socket.data.clientId ?? payload.clientId,
     timestamp: payload.timestamp ?? now
   };
 
@@ -334,4 +506,57 @@ function getRoomState(roomId: string): RoomState {
 
   roomStateStore.set(roomId, initial);
   return initial;
+}
+
+function startTokenServer(token: string, expiresAt: number) {
+  const handler = (req: any, res: any) => {
+    const allowedOrigins = parseAllowedOrigins();
+    const origin = req.headers.origin as string | undefined;
+    const remoteAddress = req.socket?.remoteAddress;
+
+    if (!isLoopback(remoteAddress)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+
+    if (!validateOrigin(origin, allowedOrigins)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid origin' }));
+      return;
+    }
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
+      return;
+    }
+
+    if (req.url === '/api/token' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+      });
+      res.end(JSON.stringify({ token, expiresAt }));
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  };
+
+  tokenServerV4 = createServer(handler);
+  tokenServerV6 = createServer(handler);
+
+  tokenServerV4.listen(4001, '127.0.0.1', () => {
+    console.log('[http] Token endpoint listening on http://127.0.0.1:4001/api/token');
+  });
+
+  tokenServerV6.listen({ port: 4001, host: '::1', ipv6Only: true }, () => {
+    console.log('[http] Token endpoint listening on http://[::1]:4001/api/token');
+  });
 }

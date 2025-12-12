@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CompanionDataProvider } from '../context/CompanionDataContext'
 import { useDataContext } from '../context/DataContext'
 
 const CompanionTestInner = () => {
+  const SESSION_TOKEN_KEY = 'ontime:companionToken'
   const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
     subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
     getRoomState?: (roomId: string) => unknown
@@ -18,7 +19,7 @@ const CompanionTestInner = () => {
   }
 
   const [roomId, setRoomId] = useState('test-room')
-  const [pin, setPin] = useState('')
+  const [token, setToken] = useState(() => sessionStorage.getItem(SESSION_TOKEN_KEY) ?? '')
   const [clientType, setClientType] = useState<'controller' | 'viewer'>('controller')
 
   const roomState = useMemo(
@@ -27,8 +28,37 @@ const CompanionTestInner = () => {
   )
 
   const handleJoin = () => {
-    ctx.subscribeToRoom?.(roomId, pin, clientType)
+    if (!token) return
+    sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+    ctx.subscribeToRoom?.(roomId, token, clientType)
   }
+
+  const fetchToken = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:4001/api/token', {
+        headers: {
+          Origin: 'http://localhost:5173',
+        },
+      })
+      if (!res.ok) {
+        console.warn('[companion-test] Failed to fetch token', res.status)
+        return
+      }
+      const data = (await res.json()) as { token?: string }
+      if (data.token) {
+        setToken(data.token)
+        sessionStorage.setItem(SESSION_TOKEN_KEY, data.token)
+      }
+    } catch (error) {
+      console.warn('[companion-test] Token fetch error', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!token) {
+      void fetchToken()
+    }
+  }, [fetchToken, token])
 
   return (
     <div className="p-6 space-y-4 text-slate-100">
@@ -43,12 +73,12 @@ const CompanionTestInner = () => {
           />
         </label>
         <label className="space-x-1 text-sm font-medium">
-          <span>PIN</span>
+          <span>Token</span>
           <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
             className="border px-2 py-1 rounded bg-slate-900 text-white"
-            placeholder="6-digit PIN"
+            placeholder="JWT token"
           />
         </label>
         <label className="space-x-1 text-sm font-medium">
@@ -64,6 +94,9 @@ const CompanionTestInner = () => {
         </label>
         <button className="bg-blue-600 text-white px-3 py-1 rounded" onClick={handleJoin}>
           Join
+        </button>
+        <button className="bg-slate-700 text-white px-3 py-1 rounded" onClick={fetchToken}>
+          Fetch Token
         </button>
       </div>
 

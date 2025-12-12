@@ -37,6 +37,7 @@ type DeltaPayload = {
   type: 'ROOM_STATE_DELTA'
   roomId: string
   changes: Partial<RoomState>
+  clientId?: string
   timestamp: number
 }
 
@@ -50,6 +51,9 @@ const DEFAULT_CONFIG = {
   warningSec: 120,
   criticalSec: 30,
 }
+
+const SESSION_TOKEN_KEY = 'ontime:companionToken'
+const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 
 const defaultRoomFeatures: RoomFeatures = {
   localMode: true,
@@ -103,6 +107,16 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     Record<string, Array<{ timerId: string; title: string; order: number; expiresAt: number }>>
   >({})
   const [lastJoinArgs, setLastJoinArgs] = useState<JoinArgs | null>(null)
+  const clientIdRef = useRef<string>('')
+  if (!clientIdRef.current) {
+    const cached = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
+    if (cached) {
+      clientIdRef.current = cached
+    } else {
+      clientIdRef.current = crypto.randomUUID()
+      sessionStorage.setItem(SESSION_CLIENT_ID_KEY, clientIdRef.current)
+    }
+  }
   const [companionMode, setCompanionMode] = useState<string>('minimal')
   const [capabilities, setCapabilities] = useState<HandshakeAck['capabilities']>({
     powerpoint: false,
@@ -125,6 +139,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setCompanionMode(data.companionMode)
       setCapabilities(data.capabilities)
     })
+    socket.on('HANDSHAKE_ERROR', () => setConnectionStatus('offline'))
 
     socket.on('ROOM_STATE_SNAPSHOT', (payload: SnapshotPayload) => {
       setRooms((prev) => {
@@ -139,6 +154,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setRooms((prev) =>
         prev.map((room) => {
           if (room.id !== payload.roomId) return room
+          if (payload.clientId && payload.clientId === clientIdRef.current) return room
           const nextState: RoomState = {
             ...room.state,
             ...payload.changes,
@@ -167,6 +183,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         roomId: lastJoinArgs.roomId,
         token: lastJoinArgs.token,
         clientType: lastJoinArgs.clientType ?? 'controller',
+        clientId: clientIdRef.current,
       })
     }
   }, [connectionStatus, lastJoinArgs])
@@ -183,12 +200,14 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
 
   const subscribeToRoom = useCallback((roomId: string, token: string, clientType: 'controller' | 'viewer' = 'controller') => {
     setLastJoinArgs({ roomId, token, clientType })
+    sessionStorage.setItem(SESSION_TOKEN_KEY, token)
     if (!socketRef.current) return
     socketRef.current.emit('JOIN_ROOM', {
       type: 'JOIN_ROOM',
       roomId,
       token,
       clientType,
+      clientId: clientIdRef.current,
     })
   }, [])
 
@@ -224,6 +243,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         roomId,
         timerId,
         timestamp,
+        clientId: clientIdRef.current,
       })
     },
     [],
