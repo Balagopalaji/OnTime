@@ -25,6 +25,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://[::1]:5173',
   'http://[::1]:3000'
 ];
+const CACHE_VERSION = 2;
+const CACHE_WRITE_DEBOUNCE_MS = 2000;
 
 type JoinRoomPayload = {
   type: 'JOIN_ROOM';
@@ -95,6 +97,8 @@ const roomStateStore: Map<string, RoomState> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
+let cacheWriteTimer: NodeJS.Timeout | null = null;
+let lastWriteTs = 0;
 
 type StoredTokenPayload = {
   token: string;
@@ -131,7 +135,11 @@ function generateJwt(): { token: string; expiresAt: number; secret: string } {
 
 async function saveTokenToKeychain(token: string, expiresAt: number): Promise<void> {
   try {
-    const keytar = await import('keytar');
+    const keytarModule = await import('keytar');
+    const keytar = (keytarModule as any).default ?? keytarModule;
+    if (typeof keytar.setPassword !== 'function') {
+      throw new Error('keytar.setPassword unavailable');
+    }
     await keytar.setPassword(TOKEN_SERVICE, TOKEN_ACCOUNT, JSON.stringify({ token, expiresAt }));
   } catch (error) {
     throw error;
@@ -146,6 +154,20 @@ function getFallbackTokenPath(): string {
         ? path.join(os.homedir(), 'Library', 'Application Support', 'OnTime')
         : path.join(os.homedir(), '.config', 'ontime');
   return path.join(base, 'tokens.enc');
+}
+
+function getCacheBaseDir(): string {
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'OnTime', 'cache');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Application Support', 'OnTime', 'cache');
+  }
+  return path.join(os.homedir(), '.config', 'ontime', 'cache');
+}
+
+function getCachePath(): string {
+  return path.join(getCacheBaseDir(), 'rooms.json');
 }
 
 async function ensureDir(filePath: string) {
@@ -226,6 +248,9 @@ function createTray(token: string, expiresAt: number) {
 
   tray = new Tray(icon);
   tray.setToolTip(`${APP_LABEL} - ${MODE_LABEL}`);
+  if (process.platform === 'darwin') {
+    tray.setTitle('OnTime'); // helps visibility in macOS menu bar
+  }
 
   const expiryDate = new Date(expiresAt).toLocaleString();
   const contextMenu = Menu.buildFromTemplate([
@@ -271,6 +296,8 @@ async function bootstrap() {
   });
 
   await app.whenReady();
+
+  await loadRoomCache();
 
   const { token, expiresAt, secret } = generateJwt();
   currentToken = token;
@@ -326,6 +353,7 @@ function startSocketServer() {
     httpServer?.close();
     tokenServerV4?.close();
     tokenServerV6?.close();
+    void flushRoomCache();
   });
 }
 
@@ -461,6 +489,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
 
   const updated = { ...state, ...changes };
   roomStateStore.set(payload.roomId, updated);
+  scheduleRoomCacheWrite();
 
   const delta: RoomStateDelta = {
     type: 'ROOM_STATE_DELTA',
@@ -505,6 +534,7 @@ function getRoomState(roomId: string): RoomState {
   };
 
   roomStateStore.set(roomId, initial);
+  scheduleRoomCacheWrite();
   return initial;
 }
 
@@ -559,4 +589,95 @@ function startTokenServer(token: string, expiresAt: number) {
   tokenServerV6.listen({ port: 4001, host: '::1', ipv6Only: true }, () => {
     console.log('[http] Token endpoint listening on http://[::1]:4001/api/token');
   });
+}
+
+async function loadRoomCache() {
+  const cachePath = getCachePath();
+  try {
+    const data = await fs.readFile(cachePath, 'utf8');
+    const parsed = JSON.parse(data) as { version: number; lastWrite?: number; rooms?: Record<string, RoomState> };
+    if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
+      console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
+      return;
+    }
+    Object.entries(parsed.rooms).forEach(([roomId, state]) => {
+      roomStateStore.set(roomId, state);
+    });
+    lastWriteTs = parsed.lastWrite ?? Date.now();
+    console.log(`[cache] Loaded ${roomStateStore.size} rooms from cache`);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      console.log('[cache] No existing cache, starting fresh');
+      return;
+    }
+    console.error('[cache] Failed to load cache, attempting backup', error);
+    await backupCorruptedCache(cachePath);
+  }
+}
+
+async function backupCorruptedCache(cachePath: string) {
+  try {
+    const cacheDir = path.dirname(cachePath);
+    await fs.mkdir(cacheDir, { recursive: true });
+    const timestamp = Date.now();
+    const backupPath = path.join(cacheDir, `rooms.json.backup.${timestamp}`);
+    await fs.copyFile(cachePath, backupPath);
+    console.warn(`[cache] Backed up corrupted cache to ${backupPath}`);
+    await trimBackups(cacheDir);
+  } catch (err) {
+    console.error('[cache] Failed to backup corrupted cache', err);
+  }
+}
+
+async function trimBackups(cacheDir: string) {
+  try {
+    const files = await fs.readdir(cacheDir);
+    const backups = files
+      .filter((f) => f.startsWith('rooms.json.backup.'))
+      .map((f) => ({ file: f, ts: parseInt(f.split('.').pop() || '0', 10) }))
+      .sort((a, b) => b.ts - a.ts);
+    if (backups.length <= 3) return;
+    const toDelete = backups.slice(3);
+    await Promise.all(
+      toDelete.map(({ file }) => fs.unlink(path.join(cacheDir, file)).catch((err) => console.warn('[cache] Failed to delete old backup', err)))
+    );
+  } catch (err) {
+    console.warn('[cache] Failed to trim backups', err);
+  }
+}
+
+function scheduleRoomCacheWrite() {
+  if (cacheWriteTimer) {
+    clearTimeout(cacheWriteTimer);
+  }
+  cacheWriteTimer = setTimeout(() => {
+    cacheWriteTimer = null;
+    void writeRoomCache();
+  }, CACHE_WRITE_DEBOUNCE_MS);
+}
+
+async function flushRoomCache() {
+  if (cacheWriteTimer) {
+    clearTimeout(cacheWriteTimer);
+    cacheWriteTimer = null;
+    await writeRoomCache();
+  }
+}
+
+async function writeRoomCache() {
+  try {
+    const cachePath = getCachePath();
+    const cacheDir = path.dirname(cachePath);
+    await fs.mkdir(cacheDir, { recursive: true });
+    const payload = {
+      version: CACHE_VERSION,
+      lastWrite: Date.now(),
+      rooms: Object.fromEntries(roomStateStore.entries()),
+    };
+    await fs.writeFile(cachePath, JSON.stringify(payload, null, 2), 'utf8');
+    lastWriteTs = payload.lastWrite;
+    console.log(`[cache] Wrote cache with ${roomStateStore.size} rooms`);
+  } catch (error) {
+    console.error('[cache] Failed to write cache', error);
+  }
 }

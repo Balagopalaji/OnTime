@@ -20,6 +20,7 @@ const CompanionTestInner = () => {
 
   const [roomId, setRoomId] = useState('test-room')
   const [token, setToken] = useState(() => sessionStorage.getItem(SESSION_TOKEN_KEY) ?? '')
+  const [timerId, setTimerId] = useState('timer-1')
   const [clientType, setClientType] = useState<'controller' | 'viewer'>('controller')
 
   const roomState = useMemo(
@@ -92,6 +93,15 @@ const CompanionTestInner = () => {
             <option value="viewer">viewer</option>
           </select>
         </label>
+        <label className="space-x-1 text-sm font-medium">
+          <span>Timer ID</span>
+          <input
+            value={timerId}
+            onChange={(e) => setTimerId(e.target.value)}
+            className="border px-2 py-1 rounded bg-slate-900 text-white"
+            placeholder="timer-1"
+          />
+        </label>
         <button className="bg-blue-600 text-white px-3 py-1 rounded" onClick={handleJoin}>
           Join
         </button>
@@ -102,6 +112,7 @@ const CompanionTestInner = () => {
 
       <div className="space-y-1">
         <div>Connection: {ctx.connectionStatus}</div>
+        <div>Handshake: {ctx.handshakeStatus}</div>
         <div>Companion mode: {ctx.companionMode ?? 'unknown'}</div>
         <div>
           Capabilities:{' '}
@@ -114,19 +125,19 @@ const CompanionTestInner = () => {
       <div className="space-x-2">
         <button
           className="bg-green-600 text-white px-3 py-1 rounded"
-          onClick={() => ctx.startTimer?.(roomId)}
+          onClick={() => ctx.startTimer?.(roomId, timerId)}
         >
           Start Timer
         </button>
         <button
           className="bg-yellow-600 text-white px-3 py-1 rounded"
-          onClick={() => ctx.pauseTimer?.(roomId)}
+          onClick={() => ctx.pauseTimer?.(roomId, timerId)}
         >
           Pause Timer
         </button>
         <button
           className="bg-gray-700 text-white px-3 py-1 rounded"
-          onClick={() => ctx.resetTimer?.(roomId)}
+          onClick={() => ctx.resetTimer?.(roomId, timerId)}
         >
           Reset Timer
         </button>

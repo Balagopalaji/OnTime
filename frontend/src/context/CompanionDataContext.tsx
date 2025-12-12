@@ -54,6 +54,7 @@ const DEFAULT_CONFIG = {
 
 const SESSION_TOKEN_KEY = 'ontime:companionToken'
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
+type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 
 const defaultRoomFeatures: RoomFeatures = {
   localMode: true,
@@ -123,23 +124,47 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     externalVideo: false,
     fileOperations: true,
   })
+  const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('idle')
+  const socketCreatedRef = useRef(false)
 
   useEffect(() => {
+    if (socketCreatedRef.current) return
+    socketCreatedRef.current = true
+
     const socket = io('http://localhost:4000', {
       transports: ['websocket'],
       autoConnect: false,
     })
     socketRef.current = socket
 
-    socket.on('connect', () => setConnectionStatus('online'))
-    socket.on('disconnect', () => setConnectionStatus('offline'))
+    socket.on('connect', () => {
+      setConnectionStatus('online')
+    })
+    socket.on('disconnect', () => {
+      setConnectionStatus('offline')
+      setHandshakeStatus('idle')
+    })
     socket.io.on('reconnect_attempt', () => setConnectionStatus('reconnecting'))
+    socket.io.on('error', (err) => {
+      console.warn('[companion] socket.io error', err)
+      setHandshakeStatus('error')
+    })
+    socket.on('connect_error', (err) => {
+      console.warn('[companion] connect_error', err)
+      setHandshakeStatus('error')
+    })
 
     socket.on('HANDSHAKE_ACK', (data: HandshakeAck) => {
       setCompanionMode(data.companionMode)
       setCapabilities(data.capabilities)
+      setHandshakeStatus('ack')
+      console.info('[companion] HANDSHAKE_ACK', data)
     })
-    socket.on('HANDSHAKE_ERROR', () => setConnectionStatus('offline'))
+    socket.on('HANDSHAKE_ERROR', (err) => {
+      setConnectionStatus('offline')
+      setHandshakeStatus('error')
+      console.warn('[companion] HANDSHAKE_ERROR', err)
+    })
 
     socket.on('ROOM_STATE_SNAPSHOT', (payload: SnapshotPayload) => {
       setRooms((prev) => {
@@ -151,10 +176,10 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     })
 
     socket.on('ROOM_STATE_DELTA', (payload: DeltaPayload) => {
+      console.info('[companion] ROOM_STATE_DELTA', payload)
       setRooms((prev) =>
         prev.map((room) => {
           if (room.id !== payload.roomId) return room
-          if (payload.clientId && payload.clientId === clientIdRef.current) return room
           const nextState: RoomState = {
             ...room.state,
             ...payload.changes,
@@ -166,18 +191,19 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       )
     })
 
-    socket.connect()
-
     return () => {
       socket.off('HANDSHAKE_ACK')
       socket.off('ROOM_STATE_SNAPSHOT')
       socket.off('ROOM_STATE_DELTA')
       socket.disconnect()
+      socketRef.current = null
+      socketCreatedRef.current = false
     }
   }, [])
 
   useEffect(() => {
     if (connectionStatus === 'online' && lastJoinArgs && socketRef.current) {
+      setHandshakeStatus('pending')
       socketRef.current.emit('JOIN_ROOM', {
         type: 'JOIN_ROOM',
         roomId: lastJoinArgs.roomId,
@@ -198,18 +224,29 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     [timers],
   )
 
-  const subscribeToRoom = useCallback((roomId: string, token: string, clientType: 'controller' | 'viewer' = 'controller') => {
-    setLastJoinArgs({ roomId, token, clientType })
-    sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+  const ensureSocketConnection = useCallback(() => {
     if (!socketRef.current) return
-    socketRef.current.emit('JOIN_ROOM', {
-      type: 'JOIN_ROOM',
-      roomId,
-      token,
-      clientType,
-      clientId: clientIdRef.current,
-    })
+    if (socketRef.current.connected || socketRef.current.active) return
+    socketRef.current.connect()
   }, [])
+
+  const subscribeToRoom = useCallback(
+    (roomId: string, token: string, clientType: 'controller' | 'viewer' = 'controller') => {
+      setLastJoinArgs({ roomId, token, clientType })
+      sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+      if (!socketRef.current) return
+      ensureSocketConnection()
+      setHandshakeStatus('pending')
+      socketRef.current.emit('JOIN_ROOM', {
+        type: 'JOIN_ROOM',
+        roomId,
+        token,
+        clientType,
+        clientId: clientIdRef.current,
+      })
+    },
+    [ensureSocketConnection],
+  )
 
   const getRoomState = useCallback(
     (roomId: string) => getRoom(roomId)?.state,
@@ -237,6 +274,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   const emitTimerAction = useCallback(
     (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET') => {
       const timestamp = Date.now()
+      console.info('[companion] emit TIMER_ACTION', { roomId, timerId, action, timestamp })
       socketRef.current?.emit('TIMER_ACTION', {
         type: 'TIMER_ACTION',
         action,
@@ -254,6 +292,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     capabilities: HandshakeAck['capabilities']
     subscribeToRoom: typeof subscribeToRoom
     getRoomState: typeof getRoomState
+    handshakeStatus: HandshakeStatus
+    ensureSocketConnection: typeof ensureSocketConnection
   } = useMemo(
     () => ({
       rooms,
@@ -300,8 +340,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setActiveTimer: async () => logStub('setActiveTimer'),
       startTimer: async (roomId: string, timerId?: string) => {
         const room = getRoom(roomId)
-        const targetId = timerId ?? room?.state.activeTimerId
-        if (!room || !targetId) return
+        const targetId = timerId ?? room?.state.activeTimerId ?? 'default-timer'
+        if (!room) return
         applyRoomState(roomId, {
           activeTimerId: targetId,
           isRunning: true,
@@ -309,11 +349,12 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         })
         emitTimerAction(roomId, targetId, 'START')
       },
-      pauseTimer: async (roomId: string) => {
+      pauseTimer: async (roomId: string, timerId?: string) => {
         const room = getRoom(roomId)
-        const targetId = room?.state.activeTimerId
-        if (!room || !targetId) return
+        const targetId = timerId ?? room?.state.activeTimerId ?? 'default-timer'
+        if (!room) return
         applyRoomState(roomId, {
+          activeTimerId: targetId,
           isRunning: false,
           lastUpdate: Date.now(),
         })
@@ -321,8 +362,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       },
       resetTimer: async (roomId: string, timerId?: string) => {
         const room = getRoom(roomId)
-        const targetId = timerId ?? room?.state.activeTimerId
-        if (!room || !targetId) return
+        const targetId = timerId ?? room?.state.activeTimerId ?? 'default-timer'
+        if (!room) return
         applyRoomState(roomId, {
           activeTimerId: targetId,
           isRunning: false,
@@ -341,6 +382,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       getRoomState,
       applyRoomState,
       emitTimerAction,
+      handshakeStatus,
+      ensureSocketConnection,
     }),
     [
       rooms,
@@ -357,6 +400,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       getRoomState,
       applyRoomState,
       emitTimerAction,
+      handshakeStatus,
+      ensureSocketConnection,
     ],
   )
 
