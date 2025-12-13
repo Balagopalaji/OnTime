@@ -126,20 +126,32 @@ With the new data model separation, security rules must be updated:
 
 ```javascript
 match /rooms/{roomId} {
-  // Room config: Authenticated read, owner write
-  allow read: if isAuthenticated();
+  // Room config: Public read for viewers (share-by-roomId), owner write.
+  // If we ever need "private rooms", change reads to authenticated-only and gate viewer access explicitly.
+  allow read: if true;
   allow write: if isOwner(roomId);
   
-  // RoomState subcollection
+  // RoomState subcollection (v2): public read for viewers, owner write.
   match /state/current {
-    allow read: if isAuthenticated();
+    allow read: if true;
+    allow write: if isOwner(roomId);
+  }
+
+  // Timers: public read for viewers, owner write.
+  match /timers/{timerId} {
+    allow read: if true;
     allow write: if isOwner(roomId);
   }
   
-  // LiveCues: Show Control tier+ only
+  // LiveCues: Show Control tier+ only (auth read + owner write).
   match /liveCues/{cueId} {
     allow read: if isAuthenticated() && hasShowControlTier(roomId);
     allow write: if isOwner(roomId) && hasShowControlTier(roomId);
+  }
+
+  // Migration backups (rollback support): owner-only.
+  match /migrationBackups/{backupId} {
+    allow read, write: if isOwner(roomId);
   }
 }
 ```

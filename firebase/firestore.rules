@@ -1,8 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
     function isOwner(roomId) {
-      return request.auth != null
+      return isSignedIn()
         && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid;
     }
     function hasShowControl(roomId) {
@@ -10,32 +13,33 @@ service cloud.firestore {
     }
 
     match /rooms/{roomId} {
-      // Viewer is public; controller writes are owner-only.
+      // Viewer is public (share-by-roomId); controller writes are owner-only.
       allow read: if true;
-      allow create: if request.auth != null
+      allow create: if isSignedIn()
         && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null
+      allow update: if isSignedIn()
         && request.auth.uid == resource.data.ownerId
         && request.resource.data.ownerId == resource.data.ownerId;
-      allow delete: if request.auth != null
+      allow delete: if isSignedIn()
         && request.auth.uid == resource.data.ownerId;
 
       match /timers/{timerId} {
+        // Public read for viewers; owner-only writes.
         allow read: if true;
-        allow create, update, delete: if request.auth != null
-          && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid;
+        allow create, update, delete: if isOwner(roomId);
       }
 
       // Live cues (Show Control tier+ only)
       match /liveCues/{cueId} {
-        allow read: if request.auth != null && hasShowControl(roomId);
-        allow create, update, delete: if request.auth != null && isOwner(roomId) && hasShowControl(roomId);
+        // Keep read authenticated-only for now; cue metadata can include slide notes / paths.
+        allow read: if isSignedIn() && hasShowControl(roomId);
+        allow create, update, delete: if isOwner(roomId) && hasShowControl(roomId);
       }
 
       // Room state (v2): /rooms/{roomId}/state/current
-      match /state/{docId} {
+      match /state/current {
         allow read: if true;
-        allow write: if isOwner(roomId);
+        allow create, update, delete: if isOwner(roomId);
       }
 
       // Migration backups (v1 -> v2 rollback support)

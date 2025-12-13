@@ -107,10 +107,50 @@ The undo/redo system is currently stubbed out (buttons do nothing). This was don
 - `VITE_USE_FIREBASE_EMULATOR`: `true` for local dev
 - Required: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, etc.
 
+## Production Deployment (Phase 1)
+
+### Firestore Rules
+- Validate rules locally with the Firebase emulator.
+- Deploy rules: `firebase deploy --only firestore:rules`
+- Verify in Firebase Console:
+  - Owner-only writes still enforced for `/rooms/{roomId}`, `/timers`, `/state/current`, and `/migrationBackups`.
+  - Viewer reads still work on `/room/:id/view`.
+
+### Companion App
+- Ship Companion as a separate desktop app installed on the Controller/operator machine only.
+- Produce signed installers per OS (manual distribution is fine for Phase 1; auto-update can be Phase 2+).
+- Bundle `ffprobe` in production Companion builds so users do not need to install FFmpeg separately.
+- Licensing: bundled `ffprobe` MUST be from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components) unless explicitly approved and documented.
+
+### Frontend
+- Keep Firebase credentials out of git; use `frontend/.env.local` with `VITE_` prefixes.
+- Build: `cd frontend && npm run build`
+- Deploy hosting (if applicable): `firebase deploy --only hosting`
+
 ## Manual QA Checklist
 - Room CRUD: Create, list, delete
 - Controller: Start/pause/reset timers, switch active timer
 - Viewer: Open `/room/:id/view` unauthenticated, verify sync
 - Offline: Simulate network loss, verify reconnection
+
+## Production Checklist (Phase 1C “Done”)
+- [ ] Firestore rules deployed and verified (unauthorized write blocked)
+- [ ] Companion token auth working (WS + HTTP `/api/open`, `/api/file/metadata`)
+- [ ] Hybrid sync working (WS primary, Firestore best-effort write-through)
+- [ ] Offline mode tested (disconnect Companion or network; queue replays on reconnect)
+- [ ] Room migration tested (v1 → v2) and rollback works (within 30 days)
+- [ ] File operations tested (PDF open; video metadata returns duration when bundled ffprobe present)
+- [ ] Logs contain audit signals but no secrets (no raw tokens)
+
+## Troubleshooting
+- “Missing or insufficient permissions” during migration/rollback usually means Firestore rules are not deployed or are missing `/migrationBackups` rules.
+- If `/api/file/metadata` returns `{ "warning": "ffprobe missing" }`, it means `ffprobe` is not present on PATH (dev) or not bundled correctly (prod).
+
+## Phase 1 Release Notes (A/B/C)
+- Local Mode foundation via Companion (WebSocket relay + disk cache)
+- Token-based auth for local mode (JWT token via loopback `/api/token`)
+- File operations API for attachments/media (`/api/open`, `/api/file/metadata`)
+- Timer CRUD over WebSocket (create/update/delete/reorder) with offline queue replay
+- v1 → v2 room migration with 30-day rollback using Firestore `migrationBackups`
 
 **For detailed architecture navigation, see the full document tree above.**
