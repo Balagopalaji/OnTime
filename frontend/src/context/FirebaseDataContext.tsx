@@ -71,6 +71,14 @@ const toMillis = (val: unknown, fallback: number | null = null): number | null =
 const mapRoom = (id: string, data: RoomDoc): Room => {
   const startedAtMs = toMillis(data.state?.startedAt, null)
   const createdAtMs = toMillis(data.createdAt, Date.now()) ?? Date.now()
+  const record = data as unknown as Record<string, unknown>
+  const tier =
+    record.tier === 'basic' || record.tier === 'show_control' || record.tier === 'production'
+      ? record.tier
+      : 'basic'
+  const features = typeof record.features === 'object' && record.features
+    ? (record.features as Record<string, unknown>)
+    : null
 
   return {
     id,
@@ -84,8 +92,15 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
       criticalSec: data.config?.criticalSec ?? DEFAULT_CONFIG.criticalSec,
     },
     _version: data._version ?? 1,
-    tier: (data as any).tier ?? 'basic',
-    features: (data as any).features ?? DEFAULT_FEATURES,
+    tier,
+    features: features
+      ? {
+          localMode: features.localMode !== undefined ? Boolean(features.localMode) : DEFAULT_FEATURES.localMode,
+          showControl: features.showControl !== undefined ? Boolean(features.showControl) : DEFAULT_FEATURES.showControl,
+          powerpoint: features.powerpoint !== undefined ? Boolean(features.powerpoint) : DEFAULT_FEATURES.powerpoint,
+          externalVideo: features.externalVideo !== undefined ? Boolean(features.externalVideo) : DEFAULT_FEATURES.externalVideo,
+        }
+      : DEFAULT_FEATURES,
     state: {
       activeTimerId: data.state?.activeTimerId ?? null,
       isRunning: data.state?.isRunning ?? false,

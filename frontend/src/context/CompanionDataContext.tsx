@@ -4,7 +4,7 @@ import type { DataContextValue } from './DataContext'
 import { DataProviderBoundary } from './DataContext'
 import type { ConnectionStatus, Room, RoomFeatures, RoomState, Timer } from '../types'
 import { db } from '../lib/firebase'
-import { doc, setDoc } from 'firebase/firestore'
+import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore'
 
 type HandshakeAck = {
   type: 'HANDSHAKE_ACK'
@@ -58,13 +58,45 @@ const SESSION_TOKEN_KEY = 'ontime:companionToken'
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 type QueueWarning = 'full' | null
-type QueuedAction = {
-  action: 'START' | 'PAUSE' | 'RESET'
-  timestamp: number
-  roomId: string
-  timerId: string
-  clientId: string
-}
+
+type QueuedEvent =
+  | {
+      type: 'TIMER_ACTION'
+      action: 'START' | 'PAUSE' | 'RESET'
+      timestamp: number
+      roomId: string
+      timerId: string
+      clientId: string
+    }
+  | {
+      type: 'CREATE_TIMER'
+      timestamp: number
+      roomId: string
+      timer: Timer
+      clientId: string
+    }
+  | {
+      type: 'UPDATE_TIMER'
+      timestamp: number
+      roomId: string
+      timerId: string
+      changes: Partial<Omit<Timer, 'id' | 'roomId'>>
+      clientId: string
+    }
+  | {
+      type: 'DELETE_TIMER'
+      timestamp: number
+      roomId: string
+      timerId: string
+      clientId: string
+    }
+  | {
+      type: 'REORDER_TIMERS'
+      timestamp: number
+      roomId: string
+      timerIds: string[]
+      clientId: string
+    }
 const MAX_QUEUE = 100
 
 const defaultRoomFeatures: RoomFeatures = {
@@ -111,7 +143,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   const socketRef = useRef<Socket | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('offline')
   const [rooms, setRooms] = useState<Room[]>([])
-  const [timers] = useState<Record<string, Timer[]>>({})
+  const [timers, setTimers] = useState<Record<string, Timer[]>>({})
   const [pendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders] = useState<
     Array<{ roomId: string; title: string; expiresAt: number; createdAt: number; order?: number }>
@@ -120,17 +152,14 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   const [pendingTimerPlaceholders] = useState<
     Record<string, Array<{ timerId: string; title: string; order: number; expiresAt: number }>>
   >({})
-  const [lastJoinArgs, setLastJoinArgs] = useState<JoinArgs | null>(null)
-  const clientIdRef = useRef<string>('')
-  if (!clientIdRef.current) {
+  const lastJoinArgsRef = useRef<JoinArgs | null>(null)
+  const [clientId] = useState(() => {
     const cached = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
-    if (cached) {
-      clientIdRef.current = cached
-    } else {
-      clientIdRef.current = crypto.randomUUID()
-      sessionStorage.setItem(SESSION_CLIENT_ID_KEY, clientIdRef.current)
-    }
-  }
+    if (cached) return cached
+    const next = crypto.randomUUID()
+    sessionStorage.setItem(SESSION_CLIENT_ID_KEY, next)
+    return next
+  })
   const [companionMode, setCompanionMode] = useState<string>('minimal')
   const [capabilities, setCapabilities] = useState<HandshakeAck['capabilities']>({
     powerpoint: false,
@@ -154,8 +183,79 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     })
     socketRef.current = socket
 
+    const loadQueueFromStorage = (roomId: string): QueuedEvent[] => {
+      if (typeof localStorage === 'undefined') return []
+      try {
+        const raw = localStorage.getItem(`ontime:queue:${roomId}`)
+        if (!raw) return []
+        const parsed = JSON.parse(raw) as unknown
+        if (!Array.isArray(parsed)) return []
+        return parsed
+          .map((entry: unknown) => {
+            if (!entry || typeof entry !== 'object') return null
+            const record = entry as Record<string, unknown>
+            if (typeof record.type === 'string') return entry as QueuedEvent
+            if (
+              typeof record.action === 'string' &&
+              typeof record.roomId === 'string' &&
+              typeof record.timerId === 'string' &&
+              typeof record.timestamp === 'number' &&
+              typeof record.clientId === 'string'
+            ) {
+              return {
+                type: 'TIMER_ACTION',
+                action: record.action as 'START' | 'PAUSE' | 'RESET',
+                roomId: record.roomId,
+                timerId: record.timerId,
+                timestamp: record.timestamp,
+                clientId: record.clientId,
+              } as QueuedEvent
+            }
+            return null
+          })
+          .filter(Boolean) as QueuedEvent[]
+      } catch (error) {
+        console.warn('[companion] Failed to load queue', error)
+        return []
+      }
+    }
+
+    const saveQueueToStorage = (roomId: string, queue: QueuedEvent[]) => {
+      if (typeof localStorage === 'undefined') return
+      try {
+        localStorage.setItem(`ontime:queue:${roomId}`, JSON.stringify(queue))
+        setQueueDepth(queue.length)
+      } catch (error) {
+        console.warn('[companion] Failed to save queue', error)
+      }
+    }
+
+    const replayRoomQueue = (roomId: string) => {
+      const queue = loadQueueFromStorage(roomId)
+      if (!queue.length) return
+      setIsReplayingQueue(true)
+      isReplayingRef.current = true
+      const sorted = [...queue].sort((a, b) => a.timestamp - b.timestamp)
+      sorted.forEach((item) => socket.emit(item.type, item))
+      saveQueueToStorage(roomId, [])
+      setQueueWarning(null)
+      setIsReplayingQueue(false)
+      isReplayingRef.current = false
+    }
+
     socket.on('connect', () => {
       setConnectionStatus('online')
+      const joinArgs = lastJoinArgsRef.current
+      if (joinArgs) {
+        setHandshakeStatus('pending')
+        socket.emit('JOIN_ROOM', {
+          type: 'JOIN_ROOM',
+          roomId: joinArgs.roomId,
+          token: joinArgs.token,
+          clientType: joinArgs.clientType ?? 'controller',
+          clientId,
+        })
+      }
     })
     socket.on('disconnect', () => {
       setConnectionStatus('offline')
@@ -176,6 +276,10 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setCapabilities(data.capabilities)
       setHandshakeStatus('ack')
       console.info('[companion] HANDSHAKE_ACK', data)
+      const joinArgs = lastJoinArgsRef.current
+      if (joinArgs) {
+        replayRoomQueue(joinArgs.roomId)
+      }
     })
     socket.on('HANDSHAKE_ERROR', (err) => {
       setConnectionStatus('offline')
@@ -197,7 +301,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setRooms((prev) =>
         prev.map((room) => {
           if (room.id !== payload.roomId) return room
-          if (payload.clientId && payload.clientId === clientIdRef.current) return room
+          if (payload.clientId && payload.clientId === clientId) return room
           const nextState: RoomState = {
             ...room.state,
             ...payload.changes,
@@ -209,43 +313,116 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       )
     })
 
+    socket.on('TIMER_CREATED', (payload: { roomId: string; timer: Timer; clientId?: string }) => {
+      if (payload.clientId && payload.clientId === clientId) return
+      setTimers((prev) => {
+        const list = [...(prev[payload.roomId] ?? [])]
+        const filtered = list.filter((timer) => timer.id !== payload.timer.id)
+        return { ...prev, [payload.roomId]: [...filtered, payload.timer].sort((a, b) => a.order - b.order) }
+      })
+    })
+
+    socket.on(
+      'TIMER_UPDATED',
+      (payload: { roomId: string; timerId: string; changes: Partial<Timer>; clientId?: string }) => {
+        if (payload.clientId && payload.clientId === clientId) return
+        setTimers((prev) => {
+          const list = prev[payload.roomId] ?? []
+          return {
+            ...prev,
+            [payload.roomId]: list
+              .map((timer) =>
+                timer.id === payload.timerId ? { ...timer, ...(payload.changes as Partial<Timer>) } : timer,
+              )
+              .sort((a, b) => a.order - b.order),
+          }
+        })
+      },
+    )
+
+    socket.on('TIMER_DELETED', (payload: { roomId: string; timerId: string; clientId?: string }) => {
+      if (payload.clientId && payload.clientId === clientId) return
+      setTimers((prev) => {
+        const list = prev[payload.roomId] ?? []
+        return { ...prev, [payload.roomId]: list.filter((timer) => timer.id !== payload.timerId) }
+      })
+    })
+
+    socket.on('TIMERS_REORDERED', (payload: { roomId: string; timerIds: string[]; clientId?: string }) => {
+      if (payload.clientId && payload.clientId === clientId) return
+      setTimers((prev) => {
+        const list = prev[payload.roomId] ?? []
+        const byId = new Map(list.map((timer) => [timer.id, timer] as const))
+        const ordered: Timer[] = []
+        payload.timerIds.forEach((id, idx) => {
+          const timer = byId.get(id)
+          if (!timer) return
+          ordered.push({ ...timer, order: (idx + 1) * 10 })
+          byId.delete(id)
+        })
+        const remainder = [...byId.values()].sort((a, b) => a.order - b.order)
+        return { ...prev, [payload.roomId]: [...ordered, ...remainder] }
+      })
+    })
+
+    socket.on('TIMER_ERROR', (payload) => {
+      console.warn('[companion] TIMER_ERROR', payload)
+    })
+
     return () => {
       socket.off('HANDSHAKE_ACK')
       socket.off('ROOM_STATE_SNAPSHOT')
       socket.off('ROOM_STATE_DELTA')
+      socket.off('TIMER_CREATED')
+      socket.off('TIMER_UPDATED')
+      socket.off('TIMER_DELETED')
+      socket.off('TIMERS_REORDERED')
+      socket.off('TIMER_ERROR')
       socket.disconnect()
       socketRef.current = null
       socketCreatedRef.current = false
     }
-  }, [])
+  }, [clientId])
 
-  useEffect(() => {
-    if (connectionStatus === 'online' && lastJoinArgs && socketRef.current) {
-      setHandshakeStatus('pending')
-      socketRef.current.emit('JOIN_ROOM', {
-        type: 'JOIN_ROOM',
-        roomId: lastJoinArgs.roomId,
-        token: lastJoinArgs.token,
-        clientType: lastJoinArgs.clientType ?? 'controller',
-        clientId: clientIdRef.current,
-      })
-    }
-  }, [connectionStatus, lastJoinArgs])
-
-  const loadQueue = useCallback((roomId: string): QueuedAction[] => {
+  const loadQueue = useCallback((roomId: string): QueuedEvent[] => {
     if (typeof localStorage === 'undefined') return []
     try {
       const raw = localStorage.getItem(`ontime:queue:${roomId}`)
       if (!raw) return []
-      const parsed = JSON.parse(raw) as QueuedAction[]
-      return Array.isArray(parsed) ? parsed : []
+      const parsed = JSON.parse(raw) as unknown
+      if (!Array.isArray(parsed)) return []
+
+      return parsed
+        .map((entry: unknown) => {
+          if (!entry || typeof entry !== 'object') return null
+          const record = entry as Record<string, unknown>
+          if (typeof record.type === 'string') return entry as QueuedEvent
+          if (
+            typeof record.action === 'string' &&
+            typeof record.roomId === 'string' &&
+            typeof record.timerId === 'string' &&
+            typeof record.timestamp === 'number' &&
+            typeof record.clientId === 'string'
+          ) {
+            return {
+              type: 'TIMER_ACTION',
+              action: record.action as 'START' | 'PAUSE' | 'RESET',
+              roomId: record.roomId,
+              timerId: record.timerId,
+              timestamp: record.timestamp,
+              clientId: record.clientId,
+            } as QueuedEvent
+          }
+          return null
+        })
+        .filter(Boolean) as QueuedEvent[]
     } catch (error) {
       console.warn('[companion] Failed to load queue', error)
       return []
     }
   }, [])
 
-  const saveQueue = useCallback((roomId: string, queue: QueuedAction[]) => {
+  const saveQueue = useCallback((roomId: string, queue: QueuedEvent[]) => {
     if (typeof localStorage === 'undefined') return
     try {
       localStorage.setItem(`ontime:queue:${roomId}`, JSON.stringify(queue))
@@ -256,7 +433,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   }, [])
 
   const enqueueAction = useCallback(
-    (roomId: string, action: QueuedAction) => {
+    (roomId: string, action: QueuedEvent) => {
       let queue = loadQueue(roomId)
       queue.push(action)
       if (queue.length > MAX_QUEUE) {
@@ -272,38 +449,6 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     },
     [loadQueue, saveQueue],
   )
-
-  const replayQueue = useCallback(
-    (roomId: string) => {
-      if (!socketRef.current) return
-      const queue = loadQueue(roomId)
-      if (!queue.length) return
-      setIsReplayingQueue(true)
-      isReplayingRef.current = true
-      const sorted = [...queue].sort((a, b) => a.timestamp - b.timestamp)
-      sorted.forEach((item) => {
-        socketRef.current?.emit('TIMER_ACTION', {
-          type: 'TIMER_ACTION',
-          action: item.action,
-          roomId: item.roomId,
-          timerId: item.timerId,
-          timestamp: item.timestamp,
-          clientId: item.clientId,
-        })
-      })
-      saveQueue(roomId, [])
-      setQueueWarning(null)
-      setIsReplayingQueue(false)
-      isReplayingRef.current = false
-    },
-    [loadQueue, saveQueue],
-  )
-
-  useEffect(() => {
-    if (connectionStatus === 'online' && handshakeStatus === 'ack' && lastJoinArgs) {
-      replayQueue(lastJoinArgs.roomId)
-    }
-  }, [connectionStatus, handshakeStatus, lastJoinArgs, replayQueue])
 
   const getRoom = useCallback(
     (roomId: string) => rooms.find((room) => room.id === roomId),
@@ -323,7 +468,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
 
   const subscribeToRoom = useCallback(
     (roomId: string, token: string, clientType: 'controller' | 'viewer' = 'controller') => {
-      setLastJoinArgs({ roomId, token, clientType })
+      const joinArgs = { roomId, token, clientType }
+      lastJoinArgsRef.current = joinArgs
       sessionStorage.setItem(SESSION_TOKEN_KEY, token)
       setQueueDepth(loadQueue(roomId).length)
       if (!socketRef.current) return
@@ -334,10 +480,10 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         roomId,
         token,
         clientType,
-        clientId: clientIdRef.current,
+        clientId,
       })
     },
-    [ensureSocketConnection, loadQueue],
+    [clientId, ensureSocketConnection, loadQueue],
   )
 
   const getRoomState = useCallback(
@@ -366,12 +512,13 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   const emitTimerAction = useCallback(
     (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET') => {
       const timestamp = Date.now()
-      const payload: QueuedAction = {
+      const payload: QueuedEvent = {
+        type: 'TIMER_ACTION',
         action,
         roomId,
         timerId,
         timestamp,
-        clientId: clientIdRef.current,
+        clientId,
       }
       const canEmit =
         connectionStatus === 'online' &&
@@ -387,7 +534,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
           roomId,
           timerId,
           timestamp,
-          clientId: clientIdRef.current,
+          clientId,
         })
       } else {
         console.info('[companion] queue TIMER_ACTION (offline)', payload)
@@ -419,7 +566,182 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
             .catch((errLegacy) => console.warn('[companion] Firestore legacy state write failed', errLegacy))
         })
     },
-    [connectionStatus, handshakeStatus, enqueueAction],
+    [clientId, connectionStatus, handshakeStatus, enqueueAction],
+  )
+
+  const emitOrQueue = useCallback(
+    (roomId: string, event: QueuedEvent) => {
+      const canEmit =
+        connectionStatus === 'online' &&
+        handshakeStatus === 'ack' &&
+        socketRef.current?.connected &&
+        !isReplayingRef.current
+
+      if (canEmit) {
+        socketRef.current?.emit(event.type, event)
+      } else {
+        enqueueAction(roomId, event)
+      }
+    },
+    [connectionStatus, enqueueAction, handshakeStatus],
+  )
+
+  const ensureRoom = useCallback((roomId: string) => {
+    setRooms((prev) => {
+      if (prev.some((room) => room.id === roomId)) return prev
+      return [...prev, buildRoom(roomId, buildRoomState())]
+    })
+  }, [])
+
+  const createTimer: DataContextValue['createTimer'] = useCallback(
+    async (roomId, input) => {
+      ensureRoom(roomId)
+
+      const title = input.title.trim()
+      const duration = Number.isFinite(input.duration) && input.duration > 0 ? input.duration : 1
+      const timerId = crypto.randomUUID()
+
+      const timer: Timer = {
+        id: timerId,
+        roomId,
+        title,
+        duration,
+        speaker: input.speaker ?? '',
+        type: 'countdown',
+        order: 10,
+      }
+
+      setTimers((prev) => {
+        const list = prev[roomId] ?? []
+        const nextOrder = list.length ? Math.max(...list.map((t) => t.order)) + 10 : 10
+        const nextTimer = { ...timer, order: nextOrder }
+        return { ...prev, [roomId]: [...list, nextTimer].sort((a, b) => a.order - b.order) }
+      })
+
+      setRooms((prev) =>
+        prev.map((room) => {
+          if (room.id !== roomId) return room
+          const progress = { ...(room.state.progress ?? {}) }
+          progress[timerId] = 0
+          const activeTimerId = room.state.activeTimerId ?? timerId
+          return { ...room, state: { ...room.state, activeTimerId, progress } }
+        }),
+      )
+
+      emitOrQueue(roomId, {
+        type: 'CREATE_TIMER',
+        roomId,
+        timer,
+        timestamp: Date.now(),
+        clientId,
+      })
+
+      const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+      await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(
+        (err) => console.warn('[companion] Firestore createTimer failed', err),
+      )
+
+      return timer
+    },
+    [clientId, emitOrQueue, ensureRoom],
+  )
+
+  const updateTimer: DataContextValue['updateTimer'] = useCallback(
+    async (roomId, timerId, patch) => {
+      ensureRoom(roomId)
+
+      setTimers((prev) => {
+        const list = prev[roomId] ?? []
+        return {
+          ...prev,
+          [roomId]: list
+            .map((timer) =>
+              timer.id === timerId ? { ...timer, ...(patch as Partial<Timer>) } : timer,
+            )
+            .sort((a, b) => a.order - b.order),
+        }
+      })
+
+      emitOrQueue(roomId, {
+        type: 'UPDATE_TIMER',
+        roomId,
+        timerId,
+        changes: patch,
+        timestamp: Date.now(),
+        clientId,
+      })
+
+      const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+      await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
+        (err) => console.warn('[companion] Firestore updateTimer failed', err),
+      )
+    },
+    [clientId, emitOrQueue, ensureRoom],
+  )
+
+  const deleteTimer: DataContextValue['deleteTimer'] = useCallback(
+    async (roomId, timerId) => {
+      ensureRoom(roomId)
+
+      setTimers((prev) => {
+        const list = prev[roomId] ?? []
+        return { ...prev, [roomId]: list.filter((timer) => timer.id !== timerId) }
+      })
+
+      setRooms((prev) =>
+        prev.map((room) => {
+          if (room.id !== roomId) return room
+          const progress = { ...(room.state.progress ?? {}) }
+          delete progress[timerId]
+          return { ...room, state: { ...room.state, progress } }
+        }),
+      )
+
+      emitOrQueue(roomId, {
+        type: 'DELETE_TIMER',
+        roomId,
+        timerId,
+        timestamp: Date.now(),
+        clientId,
+      })
+
+      const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+      await deleteDoc(timerRef).catch((err) => console.warn('[companion] Firestore deleteTimer failed', err))
+    },
+    [clientId, emitOrQueue, ensureRoom],
+  )
+
+  const reorderTimer: DataContextValue['reorderTimer'] = useCallback(
+    async (roomId, timerId, targetIndex) => {
+      ensureRoom(roomId)
+
+      const ordered = [...(timers[roomId] ?? [])].sort((a, b) => a.order - b.order)
+      const fromIndex = ordered.findIndex((timer) => timer.id === timerId)
+      if (fromIndex === -1) return
+      const [moved] = ordered.splice(fromIndex, 1)
+      const clampedIndex = Math.max(0, Math.min(targetIndex, ordered.length))
+      ordered.splice(clampedIndex, 0, moved)
+      const next = ordered.map((timer, idx) => ({ ...timer, order: (idx + 1) * 10 }))
+
+      setTimers((prev) => ({ ...prev, [roomId]: next }))
+
+      emitOrQueue(roomId, {
+        type: 'REORDER_TIMERS',
+        roomId,
+        timerIds: next.map((timer) => timer.id),
+        timestamp: Date.now(),
+        clientId,
+      })
+
+      const batch = writeBatch(db)
+      next.forEach((timer) => {
+        batch.set(doc(db, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
+          merge: true,
+        })
+      })
+      await batch.commit().catch((err) => console.warn('[companion] Firestore reorderTimer failed', err))
+    },
+    [clientId, emitOrQueue, ensureRoom, timers],
   )
 
   const value: DataContextValue & {
@@ -455,26 +777,16 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         return buildRoom('companion-room', buildRoomState())
       },
       deleteRoom: async () => logStub('deleteRoom'),
-      createTimer: async () => {
-        logStub('createTimer')
-        return {
-          id: 'companion-timer',
-          roomId: 'companion-room',
-          title: 'Pending timer',
-          duration: 0,
-          type: 'countdown',
-          order: 0,
-        }
-      },
-      updateTimer: async () => logStub('updateTimer'),
+      createTimer,
+      updateTimer,
       updateRoomMeta: async () => logStub('updateRoomMeta'),
       moveRoom: async () => logStub('moveRoom'),
       reorderRoom: async () => logStub('reorderRoom'),
       restoreTimer: async () => logStub('restoreTimer'),
       resetTimerProgress: async () => logStub('resetTimerProgress'),
-      deleteTimer: async () => logStub('deleteTimer'),
+      deleteTimer,
       moveTimer: async () => logStub('moveTimer'),
-      reorderTimer: async () => logStub('reorderTimer'),
+      reorderTimer,
       setActiveTimer: async () => logStub('setActiveTimer'),
       startTimer: async (roomId: string, timerId?: string) => {
         const room = getRoom(roomId)
@@ -535,6 +847,10 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       pendingTimerPlaceholders,
       getRoom,
       getTimers,
+      createTimer,
+      updateTimer,
+      deleteTimer,
+      reorderTimer,
       companionMode,
       capabilities,
       subscribeToRoom,

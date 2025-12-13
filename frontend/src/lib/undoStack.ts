@@ -31,7 +31,7 @@ export type UndoEntry = {
   timerId?: string
   before?: unknown
   patch?: unknown
-  snapshot?: any
+  snapshot?: unknown
 }
 
 export type UndoStack = {

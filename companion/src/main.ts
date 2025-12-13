@@ -90,11 +90,99 @@ type RoomStateDelta = {
   timestamp: number;
 };
 
+type TimerType = 'countdown' | 'countup' | 'timeofday';
+
+type Timer = {
+  id: string;
+  roomId: string;
+  title: string;
+  duration: number; // seconds
+  speaker?: string;
+  type: TimerType;
+  order: number;
+};
+
+type CreateTimerPayload = {
+  type: 'CREATE_TIMER';
+  roomId: string;
+  timer: Partial<Timer>;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type UpdateTimerPayload = {
+  type: 'UPDATE_TIMER';
+  roomId: string;
+  timerId: string;
+  changes: Partial<Timer>;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type DeleteTimerPayload = {
+  type: 'DELETE_TIMER';
+  roomId: string;
+  timerId: string;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type ReorderTimersPayload = {
+  type: 'REORDER_TIMERS';
+  roomId: string;
+  timerIds: string[];
+  clientId?: string;
+  timestamp?: number;
+};
+
+type TimerError = {
+  type: 'TIMER_ERROR';
+  roomId: string;
+  code: 'INVALID_PAYLOAD' | 'INVALID_FIELDS' | 'NOT_FOUND';
+  message: string;
+  clientId?: string;
+  timestamp: number;
+};
+
+type TimerCreated = {
+  type: 'TIMER_CREATED';
+  roomId: string;
+  timer: Timer;
+  clientId?: string;
+  timestamp: number;
+};
+
+type TimerUpdated = {
+  type: 'TIMER_UPDATED';
+  roomId: string;
+  timerId: string;
+  changes: Partial<Timer>;
+  clientId?: string;
+  timestamp: number;
+};
+
+type TimerDeleted = {
+  type: 'TIMER_DELETED';
+  roomId: string;
+  timerId: string;
+  clientId?: string;
+  timestamp: number;
+};
+
+type TimersReordered = {
+  type: 'TIMERS_REORDERED';
+  roomId: string;
+  timerIds: string[];
+  clientId?: string;
+  timestamp: number;
+};
+
 let io: SocketIOServer | null = null;
 let httpServer: HttpServer | null = null;
 let tokenServerV4: HttpServer | null = null;
 let tokenServerV6: HttpServer | null = null;
 const roomStateStore: Map<string, RoomState> = new Map();
+const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
@@ -337,6 +425,10 @@ function startSocketServer() {
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('TIMER_ACTION', (payload) => handleTimerAction(socket, payload));
+    socket.on('CREATE_TIMER', (payload) => handleCreateTimer(socket, payload));
+    socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
+    socket.on('DELETE_TIMER', (payload) => handleDeleteTimer(socket, payload));
+    socket.on('REORDER_TIMERS', (payload) => handleReorderTimers(socket, payload));
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
     });
@@ -757,6 +849,296 @@ function handleTimerAction(socket: Socket, payload: unknown) {
   );
 }
 
+const TIMER_TITLE_MAX_LEN = 120;
+const ALLOWED_TIMER_PATCH_KEYS = new Set(['title', 'duration', 'speaker', 'type']);
+
+function getRoomTimers(roomId: string): Map<string, Timer> {
+  if (roomTimersStore.has(roomId)) return roomTimersStore.get(roomId)!;
+  const map = new Map<string, Timer>();
+  roomTimersStore.set(roomId, map);
+  scheduleRoomCacheWrite();
+  return map;
+}
+
+function listRoomTimers(roomId: string): Timer[] {
+  return [...getRoomTimers(roomId).values()].sort((a, b) => a.order - b.order);
+}
+
+function normalizeTimerTitle(title: string): string {
+  return title.trim().slice(0, TIMER_TITLE_MAX_LEN);
+}
+
+function normalizeTimerType(input: unknown): TimerType {
+  if (input === 'countup' || input === 'timeofday') return input;
+  return 'countdown';
+}
+
+function normalizeTimerOrder(roomId: string, orderedTimerIds?: string[]) {
+  const existing = listRoomTimers(roomId);
+  const existingIds = new Set(existing.map((timer) => timer.id));
+
+  const explicit: string[] = [];
+  if (orderedTimerIds) {
+    orderedTimerIds.forEach((id) => {
+      if (existingIds.has(id)) explicit.push(id);
+    });
+  }
+
+  // Keep FIFO for unknowns (timers not included in the reorder payload).
+  const remainder = existing.map((timer) => timer.id).filter((id) => !explicit.includes(id));
+  const finalOrder = [...explicit, ...remainder];
+
+  finalOrder.forEach((id, index) => {
+    const timer = getRoomTimers(roomId).get(id);
+    if (timer) {
+      timer.order = (index + 1) * 10;
+    }
+  });
+  scheduleRoomCacheWrite();
+  return finalOrder;
+}
+
+function emitTimerError(socket: Socket, roomId: string, code: TimerError['code'], message: string, clientId?: string) {
+  const payload: TimerError = {
+    type: 'TIMER_ERROR',
+    roomId,
+    code,
+    message,
+    clientId,
+    timestamp: Date.now(),
+  };
+  socket.emit('TIMER_ERROR', payload);
+}
+
+function isValidCreateTimerPayload(payload: unknown): payload is CreateTimerPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<CreateTimerPayload>;
+  return data.type === 'CREATE_TIMER' && typeof data.roomId === 'string' && !!data.timer && typeof data.timer === 'object';
+}
+
+function isValidUpdateTimerPayload(payload: unknown): payload is UpdateTimerPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<UpdateTimerPayload>;
+  return data.type === 'UPDATE_TIMER' && typeof data.roomId === 'string' && typeof data.timerId === 'string' && !!data.changes && typeof data.changes === 'object';
+}
+
+function isValidDeleteTimerPayload(payload: unknown): payload is DeleteTimerPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<DeleteTimerPayload>;
+  return data.type === 'DELETE_TIMER' && typeof data.roomId === 'string' && typeof data.timerId === 'string';
+}
+
+function isValidReorderTimersPayload(payload: unknown): payload is ReorderTimersPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<ReorderTimersPayload>;
+  return (
+    data.type === 'REORDER_TIMERS' &&
+    typeof data.roomId === 'string' &&
+    Array.isArray(data.timerIds) &&
+    data.timerIds.every((id) => typeof id === 'string')
+  );
+}
+
+function handleCreateTimer(socket: Socket, payload: unknown) {
+  if (!isValidCreateTimerPayload(payload)) {
+    emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid CREATE_TIMER payload.', socket.data.clientId);
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+
+  const title = typeof payload.timer.title === 'string' ? normalizeTimerTitle(payload.timer.title) : '';
+  const duration = typeof payload.timer.duration === 'number' ? payload.timer.duration : NaN;
+  if (!title || !Number.isFinite(duration) || duration <= 0) {
+    emitTimerError(socket, roomId, 'INVALID_FIELDS', 'Timer requires non-empty title and duration > 0.', clientId);
+    return;
+  }
+
+  const timerId = typeof payload.timer.id === 'string' && payload.timer.id.trim()
+    ? payload.timer.id.trim()
+    : crypto.randomUUID();
+  const speaker = typeof payload.timer.speaker === 'string' ? payload.timer.speaker.trim().slice(0, 120) : '';
+  const type = normalizeTimerType(payload.timer.type);
+
+  const existing = listRoomTimers(roomId);
+  const nextOrder = existing.length ? Math.max(...existing.map((t) => t.order)) + 10 : 10;
+  const order = typeof payload.timer.order === 'number' && Number.isFinite(payload.timer.order) ? payload.timer.order : nextOrder;
+
+  const timer: Timer = {
+    id: timerId,
+    roomId,
+    title,
+    duration,
+    speaker,
+    type,
+    order,
+  };
+
+  const timers = getRoomTimers(roomId);
+  if (timers.has(timerId)) {
+    emitTimerError(socket, roomId, 'INVALID_FIELDS', 'Timer id already exists.', clientId);
+    return;
+  }
+
+  timers.set(timerId, timer);
+  normalizeTimerOrder(roomId);
+
+  const event: TimerCreated = {
+    type: 'TIMER_CREATED',
+    roomId,
+    timer,
+    clientId,
+    timestamp: now,
+  };
+
+  if (!socket.rooms.has(roomId)) {
+    socket.join(roomId);
+  }
+
+  io?.to(roomId).emit('TIMER_CREATED', event);
+  console.log(`[ws] TIMER_CREATED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
+}
+
+function handleUpdateTimer(socket: Socket, payload: unknown) {
+  if (!isValidUpdateTimerPayload(payload)) {
+    emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid UPDATE_TIMER payload.', socket.data.clientId);
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+  const timerId = payload.timerId;
+
+  const timers = getRoomTimers(roomId);
+  const timer = timers.get(timerId);
+  if (!timer) {
+    emitTimerError(socket, roomId, 'NOT_FOUND', 'Timer not found.', clientId);
+    return;
+  }
+
+  const keys = Object.keys(payload.changes as Record<string, unknown>);
+  const invalidKey = keys.find((key) => !ALLOWED_TIMER_PATCH_KEYS.has(key));
+  if (invalidKey) {
+    emitTimerError(socket, roomId, 'INVALID_FIELDS', `Unsupported change key: ${invalidKey}`, clientId);
+    return;
+  }
+
+  const changes: Partial<Timer> = {};
+  if (typeof payload.changes.title === 'string') {
+    const nextTitle = normalizeTimerTitle(payload.changes.title);
+    if (!nextTitle) {
+      emitTimerError(socket, roomId, 'INVALID_FIELDS', 'Title cannot be empty.', clientId);
+      return;
+    }
+    changes.title = nextTitle;
+  }
+  if (typeof payload.changes.speaker === 'string') {
+    changes.speaker = payload.changes.speaker.trim().slice(0, 120);
+  }
+  if (payload.changes.duration !== undefined) {
+    const nextDuration = payload.changes.duration;
+    if (typeof nextDuration !== 'number' || !Number.isFinite(nextDuration) || nextDuration <= 0) {
+      emitTimerError(socket, roomId, 'INVALID_FIELDS', 'Duration must be a number > 0.', clientId);
+      return;
+    }
+    changes.duration = nextDuration;
+  }
+  if (payload.changes.type !== undefined) {
+    changes.type = normalizeTimerType(payload.changes.type);
+  }
+
+  timers.set(timerId, { ...timer, ...changes });
+  scheduleRoomCacheWrite();
+
+  const event: TimerUpdated = {
+    type: 'TIMER_UPDATED',
+    roomId,
+    timerId,
+    changes,
+    clientId,
+    timestamp: now,
+  };
+
+  if (!socket.rooms.has(roomId)) {
+    socket.join(roomId);
+  }
+
+  io?.to(roomId).emit('TIMER_UPDATED', event);
+  console.log(`[ws] TIMER_UPDATED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
+}
+
+function handleDeleteTimer(socket: Socket, payload: unknown) {
+  if (!isValidDeleteTimerPayload(payload)) {
+    emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid DELETE_TIMER payload.', socket.data.clientId);
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+  const timerId = payload.timerId;
+
+  const timers = getRoomTimers(roomId);
+  if (!timers.has(timerId)) {
+    emitTimerError(socket, roomId, 'NOT_FOUND', 'Timer not found.', clientId);
+    return;
+  }
+
+  timers.delete(timerId);
+  const finalOrder = normalizeTimerOrder(roomId);
+
+  const deleted: TimerDeleted = {
+    type: 'TIMER_DELETED',
+    roomId,
+    timerId,
+    clientId,
+    timestamp: now,
+  };
+  io?.to(roomId).emit('TIMER_DELETED', deleted);
+
+  const reordered: TimersReordered = {
+    type: 'TIMERS_REORDERED',
+    roomId,
+    timerIds: finalOrder,
+    clientId,
+    timestamp: now,
+  };
+  io?.to(roomId).emit('TIMERS_REORDERED', reordered);
+
+  scheduleRoomCacheWrite();
+  console.log(`[ws] TIMER_DELETED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
+}
+
+function handleReorderTimers(socket: Socket, payload: unknown) {
+  if (!isValidReorderTimersPayload(payload)) {
+    emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid REORDER_TIMERS payload.', socket.data.clientId);
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+
+  const finalOrder = normalizeTimerOrder(roomId, payload.timerIds);
+  const event: TimersReordered = {
+    type: 'TIMERS_REORDERED',
+    roomId,
+    timerIds: finalOrder,
+    clientId,
+    timestamp: now,
+  };
+
+  if (!socket.rooms.has(roomId)) {
+    socket.join(roomId);
+  }
+
+  io?.to(roomId).emit('TIMERS_REORDERED', event);
+  console.log(`[ws] TIMERS_REORDERED room=${roomId} by=${clientId ?? socket.id} count=${finalOrder.length}`);
+}
+
 function isValidTimerActionPayload(payload: unknown): payload is TimerActionPayload {
   if (!payload || typeof payload !== 'object') {
     return false;
@@ -1010,7 +1392,12 @@ async function loadRoomCache() {
   const cachePath = getCachePath();
   try {
     const data = await fs.readFile(cachePath, 'utf8');
-    const parsed = JSON.parse(data) as { version: number; lastWrite?: number; rooms?: Record<string, RoomState> };
+    const parsed = JSON.parse(data) as {
+      version: number;
+      lastWrite?: number;
+      rooms?: Record<string, RoomState>;
+      timers?: Record<string, Timer[]>;
+    };
     if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
       console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
       return;
@@ -1018,6 +1405,19 @@ async function loadRoomCache() {
     Object.entries(parsed.rooms).forEach(([roomId, state]) => {
       roomStateStore.set(roomId, state);
     });
+    if (parsed.timers) {
+      Object.entries(parsed.timers).forEach(([roomId, timers]) => {
+        const map = new Map<string, Timer>();
+        (timers ?? []).forEach((timer) => {
+          if (timer && typeof timer.id === 'string') {
+            map.set(timer.id, timer);
+          }
+        });
+        if (map.size) {
+          roomTimersStore.set(roomId, map);
+        }
+      });
+    }
     lastWriteTs = parsed.lastWrite ?? Date.now();
     console.log(`[cache] Loaded ${roomStateStore.size} rooms from cache`);
   } catch (error: any) {
@@ -1088,6 +1488,12 @@ async function writeRoomCache() {
       version: CACHE_VERSION,
       lastWrite: Date.now(),
       rooms: Object.fromEntries(roomStateStore.entries()),
+      timers: Object.fromEntries(
+        [...roomTimersStore.entries()].map(([roomId, timerMap]) => [
+          roomId,
+          [...timerMap.values()].sort((a, b) => a.order - b.order),
+        ])
+      ),
     };
     await fs.writeFile(cachePath, JSON.stringify(payload, null, 2), 'utf8');
     lastWriteTs = payload.lastWrite;
