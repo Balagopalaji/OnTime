@@ -110,17 +110,47 @@ The undo/redo system is currently stubbed out (buttons do nothing). This was don
 ## Production Deployment (Phase 1)
 
 ### Firestore Rules
-- Validate rules locally with the Firebase emulator.
+- Validate rules locally with the Firebase emulator (recommended before every deploy).
 - Deploy rules: `firebase deploy --only firestore:rules`
 - Verify in Firebase Console:
   - Owner-only writes still enforced for `/rooms/{roomId}`, `/timers`, `/state/current`, and `/migrationBackups`.
   - Viewer reads still work on `/room/:id/view`.
+
+#### Firestore Rules Self-Test (copy/paste)
+1. Start the emulator (or use your existing local setup):
+   - `firebase emulators:start --only firestore`
+2. Run the app against the emulator:
+   - Set `VITE_USE_FIREBASE_EMULATOR=true` in `frontend/.env.local`
+   - `cd frontend && npm run dev`
+3. Sanity checks:
+   - **Viewer access**: open a room viewer link in an incognito window and confirm it can read room + timers + state.
+   - **Unauthorized write blocked**: in the incognito viewer, attempt any write action (create timer, rename timer) and confirm it fails.
+   - **Owner write allowed**: in the authenticated controller, confirm room/timer/state writes succeed.
+4. Migration checks (owner only):
+   - Create a room as owner, then (in emulator data) set `_version` to `1`.
+   - Click “Upgrade to v2” in Dashboard and confirm:
+     - `/rooms/{roomId}` has `_version: 2` and `tier/features`
+     - `/rooms/{roomId}/state/current` exists
+     - `/rooms/{roomId}/migrationBackups/{backupId}` exists
+   - Click “Rollback” and confirm root doc restores and `state/current` is removed.
 
 ### Companion App
 - Ship Companion as a separate desktop app installed on the Controller/operator machine only.
 - Produce signed installers per OS (manual distribution is fine for Phase 1; auto-update can be Phase 2+).
 - Bundle `ffprobe` in production Companion builds so users do not need to install FFmpeg separately.
 - Licensing: bundled `ffprobe` MUST be from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components) unless explicitly approved and documented.
+
+#### Companion API Self-Test (copy/paste)
+1. Start Companion: `cd companion && npm run dev`
+2. Fetch token:
+   - `curl -s http://127.0.0.1:4001/api/token`
+3. Test file open and metadata (macOS example):
+   - `TOKEN='...'` (paste token)
+   - `curl -i -X POST http://127.0.0.1:4001/api/open -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data "{\"path\":\"/Users/YOU/Downloads/file.pdf\"}"`
+   - `curl -i --get http://127.0.0.1:4001/api/file/metadata -H "Authorization: Bearer $TOKEN" --data-urlencode "path=/Users/YOU/Downloads/video.mp4"`
+4. Security checks:
+   - Try a path outside home (expect `400 { "error": "invalid_path" }`).
+   - Try without `Authorization` header (expect `401 { "error": "unauthorized" }`).
 
 ### Frontend
 - Keep Firebase credentials out of git; use `frontend/.env.local` with `VITE_` prefixes.
@@ -145,6 +175,7 @@ The undo/redo system is currently stubbed out (buttons do nothing). This was don
 ## Troubleshooting
 - “Missing or insufficient permissions” during migration/rollback usually means Firestore rules are not deployed or are missing `/migrationBackups` rules.
 - If `/api/file/metadata` returns `{ "warning": "ffprobe missing" }`, it means `ffprobe` is not present on PATH (dev) or not bundled correctly (prod).
+- If a viewer cannot see timers/state, confirm Firestore rules still allow public reads on `/rooms/{roomId}`, `/timers`, and `/state/current`.
 
 ## Phase 1 Release Notes (A/B/C)
 - Local Mode foundation via Companion (WebSocket relay + disk cache)

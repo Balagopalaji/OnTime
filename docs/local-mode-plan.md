@@ -156,7 +156,7 @@ match /rooms/{roomId} {
 }
 ```
 
-**Action:** Update `/firebase/firestore.rules` in Phase 1A.
+**Action:** Update `firebase/firestore.rules` during Phase 1C (production hardening) and deploy rules before enabling migration/rollback in production.
 
 ### 5.2 Tier Upgrade Cache Invalidation
 **Scenario:** User upgrades from Basic → Show Control mid-session.

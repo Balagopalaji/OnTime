@@ -515,31 +515,31 @@ const visibleRooms = useMemo(
 
   // Undo/Redo Stubs
   const undoRoomDelete: DataContextValue['undoRoomDelete'] = useCallback(async () => {
-    console.log('Undo Room Delete not implemented yet (Command Pattern pending)')
+    console.warn('Undo Room Delete not implemented yet (Command Pattern pending)')
   }, [])
 
   const redoRoomDelete: DataContextValue['redoRoomDelete'] = useCallback(async () => {
-    console.log('Redo Room Delete not implemented yet (Command Pattern pending)')
+    console.warn('Redo Room Delete not implemented yet (Command Pattern pending)')
   }, [])
 
   const undoTimerDelete: DataContextValue['undoTimerDelete'] = useCallback(async () => {
-    console.log('Undo Timer Delete not implemented yet (Command Pattern pending)')
+    console.warn('Undo Timer Delete not implemented yet (Command Pattern pending)')
   }, [])
 
   const redoTimerDelete: DataContextValue['redoTimerDelete'] = useCallback(async () => {
-    console.log('Redo Timer Delete not implemented yet (Command Pattern pending)')
+    console.warn('Redo Timer Delete not implemented yet (Command Pattern pending)')
   }, [])
 
   const clearUndoStacks: DataContextValue['clearUndoStacks'] = useCallback(async () => {
-    console.log('Clear Undo Stacks not implemented yet (Command Pattern pending)')
+    console.warn('Clear Undo Stacks not implemented yet (Command Pattern pending)')
   }, [])
 
   const undoLatest: DataContextValue['undoLatest'] = useCallback(async () => {
-    console.log('Undo Latest not implemented yet (Command Pattern pending)')
+    console.warn('Undo Latest not implemented yet (Command Pattern pending)')
   }, [])
 
   const redoLatest: DataContextValue['redoLatest'] = useCallback(async () => {
-    console.log('Redo Latest not implemented yet (Command Pattern pending)')
+    console.warn('Redo Latest not implemented yet (Command Pattern pending)')
   }, [])
 
   const moveRoom: DataContextValue['moveRoom'] = useCallback(
