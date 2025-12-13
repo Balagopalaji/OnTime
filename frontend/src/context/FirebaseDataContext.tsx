@@ -242,9 +242,11 @@ export const FirebaseDataProvider = ({
           const raw = docSnap.data()
           if (!raw) return
           const statePayload =
-            (raw as RoomDoc).state ??
-            (raw as RoomDoc['state']) ??
-            {}
+            roomVersion === 2
+              ? (raw as Record<string, unknown>)
+              : ((raw as RoomDoc).state ??
+                  (raw as RoomDoc['state']) ??
+                  {})
           setStateOverrides((prev) => ({
             ...prev,
             [room.id]: {
@@ -262,6 +264,8 @@ export const FirebaseDataProvider = ({
               },
             },
           }))
+          // Clear any optimistic nudge accumulator once Firestore has acknowledged a state update.
+          pendingNudgeRef.current[room.id] = 0
           setConnectionStatus('online')
         },
         (error: FirestoreError) => {
@@ -337,11 +341,13 @@ const visibleRooms = useMemo(
       const roomTimers = getTimers(room.id)
       if (roomTimers.length === 0) return
       if (!room.state.activeTimerId) {
-        void updateDoc(doc(db, 'rooms', room.id), {
-          'state.activeTimerId': roomTimers[0].id,
-          'state.elapsedOffset': 0,
-          [`state.progress.${roomTimers[0].id}`]: 0,
-        }).catch((error) => {
+        const stateRef =
+          room._version === 2 ? firestoreDoc(db, 'rooms', room.id, 'state', 'current') : firestoreDoc(db, 'rooms', room.id)
+        const payload =
+          room._version === 2
+            ? { activeTimerId: roomTimers[0].id, elapsedOffset: 0, [`progress.${roomTimers[0].id}`]: 0 }
+            : { 'state.activeTimerId': roomTimers[0].id, 'state.elapsedOffset': 0, [`state.progress.${roomTimers[0].id}`]: 0 }
+        void updateDocFs(stateRef, payload as Record<string, unknown>).catch((error) => {
           console.error('failed to set default active timer', error)
         })
       }
@@ -440,34 +446,60 @@ const visibleRooms = useMemo(
       order: Date.now(),
     }
     await setDoc(timerRef, timer)
-    await updateDoc(doc(db, 'rooms', roomId), {
-      [`state.progress.${timer.id}`]: 0,
-      'state.activeTimerId': getRoom(roomId)?.state.activeTimerId ?? timer.id,
-    })
+    const room = getRoom(roomId)
+    if ((room?._version ?? 1) === 2) {
+      const stateRef = firestoreDoc(db, 'rooms', roomId, 'state', 'current')
+      const nextProgress = { ...(room?.state.progress ?? {}), [timer.id]: 0 }
+      await setDoc(
+        stateRef,
+        {
+          activeTimerId: room?.state.activeTimerId ?? timer.id,
+          progress: nextProgress,
+        },
+        { merge: true },
+      )
+    } else {
+      await updateDoc(doc(db, 'rooms', roomId), {
+        [`state.progress.${timer.id}`]: 0,
+        'state.activeTimerId': room?.state.activeTimerId ?? timer.id,
+      })
+    }
     return timer
   }, [getRoom])
 
   const updateTimer: DataContextValue['updateTimer'] = useCallback(
     async (roomId, timerId, patch) => {
       if (migratingRoomsRef.current.has(roomId)) return
-      const room = rooms.find((candidate) => candidate.id === roomId)
+      const room = getRoom(roomId)
       try {
         await updateDoc(doc(db, 'rooms', roomId, 'timers', timerId), patch)
         if (patch.duration !== undefined && room) {
-          const stateUpdates: Record<string, unknown> = {
-            [`state.progress.${timerId}`]: 0,
-          }
+          const stateUpdates: Record<string, unknown> =
+            (room._version ?? 1) === 2
+              ? {
+                  [`progress.${timerId}`]: 0,
+                }
+              : {
+                  [`state.progress.${timerId}`]: 0,
+                }
           if (room.state.activeTimerId === timerId) {
-            stateUpdates['state.elapsedOffset'] = 0
-            stateUpdates['state.startedAt'] = room.state.isRunning ? Date.now() : null
+            if ((room._version ?? 1) === 2) {
+              stateUpdates['elapsedOffset'] = 0
+              stateUpdates['startedAt'] = room.state.isRunning ? Date.now() : null
+            } else {
+              stateUpdates['state.elapsedOffset'] = 0
+              stateUpdates['state.startedAt'] = room.state.isRunning ? Date.now() : null
+            }
           }
-          await updateDoc(doc(db, 'rooms', roomId), stateUpdates)
+          const stateRef =
+            (room._version ?? 1) === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+          await updateDocFs(stateRef, stateUpdates)
         }
       } catch (error) {
         console.warn('Failed to update timer', error)
       }
     },
-    [rooms],
+    [getRoom],
   )
 
   const updateRoomMeta: DataContextValue['updateRoomMeta'] = useCallback(
@@ -481,36 +513,51 @@ const visibleRooms = useMemo(
   const restoreTimer: DataContextValue['restoreTimer'] = useCallback(async (roomId, timer) => {
     if (migratingRoomsRef.current.has(roomId)) return
     await setDoc(doc(db, 'rooms', roomId, 'timers', timer.id), timer)
-    await updateDoc(doc(db, 'rooms', roomId), {
-      [`state.progress.${timer.id}`]: 0,
-    })
-  }, [])
+    const room = getRoom(roomId)
+    if ((room?._version ?? 1) === 2) {
+      await updateDocFs(firestoreDoc(db, 'rooms', roomId, 'state', 'current'), {
+        [`progress.${timer.id}`]: 0,
+      })
+      return
+    }
+    await updateDoc(doc(db, 'rooms', roomId), { [`state.progress.${timer.id}`]: 0 })
+  }, [getRoom])
 
   const resetTimerProgress: DataContextValue['resetTimerProgress'] = useCallback(async (roomId, timerId) => {
     if (migratingRoomsRef.current.has(roomId)) return
-    const room = rooms.find((candidate) => candidate.id === roomId)
+    const room = getRoom(roomId)
     const isActive = room?.state.activeTimerId === timerId
     const updates: Record<string, unknown> = {
-      [`state.progress.${timerId}`]: 0,
+      ...((room?._version ?? 1) === 2 ? { [`progress.${timerId}`]: 0 } : { [`state.progress.${timerId}`]: 0 }),
     }
     if (isActive) {
-      updates['state.elapsedOffset'] = 0
-      updates['state.startedAt'] = null
-      updates['state.isRunning'] = false
+      if ((room?._version ?? 1) === 2) {
+        updates['elapsedOffset'] = 0
+        updates['startedAt'] = null
+        updates['isRunning'] = false
+      } else {
+        updates['state.elapsedOffset'] = 0
+        updates['state.startedAt'] = null
+        updates['state.isRunning'] = false
+      }
     }
-    await updateDoc(doc(db, 'rooms', roomId), updates)
-  }, [rooms])
+    const stateRef =
+      (room?._version ?? 1) === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+    await updateDocFs(stateRef, updates)
+  }, [getRoom])
 
   const deleteTimer: DataContextValue['deleteTimer'] = useCallback(
     async (roomId, timerId) => {
       if (!user) return
       if (migratingRoomsRef.current.has(roomId)) return
       await deleteDoc(doc(db, 'rooms', roomId, 'timers', timerId))
-      await updateDoc(doc(db, 'rooms', roomId), {
-        [`state.progress.${timerId}`]: 0,
-      })
+      const room = getRoom(roomId)
+      const stateRef =
+        (room?._version ?? 1) === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+      const key = (room?._version ?? 1) === 2 ? `progress.${timerId}` : `state.progress.${timerId}`
+      await updateDocFs(stateRef, { [key]: 0 })
     },
-    [user],
+    [getRoom, user],
   )
 
   // Undo/Redo Stubs
@@ -620,6 +667,18 @@ const visibleRooms = useMemo(
     const room = getRoom(roomId)
     const progress = room ? computeProgress(room) : {}
     const elapsedOffset = progress[timerId] ?? 0
+    const stateRef =
+      room?._version === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+    if (room?._version === 2) {
+      await updateDocFs(stateRef, {
+        activeTimerId: timerId,
+        elapsedOffset,
+        startedAt: null,
+        isRunning: false,
+        progress,
+      })
+      return
+    }
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.activeTimerId': timerId,
       'state.elapsedOffset': elapsedOffset,
@@ -696,6 +755,16 @@ const visibleRooms = useMemo(
     const progress = { ...(room.state.progress ?? {}) }
     progress[activeId] = nextElapsedOffset
     const nextStartedAt = room.state.isRunning ? Date.now() : room.state.startedAt
+    const stateRef =
+      room._version === 2 ? firestoreDoc(db, 'rooms', roomId, 'state', 'current') : firestoreDoc(db, 'rooms', roomId)
+    if (room._version === 2) {
+      await updateDocFs(stateRef, {
+        elapsedOffset: nextElapsedOffset,
+        startedAt: nextStartedAt,
+        progress,
+      })
+      return
+    }
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.elapsedOffset': nextElapsedOffset,
       'state.startedAt': nextStartedAt,

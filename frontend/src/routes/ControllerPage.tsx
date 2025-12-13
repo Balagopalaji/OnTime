@@ -236,7 +236,7 @@ export const ControllerPage = () => {
     const lookup: Record<string, string> = {}
     timers.forEach((timer) => {
       if (timer.id === activeTimerId) {
-        lookup[timer.id] = formatDuration(timer.duration * 1000 - elapsedOffset)
+        lookup[timer.id] = engine ? engine.display : formatDuration(timer.duration * 1000 - elapsedOffset)
         return
       }
       const elapsed = progress?.[timer.id] ?? 0
@@ -244,7 +244,7 @@ export const ControllerPage = () => {
       lookup[timer.id] = formatDuration(remainingMs)
     })
     return lookup
-  }, [room, timers])
+  }, [engine, room, timers])
 
   const handleTimezoneSave = () => {
     if (!room) return
@@ -317,9 +317,8 @@ export const ControllerPage = () => {
     const deltaMs = pendingStagedDelta.current
     pendingStagedDelta.current = 0
     if (deltaMs !== 0) {
-      const deltaMinutes = Math.round(deltaMs / 60_000)
-      const next = Math.max(0, Math.round(selectedTimer.duration / 60) + deltaMinutes)
-      void updateTimer(currentRoomId, selectedTimer.id, { duration: next * 60 })
+      const nextDurationSec = Math.max(0, Math.round(selectedTimer.duration + deltaMs / 1000))
+      void updateTimer(currentRoomId, selectedTimer.id, { duration: nextDurationSec })
     }
     if (stagedFlush.current) {
       window.clearTimeout(stagedFlush.current)
@@ -414,6 +413,7 @@ export const ControllerPage = () => {
         }
         case 'ArrowUp':
         case 'ArrowDown': {
+          if (event.repeat) return
           const deltaMs = event.shiftKey
             ? 600_000
             : event.ctrlKey || event.metaKey
