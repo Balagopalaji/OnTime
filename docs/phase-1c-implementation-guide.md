@@ -65,6 +65,11 @@ Dependencies:
 - ffprobe (for video metadata extraction) — optional
 - Check if ffprobe installed, log warning if missing; return { warning: 'ffprobe missing' } with size if available
 - Allowlist extensions for metadata (e.g., mp4, mov, avi, mkv); return 400 for unsupported types
+
+Shipping note (Phase 1 requirement):
+- For production Companion builds, bundle a known-good `ffprobe` binary with the app so end users do not need to install FFmpeg separately.
+- Licensing requirement: the bundled `ffprobe` MUST be from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components). Do not ship a GPL/nonfree build unless explicitly approved and documented.
+- Keep runtime behavior “optional” (return `warning: 'ffprobe missing'`) as a safety net for dev builds and edge cases.
 ```
 
 ### ✅ Acceptance Criteria
@@ -308,6 +313,7 @@ Create release notes:
 - [ ] Error messages user-friendly
 - [ ] Documentation updated
 - [ ] Release notes written
+- [ ] Companion packaging plan documented
 - [ ] Production checklist complete
 
 ### Execution Checklist
@@ -318,6 +324,23 @@ Create release notes:
 - Production checklist: token auth, hybrid sync, offline mode, migration, file ops, security tests (unauthorized writes/paths) validated.
 - Run lint/tests: `cd frontend && npm run lint && npm run test`; `cd companion && npm run build` (lint not configured there).
 - Where possible, add small scripts/automation for manual steps (e.g., curl tests for endpoints, basic rule checks) to ease validation; keep them out of prod builds if they’re dev-only.
+
+#### Companion Distribution (Phase 1 definition-of-done)
+- Companion is a separate desktop app installed on the **Controller/operator machine only** (Viewers do not install Companion).
+- Local Mode requires Companion; cloud/Firebase mode does not.
+- Produce signed installers/artifacts per OS (initially manual updates are acceptable; auto-update can be Phase 2+):
+  - macOS: `.dmg` (codesigned + notarized)
+  - Windows: installer (NSIS or MSIX; codesigned)
+  - Linux: AppImage (and/or deb/rpm)
+- Bundle `ffprobe` inside the Companion app and invoke it by absolute path (do not rely on PATH).
+- Phase 2 (Show Control) may add OS-specific dependencies for PowerPoint integration; keep those out of Phase 1 Minimal Mode installers unless explicitly required.
+
+#### FFmpeg/ffprobe Licensing Notes (must be decided before shipping)
+- MUST ship an **LGPL-only** FFmpeg/ffprobe build (no GPL / no “nonfree” components). Do not ship a GPL/nonfree build unless explicitly approved and documented.
+- Bundling `ffprobe` means we are redistributing third-party software:
+  - Include the applicable license text(s) in the installer/app resources.
+  - Provide attribution and a source offer/URL consistent with the distributed binary’s license and build configuration.
+  - Record build flags/source provenance for the shipped binary (so compliance is auditable).
 
 ### Failure Modes / How to handle
 - Unauthorized access still succeeds in emulator → fix rules before deploy.

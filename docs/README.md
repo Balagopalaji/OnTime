@@ -71,6 +71,12 @@
 **Goal:** Prep for show control  
 **Read:** `local-mode-plan.md` § 4.3; implementation guide: `phase-1c-implementation-guide.md`
 
+**Shipping decision (Phase 1):**
+- Companion is a separate desktop app installed on the Controller/operator machine only.
+- Local Mode requires Companion; cloud/Firebase mode remains available without it.
+- Production Companion bundles `ffprobe` so video metadata works without requiring users to install FFmpeg separately (with proper third-party license attribution).
+- Bundled `ffprobe` must come from an **LGPL-only** FFmpeg build (avoid GPL/nonfree unless explicitly approved and documented).
+
 ### Writing New Phase Guides
 - Use `implementation-guide-playbook.md` to author future phase guides (structure, checklists, failure modes).
 

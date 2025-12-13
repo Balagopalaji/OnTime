@@ -1,5 +1,16 @@
 # Local Mode Foundation (Phase 1A: Proof of Concept) Checklist
 
+## Phase 1C (Shipping/Packaging decisions)
+- [ ] Document Companion distribution: separate desktop app installed on **Controller/operator machine only** (Viewers do not install Companion).
+- [ ] Document mode behavior: Local Mode requires Companion; cloud/Firebase mode remains available without it.
+- [ ] Decide and document `ffprobe` strategy:
+  - [ ] Production Companion bundles a known-good `ffprobe` binary (do not rely on PATH).
+  - [ ] Dev/edge-case fallback remains supported (`warning: 'ffprobe missing'`).
+- [ ] Add third-party compliance checklist for bundled binaries (FFmpeg/ffprobe):
+  - [ ] Ship license text(s) + attribution in the app/installer resources.
+  - [ ] Record source/provenance and build flags for the distributed binary.
+  - [ ] MUST use an LGPL-only build; do not ship GPL/nonfree builds unless explicitly approved and documented.
+
 ## 1. Companion App Skeleton
 - [ ] **Create Architecture Doc** (`companion/ARCHITECTURE.md`)
     - [ ] Define full event schema (JSON examples)

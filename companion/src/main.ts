@@ -1,5 +1,6 @@
 import { app, Menu, Tray, nativeImage, clipboard } from 'electron';
 import { createServer, Server as HttpServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -99,6 +100,7 @@ let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
 let cacheWriteTimer: NodeJS.Timeout | null = null;
 let lastWriteTs = 0;
+let ffprobeMissingWarned = false;
 
 type StoredTokenPayload = {
   token: string;
@@ -368,6 +370,250 @@ function verifyToken(token: string | undefined): boolean {
   }
 }
 
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+function getRequestOrigin(req: any): string | undefined {
+  const origin = req.headers?.origin;
+  return typeof origin === 'string' ? origin : undefined;
+}
+
+function getClientIdFromRequest(req: any): string | undefined {
+  const header = req.headers?.['x-ontime-client-id'];
+  if (typeof header === 'string' && header.trim()) return header.trim();
+  return undefined;
+}
+
+function sendJson(res: any, status: number, body: JsonValue, origin?: string) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  }
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(body));
+}
+
+function sendUnauthorized(res: any, origin?: string) {
+  sendJson(res, 401, { error: 'unauthorized' }, origin);
+}
+
+function sendInvalidPath(res: any, origin?: string) {
+  sendJson(res, 400, { error: 'invalid_path' }, origin);
+}
+
+function sendUnsupportedType(res: any, origin?: string) {
+  sendJson(res, 400, { error: 'unsupported_type' }, origin);
+}
+
+function sendOpenFailed(res: any, origin?: string) {
+  sendJson(res, 500, { error: 'open_failed' }, origin);
+}
+
+function getRedactedPath(filePath: string): string {
+  const base = path.basename(filePath);
+  const hash = crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 12);
+  return `${base}#${hash}`;
+}
+
+async function readJsonBody(req: any, maxBytes = 1024 * 1024): Promise<unknown> {
+  return await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error('Body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function parseBearerToken(req: any): string | null {
+  const header = req.headers?.authorization;
+  if (typeof header !== 'string') return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  return match[1]?.trim() || null;
+}
+
+function authorizeRequest(req: any): { ok: true; origin?: string; clientId?: string } | { ok: false; origin?: string } {
+  const allowedOrigins = parseAllowedOrigins();
+  const origin = getRequestOrigin(req);
+  const originValid = validateOrigin(origin, allowedOrigins);
+  const corsOrigin = origin && originValid ? origin : undefined;
+
+  if (!isLoopback(req.socket?.remoteAddress)) {
+    return { ok: false, origin: corsOrigin };
+  }
+
+  if (!originValid) {
+    return { ok: false, origin: corsOrigin };
+  }
+
+  const token = parseBearerToken(req);
+  if (!token || !verifyToken(token)) {
+    return { ok: false, origin: corsOrigin };
+  }
+
+  return { ok: true, origin: corsOrigin, clientId: getClientIdFromRequest(req) };
+}
+
+function authorizeCorsOnly(req: any): { ok: true; origin?: string } | { ok: false; origin?: string } {
+  const allowedOrigins = parseAllowedOrigins();
+  const origin = getRequestOrigin(req);
+  const originValid = validateOrigin(origin, allowedOrigins);
+  const corsOrigin = origin && originValid ? origin : undefined;
+
+  if (!isLoopback(req.socket?.remoteAddress)) {
+    return { ok: false, origin: corsOrigin };
+  }
+
+  if (!originValid) {
+    return { ok: false, origin: corsOrigin };
+  }
+
+  return { ok: true, origin: corsOrigin };
+}
+
+function isSubPath(parentPath: string, childPath: string): boolean {
+  const parent = parentPath.endsWith(path.sep) ? parentPath : `${parentPath}${path.sep}`;
+  return childPath === parentPath || childPath.startsWith(parent);
+}
+
+function isBlockedSystemPath(resolvedPath: string): boolean {
+  if (process.platform === 'win32') {
+    const normalized = path.win32.normalize(resolvedPath).toLowerCase();
+    const systemRoot = (process.env.SystemRoot || 'C:\\Windows').toLowerCase();
+    const blocked = [systemRoot, 'c:\\windows', 'c:\\windows\\system32'];
+    return blocked.some((root) => normalized === root || normalized.startsWith(`${root}\\`));
+  }
+
+  const normalized = path.posix.normalize(resolvedPath);
+  const blocked = ['/System', '/Library', '/etc', '/Windows'];
+  return blocked.some((root) => normalized === root || normalized.startsWith(`${root}/`));
+}
+
+async function validateAndResolveUserPath(inputPath: string): Promise<string | null> {
+  if (!inputPath || typeof inputPath !== 'string') return null;
+
+  const home = os.homedir();
+  const candidate = path.isAbsolute(inputPath) ? inputPath : path.join(home, inputPath);
+
+  try {
+    const resolved = await fs.realpath(candidate);
+    const resolvedHome = await fs.realpath(home);
+
+    if (isBlockedSystemPath(resolved)) {
+      return null;
+    }
+
+    if (!isSubPath(resolvedHome, resolved)) {
+      return null;
+    }
+
+    const stat = await fs.stat(resolved);
+    if (!stat.isFile()) {
+      return null;
+    }
+
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
+async function openFileInDefaultApp(resolvedPath: string): Promise<void> {
+  const platform = process.platform;
+  const command =
+    platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd' : 'xdg-open';
+
+  const args =
+    platform === 'darwin'
+      ? [resolvedPath]
+      : platform === 'win32'
+        ? ['/c', 'start', '', resolvedPath]
+        : [resolvedPath];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      shell: false,
+      stdio: 'ignore',
+      detached: true,
+      windowsHide: true,
+    });
+
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0 || code === null) {
+        resolve();
+        return;
+      }
+      reject(new Error(`open failed (code=${code})`));
+    });
+    child.unref();
+  });
+}
+
+async function runFfprobe(resolvedPath: string): Promise<{ duration?: number; resolution?: string }> {
+  const args = ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', resolvedPath];
+
+  return await new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const child = spawn('ffprobe', args, { shell: false });
+    child.stdout.on('data', (buf) => {
+      stdout += buf.toString('utf8');
+    });
+    child.stderr.on('data', (buf) => {
+      stderr += buf.toString('utf8');
+    });
+    child.on('error', (err: any) => {
+      if (err?.code === 'ENOENT') {
+        reject(Object.assign(new Error('ffprobe missing'), { code: 'ENOENT' }));
+        return;
+      }
+      reject(err);
+    });
+    child.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffprobe failed (code=${code}): ${stderr}`));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout) as any;
+        const durationRaw = parsed?.format?.duration;
+        const duration = typeof durationRaw === 'string' ? Number(durationRaw) : undefined;
+        const videoStream = Array.isArray(parsed?.streams)
+          ? parsed.streams.find((s: any) => s?.codec_type === 'video')
+          : undefined;
+        const width = typeof videoStream?.width === 'number' ? videoStream.width : undefined;
+        const height = typeof videoStream?.height === 'number' ? videoStream.height : undefined;
+        const resolution = width && height ? `${width}x${height}` : undefined;
+        resolve({
+          duration: typeof duration === 'number' && Number.isFinite(duration) ? duration : undefined,
+          resolution,
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
 function handleJoinRoom(socket: Socket, payload: unknown) {
   if (!isValidJoinRoomPayload(payload)) {
     console.warn(`[ws] Invalid JOIN_ROOM payload from socket=${socket.id}`);
@@ -544,35 +790,204 @@ function startTokenServer(token: string, expiresAt: number) {
     const origin = req.headers.origin as string | undefined;
     const remoteAddress = req.socket?.remoteAddress;
 
-    if (!isLoopback(remoteAddress)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Forbidden' }));
-      return;
-    }
+    if (typeof req.url === 'string') {
+      const url = new URL(req.url, 'http://localhost');
 
-    if (!validateOrigin(origin, allowedOrigins)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid origin' }));
-      return;
-    }
+      if (url.pathname === '/api/token') {
+        if (!isLoopback(remoteAddress)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.end();
-      return;
-    }
+        if (!validateOrigin(origin, allowedOrigins)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid origin' }));
+          return;
+        }
 
-    if (req.url === '/api/token' && req.method === 'GET') {
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-      });
-      res.end(JSON.stringify({ token, expiresAt }));
-      return;
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
+            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          });
+          res.end();
+          return;
+        }
+
+        if (req.method === 'GET') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+          });
+          res.end(JSON.stringify({ token, expiresAt }));
+          return;
+        }
+      }
+
+      if (url.pathname === '/api/open' && req.method === 'OPTIONS') {
+        const cors = authorizeCorsOnly(req);
+        if (!cors.ok) {
+          sendUnauthorized(res);
+          return;
+        }
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          Vary: 'Origin',
+        });
+        res.end();
+        return;
+      }
+
+      if (url.pathname === '/api/open' && req.method === 'POST') {
+        const auth = authorizeRequest(req);
+        if (!auth.ok) {
+          sendUnauthorized(res, auth.origin);
+          return;
+        }
+
+        void (async () => {
+          let data: unknown;
+          try {
+            data = await readJsonBody(req);
+          } catch {
+            sendInvalidPath(res, auth.origin);
+            return;
+          }
+          try {
+            const inputPath = (data as any)?.path;
+            if (typeof inputPath !== 'string') {
+              sendInvalidPath(res, auth.origin);
+              return;
+            }
+
+            const resolved = await validateAndResolveUserPath(inputPath);
+            if (!resolved) {
+              sendInvalidPath(res, auth.origin);
+              console.warn(
+                `[file] open denied caller=${auth.clientId ?? 'unknown'} file=${getRedactedPath(inputPath)}`
+              );
+              return;
+            }
+
+            await openFileInDefaultApp(resolved);
+            sendJson(res, 200, { success: true }, auth.origin);
+            console.log(
+              `[file] open ok caller=${auth.clientId ?? 'unknown'} file=${getRedactedPath(resolved)}`
+            );
+          } catch (error) {
+            console.warn(
+              `[file] open failed caller=${auth.clientId ?? 'unknown'} error=${String(error)}`
+            );
+            sendOpenFailed(res, auth.origin);
+          }
+        })();
+        return;
+      }
+
+      if (url.pathname === '/api/file/metadata' && req.method === 'OPTIONS') {
+        const cors = authorizeCorsOnly(req);
+        if (!cors.ok) {
+          sendUnauthorized(res);
+          return;
+        }
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          Vary: 'Origin',
+        });
+        res.end();
+        return;
+      }
+
+      if (url.pathname === '/api/file/metadata' && req.method === 'GET') {
+        const auth = authorizeRequest(req);
+        if (!auth.ok) {
+          sendUnauthorized(res, auth.origin);
+          return;
+        }
+
+        const inputPath = url.searchParams.get('path');
+        if (!inputPath) {
+          sendInvalidPath(res, auth.origin);
+          return;
+        }
+
+        const extension = path.extname(inputPath).toLowerCase().replace('.', '');
+        const allowedExtensions = new Set(['mp4', 'mov', 'avi', 'mkv']);
+        if (!allowedExtensions.has(extension)) {
+          sendUnsupportedType(res, auth.origin);
+          return;
+        }
+
+        void (async () => {
+          try {
+            const resolved = await validateAndResolveUserPath(inputPath);
+            if (!resolved) {
+              sendInvalidPath(res, auth.origin);
+              console.warn(
+                `[file] metadata denied caller=${auth.clientId ?? 'unknown'} file=${getRedactedPath(inputPath)}`
+              );
+              return;
+            }
+
+            const stat = await fs.stat(resolved);
+            try {
+              const { duration, resolution } = await runFfprobe(resolved);
+              const payload: Record<string, JsonValue> = {
+                size: stat.size,
+              };
+              if (typeof duration === 'number') {
+                payload.duration = duration;
+              }
+              if (typeof resolution === 'string') {
+                payload.resolution = resolution;
+              }
+              sendJson(
+                res,
+                200,
+                payload,
+                auth.origin
+              );
+              console.log(
+                `[file] metadata ok caller=${auth.clientId ?? 'unknown'} file=${getRedactedPath(resolved)}`
+              );
+            } catch (error: any) {
+              if (error?.code === 'ENOENT') {
+                if (!ffprobeMissingWarned) {
+                  ffprobeMissingWarned = true;
+                  console.warn('[file] ffprobe missing; metadata will be limited to size only');
+                }
+                sendJson(
+                  res,
+                  200,
+                  {
+                    warning: 'ffprobe missing',
+                    size: stat.size,
+                  },
+                  auth.origin
+                );
+                return;
+              }
+
+              console.warn(
+                `[file] metadata failed caller=${auth.clientId ?? 'unknown'} error=${String(error)}`
+              );
+              sendOpenFailed(res, auth.origin);
+            }
+          } catch (error) {
+            console.warn(
+              `[file] metadata failed caller=${auth.clientId ?? 'unknown'} error=${String(error)}`
+            );
+            sendOpenFailed(res, auth.origin);
+          }
+        })();
+        return;
+      }
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });

@@ -17,6 +17,7 @@ A lightweight Node.js/Electron application running on the operator's machine.
 *   **Relay:** Broadcasts state changes to all connected clients (Controller, Viewers).
 *   **API:** Exposes HTTP endpoints for file operations.
 *   **Security:** Token-based authentication for LAN connections.
+*   **Distribution (Phase 1 definition-of-done):** Companion is a separate desktop app installed on the **Controller/operator machine only** (Viewers do not install Companion). Local Mode requires Companion; cloud/Firebase mode does not.
 *   **Modes:** Configurable operation modes to minimize resource usage:
     *   **Minimal Mode:** WebSocket relay only (timers, offline sync). ~20-50 MB RAM, 1-2% CPU.
     *   **Show Control Mode:** Adds PowerPoint/presentation monitoring via COM API. ~75-100 MB RAM, 3-5% CPU.
@@ -66,10 +67,13 @@ We will implement the `DataProvider` interface using a WebSocket client.
 *   `GET /api/file/exists`: Checks file existence. Query: `?path=...`.
 *   `GET /api/file/metadata`: Extracts duration/resolution. Query: `?path=...`.
 
+**Video metadata note:** Duration/resolution extraction should use a bundled `ffprobe` binary in production Companion builds so end users do not need separate FFmpeg installs. The bundled `ffprobe` MUST come from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components) unless explicitly approved and documented. If `ffprobe` is not present (dev builds/edge cases), return a warning and fallback to size-only metadata.
+
 ### 3.5 Security & Authentication
-*   **Token:** Companion generates random 6-digit PIN on startup.
-*   **Handshake:** Clients must provide PIN in `JOIN_ROOM` payload.
-*   **Validation:** Server rejects connections with invalid PINs.
+*   **Token:** Companion exposes a short-lived token via `GET /api/token` (loopback only + Origin allowlist).
+*   **Handshake:** Clients provide token in `JOIN_ROOM` payload.
+*   **HTTP auth:** File operations require `Authorization: Bearer <token>`.
+*   **Validation:** Server rejects invalid/expired tokens and invalid Origins; never logs raw tokens.
 
 ### 3.6 State Initialization
 *   **Cache Location (Platform-Specific):**
