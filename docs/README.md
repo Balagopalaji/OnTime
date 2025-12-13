@@ -71,6 +71,9 @@
 **Goal:** Prep for show control  
 **Read:** `local-mode-plan.md` § 4.3; implementation guide: `phase-1c-implementation-guide.md`
 
+### Writing New Phase Guides
+- Use `implementation-guide-playbook.md` to author future phase guides (structure, checklists, failure modes).
+
 ---
 
 ## 🔍 Common Questions

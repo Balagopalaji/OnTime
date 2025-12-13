@@ -347,12 +347,13 @@ Create release notes:
    - Try to write to Firestore without auth
 
 ### Success Criteria
-- [x] File operations working
-- [x] Full timer CRUD via WebSocket
-- [x] Room migration (v1 → v2) working
-- [x] Production Firestore rules deployed
-- [x] Offline mode fully functional
-- [x] Security validated (no unauthorized access)
+
+- [ ] File operations working
+- [ ] Full timer CRUD via WebSocket
+- [ ] Room migration (v1 → v2) working
+- [ ] Production Firestore rules deployed
+- [ ] Offline mode fully functional
+- [ ] Security validated (no unauthorized access)
 
 ---
 
