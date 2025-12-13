@@ -65,11 +65,11 @@
 
 ### Phase 1B: Production (Weeks 3-5)
 **Goal:** Secure offline mode + tiers  
-**Read:** `modularity-architecture.md` § 2-4
+**Read:** `modularity-architecture.md` § 2-4; walkthrough: `phase-1b-walkthrough.md`
 
 ### Phase 1C: File Ops (Weeks 6-7)
 **Goal:** Prep for show control  
-**Read:** `local-mode-plan.md` § 4.3
+**Read:** `local-mode-plan.md` § 4.3; implementation guide: `phase-1c-implementation-guide.md`
 
 ---
 
@@ -105,4 +105,3 @@ The undo/redo system is currently stubbed out (buttons do nothing). This was don
 - Offline: Simulate network loss, verify reconnection
 
 **For detailed architecture navigation, see the full document tree above.**
-
