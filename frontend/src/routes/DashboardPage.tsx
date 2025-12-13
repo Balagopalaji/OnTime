@@ -2,11 +2,13 @@ import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, Clock, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
+import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
 import { Tooltip } from '../components/core/Tooltip'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
+import { db } from '../lib/firebase'
 import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 
@@ -40,6 +42,8 @@ export const DashboardPage = () => {
     undoRoomDelete,
     redoRoomDelete,
     reorderRoom,
+    migrateRoomToV2,
+    rollbackRoomMigration,
   } = useDataContext()
   const localTimezone = getTimezoneSuggestion()
   const allTimezones = useMemo(() => getAllTimezones(), [])
@@ -70,6 +74,11 @@ export const DashboardPage = () => {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [justDroppedId, setJustDroppedId] = useState<string | null>(null)
+  const [migrationState, setMigrationState] = useState<
+    Record<string, { status: 'idle' | 'migrating' | 'complete' | 'failed'; error?: string }>
+  >({})
+  const [recentlyMigrated, setRecentlyMigrated] = useState<Set<string>>(new Set())
+  const [rollbackAvailable, setRollbackAvailable] = useState<Record<string, boolean>>({})
   const dragFromIndexRef = useRef<number | null>(null)
   const overIndexRef = useRef<number | null>(null)
   const itemRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -110,6 +119,39 @@ export const DashboardPage = () => {
     if (!user) return []
     return rooms.filter((room) => room.ownerId === user.uid && !pendingRooms.has(room.id))
   }, [pendingRooms, rooms, user])
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    const v2OwnedRooms = ownedRooms.filter((room) => (room._version ?? 1) === 2)
+
+    void Promise.all(
+      v2OwnedRooms.map(async (room) => {
+        try {
+          const snap = await getDocs(query(collection(db, 'rooms', room.id, 'migrationBackups'), limit(1)))
+          return [room.id, !snap.empty] as const
+        } catch {
+          return [room.id, false] as const
+        }
+      }),
+    ).then((pairs) => {
+      if (cancelled) return
+      setRollbackAvailable((prev) => {
+        const next: Record<string, boolean> = {}
+        pairs.forEach(([roomId, exists]) => {
+          next[roomId] = exists
+        })
+        Object.entries(prev).forEach(([roomId, exists]) => {
+          if (!(roomId in next)) next[roomId] = exists
+        })
+        return next
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [ownedRooms, user])
 
   const compareCards = useMemo(
     () => (a: { title: string; createdAt: number; order?: number }, b: { title: string; createdAt: number; order?: number }) => {
@@ -328,6 +370,12 @@ export const DashboardPage = () => {
     listIndex: number,
     enableSort: boolean,
   ) => {
+    const isLegacyRoom = (room._version ?? 1) !== 2
+    const migration = migrationState[room.id] ?? { status: 'idle' as const }
+    const canMigrate = Boolean(migrateRoomToV2) && user?.uid === room.ownerId
+    const hasRollbackBackup = recentlyMigrated.has(room.id) || rollbackAvailable[room.id] === true
+    const canRollback = Boolean(rollbackRoomMigration) && user?.uid === room.ownerId && !isLegacyRoom && hasRollbackBackup
+    const isMigrating = migration.status === 'migrating'
     const cardDragProps =
       enableSort && isCustomSort
         ? {
@@ -401,6 +449,93 @@ export const DashboardPage = () => {
             </Tooltip>
           </div>
         </div>
+
+        {isLegacyRoom ? (
+          <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">Legacy room</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  Upgrade to v2 to use the modular room/state model. This keeps legacy fields for compatibility.
+                </p>
+                {migration.status === 'failed' ? (
+                  <p className="mt-2 text-xs text-rose-200">Upgrade failed: {migration.error ?? 'unknown error'}</p>
+                ) : null}
+                {migration.status === 'complete' ? (
+                  <p className="mt-2 text-xs text-emerald-200">Upgraded to v2.</p>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border border-amber-400/60 bg-amber-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-amber-100 transition hover:bg-amber-500/15 disabled:opacity-50"
+                  disabled={!canMigrate || isMigrating}
+                  onClick={() => {
+                    if (!migrateRoomToV2) return
+                    setMigrationState((prev) => ({ ...prev, [room.id]: { status: 'migrating' } }))
+                    void migrateRoomToV2(room.id)
+                      .then(() => {
+                        setMigrationState((prev) => ({ ...prev, [room.id]: { status: 'complete' } }))
+                        setRecentlyMigrated((prev) => {
+                          const next = new Set(prev)
+                          next.add(room.id)
+                          return next
+                        })
+                      })
+                      .catch((error) => {
+                        setMigrationState((prev) => ({
+                          ...prev,
+                          [room.id]: { status: 'failed', error: error instanceof Error ? error.message : String(error) },
+                        }))
+                      })
+                  }}
+                >
+                  {isMigrating ? 'Upgrading…' : 'Upgrade to v2'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : canRollback ? (
+          <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-200">Rollback available</p>
+                <p className="mt-1 text-sm text-slate-300">
+                  You can rollback this upgrade within 30 days.
+                </p>
+                {migration.status === 'failed' ? (
+                  <p className="mt-2 text-xs text-rose-200">Rollback failed: {migration.error ?? 'unknown error'}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500 disabled:opacity-50"
+                disabled={isMigrating}
+                onClick={() => {
+                  if (!rollbackRoomMigration) return
+                  setMigrationState((prev) => ({ ...prev, [room.id]: { status: 'migrating' } }))
+                  void rollbackRoomMigration(room.id)
+                    .then(() => {
+                      setMigrationState((prev) => ({ ...prev, [room.id]: { status: 'complete' } }))
+                      setRecentlyMigrated((prev) => {
+                        const next = new Set(prev)
+                        next.delete(room.id)
+                        return next
+                      })
+                    })
+                    .catch((error) => {
+                      setMigrationState((prev) => ({
+                        ...prev,
+                        [room.id]: { status: 'failed', error: error instanceof Error ? error.message : String(error) },
+                      }))
+                    })
+                }}
+              >
+                Rollback
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="space-y-2">
           {drafts[room.id]?.editingTitle ? (

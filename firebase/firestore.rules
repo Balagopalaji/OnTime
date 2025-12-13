@@ -37,6 +37,11 @@ service cloud.firestore {
         allow read: if true;
         allow write: if isOwner(roomId);
       }
+
+      // Migration backups (v1 -> v2 rollback support)
+      match /migrationBackups/{backupId} {
+        allow read, write: if isOwner(roomId);
+      }
     }
   }
 }

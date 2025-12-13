@@ -826,6 +826,8 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setClockMode: async () => logStub('setClockMode'),
       setClockFormat: async () => logStub('setClockFormat'),
       updateMessage: async () => logStub('updateMessage'),
+      migrateRoomToV2: async () => logStub('migrateRoomToV2'),
+      rollbackRoomMigration: async () => logStub('rollbackRoomMigration'),
       companionMode,
       capabilities,
       subscribeToRoom,

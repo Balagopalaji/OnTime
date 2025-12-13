@@ -75,6 +75,8 @@ export type DataContextValue = {
     roomId: string,
     message: Partial<{ text: string; color: MessageColor; visible: boolean }>,
   ) => Promise<void>
+  migrateRoomToV2?: (roomId: string) => Promise<void>
+  rollbackRoomMigration?: (roomId: string) => Promise<void>
 }
 
 export const DataContext = createContext<DataContextValue | undefined>(undefined)

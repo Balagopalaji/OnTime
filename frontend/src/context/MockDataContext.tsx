@@ -1438,6 +1438,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       setClockMode,
       setClockFormat,
       updateMessage,
+      migrateRoomToV2: async () => {},
+      rollbackRoomMigration: async () => {},
     }),
     [
       visibleRooms,

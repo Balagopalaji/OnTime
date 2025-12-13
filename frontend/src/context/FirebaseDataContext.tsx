@@ -3,6 +3,9 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
+  getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -10,6 +13,7 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  type DocumentData,
   type FirestoreError,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -30,6 +34,8 @@ const DEFAULT_FEATURES = {
   powerpoint: false,
   externalVideo: false,
 }
+
+const MIGRATION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 
 type RoomDoc = {
@@ -176,6 +182,7 @@ export const FirebaseDataProvider = ({
   const [subscriptionEpoch, setSubscriptionEpoch] = useState(0)
   const [stateOverrides, setStateOverrides] = useState<Record<string, Room['state']>>({})
   const pendingNudgeRef = useRef<Record<string, number>>({})
+  const migratingRoomsRef = useRef<Set<string>>(new Set())
 
   const { user } = useAuth()
 
@@ -421,6 +428,7 @@ const visibleRooms = useMemo(
   )
 
   const createTimer: DataContextValue['createTimer'] = useCallback(async (roomId, input) => {
+    if (migratingRoomsRef.current.has(roomId)) throw new Error('room_migrating')
     const timerRef = doc(collection(db, 'rooms', roomId, 'timers'))
     const timer: Timer = {
       id: timerRef.id,
@@ -441,6 +449,7 @@ const visibleRooms = useMemo(
 
   const updateTimer: DataContextValue['updateTimer'] = useCallback(
     async (roomId, timerId, patch) => {
+      if (migratingRoomsRef.current.has(roomId)) return
       const room = rooms.find((candidate) => candidate.id === roomId)
       try {
         await updateDoc(doc(db, 'rooms', roomId, 'timers', timerId), patch)
@@ -463,12 +472,14 @@ const visibleRooms = useMemo(
 
   const updateRoomMeta: DataContextValue['updateRoomMeta'] = useCallback(
     async (roomId, patch) => {
+      if (migratingRoomsRef.current.has(roomId)) return
       await updateDoc(doc(db, 'rooms', roomId), patch)
     },
     [],
   )
 
   const restoreTimer: DataContextValue['restoreTimer'] = useCallback(async (roomId, timer) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     await setDoc(doc(db, 'rooms', roomId, 'timers', timer.id), timer)
     await updateDoc(doc(db, 'rooms', roomId), {
       [`state.progress.${timer.id}`]: 0,
@@ -476,6 +487,7 @@ const visibleRooms = useMemo(
   }, [])
 
   const resetTimerProgress: DataContextValue['resetTimerProgress'] = useCallback(async (roomId, timerId) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const room = rooms.find((candidate) => candidate.id === roomId)
     const isActive = room?.state.activeTimerId === timerId
     const updates: Record<string, unknown> = {
@@ -492,6 +504,7 @@ const visibleRooms = useMemo(
   const deleteTimer: DataContextValue['deleteTimer'] = useCallback(
     async (roomId, timerId) => {
       if (!user) return
+      if (migratingRoomsRef.current.has(roomId)) return
       await deleteDoc(doc(db, 'rooms', roomId, 'timers', timerId))
       await updateDoc(doc(db, 'rooms', roomId), {
         [`state.progress.${timerId}`]: 0,
@@ -532,6 +545,7 @@ const visibleRooms = useMemo(
   const moveRoom: DataContextValue['moveRoom'] = useCallback(
     async (roomId: string, direction: 'up' | 'down') => {
       if (!user) return
+      if (migratingRoomsRef.current.has(roomId)) return
       const owned = rooms.filter(
         (room) => room.ownerId === user.uid && !pendingRooms.has(room.id),
       )
@@ -552,6 +566,7 @@ const visibleRooms = useMemo(
   const reorderRoom: DataContextValue['reorderRoom'] = useCallback(
     async (roomId: string, targetIndex: number) => {
       if (!user) return
+      if (migratingRoomsRef.current.has(roomId)) return
       const owned = rooms.filter(
         (room) => room.ownerId === user.uid && !pendingRooms.has(room.id),
       )
@@ -571,6 +586,7 @@ const visibleRooms = useMemo(
   )
 
   const moveTimer: DataContextValue['moveTimer'] = useCallback(async (roomId, timerId, direction) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const list = getTimers(roomId)
     const ordered = [...list].sort((a, b) => a.order - b.order)
     const index = ordered.findIndex((t) => t.id === timerId)
@@ -585,6 +601,7 @@ const visibleRooms = useMemo(
   }, [getTimers])
 
   const reorderTimer: DataContextValue['reorderTimer'] = useCallback(async (roomId, timerId, targetIndex) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const ordered = [...getTimers(roomId)].sort((a, b) => a.order - b.order)
     const fromIndex = ordered.findIndex((t) => t.id === timerId)
     if (fromIndex === -1) return
@@ -599,6 +616,7 @@ const visibleRooms = useMemo(
   }, [getTimers])
 
   const setActiveTimer: DataContextValue['setActiveTimer'] = useCallback(async (roomId, timerId) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const room = getRoom(roomId)
     const progress = room ? computeProgress(room) : {}
     const elapsedOffset = progress[timerId] ?? 0
@@ -612,6 +630,7 @@ const visibleRooms = useMemo(
   }, [getRoom])
 
   const startTimer: DataContextValue['startTimer'] = useCallback(async (roomId, timerId) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const room = getRoom(roomId)
     const targetTimerId = timerId ?? room?.state.activeTimerId
     if (!targetTimerId || !room) return
@@ -629,6 +648,7 @@ const visibleRooms = useMemo(
   }, [getRoom])
 
   const pauseTimer: DataContextValue['pauseTimer'] = useCallback(async (roomId) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const room = getRoom(roomId)
     if (!room?.state.activeTimerId) return
     const activeId = room.state.activeTimerId
@@ -645,6 +665,7 @@ const visibleRooms = useMemo(
   }, [getRoom])
 
   const resetTimer: DataContextValue['resetTimer'] = useCallback(async (roomId) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const room = getRoom(roomId)
     const activeId = room?.state.activeTimerId
     const progress = room ? computeProgress(room) : {}
@@ -663,6 +684,7 @@ const visibleRooms = useMemo(
   }, [getRoom])
 
   const nudgeTimer: DataContextValue['nudgeTimer'] = useCallback(async (roomId, deltaMs) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const room = getRoom(roomId)
     const activeId = room?.state.activeTimerId
     if (!room || !activeId) return
@@ -682,24 +704,124 @@ const visibleRooms = useMemo(
   }, [getRoom])
 
   const setClockMode: DataContextValue['setClockMode'] = useCallback(async (roomId, enabled) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.showClock': enabled,
     })
   }, [])
 
   const setClockFormat: DataContextValue['setClockFormat'] = useCallback(async (roomId, format) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     await updateDoc(doc(db, 'rooms', roomId), {
       'state.clockMode': format,
     })
   }, [])
 
   const updateMessage: DataContextValue['updateMessage'] = useCallback(async (roomId, message) => {
+    if (migratingRoomsRef.current.has(roomId)) return
     const payload: Record<string, unknown> = {}
     if (message.text !== undefined) payload['state.message.text'] = message.text
     if (message.visible !== undefined) payload['state.message.visible'] = message.visible
     if (message.color !== undefined) payload['state.message.color'] = message.color
     await updateDoc(doc(db, 'rooms', roomId), payload)
   }, [])
+
+  const migrateRoomToV2 = useCallback(
+    async (roomId: string) => {
+      if (!user) throw new Error('unauthenticated')
+      if (migratingRoomsRef.current.has(roomId)) return
+      migratingRoomsRef.current.add(roomId)
+      try {
+        const roomRef = doc(db, 'rooms', roomId)
+        const legacySnap = await getDoc(roomRef)
+        if (!legacySnap.exists()) throw new Error('room_not_found')
+        const legacyData = legacySnap.data() as DocumentData
+        const legacyVersion = typeof legacyData._version === 'number' ? legacyData._version : 1
+        if (legacyVersion === 2) return
+        if (legacyData.ownerId !== user.uid) throw new Error('not_owner')
+
+        const legacyState = (legacyData.state ?? {}) as Record<string, unknown>
+        const activeTimerId = typeof legacyState.activeTimerId === 'string' ? legacyState.activeTimerId : null
+        const isRunning = Boolean(legacyState.isRunning)
+        const startedAt = typeof legacyState.startedAt === 'number' ? legacyState.startedAt : null
+        const elapsedOffset = typeof legacyState.elapsedOffset === 'number' ? legacyState.elapsedOffset : 0
+        const progress = (legacyState.progress ?? {}) as Record<string, unknown>
+        const baseElapsed =
+          activeTimerId && typeof progress[activeTimerId] === 'number' ? (progress[activeTimerId] as number) : 0
+        const elapsedMs =
+          activeTimerId && isRunning && startedAt ? Date.now() - startedAt + baseElapsed : baseElapsed || elapsedOffset
+        const currentTime = Math.max(0, Math.round(elapsedMs / 1000))
+
+        const now = Date.now()
+        const backupId = String(now)
+        const backupRef = doc(db, 'rooms', roomId, 'migrationBackups', backupId)
+        const stateRef = firestoreDoc(db, 'rooms', roomId, 'state', 'current')
+
+        const batch = writeBatch(db)
+        batch.set(backupRef, {
+          createdAtMs: now,
+          expiresAtMs: now + MIGRATION_RETENTION_MS,
+          legacyRoom: legacyData,
+        })
+        batch.set(stateRef, { activeTimerId, isRunning, currentTime, lastUpdate: now }, { merge: true })
+        batch.set(
+          roomRef,
+          {
+            tier: 'basic',
+            features: DEFAULT_FEATURES,
+            _version: 2,
+          },
+          { merge: true },
+        )
+        await batch.commit()
+        console.info(`[firebase] migrated room ${roomId} to v2 (backup=${backupId})`)
+      } finally {
+        migratingRoomsRef.current.delete(roomId)
+      }
+    },
+    [user],
+  )
+
+  const rollbackRoomMigration = useCallback(
+    async (roomId: string) => {
+      if (!user) throw new Error('unauthenticated')
+      if (migratingRoomsRef.current.has(roomId)) return
+      migratingRoomsRef.current.add(roomId)
+      try {
+        const roomRef = doc(db, 'rooms', roomId)
+        const roomSnap = await getDoc(roomRef)
+        if (!roomSnap.exists()) throw new Error('room_not_found')
+        const current = roomSnap.data() as DocumentData
+        if (current.ownerId !== user.uid) throw new Error('not_owner')
+
+        const backupsQuery = query(
+          collection(db, 'rooms', roomId, 'migrationBackups'),
+          orderBy('createdAtMs', 'desc'),
+          limit(1),
+        )
+        const backupsSnap = await getDocs(backupsQuery)
+        const latest = backupsSnap.docs[0]
+        if (!latest) throw new Error('backup_missing')
+        const backup = latest.data() as DocumentData
+        const expiresAtMs = typeof backup.expiresAtMs === 'number' ? backup.expiresAtMs : 0
+        if (!expiresAtMs || Date.now() > expiresAtMs) {
+          throw new Error('backup_expired')
+        }
+        const legacyRoom = backup.legacyRoom as DocumentData | undefined
+        if (!legacyRoom || typeof legacyRoom !== 'object') throw new Error('backup_invalid')
+
+        const stateRef = firestoreDoc(db, 'rooms', roomId, 'state', 'current')
+        const batch = writeBatch(db)
+        batch.set(roomRef, legacyRoom)
+        batch.delete(stateRef)
+        await batch.commit()
+        console.info(`[firebase] rolled back room ${roomId} to legacy (backup=${latest.id})`)
+      } finally {
+        migratingRoomsRef.current.delete(roomId)
+      }
+    },
+    [user],
+  )
 
   const value = useMemo<DataContextValue>(
     () => ({
@@ -739,6 +861,8 @@ const visibleRooms = useMemo(
       setClockMode,
       setClockFormat,
       updateMessage,
+      migrateRoomToV2,
+      rollbackRoomMigration,
     }),
     [
       visibleRooms,
@@ -776,6 +900,8 @@ const visibleRooms = useMemo(
       setClockMode,
       setClockFormat,
       updateMessage,
+      migrateRoomToV2,
+      rollbackRoomMigration,
     ],
   )
 
