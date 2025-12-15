@@ -49,13 +49,42 @@ type JoinArgs = {
   clientType?: 'controller' | 'viewer'
 }
 
+type PersistedRoomSnapshot = {
+  version: 1
+  savedAt: number
+  room: Room
+  timers: Timer[]
+}
+
+type SyncRoomStatePayload = {
+  type: 'SYNC_ROOM_STATE'
+  roomId: string
+  timers?: Timer[]
+  state: {
+    activeTimerId: string | null
+    isRunning: boolean
+    currentTime: number
+    lastUpdate: number
+  }
+  sourceClientId?: string
+  timestamp?: number
+}
+
+type CloudRoomSnapshot = {
+  roomId: string
+  savedAt: number
+  room: Room
+  timers: Timer[]
+}
+
 const DEFAULT_CONFIG = {
   warningSec: 120,
   criticalSec: 30,
 }
 
-const SESSION_TOKEN_KEY = 'ontime:companionToken'
+const TOKEN_KEY = 'ontime:companionToken'
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
+const LAST_ROOM_KEY = 'ontime:lastCompanionRoomId'
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 type QueueWarning = 'full' | null
 
@@ -110,19 +139,31 @@ const logStub = (method: string) => {
   console.warn(`[companion] ${method} not yet implemented`)
 }
 
-const buildRoomState = (payloadState?: SnapshotPayload['state'] | Partial<RoomState>): RoomState => ({
-  activeTimerId: payloadState?.activeTimerId ?? null,
-  isRunning: payloadState?.isRunning ?? false,
-  startedAt: null,
-  elapsedOffset: 0,
-  progress: {},
-  showClock: false,
-  clockMode: '24h',
-  message: { text: '', visible: false, color: 'green' },
-  currentTime: payloadState?.currentTime ?? 0,
-  lastUpdate: payloadState?.lastUpdate ?? Date.now(),
-  activeLiveCueId: payloadState?.activeLiveCueId,
-})
+const buildRoomState = (payloadState?: SnapshotPayload['state'] | Partial<RoomState>): RoomState => {
+  const activeTimerId = payloadState?.activeTimerId ?? null
+  const isRunning = payloadState?.isRunning ?? false
+  const currentTime = payloadState?.currentTime ?? 0
+  const lastUpdate = payloadState?.lastUpdate ?? Date.now()
+  // Companion emits {currentTime,lastUpdate,isRunning}. Our UI timer engine expects {startedAt,elapsedOffset}.
+  // If running, we treat lastUpdate as the start anchor and currentTime as the elapsed offset at that moment.
+  // If paused, we keep elapsedOffset as currentTime and startedAt null.
+  const startedAt = isRunning ? lastUpdate : null
+  const elapsedOffset = currentTime
+
+  return {
+    activeTimerId,
+    isRunning,
+    startedAt,
+    elapsedOffset,
+    progress: {},
+    showClock: false,
+    clockMode: '24h',
+    message: { text: '', visible: false, color: 'green' },
+    currentTime,
+    lastUpdate,
+    activeLiveCueId: payloadState?.activeLiveCueId,
+  }
+}
 
 const buildRoom = (roomId: string, state: RoomState): Room => ({
   id: roomId,
@@ -139,11 +180,18 @@ const buildRoom = (roomId: string, state: RoomState): Room => ({
   _version: 1,
 })
 
-export const CompanionDataProvider = ({ children }: { children: ReactNode }) => {
+export const CompanionDataProvider = ({
+  children,
+  firestoreWriteThrough = true,
+}: {
+  children: ReactNode
+  firestoreWriteThrough?: boolean
+}) => {
   const socketRef = useRef<Socket | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('offline')
   const [rooms, setRooms] = useState<Room[]>([])
   const [timers, setTimers] = useState<Record<string, Timer[]>>({})
+  const timersRef = useRef<Record<string, Timer[]>>({})
   const [pendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders] = useState<
     Array<{ roomId: string; title: string; expiresAt: number; createdAt: number; order?: number }>
@@ -153,6 +201,9 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     Record<string, Array<{ timerId: string; title: string; order: number; expiresAt: number }>>
   >({})
   const lastJoinArgsRef = useRef<JoinArgs | null>(null)
+  const seededRoomIdRef = useRef<string | null>(null)
+  const tokenRefreshInFlightRef = useRef(false)
+  const pendingCloudSyncRef = useRef(false)
   const [clientId] = useState(() => {
     const cached = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
     if (cached) return cached
@@ -172,6 +223,163 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
   const [queueDepth, setQueueDepth] = useState(0)
   const [isReplayingQueue, setIsReplayingQueue] = useState(false)
   const isReplayingRef = useRef(false)
+  const firestoreEnabled = firestoreWriteThrough && (typeof navigator === 'undefined' || navigator.onLine)
+
+  const clearStoredToken = useCallback(() => {
+    try {
+      window.localStorage.removeItem(TOKEN_KEY)
+    } catch {
+      // ignore
+    }
+    try {
+      sessionStorage.removeItem(TOKEN_KEY)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  // Keep refs to latest callbacks so the socket setup effect doesn't need to re-run.
+  const clearStoredTokenRef = useRef(clearStoredToken)
+  const maybeEmitSyncRef = useRef<(roomId: string) => void>(() => undefined)
+
+  useEffect(() => {
+    clearStoredTokenRef.current = clearStoredToken
+  }, [clearStoredToken])
+
+  useEffect(() => {
+    timersRef.current = timers
+  }, [timers])
+
+  const hydrateFromStorage = useCallback((roomId: string, opts?: { preferCloud?: boolean }) => {
+    if (typeof window === 'undefined') return false
+    const safeParse = (raw: string | null): PersistedRoomSnapshot | null => {
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw) as unknown
+        if (!parsed || typeof parsed !== 'object') return null
+        const record = parsed as Record<string, unknown>
+        if (record.version !== 1) return null
+        if (!record.room || !record.timers) return null
+        return parsed as PersistedRoomSnapshot
+      } catch {
+        return null
+      }
+    }
+
+    const readCloudSnapshot = (): { room: Room; timers: Timer[] } | null => {
+      try {
+        const raw = window.localStorage.getItem(`ontime:cloudRoomSnapshot:${roomId}`)
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as CloudRoomSnapshot
+        if (!parsed?.room || !Array.isArray(parsed.timers)) return null
+        return { room: parsed.room, timers: parsed.timers }
+      } catch {
+        return null
+      }
+    }
+
+    // If we are switching from Cloud → Local/Hybrid, prefer the latest Cloud snapshot to avoid showing stale local timers.
+    if (opts?.preferCloud) {
+      const cloud = readCloudSnapshot()
+      if (cloud) {
+        setRooms((prev) => {
+          const other = prev.filter((r) => r.id !== roomId)
+          return [...other, { ...cloud.room, ownerId: cloud.room.ownerId ?? 'local' }]
+        })
+        setTimers((prev) => ({ ...prev, [roomId]: cloud.timers }))
+        return cloud.timers.length > 0
+      }
+    }
+
+    const persisted = safeParse(window.localStorage.getItem(`ontime:companionRoomSnapshot:${roomId}`))
+    if (persisted) {
+      setRooms((prev) => {
+        const other = prev.filter((r) => r.id !== roomId)
+        return [...other, persisted.room]
+      })
+      setTimers((prev) => ({ ...prev, [roomId]: persisted.timers }))
+      return true
+    }
+
+    // Seed from last-known Cloud snapshot (captured by ControllerPage while in cloud mode).
+    try {
+      const cloud = readCloudSnapshot()
+      if (!cloud) return false
+
+      setRooms((prev) => {
+        const other = prev.filter((r) => r.id !== roomId)
+        return [...other, { ...cloud.room, ownerId: cloud.room.ownerId ?? 'local' }]
+      })
+      setTimers((prev) => ({ ...prev, [roomId]: cloud.timers }))
+      return cloud.timers.length > 0
+    } catch {
+      return false
+    }
+  }, [])
+
+  const computeCurrentTimeMs = useCallback((room: Room): number => {
+    const isRunning = room.state.isRunning ?? false
+    const startedAt = room.state.startedAt ?? null
+    const elapsedOffset = room.state.elapsedOffset ?? 0
+    if (isRunning && typeof startedAt === 'number') {
+      return Math.max(0, elapsedOffset + (Date.now() - startedAt))
+    }
+    return Math.max(0, elapsedOffset)
+  }, [])
+
+  const maybeEmitSyncRoomStateFromCloudSnapshot = useCallback(
+    (roomId: string) => {
+      if (!socketRef.current?.connected) return
+      if (handshakeStatus !== 'ack') return
+      const joinArgs = lastJoinArgsRef.current
+      if (!joinArgs) return
+      if (joinArgs.roomId !== roomId) return
+      if ((joinArgs.clientType ?? 'controller') !== 'controller') return
+      if (!pendingCloudSyncRef.current) return
+
+      // Read the latest cloud snapshot (written by ControllerPage when in cloud mode).
+      try {
+        const raw = window.localStorage.getItem(`ontime:cloudRoomSnapshot:${roomId}`)
+        if (!raw) {
+          pendingCloudSyncRef.current = false
+          return
+        }
+        const parsed = JSON.parse(raw) as CloudRoomSnapshot
+        if (!parsed?.room || !Array.isArray(parsed.timers)) {
+          pendingCloudSyncRef.current = false
+          return
+        }
+        const currentTime = computeCurrentTimeMs(parsed.room)
+        const payload: SyncRoomStatePayload = {
+          type: 'SYNC_ROOM_STATE',
+          roomId,
+          timers: parsed.timers,
+          state: {
+            activeTimerId: parsed.room.state.activeTimerId ?? null,
+            isRunning: parsed.room.state.isRunning ?? false,
+            currentTime,
+            lastUpdate: Date.now(),
+          },
+          sourceClientId: clientId,
+          timestamp: Date.now(),
+        }
+        socketRef.current.emit('SYNC_ROOM_STATE', payload)
+      } finally {
+        pendingCloudSyncRef.current = false
+      }
+    },
+    [clientId, computeCurrentTimeMs, handshakeStatus],
+  )
+
+  useEffect(() => {
+    maybeEmitSyncRef.current = maybeEmitSyncRoomStateFromCloudSnapshot
+  }, [maybeEmitSyncRoomStateFromCloudSnapshot])
+
+  const ensureSocketConnection = useCallback(() => {
+    if (!socketRef.current) return
+    if (socketRef.current.connected || socketRef.current.active) return
+    socketRef.current.connect()
+  }, [])
 
   useEffect(() => {
     if (socketCreatedRef.current) return
@@ -278,6 +486,12 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       console.info('[companion] HANDSHAKE_ACK', data)
       const joinArgs = lastJoinArgsRef.current
       if (joinArgs) {
+        // If we switched from Cloud→Local/Hybrid, sync the authoritative Cloud snapshot into Companion
+        // so running timers keep running smoothly.
+        if (seededRoomIdRef.current === joinArgs.roomId) {
+          void Promise.resolve().then(() => maybeEmitSyncRef.current(joinArgs.roomId))
+          seededRoomIdRef.current = null
+        }
         replayRoomQueue(joinArgs.roomId)
       }
     })
@@ -285,6 +499,43 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setConnectionStatus('offline')
       setHandshakeStatus('error')
       console.warn('[companion] HANDSHAKE_ERROR', err)
+      const record = err as unknown as { code?: string }
+      if (record?.code === 'INVALID_TOKEN') {
+        clearStoredTokenRef.current()
+        // Attempt a single automatic token refresh + rejoin (best-effort).
+        if (typeof window !== 'undefined' && !tokenRefreshInFlightRef.current && lastJoinArgsRef.current) {
+          tokenRefreshInFlightRef.current = true
+          const roomId = lastJoinArgsRef.current.roomId
+          const clientType = lastJoinArgsRef.current.clientType ?? 'viewer'
+          window.setTimeout(() => {
+            void fetch('http://localhost:4001/api/token', {
+              method: 'GET',
+              headers: { Origin: window.location.origin },
+            })
+              .then(async (res) => {
+                if (!res.ok) return null
+                const data = (await res.json()) as { token?: string }
+                return data.token ?? null
+              })
+              .then((nextToken) => {
+                if (!nextToken) return
+                try {
+                  window.localStorage.setItem(TOKEN_KEY, nextToken)
+                  sessionStorage.setItem(TOKEN_KEY, nextToken)
+                } catch {
+                  // ignore
+                }
+                lastJoinArgsRef.current = { roomId, token: nextToken, clientType }
+                ensureSocketConnection()
+              })
+              .finally(() => {
+                tokenRefreshInFlightRef.current = false
+              })
+          }, 300)
+        } else {
+          lastJoinArgsRef.current = null
+        }
+      }
     })
 
     socket.on('ROOM_STATE_SNAPSHOT', (payload: SnapshotPayload) => {
@@ -302,11 +553,16 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         prev.map((room) => {
           if (room.id !== payload.roomId) return room
           if (payload.clientId && payload.clientId === clientId) return room
+          const nextIsRunning = payload.changes.isRunning ?? room.state.isRunning
+          const nextCurrentTime = payload.changes.currentTime ?? room.state.currentTime
+          const nextLastUpdate = payload.changes.lastUpdate ?? room.state.lastUpdate ?? Date.now()
           const nextState: RoomState = {
             ...room.state,
             ...payload.changes,
-            currentTime: payload.changes.currentTime ?? room.state.currentTime,
-            lastUpdate: payload.changes.lastUpdate ?? room.state.lastUpdate,
+            currentTime: nextCurrentTime ?? 0,
+            lastUpdate: nextLastUpdate,
+            startedAt: nextIsRunning ? nextLastUpdate : null,
+            elapsedOffset: nextCurrentTime ?? 0,
           }
           return { ...room, state: nextState }
         }),
@@ -369,6 +625,21 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       console.warn('[companion] TIMER_ERROR', payload)
     })
 
+    // Auto-rejoin if we have a stored token + room.
+    try {
+      const token =
+        window.localStorage.getItem(TOKEN_KEY) ??
+        sessionStorage.getItem(TOKEN_KEY)
+      const roomId = window.localStorage.getItem(LAST_ROOM_KEY)
+      if (token && roomId) {
+        lastJoinArgsRef.current = { roomId, token, clientType: 'viewer' }
+        ensureSocketConnection()
+        setHandshakeStatus('pending')
+      }
+    } catch {
+      // ignore
+    }
+
     return () => {
       socket.off('HANDSHAKE_ACK')
       socket.off('ROOM_STATE_SNAPSHOT')
@@ -382,7 +653,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       socketRef.current = null
       socketCreatedRef.current = false
     }
-  }, [clientId])
+  }, [clientId, ensureSocketConnection])
 
   const loadQueue = useCallback((roomId: string): QueuedEvent[] => {
     if (typeof localStorage === 'undefined') return []
@@ -460,30 +731,81 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     [timers],
   )
 
-  const ensureSocketConnection = useCallback(() => {
-    if (!socketRef.current) return
-    if (socketRef.current.connected || socketRef.current.active) return
-    socketRef.current.connect()
-  }, [])
-
   const subscribeToRoom = useCallback(
     (roomId: string, token: string, clientType: 'controller' | 'viewer' = 'controller') => {
+      // Prefer Cloud snapshot if it was updated very recently (likely user switched Cloud→Local/Hybrid).
+      let preferCloud = false
+      try {
+        const raw = window.localStorage.getItem(`ontime:cloudRoomSnapshot:${roomId}`)
+        if (raw) {
+          const parsed = JSON.parse(raw) as CloudRoomSnapshot
+          const savedAt = typeof parsed?.savedAt === 'number' ? parsed.savedAt : 0
+          if (savedAt && Date.now() - savedAt < 15_000) preferCloud = true
+        }
+      } catch {
+        // ignore
+      }
+
+      const seeded = hydrateFromStorage(roomId, { preferCloud })
+      seededRoomIdRef.current = seeded ? roomId : null
+      pendingCloudSyncRef.current = seeded && clientType === 'controller'
       const joinArgs = { roomId, token, clientType }
       lastJoinArgsRef.current = joinArgs
-      sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+      try {
+        window.localStorage.setItem(TOKEN_KEY, token)
+      } catch {
+        // ignore
+      }
+      sessionStorage.setItem(TOKEN_KEY, token)
+      if (typeof window !== 'undefined') window.localStorage.setItem(LAST_ROOM_KEY, roomId)
       setQueueDepth(loadQueue(roomId).length)
       if (!socketRef.current) return
       ensureSocketConnection()
       setHandshakeStatus('pending')
-      socketRef.current.emit('JOIN_ROOM', {
-        type: 'JOIN_ROOM',
-        roomId,
-        token,
-        clientType,
-        clientId,
-      })
+      // Only emit immediately if already connected; otherwise connect handler will emit once.
+      if (socketRef.current.connected) {
+        socketRef.current.emit('JOIN_ROOM', {
+          type: 'JOIN_ROOM',
+          roomId,
+          token,
+          clientType,
+          clientId,
+        })
+      }
     },
-    [clientId, ensureSocketConnection, loadQueue],
+    [clientId, ensureSocketConnection, hydrateFromStorage, loadQueue],
+  )
+
+  const flushRoomToFirestore = useCallback(
+    async (roomId: string) => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return
+      const room = rooms.find((r) => r.id === roomId)
+      if (!room) return
+      const list = timers[roomId] ?? []
+
+      // Upsert timers (v2 path)
+      await Promise.all(
+        list.map((t) =>
+          setDoc(doc(db, 'rooms', roomId, 'timers', t.id), { ...t, version: 1 } as Record<string, unknown>, {
+            merge: true,
+          }).catch(() => undefined),
+        ),
+      )
+
+      // Upsert state (v2 path)
+      const currentTime = computeCurrentTimeMs(room)
+      await setDoc(
+        doc(db, 'rooms', roomId, 'state', 'current'),
+        {
+          activeTimerId: room.state.activeTimerId ?? null,
+          isRunning: room.state.isRunning ?? false,
+          currentTime,
+          lastUpdate: Date.now(),
+        } as Record<string, unknown>,
+        { merge: true },
+      ).catch(() => undefined)
+    },
+    [computeCurrentTimeMs, rooms, timers],
   )
 
   const getRoomState = useCallback(
@@ -496,11 +818,16 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       setRooms((prev) =>
         prev.map((room) => {
           if (room.id !== roomId) return room
+          const nextIsRunning = changes.isRunning ?? room.state.isRunning
+          const nextCurrentTime = changes.currentTime ?? room.state.currentTime ?? 0
+          const nextLastUpdate = changes.lastUpdate ?? Date.now()
           const nextState: RoomState = {
             ...room.state,
             ...changes,
-            currentTime: changes.currentTime ?? room.state.currentTime,
-            lastUpdate: changes.lastUpdate ?? Date.now(),
+            currentTime: nextCurrentTime,
+            lastUpdate: nextLastUpdate,
+            startedAt: nextIsRunning ? nextLastUpdate : null,
+            elapsedOffset: nextCurrentTime,
           }
           return { ...room, state: nextState }
         }),
@@ -541,32 +868,29 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         enqueueAction(roomId, payload)
       }
 
-      // Firestore write-through (best effort) to new path; fallback to legacy on error
-      const stateRefV2 = doc(db, 'rooms', roomId, 'state', 'current')
-      const legacyRef = doc(db, 'rooms', roomId)
-      const stateUpdate: Record<string, unknown> = {
-        activeTimerId: timerId,
-        isRunning: action === 'START',
-        lastUpdate: timestamp,
-      }
-      if (action === 'RESET') {
-        stateUpdate.currentTime = 0
-      }
-      void setDoc(stateRefV2, stateUpdate, { merge: true })
-        .then(() => console.info('[companion] Firestore v2 state write ok', { roomId, stateUpdate }))
-        .catch((err) => {
-          console.warn('[companion] Firestore v2 state write failed, falling back to legacy', err)
+      if (firestoreEnabled) {
+        // Firestore write-through (best effort) to new path; fallback to legacy on error
+        const stateRefV2 = doc(db, 'rooms', roomId, 'state', 'current')
+        const legacyRef = doc(db, 'rooms', roomId)
+        const stateUpdate: Record<string, unknown> = {
+          activeTimerId: timerId,
+          isRunning: action === 'START',
+          lastUpdate: timestamp,
+        }
+        if (action === 'RESET') {
+          stateUpdate.currentTime = 0
+        }
+        void setDoc(stateRefV2, stateUpdate, { merge: true }).catch(() => {
           const legacyPayload: Record<string, unknown> = {}
           if (stateUpdate.activeTimerId !== undefined) legacyPayload['state.activeTimerId'] = stateUpdate.activeTimerId
           if (stateUpdate.isRunning !== undefined) legacyPayload['state.isRunning'] = stateUpdate.isRunning
           if (stateUpdate.lastUpdate !== undefined) legacyPayload['state.lastUpdate'] = stateUpdate.lastUpdate
           if (stateUpdate.currentTime !== undefined) legacyPayload['state.currentTime'] = stateUpdate.currentTime
-          return setDoc(legacyRef, legacyPayload, { merge: true })
-            .then(() => console.info('[companion] Firestore legacy state write ok', { roomId, legacyPayload }))
-            .catch((errLegacy) => console.warn('[companion] Firestore legacy state write failed', errLegacy))
+          return setDoc(legacyRef, legacyPayload, { merge: true }).catch(() => undefined)
         })
+      }
     },
-    [clientId, connectionStatus, handshakeStatus, enqueueAction],
+    [clientId, connectionStatus, handshakeStatus, enqueueAction, firestoreEnabled],
   )
 
   const emitOrQueue = useCallback(
@@ -636,14 +960,14 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         clientId,
       })
 
-      const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
-      await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(
-        (err) => console.warn('[companion] Firestore createTimer failed', err),
-      )
+      if (firestoreEnabled) {
+        const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+        await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(() => undefined)
+      }
 
       return timer
     },
-    [clientId, emitOrQueue, ensureRoom],
+    [clientId, emitOrQueue, ensureRoom, firestoreEnabled],
   )
 
   const updateTimer: DataContextValue['updateTimer'] = useCallback(
@@ -671,12 +995,14 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         clientId,
       })
 
-      const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
-      await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
-        (err) => console.warn('[companion] Firestore updateTimer failed', err),
-      )
+      if (firestoreEnabled) {
+        const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+        await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
+          () => undefined,
+        )
+      }
     },
-    [clientId, emitOrQueue, ensureRoom],
+    [clientId, emitOrQueue, ensureRoom, firestoreEnabled],
   )
 
   const deleteTimer: DataContextValue['deleteTimer'] = useCallback(
@@ -705,10 +1031,12 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
         clientId,
       })
 
-      const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
-      await deleteDoc(timerRef).catch((err) => console.warn('[companion] Firestore deleteTimer failed', err))
+      if (firestoreEnabled) {
+        const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+        await deleteDoc(timerRef).catch(() => undefined)
+      }
     },
-    [clientId, emitOrQueue, ensureRoom],
+    [clientId, emitOrQueue, ensureRoom, firestoreEnabled],
   )
 
   const reorderTimer: DataContextValue['reorderTimer'] = useCallback(
@@ -739,9 +1067,11 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
           merge: true,
         })
       })
-      await batch.commit().catch((err) => console.warn('[companion] Firestore reorderTimer failed', err))
+      if (firestoreEnabled) {
+        await batch.commit().catch(() => undefined)
+      }
     },
-    [clientId, emitOrQueue, ensureRoom, timers],
+    [clientId, emitOrQueue, ensureRoom, timers, firestoreEnabled],
   )
 
   const value: DataContextValue & {
@@ -754,6 +1084,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
     queueDepth: number
     queueWarning: QueueWarning
     isReplayingQueue: boolean
+    flushRoomToFirestore: (roomId: string) => Promise<void>
   } = useMemo(
     () => ({
       rooms,
@@ -839,6 +1170,7 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       queueDepth,
       queueWarning,
       isReplayingQueue,
+      flushRoomToFirestore,
     }),
     [
       rooms,
@@ -864,8 +1196,28 @@ export const CompanionDataProvider = ({ children }: { children: ReactNode }) => 
       queueDepth,
       queueWarning,
       isReplayingQueue,
+      flushRoomToFirestore,
     ],
   )
+
+  // Persist Companion state per-room so switching modes away/back doesn't "forget" local timers.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    rooms.forEach((room) => {
+      const roomId = room.id
+      const snap: PersistedRoomSnapshot = {
+        version: 1,
+        savedAt: Date.now(),
+        room,
+        timers: timers[roomId] ?? [],
+      }
+      try {
+        window.localStorage.setItem(`ontime:companionRoomSnapshot:${roomId}`, JSON.stringify(snap))
+      } catch {
+        // ignore
+      }
+    })
+  }, [rooms, timers])
 
   return <DataProviderBoundary value={value}>{children}</DataProviderBoundary>
 }

@@ -6,6 +6,7 @@ import { ControllerPage } from './ControllerPage'
 import { ViewerPage } from './ViewerPage'
 import { ProtectedRoute } from './ProtectedRoute'
 import { CompanionTestPage } from './CompanionTestPage'
+import { LocalModePage } from './LocalModePage'
 import { useEffect, useRef } from 'react'
 
 const RouteRestorer = () => {
@@ -59,6 +60,7 @@ export const AppRouter = () => {
           />
           <Route path="/room/:roomId/view" element={<ViewerPage />} />
           <Route path="/companion-test" element={<CompanionTestPage />} />
+          <Route path="/local" element={<LocalModePage />} />
         </Route>
       </Routes>
     </BrowserRouter>

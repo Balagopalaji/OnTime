@@ -35,6 +35,7 @@ type JoinRoomPayload = {
   token: string;
   clientType?: 'controller' | 'viewer';
   clientId?: string;
+  takeOver?: boolean;
 };
 
 type HandshakeAck = {
@@ -55,7 +56,7 @@ type HandshakeAck = {
 
 type HandshakeError = {
   type: 'HANDSHAKE_ERROR';
-  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD';
+  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN';
   message: string;
 };
 
@@ -135,6 +136,15 @@ type ReorderTimersPayload = {
   timestamp?: number;
 };
 
+type SyncRoomStatePayload = {
+  type: 'SYNC_ROOM_STATE';
+  roomId: string;
+  state: RoomState;
+  timers?: Timer[];
+  sourceClientId?: string;
+  timestamp?: number;
+};
+
 type TimerError = {
   type: 'TIMER_ERROR';
   roomId: string;
@@ -183,12 +193,14 @@ let tokenServerV4: HttpServer | null = null;
 let tokenServerV6: HttpServer | null = null;
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
+const roomControllerStore: Map<string, { clientId: string; socketId: string; connectedAt: number }> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
 let cacheWriteTimer: NodeJS.Timeout | null = null;
 let lastWriteTs = 0;
 let ffprobeMissingWarned = false;
+let ffprobePath: string | null = null;
 
 type StoredTokenPayload = {
   token: string;
@@ -424,6 +436,7 @@ function startSocketServer() {
   io.on('connection', (socket) => {
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
+    socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
     socket.on('TIMER_ACTION', (payload) => handleTimerAction(socket, payload));
     socket.on('CREATE_TIMER', (payload) => handleCreateTimer(socket, payload));
     socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
@@ -431,6 +444,16 @@ function startSocketServer() {
     socket.on('REORDER_TIMERS', (payload) => handleReorderTimers(socket, payload));
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
+      const roomId = socket.data?.roomId as string | undefined;
+      const clientType = socket.data?.clientType as string | undefined;
+      const clientId = socket.data?.clientId as string | undefined;
+      if (roomId && clientType === 'controller' && clientId) {
+        const current = roomControllerStore.get(roomId);
+        if (current?.clientId === clientId) {
+          roomControllerStore.delete(roomId);
+          console.log(`[ws] controller released room=${roomId} by=${clientId}`);
+        }
+      }
     });
 
     socket.conn.on('error', (err) => {
@@ -449,6 +472,35 @@ function startSocketServer() {
     tokenServerV6?.close();
     void flushRoomCache();
   });
+}
+
+function isActiveController(roomId: string, clientId: string | undefined): boolean {
+  if (!clientId) return false;
+  const current = roomControllerStore.get(roomId);
+  if (!current) return true; // no controller lock yet; allow first controller to act
+  return current.clientId === clientId;
+}
+
+function enforceControllerAccess(socket: Socket, roomId: string): boolean {
+  const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
+  const clientId = socket.data?.clientId as string | undefined;
+  if (clientType !== 'controller') {
+    socket.emit('ERROR', {
+      type: 'ERROR',
+      code: 'PERMISSION_DENIED',
+      message: 'Only the controller can perform this action.',
+    });
+    return false;
+  }
+  if (!isActiveController(roomId, clientId)) {
+    socket.emit('ERROR', {
+      type: 'ERROR',
+      code: 'PERMISSION_DENIED',
+      message: 'Another controller is currently active for this room.',
+    });
+    return false;
+  }
+  return true;
 }
 
 function verifyToken(token: string | undefined): boolean {
@@ -663,10 +715,22 @@ async function openFileInDefaultApp(resolvedPath: string): Promise<void> {
 async function runFfprobe(resolvedPath: string): Promise<{ duration?: number; resolution?: string }> {
   const args = ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', resolvedPath];
 
+  if (!ffprobePath) {
+    const exe = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+    const candidates = [
+      process.env.FFPROBE_PATH,
+      process.resourcesPath ? path.join(process.resourcesPath, 'bin', exe) : null,
+      path.join(__dirname, '..', 'bin', exe),
+      'ffprobe',
+    ].filter(Boolean) as string[];
+    ffprobePath = candidates[0] ?? 'ffprobe';
+    console.log(`[file] ffprobe candidate selected: ${ffprobePath}`);
+  }
+
   return await new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
-    const child = spawn('ffprobe', args, { shell: false });
+    const child = spawn(ffprobePath ?? 'ffprobe', args, { shell: false });
     child.stdout.on('data', (buf) => {
       stdout += buf.toString('utf8');
     });
@@ -735,6 +799,41 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
 
   const clientId = payload.clientId ?? socket.id;
   socket.data.clientId = clientId;
+  socket.data.clientType = payload.clientType === 'controller' ? 'controller' : 'viewer';
+  socket.data.roomId = payload.roomId;
+
+  const requestedType = socket.data.clientType as 'controller' | 'viewer';
+  if (requestedType === 'controller') {
+    const existing = roomControllerStore.get(payload.roomId);
+    if (existing && existing.clientId !== clientId) {
+      if (payload.takeOver) {
+        console.log(
+          `[ws] controller takeover room=${payload.roomId} new=${clientId} old=${existing.clientId}`
+        );
+        const oldSocket = io?.sockets?.sockets.get(existing.socketId);
+        if (oldSocket) {
+          oldSocket.emit('ERROR', {
+            type: 'ERROR',
+            code: 'CONTROLLER_TAKEN_OVER',
+            message: 'Another controller has taken over this room.',
+          });
+          oldSocket.disconnect(true);
+        }
+        roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
+      } else {
+        const error: HandshakeError = {
+          type: 'HANDSHAKE_ERROR',
+          code: 'CONTROLLER_TAKEN',
+          message: 'Room already has an active controller. Use takeOver=true to claim control.',
+        };
+        socket.emit('HANDSHAKE_ERROR', error);
+        socket.disconnect(true);
+        return;
+      }
+    } else {
+      roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
+    }
+  }
 
   const ack: HandshakeAck = {
     type: 'HANDSHAKE_ACK',
@@ -784,9 +883,148 @@ function isValidJoinRoomPayload(payload: unknown): payload is JoinRoomPayload {
   );
 }
 
+function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomStatePayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<SyncRoomStatePayload>;
+  if (data.type !== 'SYNC_ROOM_STATE') return false;
+  if (typeof data.roomId !== 'string') return false;
+  if (!data.state || typeof data.state !== 'object') return false;
+  const state = data.state as Partial<RoomState>;
+  const activeOk = state.activeTimerId === null || typeof state.activeTimerId === 'string';
+  const runningOk = typeof state.isRunning === 'boolean';
+  const currentTimeOk = typeof state.currentTime === 'number' && Number.isFinite(state.currentTime) && state.currentTime >= 0;
+  const lastUpdateOk = typeof state.lastUpdate === 'number' && Number.isFinite(state.lastUpdate) && state.lastUpdate > 0;
+  if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk) return false;
+  if (data.timers !== undefined && !Array.isArray(data.timers)) return false;
+  if (Array.isArray(data.timers)) {
+    const ok = data.timers.every((t) => {
+      if (!t || typeof t !== 'object') return false;
+      const timer = t as Partial<Timer>;
+      const typeOk = timer.type === 'countdown' || timer.type === 'countup' || timer.type === 'timeofday';
+      return (
+        typeof timer.id === 'string' &&
+        typeof timer.roomId === 'string' &&
+        typeof timer.title === 'string' &&
+        typeof timer.duration === 'number' &&
+        Number.isFinite(timer.duration) &&
+        timer.duration > 0 &&
+        typeof timer.order === 'number' &&
+        Number.isFinite(timer.order) &&
+        typeOk
+      );
+    });
+    if (!ok) return false;
+  }
+  return true;
+}
+
+function emitError(socket: Socket, code: string, message: string) {
+  socket.emit('ERROR', { type: 'ERROR', code, message });
+}
+
+function handleSyncRoomState(socket: Socket, payload: unknown) {
+  if (!isValidSyncRoomStatePayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid SYNC_ROOM_STATE payload.');
+    return;
+  }
+
+  // Must have joined as controller; JOIN_ROOM is where token is validated.
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  if (!socket.rooms.has(payload.roomId)) {
+    socket.join(payload.roomId);
+  }
+
+  const roomId = payload.roomId;
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.sourceClientId;
+
+  // 1) Apply timers if provided
+  if (Array.isArray(payload.timers)) {
+    const map = getRoomTimers(roomId);
+    const existingIds = new Set([...map.keys()]);
+    const nextIds = new Set(payload.timers.map((t) => t.id));
+
+    // Emit deletions for timers removed by the snapshot.
+    existingIds.forEach((id) => {
+      if (!nextIds.has(id)) {
+        const deleted: TimerDeleted = {
+          type: 'TIMER_DELETED',
+          roomId,
+          timerId: id,
+          // Intentionally omit clientId so all clients apply it (including the controller that sent SYNC).
+          timestamp: now,
+        };
+        io?.to(roomId).emit('TIMER_DELETED', deleted);
+      }
+    });
+
+    // Treat payload.timers as a full snapshot: replace existing timers for deterministic convergence.
+    map.clear();
+    payload.timers.forEach((timer) => {
+      map.set(timer.id, { ...timer, roomId });
+      const created: TimerCreated = {
+        type: 'TIMER_CREATED',
+        roomId,
+        timer: { ...timer, roomId },
+        // Intentionally omit clientId so the sender also applies it.
+        timestamp: now,
+      };
+      io?.to(roomId).emit('TIMER_CREATED', created);
+    });
+    normalizeTimerOrder(roomId);
+
+    // Emit a single reorder event (clients will re-render sorted list); for now we do not emit per-timer created/updated.
+    const reordered: TimersReordered = {
+      type: 'TIMERS_REORDERED',
+      roomId,
+      timerIds: listRoomTimers(roomId).map((t) => t.id),
+      clientId,
+      timestamp: now,
+    };
+    io?.to(roomId).emit('TIMERS_REORDERED', reordered);
+  }
+
+  // 2) Apply state snapshot
+  const nextState: RoomState = {
+    activeTimerId: payload.state.activeTimerId ?? null,
+    isRunning: payload.state.isRunning,
+    currentTime: payload.state.currentTime,
+    lastUpdate: payload.state.lastUpdate,
+  };
+  roomStateStore.set(roomId, nextState);
+  scheduleRoomCacheWrite();
+
+  const delta: RoomStateDelta = {
+    type: 'ROOM_STATE_DELTA',
+    roomId,
+    changes: nextState,
+    clientId,
+    timestamp: now,
+  };
+  io?.to(roomId).emit('ROOM_STATE_DELTA', delta);
+
+  // Also ack with a fresh snapshot to the sender (optional but helpful).
+  const snapshot: RoomStateSnapshot = {
+    type: 'ROOM_STATE_SNAPSHOT',
+    roomId,
+    state: nextState,
+    timestamp: now,
+  };
+  socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
+
+  console.log(`[ws] SYNC_ROOM_STATE room=${roomId} by=${clientId ?? socket.id} timers=${payload.timers?.length ?? 0}`);
+}
+
 function handleTimerAction(socket: Socket, payload: unknown) {
   if (!isValidTimerActionPayload(payload)) {
     console.warn(`[ws] Invalid TIMER_ACTION payload from socket=${socket.id}`);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
     return;
   }
 
@@ -945,6 +1183,10 @@ function handleCreateTimer(socket: Socket, payload: unknown) {
     return;
   }
 
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
   const now = payload.timestamp ?? Date.now();
   const clientId = socket.data.clientId ?? payload.clientId;
   const roomId = payload.roomId;
@@ -1004,6 +1246,10 @@ function handleCreateTimer(socket: Socket, payload: unknown) {
 function handleUpdateTimer(socket: Socket, payload: unknown) {
   if (!isValidUpdateTimerPayload(payload)) {
     emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid UPDATE_TIMER payload.', socket.data.clientId);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
     return;
   }
 
@@ -1076,6 +1322,10 @@ function handleDeleteTimer(socket: Socket, payload: unknown) {
     return;
   }
 
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
   const now = payload.timestamp ?? Date.now();
   const clientId = socket.data.clientId ?? payload.clientId;
   const roomId = payload.roomId;
@@ -1115,6 +1365,10 @@ function handleDeleteTimer(socket: Socket, payload: unknown) {
 function handleReorderTimers(socket: Socket, payload: unknown) {
   if (!isValidReorderTimersPayload(payload)) {
     emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid REORDER_TIMERS payload.', socket.data.clientId);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
     return;
   }
 

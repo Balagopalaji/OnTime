@@ -1,0 +1,60 @@
+name: Build Companion installers
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "companion/**"
+      - ".github/workflows/companion-build.yml"
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: companion/package-lock.json
+
+      - name: Install deps
+        working-directory: companion
+        run: npm ci
+
+      # ffprobe URLs can be overridden with repo/environment variables if you host vetted LGPL-only binaries.
+      - name: Fetch ffprobe
+        working-directory: companion
+        env:
+          FFPROBE_URL_MAC: ${{ vars.FFPROBE_URL_MAC }}
+          FFPROBE_URL_WIN: ${{ vars.FFPROBE_URL_WIN }}
+          FFPROBE_URL_LINUX: ${{ vars.FFPROBE_URL_LINUX }}
+        run: npm run fetch-ffprobe
+
+      - name: Build installers
+        working-directory: companion
+        env:
+          # Disable signing/notarization in CI unless explicitly configured.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-${{ matrix.os }}
+          path: |
+            companion/dist_out/*.dmg
+            companion/dist_out/*.exe
+            companion/dist_out/*.AppImage
+            companion/dist_out/*.blockmap
+            companion/dist_out/latest*.yml
+

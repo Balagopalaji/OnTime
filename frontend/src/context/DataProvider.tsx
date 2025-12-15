@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { FirebaseDataProvider } from './FirebaseDataContext'
 import { MockDataProvider } from './MockDataContext'
 import { useDataContext } from './DataContext'
+import { CompanionDataProvider } from './CompanionDataContext'
+import { useAppMode } from './AppModeContext'
 
 const hasFirebaseConfig = Boolean(
   import.meta.env.VITE_FIREBASE_API_KEY &&
@@ -15,8 +17,19 @@ const shouldUseMock = import.meta.env.VITE_USE_MOCK === 'true'
 const shouldFallbackToMock = import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true'
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
+  const { mode, effectiveMode } = useAppMode()
+  const selectedMode = mode === 'auto' ? effectiveMode : mode
+
   if (shouldUseMock) {
     return <MockDataProvider>{children}</MockDataProvider>
+  }
+
+  if (selectedMode === 'local') {
+    return <CompanionDataProvider firestoreWriteThrough={false}>{children}</CompanionDataProvider>
+  }
+
+  if (selectedMode === 'hybrid') {
+    return <CompanionDataProvider firestoreWriteThrough>{children}</CompanionDataProvider>
   }
 
   if (!hasFirebaseConfig && !shouldFallbackToMock) {

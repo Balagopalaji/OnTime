@@ -2,6 +2,7 @@ import { Navigate, useLocation, useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
+import { useAppMode } from '../context/AppModeContext'
 
 export const ProtectedRoute = ({
   children,
@@ -10,10 +11,15 @@ export const ProtectedRoute = ({
   children: ReactNode
   requireOwner?: boolean
 }) => {
+  const { mode } = useAppMode()
   const { user, status } = useAuth()
   const { getRoom } = useDataContext()
   const params = useParams()
   const location = useLocation()
+
+  if (mode === 'local' || mode === 'hybrid') {
+    return <>{children}</>
+  }
 
   if (status === 'loading') {
     return (

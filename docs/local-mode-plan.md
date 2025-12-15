@@ -10,6 +10,13 @@ The frontend will support two distinct transport mechanisms:
 1.  **Firebase (Cloud):** Existing implementation. Used for remote access and persistence.
 2.  **Companion (Local):** New implementation. Used for low-latency LAN communication and offline resilience.
 
+### 2.1.1 App Modes (Operator UX)
+The UI exposes explicit modes to the operator:
+- **Cloud:** Firebase-only.
+- **Local:** Companion-only (works without internet).
+- **Hybrid (recommended):** Companion primary + Firestore best-effort when online.
+- **Auto:** If Companion is reachable, use Hybrid (or Local if internet is down); otherwise use Cloud.
+
 ### 2.2 The Companion App (Electron)
 A lightweight Node.js/Electron application running on the operator's machine.
 *   **Server:** Runs a WebSocket server (e.g., `socket.io`) on port 4000.
@@ -55,7 +62,7 @@ We will implement the `DataProvider` interface using a WebSocket client.
 *   **Optimistic Updates:** Applies changes locally immediately, then emits to socket.
 
 ### 3.3 Hybrid Sync Strategy
-*   **Write-Through:** Controller writes to *both* WebSocket and Firestore (if online).
+*   **Write-Through:** In **Hybrid** mode, controller writes to *both* WebSocket and Firestore (if online).
 *   **Read Preference:** Viewers prefer WebSocket data for latency, falling back to Firestore.
 *   **Offline Queue Implementation:**
     *   **Storage:** Persisted to disk (`~/.ontime/queue/pending.json`).
@@ -74,6 +81,12 @@ We will implement the `DataProvider` interface using a WebSocket client.
 *   **Handshake:** Clients provide token in `JOIN_ROOM` payload.
 *   **HTTP auth:** File operations require `Authorization: Bearer <token>`.
 *   **Validation:** Server rejects invalid/expired tokens and invalid Origins; never logs raw tokens.
+
+### 3.5.1 Controller Lock (Phase 1)
+* **Single-controller per room:** Only one controller is allowed per room at a time (unlimited viewers).
+* If a second controller attempts to join:
+  - Reject by default (`HANDSHAKE_ERROR: CONTROLLER_TAKEN`)
+  - Optional takeover (`JOIN_ROOM.takeOver=true`) disconnects the existing controller and claims the lock.
 
 ### 3.6 State Initialization
 *   **Cache Location (Platform-Specific):**
@@ -181,3 +194,5 @@ onSnapshot(roomRef, (snap) => {
 *   **Phase 1A:** Disconnect internet -> Start Timer -> Viewer updates <50ms. Verify tier upgrade triggers UI reload.
 *   **Phase 1B:** Restart Companion -> State persists. Internet drops -> Changes queued -> Reconnect -> Syncs.
 *   **Phase 1C:** Click "Open Video" in Controller -> VLC launches.
+*   **Phase 1 (Ops sanity):** Attempt to connect two controllers to the same room:
+    - Second controller rejected unless `takeOver=true`.

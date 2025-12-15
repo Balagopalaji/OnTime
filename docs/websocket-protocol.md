@@ -20,7 +20,8 @@ This document defines the WebSocket communication protocol between the **OnTime 
   "roomId": "abc123",
   "token": "jwt-token-from-http-api",
   "clientType": "controller" | "viewer",
-  "clientId": "client-uuid"
+  "clientId": "client-uuid",
+  "takeOver": false
 }
 ```
 
@@ -29,6 +30,7 @@ This document defines the WebSocket communication protocol between the **OnTime 
 - `token`: short-lived token from Companion `GET /api/token` (loopback-only + Origin allowlist)
 - `clientType`: Distinguishes controllers from viewers
 - `clientId`: Unique client identifier for reconnection
+- `takeOver` (optional): If `true`, a controller connection will take over control from the current controller (disconnecting the old controller).
 
 ---
 
@@ -68,7 +70,7 @@ This document defines the WebSocket communication protocol between the **OnTime 
 ```json
 {
   "type": "HANDSHAKE_ERROR",
-  "code": "INVALID_TOKEN" | "ROOM_NOT_FOUND" | "SERVER_BUSY",
+  "code": "INVALID_TOKEN" | "ROOM_NOT_FOUND" | "SERVER_BUSY" | "CONTROLLER_TAKEN",
   "message": "Invalid token. Please fetch a fresh token from the Companion app."
 }
 ```
@@ -244,6 +246,56 @@ These events manage timers (create/update/delete/reorder) and are available in M
   "timestamp": 1234567899
 }
 ```
+
+---
+
+### 3.5 Client → Server: `SYNC_ROOM_STATE` (Seamless Switching + Failover)
+
+**Purpose:** Explicitly synchronize a room snapshot to Companion to keep continuity during:
+- Cloud ↔ Hybrid/Local switching mid-show
+- Backup device takeover / recovery
+
+This is intentionally **separate** from `TIMER_ACTION` so start/pause/reset semantics remain simple.
+
+**Recommended usage:**
+- When switching **Cloud → Hybrid/Local** and the room is already running in Cloud, the controller sends `SYNC_ROOM_STATE` so Companion can continue without pausing/resetting.
+- When a backup device takes over, it can push the most recent known-good snapshot.
+
+```json
+{
+  "type": "SYNC_ROOM_STATE",
+  "roomId": "abc123",
+  "timers": [
+    { "id": "timer-1", "roomId": "abc123", "title": "Opening", "duration": 300, "speaker": "", "type": "countdown", "order": 10 }
+  ],
+  "state": {
+    "activeTimerId": "timer-1",
+    "isRunning": true,
+    "currentTime": 12345,
+    "lastUpdate": 1234567890
+  },
+  "sourceClientId": "client-uuid",
+  "timestamp": 1234567890
+}
+```
+
+**Fields:**
+- `timers` (optional but recommended): Full timer list snapshot for the room.
+- `state` (required): Live state snapshot. `currentTime/lastUpdate` describe elapsed time.
+- `sourceClientId`: Used for de-dupe / audit.
+- `timestamp`: Client send time.
+
+**Server behavior:**
+- Validates token + payload.
+- Applies the snapshot as the current room timers/state.
+- Broadcasts:
+  - `ROOM_STATE_SNAPSHOT` to the requesting socket (optional)
+  - `ROOM_STATE_DELTA` to the room
+  - `TIMER_CREATED/UPDATED/DELETED/TIMERS_REORDERED` as needed (implementation choice)
+
+**Error handling:**
+- If rejected, server may emit:
+  - `ERROR { code: "INVALID_ACTION" | "PERMISSION_DENIED" | "INVALID_PAYLOAD" }`
 
 ## 4. Show Control Events (Show Control+ Modes Only)
 

@@ -21,9 +21,23 @@ import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
+import { useAppMode } from '../context/AppModeContext'
+
+type CloudRoomSnapshot = {
+  roomId: string
+  savedAt: number
+  room: unknown
+  timers: unknown
+}
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
+  const { mode, effectiveMode } = useAppMode()
+  const selectedMode = mode === 'auto' ? effectiveMode : mode
+  const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
+    subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
+  }
+  const lastSubscribeRef = useRef<string | null>(null)
   const {
     getRoom,
     getTimers,
@@ -47,13 +61,32 @@ export const ControllerPage = () => {
     redoTimerDelete,
     undoRoomDelete,
     redoRoomDelete,
-  } = useDataContext()
+    subscribeToRoom,
+  } = ctx
 
   const room = roomId ? getRoom(roomId) : undefined
   const timers = useMemo(
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
   )
+
+  // When in Cloud mode, persist a snapshot so switching to Local/Hybrid can seed Companion
+  // without needing Firebase auth in those modes.
+  useEffect(() => {
+    if (selectedMode !== 'cloud') return
+    if (!roomId || !room) return
+    try {
+      const payload: CloudRoomSnapshot = {
+        roomId,
+        savedAt: Date.now(),
+        room,
+        timers,
+      }
+      window.localStorage.setItem(`ontime:cloudRoomSnapshot:${roomId}`, JSON.stringify(payload))
+    } catch {
+      // ignore
+    }
+  }, [room, roomId, selectedMode, timers])
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id
@@ -120,6 +153,17 @@ export const ControllerPage = () => {
     // This effect mirrors incoming room props to local inputs; avoids stale values when switching rooms.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.id, room?.title, room?.timezone])
+
+  useEffect(() => {
+    if (selectedMode === 'cloud') return
+    if (!roomId) return
+    const token = window.localStorage.getItem('ontime:companionToken') ?? sessionStorage.getItem('ontime:companionToken')
+    if (!token) return
+    const subscribeKey = `${roomId}::controller::${token}`
+    if (lastSubscribeRef.current === subscribeKey) return
+    lastSubscribeRef.current = subscribeKey
+    subscribeToRoom?.(roomId, token, 'controller')
+  }, [roomId, selectedMode, subscribeToRoom])
 
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {

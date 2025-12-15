@@ -4,13 +4,16 @@ import App from './App'
 import './index.css'
 import { AuthProvider } from './context/AuthContext'
 import { DataProvider } from './context/DataProvider'
+import { AppModeProvider } from './context/AppModeContext'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AuthProvider>
-      <DataProvider>
-        <App />
-      </DataProvider>
-    </AuthProvider>
+    <AppModeProvider>
+      <AuthProvider>
+        <DataProvider>
+          <App />
+        </DataProvider>
+      </AuthProvider>
+    </AppModeProvider>
   </React.StrictMode>,
 )

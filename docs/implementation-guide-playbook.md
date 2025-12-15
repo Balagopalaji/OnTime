@@ -9,7 +9,7 @@ Use this playbook to author a Phase implementation guide that another agent can 
 - **Failure Modes / How to handle**: common errors and expected responses/remediations.
 - **Acceptance Criteria**: observable outcomes.
 - **Tests**: automated (lint/unit) and manual, including any curl/scripts. Encourage small scripts for repeatability; avoid shipping dev-only scripts.
-- **Token budget**: ensure each step fits within Repo Prompt limits (e.g., ~30k tokens).
+- **Token budget**: ensure each step fits within Repo Prompt limits.\n+  - Free Repo Prompt users typically have ~30k tokens; prefer **multiple small prompts** over one large one.\n+  - Use **line ranges** and only include the minimum necessary files/sections.
 
 ## Standard Passes (iterate)
 1) **Architect/Engineer pass**: Completeness, data flow, interfaces, success/error paths, versioning/migrations, cross-file impacts (specs, docs).

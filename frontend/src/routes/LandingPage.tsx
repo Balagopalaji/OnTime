@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useAppMode } from '../context/AppModeContext'
 
 const FEATURES = [
   'Real-time timer sync with Firestore listeners',
@@ -10,6 +11,7 @@ const FEATURES = [
 export const LandingPage = () => {
   const { user, login } = useAuth()
   const navigate = useNavigate()
+  const { setMode } = useAppMode()
 
   const handlePrimaryClick = async () => {
     if (user) {
@@ -42,6 +44,16 @@ export const LandingPage = () => {
             className="rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold uppercase tracking-wide text-slate-950 shadow-lg shadow-emerald-500/40 transition hover:bg-emerald-400"
           >
             {user ? 'Go to Dashboard' : 'Enter Demo Dashboard'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('local')
+              navigate('/local')
+            }}
+            className="rounded-full bg-blue-500 px-6 py-3 text-sm font-semibold uppercase tracking-wide text-slate-950 shadow-lg shadow-blue-500/40 transition hover:bg-blue-400"
+          >
+            Local Mode (Companion)
           </button>
           <button
             type="button"

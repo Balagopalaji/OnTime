@@ -71,6 +71,10 @@
 **Goal:** Prep for show control  
 **Read:** `local-mode-plan.md` § 4.3; implementation guide: `phase-1c-implementation-guide.md`
 
+### Phase 1D: Main UI Local Mode + CI Packaging
+**Goal:** Local Mode usable from the main UI + CI builds installers  
+**Read:** walkthrough: `phase-1d-walkthrough.md`; implementation guide: `phase-1d-implementation-guide.md`
+
 **Shipping decision (Phase 1):**
 - Companion is a separate desktop app installed on the Controller/operator machine only.
 - Local Mode requires Companion; cloud/Firebase mode remains available without it.
@@ -139,6 +143,10 @@ The undo/redo system is currently stubbed out (buttons do nothing). This was don
 - Produce signed installers per OS (manual distribution is fine for Phase 1; auto-update can be Phase 2+).
 - Bundle `ffprobe` in production Companion builds so users do not need to install FFmpeg separately.
 - Licensing: bundled `ffprobe` MUST be from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components) unless explicitly approved and documented.
+- Packaging (maintainers):
+  - From `companion/`: `npm install && npm run fetch-ffprobe && npm run dist` (outputs to `dist_out/`).
+  - `fetch-ffprobe` downloads a default LGPL ffprobe; override via `FFPROBE_URL_MAC/WIN/LINUX` with a vetted LGPL-only binary and keep attribution.
+  - End users install from the generated `.dmg` / `.exe` (NSIS) / `.AppImage`; they never run npm.
 
 #### Companion API Self-Test (copy/paste)
 1. Start Companion: `cd companion && npm run dev`
