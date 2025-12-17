@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useCompanionConnection } from './CompanionConnectionContext'
 
 export type AppMode = 'auto' | 'cloud' | 'local' | 'hybrid'
@@ -38,6 +38,7 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine,
   )
+  const wasConnectedRef = useRef(false)
 
   const setMode = useCallback((next: AppMode) => {
     setModeState(next)
@@ -63,6 +64,18 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
       console.warn('[AppMode] Companion dropped but offline, staying in current mode')
     }
   }, [effectiveMode, mode])
+
+  useEffect(() => {
+    if (isConnected) {
+      wasConnectedRef.current = true
+      return
+    }
+
+    if (wasConnectedRef.current) {
+      triggerCompanionFallback()
+      wasConnectedRef.current = false
+    }
+  }, [isConnected, triggerCompanionFallback])
 
   const clearDegraded = useCallback(() => {
     setIsDegraded(false)
@@ -106,4 +119,3 @@ export const useAppMode = () => {
   if (!ctx) throw new Error('useAppMode must be used within AppModeProvider')
   return ctx
 }
-

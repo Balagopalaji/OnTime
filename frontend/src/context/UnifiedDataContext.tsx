@@ -1192,8 +1192,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   return <DataProviderBoundary value={value}>{children}</DataProviderBoundary>
 }
 
-export const UnifiedDataProvider = ({ children }: { children: ReactNode }) => (
-  <FirebaseDataProvider>
+export const UnifiedDataProvider = ({
+  children,
+  fallbackToMock = false,
+}: {
+  children: ReactNode
+  fallbackToMock?: boolean
+}) => (
+  <FirebaseDataProvider fallbackToMock={fallbackToMock}>
     <UnifiedDataResolver>{children}</UnifiedDataResolver>
   </FirebaseDataProvider>
 )
