@@ -53,7 +53,13 @@ const readStoredToken = (): string | null => {
 }
 
 export const CompanionConnectionProvider = ({ children }: { children: ReactNode }) => {
-  const [socket, setSocket] = useState<Socket | null>(null)
+  const socket = useMemo<Socket | null>(() => {
+    if (typeof window === 'undefined') return null
+    return io('http://localhost:4000', {
+      transports: ['websocket'],
+      autoConnect: false,
+    })
+  }, [])
   const [isConnected, setIsConnected] = useState(false)
   const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('idle')
   const [companionMode, setCompanionMode] = useState('minimal')
@@ -104,13 +110,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [])
 
   useEffect(() => {
-    const nextSocket = io('http://localhost:4000', {
-      transports: ['websocket'],
-      autoConnect: false,
-    })
-
-    setSocket(nextSocket)
-
+    if (!socket) return
     const handleConnect = () => {
       setIsConnected(true)
       setHandshakeStatus('pending')
@@ -133,26 +133,25 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       setHandshakeStatus('error')
     }
 
-    nextSocket.on('connect', handleConnect)
-    nextSocket.on('disconnect', handleDisconnect)
-    nextSocket.on('connect_error', handleConnectError)
-    nextSocket.io.on('error', handleConnectError)
-    nextSocket.on('HANDSHAKE_ACK', handleHandshakeAck)
-    nextSocket.on('HANDSHAKE_ERROR', handleHandshakeError)
+    socket.on('connect', handleConnect)
+    socket.on('disconnect', handleDisconnect)
+    socket.on('connect_error', handleConnectError)
+    socket.io.on('error', handleConnectError)
+    socket.on('HANDSHAKE_ACK', handleHandshakeAck)
+    socket.on('HANDSHAKE_ERROR', handleHandshakeError)
 
-    nextSocket.connect()
+    socket.connect()
 
     return () => {
-      nextSocket.off('connect', handleConnect)
-      nextSocket.off('disconnect', handleDisconnect)
-      nextSocket.off('connect_error', handleConnectError)
-      nextSocket.io.off('error', handleConnectError)
-      nextSocket.off('HANDSHAKE_ACK', handleHandshakeAck)
-      nextSocket.off('HANDSHAKE_ERROR', handleHandshakeError)
-      nextSocket.disconnect()
-      setSocket(null)
+      socket.off('connect', handleConnect)
+      socket.off('disconnect', handleDisconnect)
+      socket.off('connect_error', handleConnectError)
+      socket.io.off('error', handleConnectError)
+      socket.off('HANDSHAKE_ACK', handleHandshakeAck)
+      socket.off('HANDSHAKE_ERROR', handleHandshakeError)
+      socket.disconnect()
     }
-  }, [])
+  }, [socket])
 
   const value = useMemo(
     () => ({

@@ -1,6 +1,3 @@
 node_modules
 dist
 *.log
-
-dist_out
-bin/ffprobe

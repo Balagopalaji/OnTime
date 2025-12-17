@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useCompanionConnection } from './CompanionConnectionContext'
 import { UnifiedDataProvider } from './UnifiedDataContext'

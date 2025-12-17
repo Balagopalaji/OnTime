@@ -1,75 +1,31 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import { useParams } from 'react-router-dom'
 import { Maximize2, Minimize2 } from 'lucide-react'
-import { useRoom } from '../hooks/useRoom'
-import { useTimers } from '../hooks/useTimers'
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { FitText } from '../components/core/FitText'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { useClock } from '../hooks/useClock'
 import { useWakeLock } from '../hooks/useWakeLock'
-import { useAppMode } from '../context/AppModeContext'
 import { useDataContext } from '../context/DataProvider'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
-  const { mode, effectiveMode } = useAppMode()
-  const selectedMode = mode === 'auto' ? effectiveMode : mode
-  const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
-    subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
-  }
-  const subscribeToRoom = ctx.subscribeToRoom
-  const lastSubscribeRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (selectedMode === 'cloud') return
-    if (!roomId) return
-    const token = window.localStorage.getItem('ontime:companionToken') ?? sessionStorage.getItem('ontime:companionToken')
-    if (!token) return
-    const subscribeKey = `${roomId}::viewer::${token}::${selectedMode}`
-    if (lastSubscribeRef.current === subscribeKey) return
-    lastSubscribeRef.current = subscribeKey
-    subscribeToRoom?.(roomId, token, 'viewer')
-  }, [roomId, selectedMode, subscribeToRoom])
-
-  const localRoom = selectedMode !== 'cloud' && roomId ? ctx.getRoom(roomId) : undefined
-  const localTimers = selectedMode !== 'cloud' && roomId ? ctx.getTimers(roomId) : []
-
-  const {
-    room,
-    loading: roomLoading,
-    connectionStatus: roomStatus,
-  } = useRoom(roomId)
-  const {
-    timers,
-    loading: timersLoading,
-    connectionStatus: timerStatus,
-  } = useTimers(roomId)
-
-  const effectiveRoom = selectedMode !== 'cloud' ? localRoom : room
-  const effectiveTimers = selectedMode !== 'cloud' ? localTimers : timers
-
-  const connectionStatus =
-    selectedMode !== 'cloud'
-      ? ctx.connectionStatus
-      : roomStatus === 'online' && timerStatus === 'online'
-        ? 'online'
-        : roomStatus === 'offline' || timerStatus === 'offline'
-          ? 'offline'
-          : 'reconnecting'
-
-  const isLoading = selectedMode !== 'cloud' ? !effectiveRoom : roomLoading || timersLoading
+  const ctx = useDataContext()
+  const room = roomId ? ctx.getRoom(roomId) : undefined
+  const timers = roomId ? ctx.getTimers(roomId) : []
+  const connectionStatus = ctx.connectionStatus
+  const isLoading = !room && connectionStatus !== 'offline'
   const activeTimer =
-    effectiveTimers.find((timer) => timer.id === effectiveRoom?.state.activeTimerId) ?? effectiveTimers[0]
+    timers.find((timer) => timer.id === room?.state.activeTimerId) ?? timers[0]
 
   const engine = useTimerEngine({
     durationSec: activeTimer?.duration ?? 0,
-    isRunning: effectiveRoom?.state.isRunning ?? false,
-    startedAt: effectiveRoom?.state.startedAt ?? null,
-    elapsedOffset: effectiveRoom?.state.elapsedOffset ?? 0,
-    warningSec: effectiveRoom?.config.warningSec ?? 120,
-    criticalSec: effectiveRoom?.config.criticalSec ?? 30,
+    isRunning: room?.state.isRunning ?? false,
+    startedAt: room?.state.startedAt ?? null,
+    elapsedOffset: room?.state.elapsedOffset ?? 0,
+    warningSec: room?.config.warningSec ?? 120,
+    criticalSec: room?.config.criticalSec ?? 30,
   })
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -90,7 +46,7 @@ export const ViewerPage = () => {
     return () => window.removeEventListener('keydown', handleKey)
   }, [toggleFullscreen])
 
-  const clockTime = useClock(effectiveRoom?.timezone ?? 'UTC', effectiveRoom?.state.clockMode ?? '24h')
+  const clockTime = useClock(room?.timezone ?? 'UTC', room?.state.clockMode ?? '24h')
   const [clockBody, clockSuffix] = clockTime.split(' ')
   const clockSegments = clockBody.split(':')
   const clockHours = clockSegments[0] ?? ''
@@ -104,7 +60,7 @@ export const ViewerPage = () => {
     )
   }
 
-  if (!effectiveRoom || !roomId || effectiveTimers.length === 0) {
+  if (!room || !roomId || timers.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
         Viewer is offline or no timers found. Ask the operator for a new link.
@@ -124,8 +80,6 @@ export const ViewerPage = () => {
   const isOvertime = engine.status === 'overtime'
   const timerLabel = activeTimer ? activeTimer.title : 'Standby'
 
-  if (!effectiveRoom) return null
-
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
     yellow: 'bg-amber-400/90 text-slate-900',
@@ -133,7 +87,7 @@ export const ViewerPage = () => {
     blue: 'bg-sky-500/90 text-white',
     white: 'bg-white/90 text-slate-900',
     none: 'border border-white/40 bg-transparent text-white',
-  }[effectiveRoom.state.message.color]
+  }[room.state.message.color]
 
 
   const durationMs = (activeTimer?.duration ?? 0) * 1000
@@ -159,7 +113,7 @@ export const ViewerPage = () => {
             <p className="text-sm font-semibold uppercase tracking-[0.4em] text-white/80">
               {timerLabel}
             </p>
-            <p className="text-base font-medium text-white">{effectiveRoom.title}</p>
+            <p className="text-base font-medium text-white">{room.title}</p>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
             <ConnectionIndicator status={connectionStatus} />
@@ -186,7 +140,7 @@ export const ViewerPage = () => {
         </div>
 
         <div className="mt-6 flex flex-1 flex-col items-center justify-center">
-          {effectiveRoom.state.showClock ? (
+          {room.state.showClock ? (
             <div className="flex justify-center w-full px-4" style={{ maxHeight: '45vh' }}>
               <FitText
                 className="font-semibold text-white leading-[0.9] font-[inherit]"
@@ -226,7 +180,7 @@ export const ViewerPage = () => {
               </FitText>
             </div>
           )}
-          {!effectiveRoom.state.showClock && (
+          {!room.state.showClock && (
             <div className="mt-10 h-4 w-full max-w-6xl rounded-full bg-white/10">
               <div
                 className={`h-full rounded-full transition-all ${progressColor}`}
@@ -236,7 +190,7 @@ export const ViewerPage = () => {
           )}
         </div>
 
-        {effectiveRoom.state.message.visible && effectiveRoom.state.message.text && messageBg && (
+        {room.state.message.visible && room.state.message.text && messageBg && (
           <div
             className={`mt-8 flex w-full items-center justify-center rounded-3xl px-5 py-4 text-lg font-semibold break-words ${messageBg}`}
             style={{ maxHeight: '40vh' }}
@@ -253,7 +207,7 @@ export const ViewerPage = () => {
                   overflow: 'hidden',
                 }}
               >
-                {effectiveRoom.state.message.text}
+                {room.state.message.text}
               </p>
             </div>
           </div>

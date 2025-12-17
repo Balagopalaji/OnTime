@@ -244,7 +244,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [subscribedRooms, setSubscribedRooms] = useState<
     Record<string, { clientType: 'controller' | 'viewer'; token: string }>
   >({})
-  const [pendingSyncRooms, setPendingSyncRooms] = useState<Set<string>>(new Set())
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
     const cached = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
@@ -254,7 +253,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     return next
   })
   const subscribedRoomsRef = useRef(subscribedRooms)
-  const pendingSyncRoomsRef = useRef(pendingSyncRooms)
+  const pendingSyncRoomsRef = useRef<Set<string>>(new Set())
   const companionRoomsRef = useRef(companionRooms)
   const companionTimersRef = useRef(companionTimers)
   const tokenRefreshInFlightRef = useRef(false)
@@ -266,16 +265,32 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [subscribedRooms])
 
   useEffect(() => {
-    pendingSyncRoomsRef.current = pendingSyncRooms
-  }, [pendingSyncRooms])
-
-  useEffect(() => {
     companionRoomsRef.current = companionRooms
   }, [companionRooms])
 
   useEffect(() => {
     companionTimersRef.current = companionTimers
   }, [companionTimers])
+
+  const addPendingSyncRoom = useCallback((roomId: string) => {
+    const current = pendingSyncRoomsRef.current
+    if (current.has(roomId)) return
+    const next = new Set(current)
+    next.add(roomId)
+    pendingSyncRoomsRef.current = next
+  }, [])
+
+  const removePendingSyncRoom = useCallback((roomId: string) => {
+    const current = pendingSyncRoomsRef.current
+    if (!current.has(roomId)) return
+    const next = new Set(current)
+    next.delete(roomId)
+    pendingSyncRoomsRef.current = next
+  }, [])
+
+  const clearPendingSyncRooms = useCallback(() => {
+    pendingSyncRoomsRef.current = new Set()
+  }, [])
 
   const getRoomAuthority = useCallback(
     (roomId: string) => roomAuthority[roomId] ?? DEFAULT_AUTHORITY,
@@ -336,12 +351,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
         if (effectiveMode === 'local' || effectiveMode === 'hybrid') {
           if (clientType === 'controller') {
-            setPendingSyncRooms((prev) => {
-              if (prev.has(roomId)) return prev
-              const next = new Set(prev)
-              next.add(roomId)
-              return next
-            })
+            addPendingSyncRoom(roomId)
           }
         }
 
@@ -358,7 +368,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       })()
     },
-    [clientId, effectiveMode, fetchToken, socket, token],
+    [addPendingSyncRoom, clientId, effectiveMode, fetchToken, socket, token],
   )
 
   const unsubscribeFromCompanionRoom = useCallback((roomId: string) => {
@@ -380,12 +390,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       delete next[roomId]
       return next
     })
-    setPendingSyncRooms((prev) => {
-      if (!prev.has(roomId)) return prev
-      const next = new Set(prev)
-      next.delete(roomId)
-      return next
-    })
+    removePendingSyncRoom(roomId)
     setRoomAuthority((prev) => ({
       ...prev,
       [roomId]: {
@@ -394,7 +399,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         lastSyncAt: Date.now(),
       },
     }))
-  }, [])
+  }, [removePendingSyncRoom])
 
   const ensureCompanionRoomState = useCallback((roomId: string) => {
     const existing = companionRoomsRef.current[roomId]
@@ -578,7 +583,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
         return next
       })
-      setPendingSyncRooms(new Set())
+      clearPendingSyncRooms()
     }
 
     const handleHandshakeError = (err: HandshakeError) => {
@@ -658,12 +663,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       })
 
       if (pendingSyncRoomsRef.current.has(payload.roomId)) {
-        setPendingSyncRooms((prev) => {
-          if (!prev.has(payload.roomId)) return prev
-          const next = new Set(prev)
-          next.delete(payload.roomId)
-          return next
-        })
+        removePendingSyncRoom(payload.roomId)
       }
 
       setRoomAuthority((prev) => ({
@@ -757,18 +757,22 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       socket.off('TIMERS_REORDERED', handleTimersReordered)
       socket.off('TIMER_ERROR', handleTimerError)
     }
-  }, [clientId, clearToken, emitSyncRoomState, fetchToken, replayRoomQueue, socket])
+  }, [
+    clientId,
+    clearPendingSyncRooms,
+    clearToken,
+    emitSyncRoomState,
+    fetchToken,
+    removePendingSyncRoom,
+    replayRoomQueue,
+    socket,
+  ])
 
   useEffect(() => {
     if (effectiveMode !== 'local' && effectiveMode !== 'hybrid') return
     Object.entries(subscribedRooms).forEach(([roomId, sub]) => {
       if (sub.clientType !== 'controller') return
-      setPendingSyncRooms((prev) => {
-        if (prev.has(roomId)) return prev
-        const next = new Set(prev)
-        next.add(roomId)
-        return next
-      })
+      addPendingSyncRoom(roomId)
       setRoomAuthority((prev) => ({
         ...prev,
         [roomId]: {
@@ -778,12 +782,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         },
       }))
     })
-  }, [effectiveMode, subscribedRooms])
+  }, [addPendingSyncRoom, effectiveMode, subscribedRooms])
 
   useEffect(() => {
     if (effectiveMode !== 'cloud') return
-    setPendingSyncRooms(new Set())
-  }, [effectiveMode])
+    clearPendingSyncRooms()
+  }, [clearPendingSyncRooms, effectiveMode])
 
   const shouldUseCompanion = useCallback(
     (roomId: string) => {

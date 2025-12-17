@@ -21,26 +21,14 @@ import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
-import { useAppMode } from '../context/AppModeContext'
-
-type CloudRoomSnapshot = {
-  roomId: string
-  savedAt: number
-  room: unknown
-  timers: unknown
-}
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
-  const { mode, effectiveMode } = useAppMode()
-  const selectedMode = mode === 'auto' ? effectiveMode : mode
-  const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
-    subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
-  }
-  const lastSubscribeRef = useRef<string | null>(null)
+  const ctx = useDataContext()
   const {
     getRoom,
     getTimers,
+    getRoomAuthority,
     startTimer,
     pauseTimer,
     resetTimer,
@@ -61,42 +49,14 @@ export const ControllerPage = () => {
     redoTimerDelete,
     undoRoomDelete,
     redoRoomDelete,
-    subscribeToRoom,
   } = ctx
 
   const room = roomId ? getRoom(roomId) : undefined
+  const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
   const timers = useMemo(
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
   )
-
-  // Persist a snapshot for fallback/refresh scenarios.
-  // In Cloud mode: saves Firestore state for seeding Companion on mode switch.
-  // In Local/Hybrid mode: saves current state (which is also being written to Firestore)
-  // so refresh/fallback can restore the correct state.
-  useEffect(() => {
-    if (!roomId || !room) return
-    try {
-      const payload: CloudRoomSnapshot = {
-        roomId,
-        savedAt: Date.now(),
-        room,
-        timers,
-      }
-      // Log snapshot state for debugging sync issues
-      console.info('[snapshot] saving:', {
-        roomId,
-        mode: selectedMode,
-        isRunning: room.state.isRunning,
-        startedAt: room.state.startedAt,
-        elapsedOffset: room.state.elapsedOffset,
-        activeTimerId: room.state.activeTimerId,
-      })
-      window.localStorage.setItem(`ontime:cloudRoomSnapshot:${roomId}`, JSON.stringify(payload))
-    } catch {
-      // ignore
-    }
-  }, [room, roomId, selectedMode, timers])
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id
@@ -163,18 +123,6 @@ export const ControllerPage = () => {
     // This effect mirrors incoming room props to local inputs; avoids stale values when switching rooms.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.id, room?.title, room?.timezone])
-
-  useEffect(() => {
-    if (selectedMode === 'cloud') return
-    if (!roomId) return
-    const token = window.localStorage.getItem('ontime:companionToken') ?? sessionStorage.getItem('ontime:companionToken')
-    if (!token) return
-    // Include mode to force a re-subscribe when changing modes (needed to trigger SYNC_ROOM_STATE on mode switches).
-    const subscribeKey = `${roomId}::controller::${token}::${selectedMode}`
-    if (lastSubscribeRef.current === subscribeKey) return
-    lastSubscribeRef.current = subscribeKey
-    subscribeToRoom?.(roomId, token, 'controller')
-  }, [roomId, selectedMode, subscribeToRoom])
 
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {
@@ -328,8 +276,12 @@ export const ControllerPage = () => {
   const handleShare = async () => {
     if (!viewerUrl || !room) return
     if (navigator.share) {
-      await navigator.share({ title: room.title, url: viewerUrl })
-      return
+      try {
+        await navigator.share({ title: room.title, url: viewerUrl })
+        return
+      } catch {
+        // fall back to clipboard if share was cancelled or unavailable
+      }
     }
     try {
       await navigator.clipboard.writeText(viewerUrl)
@@ -700,6 +652,20 @@ export const ControllerPage = () => {
               <ShareLinkButton roomId={room.id} />
             </div>
           </div>
+          {roomAuthority?.status && roomAuthority.status !== 'ready' && (
+            <div
+              className={`mt-4 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
+                roomAuthority.status === 'syncing'
+                  ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+                  : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+              }`}
+            >
+              <AlertTriangle size={16} />
+              {roomAuthority.status === 'syncing'
+                ? 'Syncing with Companion...'
+                : 'Companion disconnected. Showing cloud data.'}
+            </div>
+          )}
           {connectionStatus !== 'online' && (
             <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
               <AlertTriangle size={16} />

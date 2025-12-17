@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useCompanionConnection } from './CompanionConnectionContext'
 
 export type AppMode = 'auto' | 'cloud' | 'local' | 'hybrid'
@@ -29,16 +29,18 @@ const readInitialMode = (): AppMode => {
 }
 
 export const AppModeProvider = ({ children }: { children: ReactNode }) => {
-  const { isConnected } = useCompanionConnection()
+  const { isConnected, socket } = useCompanionConnection()
   const [mode, setModeState] = useState<AppMode>(() => readInitialMode())
-  const [effectiveMode, setEffectiveMode] = useState<EffectiveAppMode>(() =>
-    mode === 'auto' ? 'cloud' : mode,
-  )
   const [isDegraded, setIsDegraded] = useState(false)
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine,
   )
-  const wasConnectedRef = useRef(false)
+
+  const effectiveMode = useMemo<EffectiveAppMode>(() => {
+    if (isDegraded) return 'cloud'
+    if (mode !== 'auto') return mode
+    return isConnected ? (isOnline ? 'hybrid' : 'local') : 'cloud'
+  }, [isConnected, isDegraded, isOnline, mode])
 
   const setMode = useCallback((next: AppMode) => {
     setModeState(next)
@@ -57,7 +59,6 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
     const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
     if (isOnline) {
       console.warn('[AppMode] Companion dropped, falling back to Cloud (degraded)')
-      setEffectiveMode('cloud')
       setIsDegraded(true)
     } else {
       // Offline entirely - can't fallback to Cloud, stay in current mode (frozen view)
@@ -66,16 +67,15 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   }, [effectiveMode, mode])
 
   useEffect(() => {
-    if (isConnected) {
-      wasConnectedRef.current = true
-      return
-    }
-
-    if (wasConnectedRef.current) {
+    if (!socket) return
+    const handleDisconnect = () => {
       triggerCompanionFallback()
-      wasConnectedRef.current = false
     }
-  }, [isConnected, triggerCompanionFallback])
+    socket.on('disconnect', handleDisconnect)
+    return () => {
+      socket.off('disconnect', handleDisconnect)
+    }
+  }, [socket, triggerCompanionFallback])
 
   const clearDegraded = useCallback(() => {
     setIsDegraded(false)
@@ -91,21 +91,6 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
-
-  useEffect(() => {
-    // If we're in degraded state, don't override effectiveMode - keep Cloud fallback active
-    if (isDegraded) {
-      return
-    }
-
-    if (mode !== 'auto') {
-      setEffectiveMode(mode)
-      return
-    }
-
-    const next: EffectiveAppMode = isConnected ? (isOnline ? 'hybrid' : 'local') : 'cloud'
-    setEffectiveMode(next)
-  }, [isConnected, isDegraded, isOnline, mode])
 
   const value = useMemo(
     () => ({ mode, effectiveMode, setMode, triggerCompanionFallback, isDegraded, clearDegraded }),
