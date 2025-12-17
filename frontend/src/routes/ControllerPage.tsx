@@ -70,10 +70,11 @@ export const ControllerPage = () => {
     [getTimers, roomId],
   )
 
-  // When in Cloud mode, persist a snapshot so switching to Local/Hybrid can seed Companion
-  // without needing Firebase auth in those modes.
+  // Persist a snapshot for fallback/refresh scenarios.
+  // In Cloud mode: saves Firestore state for seeding Companion on mode switch.
+  // In Local/Hybrid mode: saves current state (which is also being written to Firestore)
+  // so refresh/fallback can restore the correct state.
   useEffect(() => {
-    if (selectedMode !== 'cloud') return
     if (!roomId || !room) return
     try {
       const payload: CloudRoomSnapshot = {
@@ -82,6 +83,15 @@ export const ControllerPage = () => {
         room,
         timers,
       }
+      // Log snapshot state for debugging sync issues
+      console.info('[snapshot] saving:', {
+        roomId,
+        mode: selectedMode,
+        isRunning: room.state.isRunning,
+        startedAt: room.state.startedAt,
+        elapsedOffset: room.state.elapsedOffset,
+        activeTimerId: room.state.activeTimerId,
+      })
       window.localStorage.setItem(`ontime:cloudRoomSnapshot:${roomId}`, JSON.stringify(payload))
     } catch {
       // ignore
@@ -159,7 +169,8 @@ export const ControllerPage = () => {
     if (!roomId) return
     const token = window.localStorage.getItem('ontime:companionToken') ?? sessionStorage.getItem('ontime:companionToken')
     if (!token) return
-    const subscribeKey = `${roomId}::controller::${token}`
+    // Include mode to force a re-subscribe when changing modes (needed to trigger SYNC_ROOM_STATE on mode switches).
+    const subscribeKey = `${roomId}::controller::${token}::${selectedMode}`
     if (lastSubscribeRef.current === subscribeKey) return
     lastSubscribeRef.current = subscribeKey
     subscribeToRoom?.(roomId, token, 'controller')

@@ -19,11 +19,13 @@ Phase 1D turns Local Mode into a **first-class experience in the main app** (Das
 ## Step 1: Global Mode Model (Auto / Cloud / Hybrid / Local)
 
 ### 🎯 Goal
-Introduce a durable “App Mode” model used by the entire UI:
+Introduce a durable "App Mode" model used by the entire UI:
 - **auto**: choose best mode at runtime
 - **cloud**: Firebase only (remote operators possible)
-- **hybrid**: Companion primary + Firestore best-effort when online
-- **local**: Companion only (no Firestore write-through)
+- **hybrid**: Companion primary + Firestore write-through when online
+- **local**: Companion primary + Firestore write-through when online (same as hybrid)
+
+**Note:** Local and Hybrid behave identically - both write to Firestore when online. This ensures seamless fallback to Cloud if Companion drops.
 
 **Auto behavior (Phase 1D):**
 - If Companion reachable → **hybrid**
@@ -118,11 +120,19 @@ frontend/src/context/CompanionDataContext.tsx
 
 
 
-**Repo Prompt files (use line ranges):**
-```
-docs/phase-1d-implementation-guide.md (this Step 3.5 section only)
-docs/websocket-protocol.md (Section 3.5 only + handshake error codes if referenced)
-companion/src## Step 3.5: Seamless Switching + Dual Connections (Room Authority) + `SYNC_ROOM_STATE`
+## Step 3.5: Seamless Switching + Dual Connections (Room Authority) + `SYNC_ROOM_STATE`
+
+> **IMPORTANT: Implementation Status & Refactor Required**
+>
+> **Part 1/2 (Companion):** ✅ COMPLETE - `SYNC_ROOM_STATE` handler is implemented in `companion/src/main.ts:925-1018`
+>
+> **Part 2/2 (Frontend):** ⚠️ REQUIRES REFACTOR - The original approach using provider-swapping was found to cause the "heart-attack UX" it was meant to prevent.
+>
+> **See:** `docs/phase-1d-step3.5-refactor-plan.md` for the corrected implementation approach.
+>
+> **Key insight:** The spec says "run Firebase + Companion connections in parallel", but the initial implementation swapped providers entirely. The refactor introduces a **Unified Data Provider Architecture** where both connections remain active simultaneously.
+>
+> **Do not** attempt to implement Part 2/2 using the instructions below. Use the refactor plan instead.
 
 ### 🎯 Goal
 Eliminate “heart-attack UX” when switching modes mid-show:

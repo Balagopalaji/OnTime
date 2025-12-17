@@ -11,13 +11,14 @@ export const ProtectedRoute = ({
   children: ReactNode
   requireOwner?: boolean
 }) => {
-  const { mode } = useAppMode()
+  const { effectiveMode } = useAppMode()
   const { user, status } = useAuth()
   const { getRoom } = useDataContext()
   const params = useParams()
   const location = useLocation()
 
-  if (mode === 'local' || mode === 'hybrid') {
+  // In Local/Hybrid mode, bypass auth checks entirely
+  if (effectiveMode === 'local' || effectiveMode === 'hybrid') {
     return <>{children}</>
   }
 
@@ -42,7 +43,9 @@ export const ProtectedRoute = ({
         </div>
       )
     }
-    if (room.ownerId !== user.uid) {
+    // Allow 'local' ownerId as it indicates data is still loading from a mode switch.
+    // Once Firebase data loads, it will have the correct ownerId.
+    if (room.ownerId !== user.uid && room.ownerId !== 'local') {
       return <Navigate to="/dashboard" replace />
     }
   }

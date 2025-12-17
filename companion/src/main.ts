@@ -1039,16 +1039,29 @@ function handleTimerAction(socket: Socket, payload: unknown) {
 
   switch (payload.action) {
     case 'START':
+      // Preserve currentTime (elapsed offset) so resuming a paused timer continues from where it left off.
+      // The frontend uses {startedAt=lastUpdate, elapsedOffset=currentTime} to compute remaining time.
       changes = {
         activeTimerId: payload.timerId,
         isRunning: true,
+        currentTime: state.currentTime ?? 0,
         lastUpdate: payload.timestamp ?? now
       };
       break;
     case 'PAUSE':
+      // Persist the computed elapsed time so switching modes (Cloud↔Local) while paused does not "reset" the timer.
+      // We can compute elapsed using the last running anchor (lastUpdate) and the stored base (currentTime).
+      // Note: state.currentTime is treated as elapsed-at-lastUpdate.
+      const pauseNow = payload.timestamp ?? now;
+      const elapsedSinceLast =
+        state.isRunning && typeof state.lastUpdate === 'number'
+          ? Math.max(0, pauseNow - state.lastUpdate)
+          : 0;
+      const nextCurrentTime = Math.max(0, (state.currentTime ?? 0) + elapsedSinceLast);
       changes = {
         isRunning: false,
-        lastUpdate: payload.timestamp ?? now
+        currentTime: nextCurrentTime,
+        lastUpdate: pauseNow
       };
       break;
     case 'RESET':

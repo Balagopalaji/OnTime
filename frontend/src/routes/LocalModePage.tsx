@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppMode } from '../context/AppModeContext'
+import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataProvider'
 
 const SESSION_TOKEN_KEY = 'ontime:companionToken'
@@ -9,10 +10,13 @@ const LAST_ROOM_KEY = 'ontime:lastCompanionRoomId'
 export const LocalModePage = () => {
   const { mode, setMode } = useAppMode()
   const navigate = useNavigate()
+  const connection = useCompanionConnection()
   const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
-    subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
-    handshakeStatus?: 'idle' | 'pending' | 'ack' | 'error'
-    connectionStatus?: string
+    subscribeToCompanionRoom?: (
+      roomId: string,
+      clientType: 'controller' | 'viewer',
+      tokenOverride?: string,
+    ) => void
   }
 
   const [roomId, setRoomId] = useState(() => window.localStorage.getItem(LAST_ROOM_KEY) ?? 'test-room')
@@ -21,7 +25,7 @@ export const LocalModePage = () => {
 
   const fetchToken = useCallback(async () => {
     const res = await fetch('http://localhost:4001/api/token', {
-      headers: { Origin: 'http://localhost:5173' },
+      headers: { Origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173' },
     })
     if (!res.ok) return
     const data = (await res.json()) as { token?: string }
@@ -35,7 +39,7 @@ export const LocalModePage = () => {
     if (!token || !roomId) return
     window.localStorage.setItem(LAST_ROOM_KEY, roomId)
     sessionStorage.setItem(SESSION_TOKEN_KEY, token)
-    ctx.subscribeToRoom?.(roomId, token, clientType)
+    ctx.subscribeToCompanionRoom?.(roomId, clientType, token)
   }, [clientType, ctx, roomId, token])
 
   const openController = useCallback(() => {
@@ -119,11 +123,10 @@ export const LocalModePage = () => {
       </div>
 
       <div className="text-sm text-slate-300">
-        <div>Connection: {String(ctx.connectionStatus ?? 'unknown')}</div>
-        <div>Handshake: {String(ctx.handshakeStatus ?? 'unknown')}</div>
+        <div>Connection: {connection.isConnected ? 'online' : 'offline'}</div>
+        <div>Handshake: {String(connection.handshakeStatus ?? 'unknown')}</div>
       </div>
     </div>
   )
 }
-
 

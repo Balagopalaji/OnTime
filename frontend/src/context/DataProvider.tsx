@@ -17,19 +17,23 @@ const shouldUseMock = import.meta.env.VITE_USE_MOCK === 'true'
 const shouldFallbackToMock = import.meta.env.VITE_FIREBASE_FALLBACK_TO_MOCK === 'true'
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
-  const { mode, effectiveMode } = useAppMode()
-  const selectedMode = mode === 'auto' ? effectiveMode : mode
+  const { effectiveMode, triggerCompanionFallback } = useAppMode()
+  // Always use effectiveMode for provider selection - this respects fallback state
+  // (e.g., when mode is "local" but Companion dropped and we fell back to "cloud")
 
   if (shouldUseMock) {
     return <MockDataProvider>{children}</MockDataProvider>
   }
 
-  if (selectedMode === 'local') {
-    return <CompanionDataProvider firestoreWriteThrough={false}>{children}</CompanionDataProvider>
-  }
-
-  if (selectedMode === 'hybrid') {
-    return <CompanionDataProvider firestoreWriteThrough>{children}</CompanionDataProvider>
+  // Both Local and Hybrid use Companion as primary, with Firestore write-through when online.
+  // This ensures seamless fallback to Cloud if Companion drops - Firestore always has the latest state.
+  // The only difference is the label; functionally they behave the same when online.
+  if (effectiveMode === 'local' || effectiveMode === 'hybrid') {
+    return (
+      <CompanionDataProvider firestoreWriteThrough onDisconnect={triggerCompanionFallback}>
+        {children}
+      </CompanionDataProvider>
+    )
   }
 
   if (!hasFirebaseConfig && !shouldFallbackToMock) {

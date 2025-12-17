@@ -1,11 +1,17 @@
 import { useCallback, useMemo, useState } from 'react'
 import { CompanionDataProvider } from '../context/CompanionDataContext'
+import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataContext'
 
 const CompanionTestInner = () => {
   const SESSION_TOKEN_KEY = 'ontime:companionToken'
+  const connection = useCompanionConnection()
   const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
-    subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
+    subscribeToCompanionRoom?: (
+      roomId: string,
+      clientType: 'controller' | 'viewer',
+      tokenOverride?: string,
+    ) => void
     getRoomState?: (roomId: string) => unknown
     companionMode?: string
     capabilities?: {
@@ -38,7 +44,7 @@ const CompanionTestInner = () => {
   const handleJoin = () => {
     if (!token) return
     sessionStorage.setItem(SESSION_TOKEN_KEY, token)
-    ctx.subscribeToRoom?.(roomId, token, clientType)
+    ctx.subscribeToCompanionRoom?.(roomId, clientType, token)
   }
 
   const fetchToken = useCallback(async () => {
@@ -115,7 +121,7 @@ const CompanionTestInner = () => {
 
       <div className="space-y-1">
         <div>Connection: {ctx.connectionStatus}</div>
-        <div>Handshake: {ctx.handshakeStatus}</div>
+        <div>Handshake: {connection.handshakeStatus}</div>
         <div>Companion mode: {ctx.companionMode ?? 'unknown'}</div>
         <div>
           Capabilities:{' '}

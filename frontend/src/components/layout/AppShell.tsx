@@ -2,6 +2,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useEffect, useMemo, useState } from 'react'
 import { useAppMode, type AppMode } from '../../context/AppModeContext'
+import { useCompanionConnection } from '../../context/CompanionConnectionContext'
 import { useDataContext } from '../../context/DataProvider'
 import { CompanionConnectModal } from '../core/CompanionConnectModal'
 
@@ -10,11 +11,11 @@ export const AppShell = () => {
   const location = useLocation()
   const isAuthed = Boolean(user)
   const isViewerRoute = /\/room\/[^/]+\/view$/.test(location.pathname)
-  const { mode, effectiveMode, setMode } = useAppMode()
+  const { mode, effectiveMode, setMode, isDegraded, clearDegraded } = useAppMode()
   const data = useDataContext() as ReturnType<typeof useDataContext> & {
-    handshakeStatus?: 'idle' | 'pending' | 'ack' | 'error'
     flushRoomToFirestore?: (roomId: string) => Promise<void>
   }
+  const connection = useCompanionConnection()
   const [isConnectOpen, setIsConnectOpen] = useState(false)
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
 
@@ -44,42 +45,43 @@ export const AppShell = () => {
   }, [])
 
   const companionLabel = useMemo(() => {
-    const handshake = data.handshakeStatus ?? 'idle'
-    const connection = data.connectionStatus ?? 'offline'
+    const handshake = connection.handshakeStatus ?? 'idle'
+    const connectionStatus = connection.isConnected ? 'online' : 'offline'
     if (mode === 'cloud') return 'Companion: off'
-    if (connection === 'online' && handshake === 'ack') return 'Companion: connected'
-    if (connection === 'online' && handshake === 'pending') return 'Companion: handshaking'
-    if (connection === 'reconnecting') return 'Companion: reconnecting'
-    if (connection === 'online') return 'Companion: ready (not joined)'
+    if (connectionStatus === 'online' && handshake === 'ack') return 'Companion: connected'
+    if (connectionStatus === 'online' && handshake === 'pending') return 'Companion: handshaking'
+    if (connectionStatus === 'online') return 'Companion: ready (not joined)'
     return 'Companion: offline'
-  }, [data.connectionStatus, data.handshakeStatus, mode])
+  }, [connection.handshakeStatus, connection.isConnected, mode])
 
   const companionTone = useMemo(() => {
     if (mode === 'cloud') return 'border-slate-800 bg-slate-900 text-slate-300'
-    if (data.connectionStatus === 'online' && data.handshakeStatus === 'ack') {
+    if (connection.isConnected && connection.handshakeStatus === 'ack') {
       return 'border-emerald-900/60 bg-emerald-950/40 text-emerald-200'
     }
     if (
-      data.connectionStatus === 'reconnecting' ||
-      data.handshakeStatus === 'pending' ||
-      (data.connectionStatus === 'online' && (data.handshakeStatus === 'idle' || !data.handshakeStatus))
+      connection.handshakeStatus === 'pending' ||
+      (connection.isConnected && (connection.handshakeStatus === 'idle' || !connection.handshakeStatus))
     ) {
       return 'border-amber-900/60 bg-amber-950/40 text-amber-200'
     }
     return 'border-rose-900/60 bg-rose-950/40 text-rose-200'
-  }, [data.connectionStatus, data.handshakeStatus, mode])
+  }, [connection.handshakeStatus, connection.isConnected, mode])
 
   const handleModeChange = useMemo(() => {
     return async (nextMode: AppMode) => {
       // If we are currently on Companion provider and switching to Cloud, best-effort flush the active room
-      // so Cloud view doesn’t “lose” timers/state.
+      // so Cloud view doesn't "lose" timers/state.
       const currentlyCompanion = mode === 'local' || mode === 'hybrid' || mode === 'auto'
+      const currentlyCloud = mode === 'cloud'
       const switchingToCloud = nextMode === 'cloud'
+      const switchingToCompanion = nextMode === 'local' || nextMode === 'hybrid'
       const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
       const roomId = match?.[1]
+      
       if (currentlyCompanion && switchingToCloud && roomId && typeof data.flushRoomToFirestore === 'function') {
         try {
-          // wait briefly for flush, but don’t hang the UI forever
+          // wait briefly for flush, but don't hang the UI forever
           await Promise.race([
             data.flushRoomToFirestore(roomId),
             new Promise((resolve) => window.setTimeout(resolve, 800)),
@@ -88,6 +90,30 @@ export const AppShell = () => {
           // ignore
         }
       }
+      
+      // If switching from Cloud to Local/Hybrid, save the current Cloud state BEFORE switching
+      // so CompanionDataProvider can use it for SYNC_ROOM_STATE.
+      if (currentlyCloud && switchingToCompanion && roomId) {
+        sessionStorage.setItem('ontime:justSwitchedFromCloud', 'true')
+        // Force-save the current Cloud state snapshot right now (before provider switch)
+        const room = data.getRoom(roomId)
+        const timers = data.getTimers(roomId)
+        if (room && timers) {
+          const snapshot = {
+            roomId,
+            savedAt: Date.now(),
+            room,
+            timers,
+          }
+          console.info('[mode-switch] saving Cloud snapshot before switch:', {
+            isRunning: room.state.isRunning,
+            startedAt: room.state.startedAt,
+            elapsedOffset: room.state.elapsedOffset,
+          })
+          window.localStorage.setItem(`ontime:cloudRoomSnapshot:${roomId}`, JSON.stringify(snapshot))
+        }
+      }
+      
       setMode(nextMode)
     }
   }, [data, location.pathname, mode, setMode])
@@ -181,6 +207,21 @@ export const AppShell = () => {
           </div>
         </div>
       </header>
+      {isDegraded && (
+        <div className="border-b border-amber-700/50 bg-amber-900/30 px-4 py-2 text-center text-sm text-amber-200">
+          <span className="font-semibold">Degraded:</span> Companion disconnected unexpectedly. Running in Cloud mode.{' '}
+          <button
+            type="button"
+            onClick={() => {
+              clearDegraded()
+              setIsConnectOpen(true)
+            }}
+            className="underline hover:text-white"
+          >
+            Reconnect Companion
+          </button>
+        </div>
+      )}
       <main
         className={
           isViewerRoute ? 'w-full px-0 py-4 sm:px-4' : 'mx-auto max-w-6xl px-4 py-10'

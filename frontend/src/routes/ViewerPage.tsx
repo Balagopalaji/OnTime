@@ -27,7 +27,7 @@ export const ViewerPage = () => {
     if (!roomId) return
     const token = window.localStorage.getItem('ontime:companionToken') ?? sessionStorage.getItem('ontime:companionToken')
     if (!token) return
-    const subscribeKey = `${roomId}::viewer::${token}`
+    const subscribeKey = `${roomId}::viewer::${token}::${selectedMode}`
     if (lastSubscribeRef.current === subscribeKey) return
     lastSubscribeRef.current = subscribeKey
     subscribeToRoom?.(roomId, token, 'viewer')

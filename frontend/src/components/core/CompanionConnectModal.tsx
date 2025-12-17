@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
+import { useCompanionConnection } from '../../context/CompanionConnectionContext'
 import { useDataContext } from '../../context/DataProvider'
 import { useAppMode } from '../../context/AppModeContext'
 
@@ -14,9 +15,13 @@ export const CompanionConnectModal = ({
   onClose: () => void
 }) => {
   const { mode, effectiveMode, setMode } = useAppMode()
+  const connection = useCompanionConnection()
   const ctx = useDataContext() as ReturnType<typeof useDataContext> & {
-    subscribeToRoom?: (roomId: string, token: string, clientType?: 'controller' | 'viewer') => void
-    handshakeStatus?: 'idle' | 'pending' | 'ack' | 'error'
+    subscribeToCompanionRoom?: (
+      roomId: string,
+      clientType: 'controller' | 'viewer',
+      tokenOverride?: string,
+    ) => void
   }
 
   const [roomId, setRoomId] = useState(() => window.localStorage.getItem(LAST_ROOM_KEY) ?? 'test-room')
@@ -25,13 +30,14 @@ export const CompanionConnectModal = ({
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [isFetching, setIsFetching] = useState(false)
 
-  const canConnect = Boolean(token.trim()) && Boolean(roomId.trim()) && typeof ctx.subscribeToRoom === 'function'
+  const canConnect =
+    Boolean(token.trim()) && Boolean(roomId.trim()) && typeof ctx.subscribeToCompanionRoom === 'function'
 
   const status = useMemo(() => {
-    const connection = ctx.connectionStatus ?? 'offline'
-    const handshake = ctx.handshakeStatus ?? 'unknown'
-    return { connection, handshake }
-  }, [ctx.connectionStatus, ctx.handshakeStatus])
+    const connectionStatus = connection.isConnected ? 'online' : 'offline'
+    const handshake = connection.handshakeStatus ?? 'unknown'
+    return { connection: connectionStatus, handshake }
+  }, [connection.handshakeStatus, connection.isConnected])
 
   const fetchToken = useCallback(async () => {
     setIsFetching(true)
@@ -66,7 +72,7 @@ export const CompanionConnectModal = ({
     window.localStorage.setItem(LAST_ROOM_KEY, r)
     window.localStorage.setItem(TOKEN_KEY, t)
     sessionStorage.setItem(TOKEN_KEY, t)
-    ctx.subscribeToRoom?.(r, t, clientType)
+    ctx.subscribeToCompanionRoom?.(r, clientType, t)
   }, [clientType, ctx, roomId, token])
 
   const enableCompanion = useCallback(() => {
@@ -165,7 +171,7 @@ export const CompanionConnectModal = ({
           </div>
         ) : null}
 
-        {typeof ctx.subscribeToRoom !== 'function' ? (
+        {typeof ctx.subscribeToCompanionRoom !== 'function' ? (
           <div className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/40 p-3 text-sm text-amber-200">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span>

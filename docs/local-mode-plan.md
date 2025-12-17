@@ -12,10 +12,12 @@ The frontend will support two distinct transport mechanisms:
 
 ### 2.1.1 App Modes (Operator UX)
 The UI exposes explicit modes to the operator:
-- **Cloud:** Firebase-only.
-- **Local:** Companion-only (works without internet).
-- **Hybrid (recommended):** Companion primary + Firestore best-effort when online.
-- **Auto:** If Companion is reachable, use Hybrid (or Local if internet is down); otherwise use Cloud.
+- **Cloud:** Firebase-only. No Companion required.
+- **Local:** Companion primary. **Still writes to Firestore when online** for backup/fallback.
+- **Hybrid:** Same as Local (Companion primary + Firestore write-through when online). Exists for clarity.
+- **Auto:** If Companion is reachable, use Local/Hybrid; otherwise use Cloud.
+
+**Design decision:** Local and Hybrid behave identically when online - both write to Firestore. This ensures seamless fallback to Cloud if Companion drops unexpectedly. The distinction is mainly for operator mental model; functionally they are equivalent when internet is available.
 
 ### 2.2 The Companion App (Electron)
 A lightweight Node.js/Electron application running on the operator's machine.
@@ -56,6 +58,9 @@ A lightweight Node.js/Electron application running on the operator's machine.
 *   `ERROR`: `{ type: "ERROR", code: string, message: string }`
 
 ### 3.2 Frontend Integration (`CompanionDataProvider`)
+
+> **Architecture Update (Phase 1D):** The original design described below has been superseded by the **Unified Data Provider Architecture**. See `docs/phase-1d-step3.5-refactor-plan.md` for the current approach, which runs Firebase and Companion connections **in parallel** rather than swapping providers.
+
 We will implement the `DataProvider` interface using a WebSocket client.
 *   **Connection:** Connects to `ws://localhost:4000` with auth token.
 *   **State Management:** Updates local React state on `ROOM_STATE_*` events.
