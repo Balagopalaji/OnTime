@@ -30,7 +30,7 @@ import {
 } from './DataContext'
 import { useAuth } from './AuthContext'
 
-const isTestEnv = Boolean((import.meta as any)?.vitest)
+const isTestEnv = Boolean((import.meta as unknown as { vitest?: unknown })?.vitest)
 
 const STORAGE_KEY = 'stagetime.mockState.v1'
 
@@ -41,6 +41,7 @@ const DEFAULT_CONFIG = {
 
 const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const reorderOwnedRooms = (
   rooms: Room[],
   ownerId: string | undefined,
@@ -331,28 +332,22 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const pendingNudgeRef = useRef<Record<string, number>>({})
   const delayHandlesRef = useRef<PendingTimeout[]>([])
   const isMountedRef = useRef(true)
-  const safeDelayRef = useRef<(ms?: number) => Promise<void>>()
-
-  if (!safeDelayRef.current) {
-    safeDelayRef.current = (ms?: number) => {
-      if (!isMountedRef.current) {
-        return Promise.resolve()
-      }
-      const delayMs = ms ?? 0
-      if (delayMs <= 0) {
-        return Promise.resolve()
-      }
-      return new Promise<void>((resolve) => {
-        const handle = setTimeout(() => {
-          delayHandlesRef.current = delayHandlesRef.current.filter(
-            (entry) => entry.handle !== handle,
-          )
-          resolve()
-        }, delayMs)
-        delayHandlesRef.current.push({ handle, resolve })
-      })
+  const safeDelayRef = useRef<(ms?: number) => Promise<void>>((ms?: number) => {
+    if (!isMountedRef.current) {
+      return Promise.resolve()
     }
-  }
+    const delayMs = ms ?? 0
+    if (delayMs <= 0) {
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => {
+      const handle = setTimeout(() => {
+        delayHandlesRef.current = delayHandlesRef.current.filter((entry) => entry.handle !== handle)
+        resolve()
+      }, delayMs)
+      delayHandlesRef.current.push({ handle, resolve })
+    })
+  })
 
   useEffect(
     () => () => {

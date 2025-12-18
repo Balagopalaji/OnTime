@@ -137,6 +137,7 @@ export const AppShell = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      {!isViewerRoute && (
       <header className="border-b border-slate-900/60 bg-slate-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <Link to="/" className="text-lg font-semibold text-white">
@@ -224,6 +225,7 @@ export const AppShell = () => {
           </div>
         </div>
       </header>
+      )}
       {/* Degraded banner removed for a cleaner, less noisy UI; status is still visible in the header badge. */}
       <main
         className={
