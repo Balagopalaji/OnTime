@@ -377,6 +377,13 @@ frontend/src/context/UnifiedDataContext.tsx
 
 **Acceptance Criteria:**
 - [ ] No manual Companion subscription in pages
+
+---
+
+## Status (Phase 1D Step 3.5)
+- Step 6 (Page Updates) completed: Controller/Viewer now rely on UnifiedDataResolver, syncing banner scoped to pending Companion authority, viewer header hidden for minimal UI, dashboard tiles auto-refresh in local/hybrid.
+- Step 7 (Validation) covered via lint/Vitest + manual multi-tab/mode/Companion restart checks.
+- Open follow-up: `src/__tests__/reorderRoom.mock.test.tsx` remains skipped (MockDataContext side-effects); consider refactoring MockDataContext for testability if we want this restored.
 - [ ] Controller shows "Syncing to Companion..." banner during transition
 - [ ] Viewer works without "Syncing" state
 - [ ] Both pages consume data via `useDataContext()` unchanged

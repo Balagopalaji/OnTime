@@ -668,18 +668,14 @@ export const ControllerPage = () => {
               <ShareLinkButton roomId={room.id} />
             </div>
           </div>
-          {roomAuthority?.status && roomAuthority.status !== 'ready' && (
+          {roomAuthority?.status === 'syncing' && effectiveMode !== 'cloud' && (
             <div
               className={`mt-4 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
-                roomAuthority.status === 'syncing'
-                  ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
-                  : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                'border-sky-500/40 bg-sky-500/10 text-sky-200'
               }`}
             >
               <AlertTriangle size={16} />
-              {roomAuthority.status === 'syncing'
-                ? 'Syncing with Companion...'
-                : 'Companion disconnected. Showing cloud data.'}
+              Syncing with Companion...
             </div>
           )}
           {connectionStatus !== 'online' && (
