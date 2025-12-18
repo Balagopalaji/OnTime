@@ -18,4 +18,5 @@
 
 ## Notes
 - Phase 1 docs are retained for reference; active work should anchor on the PRDs, architecture update, and protocol docs above.
+- Migration: v2 is the baseline (no users on v1); migration content is archived.
 - Keep secrets in `.env.local` (frontend). Do not commit Firebase credentials.
