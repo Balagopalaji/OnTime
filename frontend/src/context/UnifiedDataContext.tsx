@@ -199,6 +199,23 @@ const translateCompanionStateToFirebase = (
   }
 }
 
+export const isSnapshotStale = (
+  state: Room['state'],
+  snapshotTimestamp: number,
+  now: number = Date.now(),
+): boolean => {
+  const age = now - snapshotTimestamp
+  if (state.isRunning) {
+    return age > 30_000
+  }
+  const hasProgress =
+    (state.elapsedOffset ?? 0) > 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) > 0)
+  if (hasProgress) {
+    return age > 24 * 60 * 60 * 1000
+  }
+  return false
+}
+
 const buildRoomFromCompanion = (
   roomId: string,
   companionState: CompanionRoomState,
@@ -653,6 +670,29 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleRoomStateSnapshot = (payload: RoomStateSnapshotPayload) => {
+      const baseRoom = firebase.getRoom(payload.roomId)
+      const translatedState = translateCompanionStateToFirebase(payload.state, baseRoom?.state)
+      const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
+      if (isSnapshotStale(translatedState, snapshotTs)) {
+        if (debugCompanion) {
+          console.info('[companion] snapshot stale, ignoring', {
+            roomId: payload.roomId,
+            age: Date.now() - snapshotTs,
+            isRunning: translatedState.isRunning,
+          })
+        }
+        removePendingSyncRoom(payload.roomId)
+        setRoomAuthority((prev) => ({
+          ...prev,
+          [payload.roomId]: {
+            source: 'cloud',
+            status: 'ready',
+            lastSyncAt: Date.now(),
+          },
+        }))
+        return
+      }
+
       setCompanionRooms((prev) => ({
         ...prev,
         [payload.roomId]: {
@@ -816,6 +856,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     removePendingSyncRoom,
     replayRoomQueue,
     socket,
+    firebase,
   ])
 
   useEffect(() => {

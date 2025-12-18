@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { MockDataProvider } from '../context/MockDataContext'
 import { useDataContext } from '../context/DataProvider'
@@ -13,11 +13,20 @@ vi.mock('../lib/utils', async () => {
 })
 
 describe.skip('reorderRoom (mock provider)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
   it('persists custom order when dragging rooms', async () => {
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MockDataProvider>{children}</MockDataProvider>
     )
-    const { result } = renderHook(() => useDataContext(), { wrapper })
+    const { result, unmount } = renderHook(() => useDataContext(), { wrapper })
 
     await act(async () => {
       await result.current.createRoom({ title: 'First', timezone: 'UTC', ownerId: 'user-1' })
@@ -34,5 +43,8 @@ describe.skip('reorderRoom (mock provider)', () => {
     const reordered = result.current.rooms.filter((room) => room.ownerId === 'user-1')
     expect(reordered.map((room) => room.title)).toEqual(['Second', 'First'])
     expect(reordered[0]?.order).toBeLessThan(reordered[1]?.order ?? Infinity)
+
+    vi.runAllTimers()
+    unmount()
   })
 })
