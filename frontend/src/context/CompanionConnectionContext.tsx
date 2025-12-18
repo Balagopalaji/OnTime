@@ -115,7 +115,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const handleConnect = () => {
       if (debugCompanion) console.info('[companion] connect')
       setIsConnected(true)
-      setHandshakeStatus('pending')
+      // Stay idle until a room join drives a handshake ACK/ERROR.
+      setHandshakeStatus('idle')
     }
     const handleDisconnect = () => {
       if (debugCompanion) console.info('[companion] disconnect')

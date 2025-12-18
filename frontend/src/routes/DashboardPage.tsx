@@ -49,6 +49,7 @@ export const DashboardPage = () => {
     createRoom,
     deleteRoom,
     updateRoomMeta,
+    getRoom,
     getTimers,
     pendingRooms,
     pendingRoomPlaceholders,
@@ -1355,14 +1356,17 @@ export const DashboardPage = () => {
   }
 
   const formatRemaining = (roomId: string) => {
-    if (!canManageCloudRooms) return '—'
-    const room = displayedRooms.find((r) => r.id === roomId)
-    if (!room) return '—'
+    // Prefer live room from data context (handles companion authority), fall back to displayed list.
+    const liveRoom = getRoom(roomId) ?? displayedRooms.find((r) => r.id === roomId)
+    if (!liveRoom) return '—'
     const timers = getTimers(roomId)
-    const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-    if (!active) return 'No active timer'
-    const baseElapsed = room.state.progress?.[active.id] ?? 0
-    const runningElapsed = room.state.isRunning && room.state.startedAt ? now - room.state.startedAt + baseElapsed : baseElapsed
+    const active = timers.find((timer) => timer.id === liveRoom.state.activeTimerId) ?? timers[0]
+    if (!active) return 'No timers'
+    const baseElapsed = liveRoom.state.progress?.[active.id] ?? 0
+    const runningElapsed =
+      liveRoom.state.isRunning && liveRoom.state.startedAt
+        ? now - liveRoom.state.startedAt + baseElapsed
+        : baseElapsed
     const remainingMs = active.duration * 1000 - runningElapsed
     const isNegative = remainingMs < 0
     const absMs = Math.abs(remainingMs)

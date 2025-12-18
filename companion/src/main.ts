@@ -482,21 +482,13 @@ function isActiveController(roomId: string, clientId: string | undefined): boole
 }
 
 function enforceControllerAccess(socket: Socket, roomId: string): boolean {
+  // Multi-controller: allow all controllers; viewers are still blocked at call sites where needed.
   const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
-  const clientId = socket.data?.clientId as string | undefined;
   if (clientType !== 'controller') {
     socket.emit('ERROR', {
       type: 'ERROR',
       code: 'PERMISSION_DENIED',
       message: 'Only the controller can perform this action.',
-    });
-    return false;
-  }
-  if (!isActiveController(roomId, clientId)) {
-    socket.emit('ERROR', {
-      type: 'ERROR',
-      code: 'PERMISSION_DENIED',
-      message: 'Another controller is currently active for this room.',
     });
     return false;
   }
@@ -804,35 +796,8 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
 
   const requestedType = socket.data.clientType as 'controller' | 'viewer';
   if (requestedType === 'controller') {
-    const existing = roomControllerStore.get(payload.roomId);
-    if (existing && existing.clientId !== clientId) {
-      if (payload.takeOver) {
-        console.log(
-          `[ws] controller takeover room=${payload.roomId} new=${clientId} old=${existing.clientId}`
-        );
-        const oldSocket = io?.sockets?.sockets.get(existing.socketId);
-        if (oldSocket) {
-          oldSocket.emit('ERROR', {
-            type: 'ERROR',
-            code: 'CONTROLLER_TAKEN_OVER',
-            message: 'Another controller has taken over this room.',
-          });
-          oldSocket.disconnect(true);
-        }
-        roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
-      } else {
-        const error: HandshakeError = {
-          type: 'HANDSHAKE_ERROR',
-          code: 'CONTROLLER_TAKEN',
-          message: 'Room already has an active controller. Use takeOver=true to claim control.',
-        };
-        socket.emit('HANDSHAKE_ERROR', error);
-        socket.disconnect(true);
-        return;
-      }
-    } else {
-      roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
-    }
+    // Multi-controller allowed: track latest controller but do not reject others.
+    roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
   }
 
   const ack: HandshakeAck = {
