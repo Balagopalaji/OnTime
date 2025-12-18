@@ -235,6 +235,7 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
 })
 
 const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
+  const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
   const { effectiveMode } = useAppMode()
   const { socket, handshakeStatus, token, fetchToken, clearToken } = useCompanionConnection()
@@ -259,6 +260,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const tokenRefreshInFlightRef = useRef(false)
   const isReplayingRef = useRef(false)
   const firestoreEnabled = typeof navigator === 'undefined' || navigator.onLine
+  const isViewerClient = useCallback(
+    (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
+    [],
+  )
 
   useEffect(() => {
     subscribedRoomsRef.current = subscribedRooms
@@ -359,6 +364,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         if (!socket.connected && !socket.active) {
           socket.connect()
         }
+        if (debugCompanion) {
+          console.info('[companion] JOIN_ROOM', { roomId, clientType, clientId })
+        }
         socket.emit('JOIN_ROOM', {
           type: 'JOIN_ROOM',
           roomId,
@@ -368,7 +376,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       })()
     },
-    [addPendingSyncRoom, clientId, effectiveMode, fetchToken, socket, token],
+    [addPendingSyncRoom, clientId, debugCompanion, effectiveMode, fetchToken, socket, token],
   )
 
   const unsubscribeFromCompanionRoom = useCallback((roomId: string) => {
@@ -549,9 +557,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         sourceClientId: clientId,
         timestamp: Date.now(),
       }
+      if (debugCompanion) {
+        console.info('[companion] SYNC_ROOM_STATE emit', {
+          roomId,
+          timersCount: timers.length,
+          currentTime,
+        })
+      }
       socket.emit('SYNC_ROOM_STATE', payload)
     },
-    [clientId, computeCurrentTimeWithProgress, firebase, socket],
+    [clientId, computeCurrentTimeWithProgress, debugCompanion, firebase, socket],
   )
 
   useEffect(() => {
@@ -632,7 +647,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const subscription = subscribedRoomsRef.current[payload.roomId]
       if (subscription?.clientType === 'controller' && pendingSyncRoomsRef.current.has(payload.roomId)) {
         emitSyncRoomState(payload.roomId)
-        return
+        removePendingSyncRoom(payload.roomId)
       }
 
       setRoomAuthority((prev) => ({
@@ -643,6 +658,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           lastSyncAt: Date.now(),
         },
       }))
+
+      if (debugCompanion) {
+        console.info('[companion] ROOM_STATE_SNAPSHOT', {
+          roomId: payload.roomId,
+          lastUpdate: payload.state.lastUpdate,
+        })
+      }
 
       replayRoomQueue(payload.roomId)
     }
@@ -674,6 +696,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           lastSyncAt: Date.now(),
         },
       }))
+
+      if (debugCompanion) {
+        console.info('[companion] ROOM_STATE_DELTA', {
+          roomId: payload.roomId,
+          changes: payload.changes,
+        })
+      }
 
       replayRoomQueue(payload.roomId)
     }
@@ -761,6 +790,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     clientId,
     clearPendingSyncRooms,
     clearToken,
+    debugCompanion,
     emitSyncRoomState,
     fetchToken,
     removePendingSyncRoom,
@@ -828,6 +858,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const createTimer = useCallback<DataContextValue['createTimer']>(
     async (roomId, input) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot create timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.createTimer(roomId, input)
       }
@@ -881,11 +915,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       return timer
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
   )
 
   const updateTimer = useCallback<DataContextValue['updateTimer']>(
     async (roomId, timerId, patch) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot update timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.updateTimer(roomId, timerId, patch)
       }
@@ -918,11 +956,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         )
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
   )
 
   const deleteTimer = useCallback<DataContextValue['deleteTimer']>(
     async (roomId, timerId) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot delete timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.deleteTimer(roomId, timerId)
       }
@@ -964,11 +1006,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         await deleteDoc(timerRef).catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
   )
 
   const reorderTimer = useCallback<DataContextValue['reorderTimer']>(
     async (roomId, timerId, targetIndex) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot reorder timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.reorderTimer(roomId, timerId, targetIndex)
       }
@@ -1003,11 +1049,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         await batch.commit().catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
   )
 
   const moveTimer = useCallback(
     async (roomId: string, timerId: string, direction: 'up' | 'down') => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot move timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         if (!firebase.moveTimer) return
         return firebase.moveTimer(roomId, timerId, direction)
@@ -1018,11 +1068,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const targetIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1
       return reorderTimer(roomId, timerId, targetIndex)
     },
-    [firebase, reorderTimer, shouldUseCompanion],
+    [firebase, isViewerClient, reorderTimer, shouldUseCompanion],
   )
 
   const emitTimerAction = useCallback(
     (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET') => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot control timers', roomId)
+        return
+      }
       const timestamp = Date.now()
       const payload: QueuedEvent = {
         type: 'TIMER_ACTION',
@@ -1072,11 +1126,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
     },
-    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestoreEnabled],
+    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestoreEnabled, isViewerClient],
   )
 
   const startTimer = useCallback<DataContextValue['startTimer']>(
     async (roomId, timerId) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot start timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.startTimer(roomId, timerId)
       }
@@ -1098,11 +1156,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }))
       emitTimerAction(roomId, targetId, 'START')
     },
-    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, shouldUseCompanion],
+    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, isViewerClient, shouldUseCompanion],
   )
 
   const pauseTimer = useCallback<DataContextValue['pauseTimer']>(
     async (roomId) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot pause timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.pauseTimer(roomId)
       }
@@ -1124,11 +1186,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }))
       emitTimerAction(roomId, targetId, 'PAUSE')
     },
-    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, shouldUseCompanion],
+    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, isViewerClient, shouldUseCompanion],
   )
 
   const resetTimer = useCallback<DataContextValue['resetTimer']>(
     async (roomId) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot reset timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.resetTimer(roomId)
       }
@@ -1149,7 +1215,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }))
       emitTimerAction(roomId, targetId, 'RESET')
     },
-    [emitTimerAction, ensureCompanionRoomState, firebase, shouldUseCompanion],
+    [emitTimerAction, ensureCompanionRoomState, firebase, isViewerClient, shouldUseCompanion],
   )
 
   const value = useMemo<UnifiedDataContextValue>(

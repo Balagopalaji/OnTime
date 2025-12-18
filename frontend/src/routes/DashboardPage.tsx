@@ -60,14 +60,29 @@ export const DashboardPage = () => {
   } = useDataContext()
 
   const canManageCloudRooms = effectiveMode === 'cloud'
+  const hasFirebaseConfig = Boolean(
+    import.meta.env.VITE_FIREBASE_API_KEY &&
+      import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+      import.meta.env.VITE_FIREBASE_APP_ID,
+  )
   const cacheUid = user?.uid ?? (typeof window !== 'undefined' ? window.localStorage.getItem('ontime:lastAuthUid') : null)
   const roomsCacheKey = cacheUid ? `ontime:cloudRoomsCache:${cacheUid}` : null
   const [cloudRooms, setCloudRooms] = useState<Room[]>([])
   const [cloudRoomsStatus, setCloudRoomsStatus] = useState<'idle' | 'loading' | 'online' | 'offline' | 'error'>('idle')
   const [cloudRoomsError, setCloudRoomsError] = useState<string | null>(null)
   const [companionReachable, setCompanionReachable] = useState(false)
+  const canCreateRooms =
+    hasFirebaseConfig && Boolean(user?.uid) && (typeof navigator === 'undefined' ? true : navigator.onLine)
 
-  const displayedRooms = canManageCloudRooms ? rooms : cloudRooms
+  const displayedRooms = useMemo(() => {
+    if (canManageCloudRooms) return rooms
+    const merged = new Map<string, Room>()
+    rooms.forEach((room) => merged.set(room.id, room))
+    cloudRooms.forEach((room) => {
+      if (!merged.has(room.id)) merged.set(room.id, room)
+    })
+    return [...merged.values()]
+  }, [canManageCloudRooms, cloudRooms, rooms])
 
   useEffect(() => {
     if (!roomsCacheKey) {
@@ -92,12 +107,6 @@ export const DashboardPage = () => {
 
     // Always hydrate from cache first (helps offline/local modes).
     setCloudRooms(readCache())
-
-    const hasFirebaseConfig = Boolean(
-      import.meta.env.VITE_FIREBASE_API_KEY &&
-        import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-        import.meta.env.VITE_FIREBASE_APP_ID,
-    )
 
     const toMillis = (val: unknown, fallback: number | null = null): number | null => {
       if (typeof val === 'number') return val
@@ -201,7 +210,7 @@ export const DashboardPage = () => {
     const handleOnline = () => void fetchOwnedRooms()
     window.addEventListener('online', handleOnline)
     return () => window.removeEventListener('online', handleOnline)
-  }, [cacheUid, canManageCloudRooms, roomsCacheKey, user])
+  }, [cacheUid, canManageCloudRooms, hasFirebaseConfig, roomsCacheKey, user])
 
   useEffect(() => {
     let cancelled = false
@@ -1403,7 +1412,9 @@ export const DashboardPage = () => {
                     ? 'Loading rooms from Firestore…'
                     : cloudRoomsStatus === 'error'
                       ? `Failed to load rooms: ${cloudRoomsError ?? 'unknown error'}`
-                      : 'Showing latest Firestore rooms.'}
+                      : cloudRoomsStatus === 'offline'
+                        ? 'Offline: showing cached rooms (may be stale).'
+                        : 'Showing latest Firestore rooms.'}
               </p>
             </div>
             <button
@@ -1423,8 +1434,8 @@ export const DashboardPage = () => {
             <button
               type="button"
               onClick={async () => {
-                if (!canManageCloudRooms) {
-                  window.alert('Switch to Cloud mode to create rooms.')
+                if (!canCreateRooms) {
+                  window.alert('Connect to the internet and sign in to create rooms.')
                   return
                 }
                 setIsCreating(true)
@@ -1434,7 +1445,7 @@ export const DashboardPage = () => {
                   setIsCreating(false)
                 }
               }}
-              disabled={isCreating || !canManageCloudRooms}
+              disabled={isCreating || !canCreateRooms}
               className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-70"
             >
               <Plus size={16} />
@@ -1458,21 +1469,19 @@ export const DashboardPage = () => {
               </option>
             </select>
           </label>
-          {isCustomSort && (
-            <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Columns</span>
-              <select
-                value={columnCount}
-                onChange={(event) => setColumnCount(Number(event.target.value) as 1 | 2 | 3 | 4)}
-                className="rounded-full border border-slate-800 bg-slate-900 px-2 py-1 text-xs uppercase tracking-wide text-slate-200"
-              >
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-                <option value={3}>3</option>
-                <option value={4}>4</option>
-              </select>
-            </label>
-          )}
+          <label className="flex items-center gap-2">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Columns</span>
+            <select
+              value={columnCount}
+              onChange={(event) => setColumnCount(Number(event.target.value) as 1 | 2 | 3 | 4)}
+              className="rounded-full border border-slate-800 bg-slate-900 px-2 py-1 text-xs uppercase tracking-wide text-slate-200"
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+              <option value={4}>4</option>
+            </select>
+          </label>
           <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
             {ownedRooms.length} rooms
           </span>

@@ -53,6 +53,7 @@ const readStoredToken = (): string | null => {
 }
 
 export const CompanionConnectionProvider = ({ children }: { children: ReactNode }) => {
+  const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const socket = useMemo<Socket | null>(() => {
     if (typeof window === 'undefined') return null
     return io('http://localhost:4000', {
@@ -112,24 +113,29 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   useEffect(() => {
     if (!socket) return
     const handleConnect = () => {
+      if (debugCompanion) console.info('[companion] connect')
       setIsConnected(true)
       setHandshakeStatus('pending')
     }
     const handleDisconnect = () => {
+      if (debugCompanion) console.info('[companion] disconnect')
       setIsConnected(false)
       setHandshakeStatus('idle')
     }
     const handleConnectError = () => {
+      if (debugCompanion) console.warn('[companion] connect_error')
       setIsConnected(false)
       setHandshakeStatus('error')
     }
     const handleHandshakeAck = (data: HandshakeAck) => {
+      if (debugCompanion) console.info('[companion] HANDSHAKE_ACK', data)
       setCompanionMode(data.companionMode)
       setCapabilities(data.capabilities)
       setSystemInfo(data.systemInfo)
       setHandshakeStatus('ack')
     }
     const handleHandshakeError = () => {
+      if (debugCompanion) console.warn('[companion] HANDSHAKE_ERROR')
       setHandshakeStatus('error')
     }
 
@@ -151,7 +157,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       socket.off('HANDSHAKE_ERROR', handleHandshakeError)
       socket.disconnect()
     }
-  }, [socket])
+  }, [debugCompanion, socket])
 
   const value = useMemo(
     () => ({

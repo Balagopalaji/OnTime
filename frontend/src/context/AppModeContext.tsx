@@ -6,6 +6,7 @@ export type AppMode = 'auto' | 'cloud' | 'local' | 'hybrid'
 export type EffectiveAppMode = Exclude<AppMode, 'auto'>
 
 const STORAGE_KEY = 'ontime:appMode'
+const MODE_CHANNEL_NAME = 'ontime:appMode:channel'
 
 type AppModeContextValue = {
   mode: AppMode
@@ -48,6 +49,13 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
     setIsDegraded(false)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(STORAGE_KEY, next)
+      try {
+        const channel = new BroadcastChannel(MODE_CHANNEL_NAME)
+        channel.postMessage(next)
+        channel.close()
+      } catch {
+        // ignore
+      }
     }
   }, [])
 
@@ -91,6 +99,38 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY || !event.newValue) return
+      const next = event.newValue as AppMode
+      if (next === mode) return
+      setModeState(next)
+      setIsDegraded(false)
+    }
+
+    let channel: BroadcastChannel | null = null
+    try {
+      channel = new BroadcastChannel(MODE_CHANNEL_NAME)
+      channel.onmessage = (event: MessageEvent) => {
+        const next = event.data as AppMode
+        if (!next || next === mode) return
+        setModeState(next)
+        setIsDegraded(false)
+      }
+    } catch {
+      channel = null
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      if (channel) {
+        channel.onmessage = null
+        channel.close()
+      }
+    }
+  }, [mode])
 
   const value = useMemo(
     () => ({ mode, effectiveMode, setMode, triggerCompanionFallback, isDegraded, clearDegraded }),
