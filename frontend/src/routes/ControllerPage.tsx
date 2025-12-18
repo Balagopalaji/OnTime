@@ -22,10 +22,12 @@ import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
+import { useCompanionConnection } from '../context/CompanionConnectionContext'
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
+  const { isConnected, handshakeStatus } = useCompanionConnection()
   const ctx = useDataContext()
   const {
     getRoom,
@@ -56,6 +58,43 @@ export const ControllerPage = () => {
     subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
   }).subscribeToCompanionRoom
   const lastJoinKeyRef = useRef<string | null>(null)
+  const lastActivityRef = useRef<number>(Date.now())
+  const debugCompanion =
+    typeof import.meta !== 'undefined' &&
+    ((import.meta as unknown as { env?: Record<string, unknown> }).env?.VITE_DEBUG_COMPANION === 'true')
+
+  const ensureCompanionJoin = useCallback(
+    (options?: { force?: boolean; reason?: string }) => {
+      if (!roomId) return
+      if (effectiveMode === 'cloud') return
+      if (!subscribeToCompanionRoom) return
+      if (!isConnected || handshakeStatus === 'idle') return
+      const joinKey = `${roomId}::controller::${effectiveMode}`
+      if (!options?.force && lastJoinKeyRef.current === joinKey) return
+      lastJoinKeyRef.current = joinKey
+      if (debugCompanion) {
+        console.info(
+          `[Companion] auto-joining controller for room ${roomId} (${effectiveMode}) reason=${options?.reason ?? 'auto'}`,
+        )
+      }
+      subscribeToCompanionRoom(roomId, 'controller')
+    },
+    [debugCompanion, effectiveMode, handshakeStatus, isConnected, roomId, subscribeToCompanionRoom],
+  )
+
+  const bumpCompanionOnActivity = useCallback(
+    (reason: string) => {
+      if (!subscribeToCompanionRoom) return
+      if (effectiveMode === 'cloud') return
+      if (!isConnected || handshakeStatus === 'idle') return
+      const now = Date.now()
+      const idleMs = now - lastActivityRef.current
+      lastActivityRef.current = now
+      if (idleMs < 60_000) return
+      ensureCompanionJoin({ force: true, reason })
+    },
+    [effectiveMode, ensureCompanionJoin, handshakeStatus, isConnected, subscribeToCompanionRoom],
+  )
 
   const room = roomId ? getRoom(roomId) : undefined
   const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
@@ -63,6 +102,26 @@ export const ControllerPage = () => {
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
   )
+
+  useEffect(() => {
+    lastActivityRef.current = Date.now()
+    ensureCompanionJoin({ reason: 'auto' })
+  }, [ensureCompanionJoin, roomId])
+
+  useEffect(() => {
+    if (!subscribeToCompanionRoom) return
+    const handleMouseMove = () => {
+      if (effectiveMode === 'cloud') return
+      if (!isConnected || handshakeStatus === 'idle') return
+      const now = Date.now()
+      const idleMs = now - lastActivityRef.current
+      if (idleMs <= 300_000) return
+      lastActivityRef.current = now
+      ensureCompanionJoin({ force: true, reason: 'idle-move' })
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [effectiveMode, ensureCompanionJoin, handshakeStatus, isConnected, subscribeToCompanionRoom])
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id
@@ -123,16 +182,6 @@ export const ControllerPage = () => {
   }, [setPlaceholderNow])
 
   useEffect(() => {
-    if (!roomId) return
-    if (effectiveMode === 'cloud') return
-    if (!subscribeToCompanionRoom) return
-    const joinKey = `${roomId}::controller::${effectiveMode}`
-    if (lastJoinKeyRef.current === joinKey) return
-    lastJoinKeyRef.current = joinKey
-    subscribeToCompanionRoom(roomId, 'controller')
-  }, [effectiveMode, roomId, subscribeToCompanionRoom])
-
-  useEffect(() => {
     if (!room) return
     setTitleInput(room.title)
     setTimezoneInput(room.timezone)
@@ -167,11 +216,13 @@ export const ControllerPage = () => {
 
   const startControlTimer = () => {
     if (!currentRoomId || !controlTargetTimerId) return
+    bumpCompanionOnActivity('play')
     void startTimer(currentRoomId, controlTargetTimerId)
   }
 
   const pauseControlTimer = () => {
     if (!currentRoomId || !controlTargetTimerId) return
+    bumpCompanionOnActivity('pause')
     if (controlTargetTimerId !== room.state.activeTimerId) {
       void setActiveTimer(room.id, controlTargetTimerId)
     }
@@ -180,6 +231,7 @@ export const ControllerPage = () => {
 
   const resetControlTimer = () => {
     if (!currentRoomId || !controlTargetTimerId) return
+    bumpCompanionOnActivity('reset')
     if (controlTargetTimerId === room.state.activeTimerId) {
       void resetTimer(currentRoomId)
       return
@@ -189,6 +241,7 @@ export const ControllerPage = () => {
 
   const nudgeActiveTimer = (deltaMs: number) => {
     if (!currentRoomId || !room) return
+    bumpCompanionOnActivity('nudge')
     if (room.state.isRunning) {
       void nudgeTimer(currentRoomId, deltaMs)
       return
@@ -209,6 +262,7 @@ export const ControllerPage = () => {
 
   const handleReorderTimer = (sourceId: string, targetIndex: number) => {
     if (!currentRoomId) return
+    bumpCompanionOnActivity('reorder')
     void reorderTimer(currentRoomId, sourceId, targetIndex)
   }
 
@@ -232,17 +286,19 @@ export const ControllerPage = () => {
 
   const handleStartPrevTimer = useCallback(() => {
     if (!prevTimer || !room) return
+    bumpCompanionOnActivity('set-active')
     setSelectedTimerId(prevTimer.id)
     setShortcutScope('controls')
     void setActiveTimer(room.id, prevTimer.id)
-  }, [prevTimer, room, setActiveTimer])
+  }, [prevTimer, room, setActiveTimer, bumpCompanionOnActivity])
 
   const handleStartNextTimer = useCallback(() => {
     if (!nextTimer || !room) return
+    bumpCompanionOnActivity('set-active')
     setSelectedTimerId(nextTimer.id)
     setShortcutScope('controls')
     void setActiveTimer(room.id, nextTimer.id)
-  }, [nextTimer, room, setActiveTimer])
+  }, [nextTimer, room, setActiveTimer, bumpCompanionOnActivity])
 
   const handleToggleClock = () => {
     if (!room) return
@@ -325,12 +381,13 @@ export const ControllerPage = () => {
   }
 
   const handleResetTimer = (timerId: string) => {
-    if (!currentRoomId) return
+    if (!room) return
+    bumpCompanionOnActivity('reset')
     if (room.state.activeTimerId === timerId) {
-      resetControlTimer()
-    } else {
-      void resetTimerProgress(currentRoomId, timerId)
+      void resetTimer(room.id)
+      return
     }
+    void resetTimerProgress(room.id, timerId)
   }
 
   const pendingStagedDelta = useRef(0)
@@ -374,6 +431,7 @@ export const ControllerPage = () => {
       const signedDelta = direction === 'up' ? deltaMs : -deltaMs
 
       if (adjustSelected) {
+        bumpCompanionOnActivity('nudge')
         pendingStagedDelta.current += signedDelta
         if (!stagedFlush.current) {
           stagedFlush.current = window.setTimeout(flushStaged, 100)
@@ -382,6 +440,7 @@ export const ControllerPage = () => {
       }
 
       if (!currentRoomId || !room) return
+      bumpCompanionOnActivity('nudge')
       if (room.state.isRunning) {
         void nudgeTimer(currentRoomId, signedDelta)
       } else if (activeTimer) {
@@ -500,6 +559,7 @@ export const ControllerPage = () => {
     handleStartNextTimer,
     handleStartPrevTimer,
     flushStaged,
+    bumpCompanionOnActivity,
   ])
 
   if (!room || !roomId) {
@@ -891,6 +951,7 @@ export const ControllerPage = () => {
             onStart={(timerId) => {
               setSelectedTimerId(timerId)
               setShortcutScope('rundown')
+              bumpCompanionOnActivity('start')
               void startTimer(room.id, timerId)
             }}
             onDelete={handleDeleteTimer}
