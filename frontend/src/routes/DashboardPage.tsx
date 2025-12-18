@@ -8,6 +8,7 @@ import { SortableList } from '../components/sortable/SortableList'
 import { Tooltip } from '../components/core/Tooltip'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
+import type { DataContextValue } from '../context/DataContext'
 import { db } from '../lib/firebase'
 import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
@@ -44,6 +45,9 @@ export const DashboardPage = () => {
       }
     }
   }, [user?.uid])
+  const dataContext = useDataContext() as DataContextValue & {
+    subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer', tokenOverride?: string) => void
+  }
   const {
     rooms,
     createRoom,
@@ -58,7 +62,8 @@ export const DashboardPage = () => {
     reorderRoom,
     migrateRoomToV2,
     rollbackRoomMigration,
-  } = useDataContext()
+    subscribeToCompanionRoom,
+  } = dataContext
 
   const canManageCloudRooms = effectiveMode === 'cloud'
   const hasFirebaseConfig = Boolean(
@@ -257,6 +262,18 @@ export const DashboardPage = () => {
       return null
     }
   }, [])
+
+  useEffect(() => {
+    if (effectiveMode === 'cloud') return
+    if (!subscribeToCompanionRoom) return
+    void (async () => {
+      const token = await ensureCompanionToken()
+      if (!token) return
+      displayedRooms.forEach((room) => {
+        subscribeToCompanionRoom(room.id, 'viewer', token)
+      })
+    })()
+  }, [displayedRooms, effectiveMode, ensureCompanionToken, subscribeToCompanionRoom])
 
   const openControllerInMode = useCallback(
     async (roomId: string, target: 'cloud' | 'hybrid' | 'local') => {
@@ -1412,8 +1429,7 @@ export const DashboardPage = () => {
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Cloud rooms</p>
               <p className="mt-1">
-                You&apos;re currently in <span className="font-mono">{mode === 'auto' ? `auto (${effectiveMode})` : effectiveMode}</span>{' '}
-                mode. Cloud rooms are shown here; switch to <span className="font-semibold">Cloud</span> to edit.
+                Cloud rooms are visible in {mode === 'auto' ? `auto (${effectiveMode})` : effectiveMode} mode; switch to <span className="font-semibold">Cloud</span> to edit.
               </p>
               <p className="mt-1 text-xs text-slate-400">
                 {cloudRoomsStatus === 'offline'
@@ -1422,9 +1438,7 @@ export const DashboardPage = () => {
                     ? 'Loading rooms from Firestore…'
                     : cloudRoomsStatus === 'error'
                       ? `Failed to load rooms: ${cloudRoomsError ?? 'unknown error'}`
-                      : cloudRoomsStatus === 'offline'
-                        ? 'Offline: showing cached rooms (may be stale).'
-                        : 'Showing latest Firestore rooms.'}
+                      : 'Showing latest Firestore rooms.'}
               </p>
             </div>
             <button

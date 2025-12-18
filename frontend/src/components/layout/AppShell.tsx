@@ -11,7 +11,7 @@ export const AppShell = () => {
   const location = useLocation()
   const isAuthed = Boolean(user)
   const isViewerRoute = /\/room\/[^/]+\/view$/.test(location.pathname)
-  const { mode, effectiveMode, setMode, isDegraded, clearDegraded } = useAppMode()
+  const { mode, effectiveMode, setMode } = useAppMode()
   const data = useDataContext() as ReturnType<typeof useDataContext> & {
     flushRoomToFirestore?: (roomId: string) => Promise<void>
   }
@@ -118,6 +118,23 @@ export const AppShell = () => {
     }
   }, [data, location.pathname, mode, setMode])
 
+  const handleQuickConnect = useMemo(
+    () => async () => {
+      // Best-effort silent connect: fetch token, connect socket; only open modal if it fails.
+      const token = (await connection.fetchToken()) ?? connection.token
+      if (token && connection.socket && !connection.socket.connected && !connection.socket.active) {
+        connection.socket.connect()
+      }
+      const isReady = connection.socket?.connected ?? false
+      if (isReady) {
+        setIsConnectOpen(false)
+        return
+      }
+      setIsConnectOpen(true)
+    },
+    [connection],
+  )
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-900/60 bg-slate-950/80 backdrop-blur">
@@ -186,7 +203,7 @@ export const AppShell = () => {
 
             <button
               type="button"
-              onClick={() => setIsConnectOpen(true)}
+              onClick={() => void handleQuickConnect()}
               className="hidden rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:border-slate-600 md:inline-flex"
             >
               Connect Companion
@@ -207,21 +224,7 @@ export const AppShell = () => {
           </div>
         </div>
       </header>
-      {isDegraded && (
-        <div className="border-b border-amber-700/50 bg-amber-900/30 px-4 py-2 text-center text-sm text-amber-200">
-          <span className="font-semibold">Degraded:</span> Companion disconnected unexpectedly. Running in Cloud mode.{' '}
-          <button
-            type="button"
-            onClick={() => {
-              clearDegraded()
-              setIsConnectOpen(true)
-            }}
-            className="underline hover:text-white"
-          >
-            Reconnect Companion
-          </button>
-        </div>
-      )}
+      {/* Degraded banner removed for a cleaner, less noisy UI; status is still visible in the header badge. */}
       <main
         className={
           isViewerRoute ? 'w-full px-0 py-4 sm:px-4' : 'mx-auto max-w-6xl px-4 py-10'

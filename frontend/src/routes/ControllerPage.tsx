@@ -21,9 +21,11 @@ import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
+import { useAppMode } from '../context/AppModeContext'
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
+  const { effectiveMode } = useAppMode()
   const ctx = useDataContext()
   const {
     getRoom,
@@ -50,6 +52,10 @@ export const ControllerPage = () => {
     undoRoomDelete,
     redoRoomDelete,
   } = ctx
+  const subscribeToCompanionRoom = (ctx as typeof ctx & {
+    subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
+  }).subscribeToCompanionRoom
+  const lastJoinKeyRef = useRef<string | null>(null)
 
   const room = roomId ? getRoom(roomId) : undefined
   const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
@@ -115,6 +121,16 @@ export const ControllerPage = () => {
     const id = window.setInterval(() => setPlaceholderNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [setPlaceholderNow])
+
+  useEffect(() => {
+    if (!roomId) return
+    if (effectiveMode === 'cloud') return
+    if (!subscribeToCompanionRoom) return
+    const joinKey = `${roomId}::controller::${effectiveMode}`
+    if (lastJoinKeyRef.current === joinKey) return
+    lastJoinKeyRef.current = joinKey
+    subscribeToCompanionRoom(roomId, 'controller')
+  }, [effectiveMode, roomId, subscribeToCompanionRoom])
 
   useEffect(() => {
     if (!room) return

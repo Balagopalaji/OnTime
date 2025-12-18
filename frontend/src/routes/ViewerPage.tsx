@@ -8,13 +8,19 @@ import { useFullscreen } from '../hooks/useFullscreen'
 import { useClock } from '../hooks/useClock'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useDataContext } from '../context/DataProvider'
+import { useAppMode } from '../context/AppModeContext'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
+  const { effectiveMode } = useAppMode()
   const ctx = useDataContext()
   const room = roomId ? ctx.getRoom(roomId) : undefined
   const timers = roomId ? ctx.getTimers(roomId) : []
   const connectionStatus = ctx.connectionStatus
+  const subscribeToCompanionRoom = (ctx as typeof ctx & {
+    subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
+  }).subscribeToCompanionRoom
+  const lastJoinKeyRef = useRef<string | null>(null)
   const isLoading = !room && connectionStatus !== 'offline'
   const activeTimer =
     timers.find((timer) => timer.id === room?.state.activeTimerId) ?? timers[0]
@@ -45,6 +51,16 @@ export const ViewerPage = () => {
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [toggleFullscreen])
+
+  useEffect(() => {
+    if (!roomId) return
+    if (effectiveMode === 'cloud') return
+    if (!subscribeToCompanionRoom) return
+    const joinKey = `${roomId}::viewer::${effectiveMode}`
+    if (lastJoinKeyRef.current === joinKey) return
+    lastJoinKeyRef.current = joinKey
+    subscribeToCompanionRoom(roomId, 'viewer')
+  }, [effectiveMode, roomId, subscribeToCompanionRoom])
 
   const clockTime = useClock(room?.timezone ?? 'UTC', room?.state.clockMode ?? '24h')
   const [clockBody, clockSuffix] = clockTime.split(' ')

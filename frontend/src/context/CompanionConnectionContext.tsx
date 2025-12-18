@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
@@ -19,6 +19,9 @@ type CompanionConnectionContextValue = {
     hostname: string
   } | null
   token: string | null
+  hasAttemptedDiscovery?: boolean
+  discoverCompanion?: () => Promise<string | null>
+  lastSeenAt?: number
   fetchToken: () => Promise<string | null>
   clearToken: () => void
 }
@@ -71,6 +74,10 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   })
   const [systemInfo, setSystemInfo] = useState<CompanionConnectionContextValue['systemInfo']>(null)
   const [token, setToken] = useState<string | null>(() => readStoredToken())
+  const [hasAttemptedDiscovery, setHasAttemptedDiscovery] = useState(false)
+  const [lastSeenAt, setLastSeenAt] = useState<number | null>(null)
+  const backoffRef = useRef(10_000)
+  const heartbeatRef = useRef<number | null>(null)
 
   const clearToken = useCallback(() => {
     setToken(null)
@@ -98,6 +105,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       const data = (await res.json()) as { token?: string }
       if (!data.token) return null
       setToken(data.token)
+      setLastSeenAt(Date.now())
+      backoffRef.current = 10_000
       try {
         window.localStorage.setItem(TOKEN_KEY, data.token)
         sessionStorage.setItem(TOKEN_KEY, data.token)
@@ -109,6 +118,56 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       return null
     }
   }, [])
+
+  const discoverCompanion = useCallback(async () => {
+    setHasAttemptedDiscovery(true)
+    const next = await fetchToken()
+    return next
+  }, [fetchToken])
+
+  useEffect(() => {
+    // Auto-discover on mount if no token
+    if (token) return
+    window.setTimeout(() => {
+      void discoverCompanion()
+    }, 0)
+  }, [discoverCompanion, token])
+
+  useEffect(() => {
+    if (!socket) return
+    // If we have a token but the socket isn't connected/active (e.g., Companion restarted), kick a connect.
+    if (token && !socket.connected && !socket.active) {
+      socket.connect()
+    }
+  }, [socket, token])
+
+  useEffect(() => {
+    const shouldProbe = !token || !isConnected || handshakeStatus !== 'ack'
+    if (!shouldProbe) {
+      if (heartbeatRef.current) {
+        window.clearTimeout(heartbeatRef.current)
+        heartbeatRef.current = null
+      }
+      return
+    }
+    let cancelled = false
+    const tick = async () => {
+      const ok = await discoverCompanion()
+      if (ok) {
+        backoffRef.current = 10_000
+      } else {
+        backoffRef.current = Math.min(backoffRef.current * 2, 60_000)
+      }
+      if (!cancelled) {
+        heartbeatRef.current = window.setTimeout(tick, backoffRef.current)
+      }
+    }
+    heartbeatRef.current = window.setTimeout(tick, backoffRef.current)
+    return () => {
+      cancelled = true
+      if (heartbeatRef.current) window.clearTimeout(heartbeatRef.current)
+    }
+  }, [discoverCompanion, handshakeStatus, isConnected, token])
 
   useEffect(() => {
     if (!socket) return
@@ -169,6 +228,9 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       capabilities,
       systemInfo,
       token,
+      hasAttemptedDiscovery,
+      discoverCompanion,
+      lastSeenAt: lastSeenAt ?? undefined,
       fetchToken,
       clearToken,
     }),
@@ -176,9 +238,12 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       capabilities,
       clearToken,
       companionMode,
+      discoverCompanion,
       fetchToken,
+      hasAttemptedDiscovery,
       handshakeStatus,
       isConnected,
+      lastSeenAt,
       socket,
       systemInfo,
       token,

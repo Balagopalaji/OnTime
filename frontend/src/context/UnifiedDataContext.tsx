@@ -264,6 +264,26 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
   )
+  // Re-emit JOIN_ROOM on socket reconnect to restore subscriptions.
+  useEffect(() => {
+    if (!socket) return
+    const handleReconnect = () => {
+      const rooms = subscribedRoomsRef.current
+      Object.entries(rooms).forEach(([roomId, sub]) => {
+        socket.emit('JOIN_ROOM', {
+          type: 'JOIN_ROOM',
+          roomId,
+          token: sub.token,
+          clientType: sub.clientType,
+          clientId,
+        })
+      })
+    }
+    socket.on('connect', handleReconnect)
+    return () => {
+      socket.off('connect', handleReconnect)
+    }
+  }, [clientId, socket])
 
   useEffect(() => {
     subscribedRoomsRef.current = subscribedRooms
