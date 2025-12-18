@@ -180,17 +180,17 @@ export const DashboardPage = () => {
       // When Cloud provider is active, it already streams rooms. We only need this fallback when not in Cloud mode.
       if (canManageCloudRooms) return
       if (!hasFirebaseConfig) {
-        setCloudRoomsStatus('offline')
+        setCloudRoomsStatus(rooms.length ? 'online' : 'offline')
         return
       }
       const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
       if (!isOnline) {
-        setCloudRoomsStatus('offline')
+        setCloudRoomsStatus(displayedRooms.length ? 'online' : 'offline')
         return
       }
       // If user isn't authenticated, we can only show cached rooms.
       if (!uid) {
-        setCloudRoomsStatus('offline')
+        setCloudRoomsStatus(displayedRooms.length ? 'online' : 'offline')
         return
       }
       setCloudRoomsStatus('loading')
@@ -216,7 +216,7 @@ export const DashboardPage = () => {
     const handleOnline = () => void fetchOwnedRooms()
     window.addEventListener('online', handleOnline)
     return () => window.removeEventListener('online', handleOnline)
-  }, [cacheUid, canManageCloudRooms, hasFirebaseConfig, roomsCacheKey, user])
+  }, [cacheUid, canManageCloudRooms, displayedRooms, hasFirebaseConfig, rooms, roomsCacheKey, user])
 
   useEffect(() => {
     let cancelled = false
@@ -280,7 +280,7 @@ export const DashboardPage = () => {
       if (target === 'hybrid' || target === 'local') {
         const token = await ensureCompanionToken()
         if (!token) {
-          window.alert('Companion token unavailable. Start Companion and click “Connect Companion” in the header.')
+          window.alert('Companion token unavailable. Start Companion and click "Connect Companion" in the header.')
           return
         }
         window.localStorage.setItem('ontime:lastCompanionRoomId', roomId)
@@ -585,7 +585,7 @@ export const DashboardPage = () => {
           </span>
         )}
         <div className="flex flex-col items-center gap-2">
-          <span className="font-semibold text-slate-100">Removed “{placeholder.title}”</span>
+          <span className="font-semibold text-slate-100">Removed "{placeholder.title}"</span>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -1572,7 +1572,7 @@ export const DashboardPage = () => {
               </div>
               {!companionReachable ? (
                 <p className="mt-3 text-xs text-amber-200">
-                  Companion not detected. Start the Companion app, then use the header “Connect Companion”.
+                  Companion not detected. Start the Companion app, then use the header "Connect Companion".
                 </p>
               ) : null}
             </div>

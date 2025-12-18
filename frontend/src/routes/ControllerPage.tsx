@@ -27,7 +27,7 @@ import { useCompanionConnection } from '../context/CompanionConnectionContext'
 export const ControllerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
-  const { isConnected, handshakeStatus } = useCompanionConnection()
+  const { handshakeStatus } = useCompanionConnection()
   const ctx = useDataContext()
   const {
     getRoom,
@@ -68,7 +68,6 @@ export const ControllerPage = () => {
       if (!roomId) return
       if (effectiveMode === 'cloud') return
       if (!subscribeToCompanionRoom) return
-      if (!isConnected || handshakeStatus === 'idle') return
       const joinKey = `${roomId}::controller::${effectiveMode}`
       if (!options?.force && lastJoinKeyRef.current === joinKey) return
       lastJoinKeyRef.current = joinKey
@@ -79,21 +78,20 @@ export const ControllerPage = () => {
       }
       subscribeToCompanionRoom(roomId, 'controller')
     },
-    [debugCompanion, effectiveMode, handshakeStatus, isConnected, roomId, subscribeToCompanionRoom],
+    [debugCompanion, effectiveMode, roomId, subscribeToCompanionRoom],
   )
 
   const bumpCompanionOnActivity = useCallback(
     (reason: string) => {
       if (!subscribeToCompanionRoom) return
       if (effectiveMode === 'cloud') return
-      if (!isConnected || handshakeStatus === 'idle') return
       const now = Date.now()
       const idleMs = now - lastActivityRef.current
       lastActivityRef.current = now
       if (idleMs < 60_000) return
       ensureCompanionJoin({ force: true, reason })
     },
-    [effectiveMode, ensureCompanionJoin, handshakeStatus, isConnected, subscribeToCompanionRoom],
+    [effectiveMode, ensureCompanionJoin, subscribeToCompanionRoom],
   )
 
   const room = roomId ? getRoom(roomId) : undefined
@@ -109,10 +107,11 @@ export const ControllerPage = () => {
   }, [ensureCompanionJoin, roomId])
 
   useEffect(() => {
+    if (!roomId) return
+    if (effectiveMode === 'cloud') return
     if (!subscribeToCompanionRoom) return
     const handleMouseMove = () => {
       if (effectiveMode === 'cloud') return
-      if (!isConnected || handshakeStatus === 'idle') return
       const now = Date.now()
       const idleMs = now - lastActivityRef.current
       if (idleMs <= 300_000) return
@@ -121,7 +120,7 @@ export const ControllerPage = () => {
     }
     window.addEventListener('mousemove', handleMouseMove)
     return () => window.removeEventListener('mousemove', handleMouseMove)
-  }, [effectiveMode, ensureCompanionJoin, handshakeStatus, isConnected, subscribeToCompanionRoom])
+  }, [effectiveMode, ensureCompanionJoin, handshakeStatus, roomId, subscribeToCompanionRoom])
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id

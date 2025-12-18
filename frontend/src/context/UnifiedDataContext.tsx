@@ -177,6 +177,75 @@ const DEFAULT_AUTHORITY: RoomAuthority = {
   lastSyncAt: 0,
 }
 
+const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v1'
+const SUBS_CACHE_KEY = 'ontime:companionSubs.v1'
+const CACHE_LIMIT = 20
+
+type CachedRoomSnapshot = {
+  roomId: string
+  room: Room
+  timers: Timer[]
+  updatedAt: number
+  source: 'companion' | 'cloud'
+}
+
+const readCachedSubscriptions = (): Record<string, { clientType: 'controller' | 'viewer'; token: string }> => {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(SUBS_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, { clientType: 'controller' | 'viewer'; token: string }>
+    return parsed ?? {}
+  } catch {
+    return {}
+  }
+}
+
+const persistSubscriptions = (subs: Record<string, { clientType: 'controller' | 'viewer'; token: string }>) => {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(SUBS_CACHE_KEY, JSON.stringify(subs))
+  } catch {
+    // ignore
+  }
+}
+
+const readRoomCache = (): Record<string, CachedRoomSnapshot> => {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(ROOM_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, CachedRoomSnapshot>
+    return parsed ?? {}
+  } catch {
+    return {}
+  }
+}
+
+const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
+  if (typeof localStorage === 'undefined') return
+  try {
+    const ordered = Object.values(entries)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, CACHE_LIMIT)
+    const trimmed = ordered.reduce<Record<string, CachedRoomSnapshot>>((acc, entry) => {
+      acc[entry.roomId] = entry
+      return acc
+    }, {})
+    localStorage.setItem(ROOM_CACHE_KEY, JSON.stringify(trimmed))
+  } catch {
+    // ignore
+  }
+}
+
+const deriveCompanionStateFromRoom = (room: Room): CompanionRoomState => ({
+  activeTimerId: room.state.activeTimerId ?? null,
+  isRunning: room.state.isRunning ?? false,
+  currentTime: room.state.elapsedOffset ?? 0,
+  lastUpdate: room.state.startedAt ?? room.createdAt ?? Date.now(),
+  activeLiveCueId: room.state.activeLiveCueId,
+})
+
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 const MAX_QUEUE = 100
 
@@ -262,6 +331,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [subscribedRooms, setSubscribedRooms] = useState<
     Record<string, { clientType: 'controller' | 'viewer'; token: string }>
   >({})
+  const [cachedSnapshots, setCachedSnapshots] = useState<Record<string, CachedRoomSnapshot>>({})
+  const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>({})
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
     const cached = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
@@ -281,6 +352,42 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
   )
+
+  useEffect(() => {
+    const cached = readRoomCache()
+    cachedSnapshotsRef.current = cached
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCachedSnapshots(cached)
+    if (Object.keys(cached).length) {
+      setCompanionRooms((prev) => {
+        const next = { ...prev }
+        Object.values(cached).forEach((entry) => {
+          const state = deriveCompanionStateFromRoom(entry.room)
+          next[entry.roomId] = state
+        })
+        return next
+      })
+      setCompanionTimers((prev) => {
+        const next = { ...prev }
+        Object.values(cached).forEach((entry) => {
+          next[entry.roomId] = entry.timers
+        })
+        return next
+      })
+      setRoomAuthority((prev) => {
+        const next = { ...prev }
+        Object.values(cached).forEach((entry) => {
+          next[entry.roomId] = {
+            source: 'companion',
+            status: 'ready',
+            lastSyncAt: entry.updatedAt,
+          }
+        })
+        return next
+      })
+    }
+  }, [])
+
   // Re-emit JOIN_ROOM on socket reconnect to restore subscriptions.
   useEffect(() => {
     if (!socket) return
@@ -364,7 +471,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const subscribeToCompanionRoom = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', tokenOverride?: string) => {
       void (async () => {
-        const joinToken = tokenOverride ?? token ?? (await fetchToken())
+        const storedToken = (() => {
+          try {
+            return sessionStorage.getItem('ontime:companionToken') ?? localStorage.getItem('ontime:companionToken')
+          } catch {
+            return null
+          }
+        })()
+        const joinToken = tokenOverride ?? storedToken ?? token ?? (await fetchToken())
         if (!joinToken) {
           console.warn('[UnifiedDataContext] missing Companion token for room', roomId)
           return
@@ -377,10 +491,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           // ignore
         }
 
-        setSubscribedRooms((prev) => ({
-          ...prev,
-          [roomId]: { clientType, token: joinToken },
-        }))
+        setSubscribedRooms((prev) => {
+          const next = { ...prev, [roomId]: { clientType, token: joinToken } }
+          persistSubscriptions(next)
+          return next
+        })
 
         setRoomAuthority((prev) => ({
           ...prev,
@@ -416,11 +531,26 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [addPendingSyncRoom, clientId, debugCompanion, effectiveMode, fetchToken, socket, token],
   )
 
+  useEffect(() => {
+    const saved = readCachedSubscriptions()
+    if (!Object.keys(saved).length) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSubscribedRooms((prev) => {
+      const next = { ...prev, ...saved }
+      persistSubscriptions(next)
+      return next
+    })
+    Object.entries(saved).forEach(([roomId, sub]) => {
+      subscribeToCompanionRoom(roomId, sub.clientType, sub.token)
+    })
+  }, [subscribeToCompanionRoom])
+
   const unsubscribeFromCompanionRoom = useCallback((roomId: string) => {
     setSubscribedRooms((prev) => {
       if (!prev[roomId]) return prev
       const next = { ...prev }
       delete next[roomId]
+      persistSubscriptions(next)
       return next
     })
     setCompanionRooms((prev) => {
@@ -435,6 +565,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       delete next[roomId]
       return next
     })
+    cachedSnapshotsRef.current = (() => {
+      const next = { ...cachedSnapshotsRef.current }
+      if (next[roomId]) {
+        delete next[roomId]
+        persistRoomCache(next)
+      }
+      return next
+    })()
     removePendingSyncRoom(roomId)
     setRoomAuthority((prev) => ({
       ...prev,
@@ -445,6 +583,49 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       },
     }))
   }, [removePendingSyncRoom])
+
+  const shouldUseCompanion = useCallback(
+    (roomId: string) => {
+      if (effectiveMode === 'cloud') return false
+      return Boolean(subscribedRooms[roomId])
+    },
+    [effectiveMode, subscribedRooms],
+  )
+
+  useEffect(() => {
+    const roomIds = new Set<string>([
+      ...Object.keys(subscribedRoomsRef.current),
+      ...Object.keys(companionRoomsRef.current),
+      ...Object.keys(companionTimersRef.current),
+      ...Object.keys(roomAuthority),
+      ...(firebase.rooms ?? []).map((room) => room.id),
+    ])
+    const nextCache: Record<string, CachedRoomSnapshot> = {}
+    roomIds.forEach((roomId) => {
+      const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
+      const usingCompanion =
+        authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId)
+      const companionState = usingCompanion ? companionRoomsRef.current[roomId] : undefined
+      const resolvedRoom = companionState
+        ? buildRoomFromCompanion(roomId, companionState, firebase.getRoom(roomId))
+        : firebase.getRoom(roomId)
+      const timers = usingCompanion
+        ? companionTimersRef.current[roomId] ?? firebase.getTimers(roomId)
+        : firebase.getTimers(roomId)
+      if (!resolvedRoom) return
+      nextCache[roomId] = {
+        roomId,
+        room: resolvedRoom,
+        timers: timers ?? [],
+        updatedAt: Date.now(),
+        source: usingCompanion ? 'companion' : 'cloud',
+      }
+    })
+    cachedSnapshotsRef.current = nextCache
+    persistRoomCache(nextCache)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCachedSnapshots(nextCache)
+  }, [companionRooms, companionTimers, firebase, roomAuthority, shouldUseCompanion])
 
   const ensureCompanionRoomState = useCallback((roomId: string) => {
     const existing = companionRoomsRef.current[roomId]
@@ -619,16 +800,20 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           clientType: sub.clientType,
           clientId,
         })
+        if ((effectiveMode === 'local' || effectiveMode === 'hybrid') && sub.clientType === 'controller') {
+          addPendingSyncRoom(roomId)
+        }
       })
     }
 
     const handleDisconnect = () => {
       const rooms = subscribedRoomsRef.current
+      const usingCompanion = effectiveMode !== 'cloud' && Object.keys(rooms).length > 0
       setRoomAuthority((prev) => {
         const next = { ...prev }
         Object.keys(rooms).forEach((roomId) => {
           next[roomId] = {
-            source: 'cloud',
+            source: usingCompanion ? 'companion' : 'cloud',
             status: 'degraded',
             lastSyncAt: Date.now(),
           }
@@ -847,10 +1032,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       socket.off('TIMER_ERROR', handleTimerError)
     }
   }, [
+    addPendingSyncRoom,
     clientId,
     clearPendingSyncRooms,
     clearToken,
     debugCompanion,
+    effectiveMode,
     emitSyncRoomState,
     fetchToken,
     removePendingSyncRoom,
@@ -880,41 +1067,48 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     clearPendingSyncRooms()
   }, [clearPendingSyncRooms, effectiveMode])
 
-  const shouldUseCompanion = useCallback(
-    (roomId: string) => {
-      if (effectiveMode === 'cloud') return false
-      return Boolean(subscribedRooms[roomId])
-    },
-    [effectiveMode, subscribedRooms],
-  )
-
   const getRoom = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
-      if (authority.source === 'cloud' || authority.source === 'pending') {
-        return firebase.getRoom(roomId)
+      const cached = cachedSnapshotsRef.current[roomId]
+      const offline = typeof navigator !== 'undefined' ? !navigator.onLine : false
+      const preferCompanion =
+        authority.source === 'companion' ||
+        authority.source === 'pending' ||
+        shouldUseCompanion(roomId) ||
+        offline
+      if (preferCompanion) {
+        const companionState =
+          companionRooms[roomId] ??
+          (cached ? deriveCompanionStateFromRoom(cached.room) : undefined)
+        if (companionState) {
+          const baseRoom = firebase.getRoom(roomId) ?? cached?.room
+          return buildRoomFromCompanion(roomId, companionState, baseRoom)
+        }
       }
-
-      const companionState = companionRooms[roomId]
-      if (!companionState) {
-        return firebase.getRoom(roomId)
-      }
-
-      const baseRoom = firebase.getRoom(roomId)
-      return buildRoomFromCompanion(roomId, companionState, baseRoom)
+      return firebase.getRoom(roomId) ?? cached?.room
     },
-    [companionRooms, firebase, roomAuthority],
+    [companionRooms, firebase, roomAuthority, shouldUseCompanion],
   )
 
   const getTimers = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
-      if (authority.source === 'companion' && companionTimers[roomId]) {
-        return [...(companionTimers[roomId] ?? [])].sort((a, b) => a.order - b.order)
+      const cached = cachedSnapshotsRef.current[roomId]?.timers ?? []
+      const offline = typeof navigator !== 'undefined' ? !navigator.onLine : false
+      const preferCompanion =
+        authority.source === 'companion' ||
+        authority.source === 'pending' ||
+        shouldUseCompanion(roomId) ||
+        offline
+      if (preferCompanion) {
+        const timers = companionTimers[roomId] ?? cached
+        if (timers) return [...timers].sort((a, b) => a.order - b.order)
       }
-      return firebase.getTimers(roomId)
+      const timers = firebase.getTimers(roomId)
+      return timers.length ? timers : cached
     },
-    [companionTimers, firebase, roomAuthority],
+    [companionTimers, firebase, roomAuthority, shouldUseCompanion],
   )
 
   const createTimer = useCallback<DataContextValue['createTimer']>(
@@ -1280,26 +1474,37 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
 
   const value = useMemo<UnifiedDataContextValue>(
-    () => ({
-      ...firebase,
-      getRoom,
-      getTimers,
-      createTimer,
-      updateTimer,
-      deleteTimer,
-      reorderTimer,
-      moveTimer,
-      startTimer,
-      pauseTimer,
-      resetTimer,
-      roomAuthority,
-      getRoomAuthority,
-      forceCloudAuthority,
-      forceCompanionAuthority,
-      subscribeToCompanionRoom,
-      unsubscribeFromCompanionRoom,
-    }),
+    () => {
+      const mergedRoomsMap = new Map<string, Room>()
+      ;(firebase.rooms ?? []).forEach((room) => mergedRoomsMap.set(room.id, room))
+      Object.values(cachedSnapshots).forEach((entry) => {
+        if (!mergedRoomsMap.has(entry.roomId)) {
+          mergedRoomsMap.set(entry.roomId, entry.room)
+        }
+      })
+      return {
+        ...firebase,
+        rooms: [...mergedRoomsMap.values()],
+        getRoom,
+        getTimers,
+        createTimer,
+        updateTimer,
+        deleteTimer,
+        reorderTimer,
+        moveTimer,
+        startTimer,
+        pauseTimer,
+        resetTimer,
+        roomAuthority,
+        getRoomAuthority,
+        forceCloudAuthority,
+        forceCompanionAuthority,
+        subscribeToCompanionRoom,
+        unsubscribeFromCompanionRoom,
+      }
+    },
     [
+      cachedSnapshots,
       createTimer,
       deleteTimer,
       firebase,

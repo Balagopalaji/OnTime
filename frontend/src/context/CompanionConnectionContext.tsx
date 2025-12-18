@@ -97,7 +97,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const origin =
       typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
     try {
-      const res = await fetch('http://localhost:4001/api/token', {
+      const res = await fetch('http://127.0.0.1:4001/api/token', {
         method: 'GET',
         headers: { Origin: origin },
       })
@@ -124,6 +124,27 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const next = await fetchToken()
     return next
   }, [fetchToken])
+
+  // If handshake errors while online, assume token may be stale (e.g., Companion restarted with new secret)
+  // and force a refresh once.
+  const attemptedRecoveryRef = useRef(false)
+  useEffect(() => {
+    const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
+    // Only attempt recovery when we are actually connected to the socket and online.
+    if (handshakeStatus !== 'error' || !isConnected || !isOnline) {
+      attemptedRecoveryRef.current = false
+      return
+    }
+    if (attemptedRecoveryRef.current) return
+    attemptedRecoveryRef.current = true
+    void (async () => {
+      clearToken()
+      const next = await fetchToken()
+      if (next && socket && !socket.connected && !socket.active) {
+        socket.connect()
+      }
+    })()
+  }, [clearToken, fetchToken, handshakeStatus, isConnected, socket])
 
   useEffect(() => {
     // Auto-discover on mount if no token
