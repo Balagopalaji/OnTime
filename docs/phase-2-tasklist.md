@@ -1,6 +1,6 @@
-# Phase 2 Task List (Builder-Focused)
+# Phase 2 Task List (Builder-Focused, Pass-Scoped)
 
-This file translates the Phase 2 plan into granular, implementable steps for builder agents. It assumes Phase 1D is complete and uses the existing unified data provider architecture. Same codebase for all tiers; features are gated via flags/rules, not forks.
+This file translates the Phase 2 plan into granular, implementable steps for builder agents. It assumes Phase 1D is complete and uses the existing unified data provider architecture. Same codebase for all tiers; features are gated via flags/rules, not forks. Milestones are split into explicit passes to keep each builder run small and verifiable.
 
 ## Guardrails & Targets
 - **Latency (viewers):** Local viewer (Companion) <150 ms delta from controller; Cloud viewer <700 ms. Measure via stopwatch harness (see QA hooks).
@@ -12,71 +12,83 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **Tokens:** TTL 30 minutes; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
 - **Undo/redo storage:** localStorage key `undo:{uid}:{roomId}`; cap 500 commands or 2 MB per room; on quota errors drop oldest and surface non-blocking warning.
 
+## Builder Pass Guidance
+- Keep each pass focused (single concern); run lint/tests relevant to touched surfaces.
+- Respect feature flags: default off until QA signoff; prefer canary room for risky changes.
+- After each pass, document acceptance checks (RAM/latency/backoff) and note any deviations.
+
 ---
 
 ## Milestone 1: Transport Hardening & Tier Gating
 **Goal:** Reliable Hybrid/Local transport with correct gating and clean reconnection UX.
 
-**Tasks**
-- [ ] **State machine:** Document JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; reject overlapping JOIN/HANDSHAKE; only one pending handshake at a time.
-- [ ] **Reconnect/backoff:** Implement backoff schedule above; show banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
-- [ ] **Controller lock & takeover:** If `CONTROLLER_TAKEN`, prompt user; takeover sets `takeOver=true`; on success broadcast takeover notice; reject silent auto-takeover.
-- [ ] **Authority/cache invalidation:** On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, and recompute feature visibility.
-- [ ] **UnifiedDataContext authority rules:** When Firebase and Companion conflict, prefer provider with freshest `lastUpdate`; if equal, prefer controller-originated change.
-- [ ] **Connection banners:** Frontend surfaces per-provider status; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
-- [ ] **Firestore rules rollout:** Update rules for tiered subcollections; dry-run in emulator; staging deploy; run simulated requests per tier; prod deploy with canary room; have rollback command ready.
-- [ ] **Skipped test fix:** `frontend/src/__tests__/reorderRoom.mock.test.tsx` — fix MockDataContext side effects (ensure teardown closes sockets/timers).
+**Pass A: State Machine & Reconnect**
+- [ ] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; reject overlapping JOIN/HANDSHAKE; only one pending handshake at a time.
+- [ ] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
+- [ ] Controller lock/takeover UX: on `CONTROLLER_TAKEN`, prompt; takeover sets `takeOver=true`; on success broadcast takeover notice; no silent auto-takeover.
+
+**Pass B: Authority & Caching**
+- [ ] On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, recompute feature visibility.
+- [ ] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
+- [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
+
+**Pass C: Rules & Test**
+- [ ] Firestore rules rollout for tiered subcollections; emulator dry-run → staging deploy → simulated requests per tier → prod with canary; rollback command ready.
+- [ ] Fix `frontend/src/__tests__/reorderRoom.mock.test.tsx` teardown (MockDataContext side effects); if sticky, carve out a micro-pass (Pass D) dedicated to the test fix so rules rollout isn’t blocked.
 
 **Success Criteria**
-- Reconnect attempts follow schedule and present clear UX on failure.
-- No stale preview after mode/tier changes; authority handoff doesn’t serve outdated state.
-- Firestore rules block Show Control subcollections for rooms without features; Basic tier UI hides gated elements.
+- Backoff follows schedule; clear UX on failure/stop.
+- No stale preview after mode/tier changes; deterministic authority selection.
+- Rules block Show Control subcollections for rooms without features; Basic UI hides gated elements.
 - Test suite passes without hanging (reorderRoom test enabled).
 
 **Risks/Unknowns**
 - Race: simultaneous reconnect + controller takeover.
-- Firestore rule deployment timing; ensure no window with mismatched client/rules.
+- Rule deployment timing; ensure no window with mismatched client/rules.
 
 ---
 
 ## Milestone 2: Show Control Core (Live Cues + Dual Header)
 **Goal:** End-to-end live cue visibility for Show Control tier with minimal bandwidth.
 
-**Tasks**
-- [ ] **Companion events:** Emit `LIVE_CUE_*` and `PRESENTATION_*` per `websocket-protocol.md`; maintain in-memory `liveCues` with timestamps.
-- [ ] **Active cue write policy:** Controller is primary writer of `activeLiveCueId`; Companion may write only when controller is offline and includes `source=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
-- [ ] **RoomState field:** Add `activeLiveCueId` (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
-- [ ] **Unified merge:** Merge Companion live cue reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
-- [ ] **UI:** Dual header (Main Timer + PiP) gated by tier + capability; tech viewer overlay; add upgrade prompts on gated actions.
-- [ ] **Latency harness:** Add manual stopwatch script to compare controller vs. local viewer vs. cloud viewer; record results in QA doc.
+**Pass A: Protocol & Plumbing**
+- [ ] Companion emits `LIVE_CUE_*` and `PRESENTATION_*` per `websocket-protocol.md`; maintain in-memory `liveCues` with timestamps.
+- [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `source=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
+- [ ] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
+- [ ] Unified merge: merge Companion reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
+
+**Pass B: UI & Latency Validation**
+- [ ] Dual header (Main Timer + PiP) gated by tier + capability; tech viewer overlay; upgrade prompts on gated actions.
+- [ ] Latency harness: manual stopwatch script to compare controller vs. local viewer vs. cloud viewer; record results in QA doc.
 
 **Success Criteria**
-- Show Control room displays PiP within 150 ms on local viewer, <700 ms on cloud viewer.
-- Basic tier never shows live cue UI; FEATURE_UNAVAILABLE shown when attempted from Minimal Companion.
-- Conflict resolution picks deterministic writer; no flapping between Companion/Firebase.
+- PiP within <150 ms local, <700 ms cloud; Basic never shows live cue UI; FEATURE_UNAVAILABLE shown when attempted from Minimal Companion.
+- Conflict resolution deterministic; no flapping Companion/Firebase.
 
 **Risks/Unknowns**
-- Jitter when both transports update near-simultaneously.
-- Subcollection read cost if overused; keep writes to reference + optional cue doc only.
+- Jitter when transports update near-simultaneously.
+- Subcollection read cost; keep writes to reference + optional cue doc only.
 
 ---
 
 ## Milestone 3: Presentation Import & File Operations
 **Goal:** Operators can ingest PPT metadata and open media via Companion safely.
 
-**Tasks**
-- [ ] **HTTP endpoints:** Implement `/api/open`, `/api/file/exists`, `/api/file/metadata`; all require `Authorization: Bearer <token>`; return `FEATURE_UNAVAILABLE` when mode lacks capability.
-- [ ] **Path validation:** Normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside root after resolving symlinks; reject UNC/remote paths; disallow traversal segments.
-- [ ] **Symlinks:** Allow only if target stays within allowed roots; otherwise 403 with `code: "INVALID_PATH"`.
-- [ ] **Token lifecycle:** TTL 30m; rotate on Companion restart; frontend refreshes token on 401 once, then surfaces reconnect modal.
-- [ ] **ffprobe bundle:** Use bundled LGPL-only ffprobe; if missing, return `{ warning: "FFPROBE_MISSING", metadata: { sizeBytes, mimeGuess } }` and continue (no crash on non-UTF8 filenames).
-- [ ] **PowerPoint detection:** Debounce 1.5s; only emit when PPT window is foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background for >10s.
-- [ ] **Frontend workflow:** Notification "Presentation detected"; manual import; map videos to cues; handle duplicates by filename+slide; allow dismiss.
+**Pass A: Companion/Backend**
+- [ ] Implement `/api/open`, `/api/file/exists`, `/api/file/metadata`; all require `Authorization: Bearer <token>`; return `FEATURE_UNAVAILABLE` when mode lacks capability.
+- [ ] Path validation: normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside after resolving symlinks; reject UNC/remote paths; disallow traversal segments; bind HTTP to 127.0.0.1.
+- [ ] Token lifecycle: TTL 30m; rotate on Companion restart; frontend refreshes token on 401 once, then surfaces reconnect modal.
+- [ ] ffprobe bundle: use bundled LGPL-only ffprobe; if missing, return `{ warning: "FFPROBE_MISSING", metadata: { sizeBytes, mimeGuess } }` and continue (no crash on non-UTF8 filenames).
+- [ ] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background >10s.
+
+**Pass B: Frontend Workflow**
+- [ ] Notification "Presentation detected"; manual import; map videos to cues; handle duplicates by filename+slide; allow dismiss.
+- [ ] Error UX: token expiry prompts, FEATURE_UNAVAILABLE copy for Minimal mode, safe failure on missing ffprobe.
 
 **Success Criteria**
 - File ops reject unsafe paths and network shares; no crashes on odd filenames.
-- PPT detection only when active window; emits clear when closed/idle.
-- Metadata endpoint degrades gracefully without ffprobe.
+- PPT detection only when active window; emits clear on close/idle.
+- Metadata endpoint degrades gracefully without ffprobe; frontend handles warnings.
 
 **Risks/Unknowns**
 - PPT COM API variance across Windows builds.
@@ -87,12 +99,15 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ## Milestone 4: Undo/Redo Command System
 **Goal:** Restore undo/redo with stable API and persistence.
 
-**Tasks**
-- [ ] **Command interface:** Implement command types for timer CRUD, message, reorder, room delete; include `execute`, `undo`, optional optimistic hooks.
-- [ ] **Storage policy:** Per-room stacks; key `undo:{uid}:{roomId}`; cap 500 commands or 2 MB; on quota error, drop oldest until write succeeds and show warning banner.
-- [ ] **Integration:** Replace stubs in FirebaseDataContext/MockDataContext; keep public API (`undoLatest`, `redoLatest`, `undoRoomDelete`, `canUndo`, `canRedo`).
-- [ ] **Hybrid safety:** Ensure command replay idempotent across Firebase + Companion; do not double-apply on reconnect.
-- [ ] **Tests:** Unit tests per command; integration test for sequence with disconnect/reconnect; regression for offline queue replay + undo.
+**Pass A: Command Core**
+- [ ] Command interface for timer CRUD, message, reorder, room delete; include `execute`, `undo`, optional optimistic hooks.
+- [ ] Storage policy: per-room stacks; key `undo:{uid}:{roomId}`; cap 500 commands or 2 MB; on quota error, drop oldest until write succeeds and show warning banner.
+- [ ] Unit tests for command serialization/deserialization and storage caps.
+
+**Pass B: Integration & Hybrid Safety**
+- [ ] Replace stubs in FirebaseDataContext/MockDataContext; keep public API (`undoLatest`, `redoLatest`, `undoRoomDelete`, `canUndo`, `canRedo`).
+- [ ] Ensure command replay idempotent across Firebase + Companion; avoid double-apply on reconnect/offline replay.
+- [ ] Integration tests: sequence with disconnect/reconnect; offline queue replay + undo.
 
 **Success Criteria**
 - Undo/redo works across tabs for same room without cross-room leakage.
@@ -107,12 +122,16 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ## Milestone 5: UX Polish & Companion GUI
 **Goal:** Production-ready operator and viewer experience within resource budgets.
 
-**Tasks**
-- [ ] **Viewer polish:** Fix typography scaling edge cases; wake-lock fallback banner with actionable copy; ensure minimal mode aesthetics cleaned up.
-- [ ] **Minimal mode gating UX:** When capability missing, show inline tooltip/banner "Feature unavailable in Minimal Mode — upgrade/restart Companion."
-- [ ] **Simple Mode skin:** Light controller variant for Basic tier; ensure gated buttons are hidden/disabled with upgrade badges.
-- [ ] **Companion GUI:** Tray + minimal window for mode selection/status; reflects capabilities in `HANDSHAKE_ACK`; idle RAM <50 MB in Minimal mode with GUI.
-- [ ] **Messaging copy:** Clear banners for reconnects, authority conflicts, feature gating; avoid technical jargon.
+**Pass A: Viewer/Controller Polish**
+- [ ] Viewer typography scaling edge cases; wake-lock fallback banner with actionable copy.
+- [ ] Minimal mode gating UX: when capability missing, show inline tooltip/banner "Feature unavailable in Minimal Mode — upgrade/restart Companion."
+- [ ] Simple Mode skin: light controller variant for Basic tier; gated buttons hidden/disabled with upgrade badges.
+- [ ] Messaging copy: clear banners for reconnects, authority conflicts, feature gating; avoid technical jargon.
+
+**Pass B: Companion GUI & Resource Checks**
+- [ ] Companion tray + minimal window for mode selection/status; reflects capabilities in `HANDSHAKE_ACK`.
+- [ ] RAM measurements: Minimal with GUI <50 MB, Show Control ≤100 MB, Production ≤150 MB (3-sample average after 60s idle, macOS+Windows); if cross-platform measurement proves heavy, split into a follow-up pass focused solely on measurement/validation.
+- [ ] Ensure GUI does not break headless flow; mode selection persists between launches.
 
 **Success Criteria**
 - RAM budgets met in all modes with GUI running.
@@ -125,14 +144,14 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ---
 
 ## Cross-Milestone QA & Harness
-- [ ] **Multi-tab/controller/viewer:** Authority lock, takeover prompt, consistent state across tabs.
-- [ ] **Companion restart:** Auto-reconnect, no duplicate controller sessions.
-- [ ] **Mode switching mid-show:** Cloud ↔ Hybrid/Local without timer jumps; validate `SYNC_ROOM_STATE`.
-- [ ] **Offline/Hybrid:** Queue, replay, last-write-wins with command stack intact.
-- [ ] **Tier gating:** Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
-- [ ] **Live cue latency:** Record local vs. cloud viewer deltas; keep within targets.
-- [ ] **File ops safety:** Path rejection, token expiry, ffprobe missing warning path.
-- [ ] **Undo/redo:** Command persistence across reload; overflow handling.
+- [ ] Multi-tab/controller/viewer: authority lock, takeover prompt, consistent state across tabs.
+- [ ] Companion restart: auto-reconnect, no duplicate controller sessions.
+- [ ] Mode switching mid-show: Cloud ↔ Hybrid/Local without timer jumps; validate `SYNC_ROOM_STATE`.
+- [ ] Offline/Hybrid: queue, replay, last-write-wins with command stack intact.
+- [ ] Tier gating: Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
+- [ ] Live cue latency: record local vs. cloud viewer deltas; keep within targets.
+- [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path.
+- [ ] Undo/redo: command persistence across reload; overflow handling.
 
 ---
 
