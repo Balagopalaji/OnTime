@@ -4,6 +4,10 @@
 
 This document details the refactoring required to implement "Seamless Switching + Dual Connections" as specified in Phase 1D Step 3.5. The core change is moving from **provider swapping** to a **dual-connection architecture** where Firebase and Companion run in parallel.
 
+## Notes/Tests
+
+- `frontend/src/__tests__/reorderRoom.mock.test.tsx` is skipped: MockDataContext timers/storage side effects keep Vitest alive; fix by refactoring MockDataContext for testability or stubbing/cleaning timers and storage listeners in a harness.
+
 ## Problem Statement
 
 The current implementation in `DataProvider.tsx` completely swaps providers when switching modes:
@@ -340,7 +344,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 - [ ] Mock mode still works as escape hatch
 **Notes (multi-client + viewer guard updates)**
 - UnifiedDataContext enforces viewer read-only: timer/room mutations short-circuit for `clientType === 'viewer'`.
-- SYNC storm fix: pending sync is cleared after the first SYNC emission or on incoming deltas; authority flips to ready so “syncing” banners clear when Companion is connected.
+- SYNC storm fix: pending sync is cleared after the first SYNC emission or on incoming deltas; authority flips to ready so "syncing" banners clear when Companion is connected.
 - Multi-client ready on web: controllers/viewers can join in parallel; if conflicts remain, update the Companion server to allow multiple sockets/broadcasts.
 - Mode sync across tabs (localStorage/BroadcastChannel); dashboard shows cloud rooms even in local/hybrid (cached when offline).
 

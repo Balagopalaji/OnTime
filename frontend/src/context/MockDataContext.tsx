@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { delay, randomId } from '../lib/utils'
+import { randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
 import type { Room, Timer, MessageColor, ConnectionStatus } from '../types'
 import {
@@ -30,6 +30,8 @@ import {
 } from './DataContext'
 import { useAuth } from './AuthContext'
 
+const isTestEnv = Boolean((import.meta as any)?.vitest)
+
 const STORAGE_KEY = 'stagetime.mockState.v1'
 
 const DEFAULT_CONFIG = {
@@ -39,9 +41,37 @@ const DEFAULT_CONFIG = {
 
 const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
 
+export const reorderOwnedRooms = (
+  rooms: Room[],
+  ownerId: string | undefined,
+  pendingRooms: Set<string>,
+  roomId: string,
+  targetIndex: number,
+): Room[] => {
+  if (!ownerId) return rooms
+  const owned = rooms
+    .filter((room) => room.ownerId === ownerId && !pendingRooms.has(room.id))
+    .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
+  const fromIndex = owned.findIndex((room) => room.id === roomId)
+  if (fromIndex === -1) return rooms
+  const [moved] = owned.splice(fromIndex, 1)
+  const clampedIndex = Math.max(0, Math.min(targetIndex, owned.length))
+  owned.splice(clampedIndex, 0, moved)
+  const updatedOrders = owned.reduce<Record<string, number>>((acc, room, idx) => {
+    acc[room.id] = (idx + 1) * 10
+    return acc
+  }, {})
+  return rooms.map((room) =>
+    updatedOrders[room.id] !== undefined ? { ...room, order: updatedOrders[room.id] } : room,
+  )
+}
+
 const STACK_CAP = 10
 const PLACEHOLDER_TTL = 10_000
+
 const createEmptyStack = (): UndoStack => ({ undo: [], redo: [] })
+
+type PendingTimeout = { handle: ReturnType<typeof setTimeout>; resolve: () => void }
 
 type MockState = {
   rooms: Room[]
@@ -299,6 +329,42 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const timerStacksRef = useRef<Record<string, UndoStack>>({})
   const lastUserIdRef = useRef<string | null>(null)
   const pendingNudgeRef = useRef<Record<string, number>>({})
+  const delayHandlesRef = useRef<PendingTimeout[]>([])
+  const isMountedRef = useRef(true)
+  const safeDelayRef = useRef<(ms?: number) => Promise<void>>()
+
+  if (!safeDelayRef.current) {
+    safeDelayRef.current = (ms?: number) => {
+      if (!isMountedRef.current) {
+        return Promise.resolve()
+      }
+      const delayMs = ms ?? 0
+      if (delayMs <= 0) {
+        return Promise.resolve()
+      }
+      return new Promise<void>((resolve) => {
+        const handle = setTimeout(() => {
+          delayHandlesRef.current = delayHandlesRef.current.filter(
+            (entry) => entry.handle !== handle,
+          )
+          resolve()
+        }, delayMs)
+        delayHandlesRef.current.push({ handle, resolve })
+      })
+    }
+  }
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false
+      delayHandlesRef.current.forEach(({ handle, resolve }) => {
+        clearTimeout(handle)
+        resolve()
+      })
+      delayHandlesRef.current = []
+    },
+    [],
+  )
   const { user } = useAuth()
   const roomStackKeyForUser = user ? roomStackKey(user.uid) : null
 
@@ -398,6 +464,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   )
 
   useEffect(() => {
+    if (isTestEnv) return
     if (typeof window === 'undefined') return
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   }, [state])
@@ -409,6 +476,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   }, [state.rooms])
 
   useEffect(() => {
+    if (isTestEnv) return
     if (typeof window === 'undefined') return
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY || !event.newValue) return
@@ -523,7 +591,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ...room,
         ...patch,
       }))
-      await delay()
+      await safeDelayRef.current?.()
     },
     [persistRoomStack, setState, state.rooms, syncPendingState, updateRoom],
   )
@@ -544,7 +612,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         },
       }))
-      await delay(80)
+      await safeDelayRef.current?.(80)
     },
     [updateRoom, updateTimers],
   )
@@ -573,7 +641,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         }
       })
-      await delay(60)
+      await safeDelayRef.current?.(60)
     },
     [updateRoom],
   )
@@ -647,7 +715,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       syncPendingState()
       persistRoomStack(stack)
 
-      await delay()
+      await safeDelayRef.current?.()
 
       return room
     },
@@ -679,7 +747,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       }
       syncPendingState()
       persistRoomStack(stack)
-      await delay(50)
+      await safeDelayRef.current?.(50)
     },
     [persistRoomStack, setState, state.rooms, state.timers, syncPendingState, user],
   )
@@ -725,7 +793,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         persistTimerStack(roomId, stack)
       }
 
-      await delay()
+      await safeDelayRef.current?.()
 
       return timer
     },
@@ -803,7 +871,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           }
         })
       }
-      await delay()
+      await safeDelayRef.current?.()
     },
     [persistTimerStack, state.rooms, state.timers, syncPendingState, updateRoom, updateTimers],
   )
@@ -832,7 +900,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
       syncPendingState()
       persistTimerStack(roomId, stack)
-      await delay()
+      await safeDelayRef.current?.()
     },
     [persistTimerStack, state.rooms, state.timers, syncPendingState, updateTimers, user],
   )
@@ -866,7 +934,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         },
       }))
       syncPendingState()
-      await delay(50)
+      await safeDelayRef.current?.(50)
     } else if (entry.action === 'create') {
       setState((prev) => ({
         rooms: prev.rooms.filter((candidate) => candidate.id !== entry.roomId),
@@ -875,7 +943,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ),
       }))
       syncPendingState()
-      await delay(20)
+      await safeDelayRef.current?.(20)
     } else if (entry.action === 'update') {
       setState((prev) => ({
         ...prev,
@@ -894,7 +962,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ),
       }))
       syncPendingState()
-      await delay(20)
+      await safeDelayRef.current?.(20)
     }
   }, [persistRoomStack, setState, syncPendingState, user])
 
@@ -916,7 +984,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           Object.entries(prev.timers).filter(([id]) => id !== entry?.roomId),
         ),
       }))
-      await delay(80)
+      await safeDelayRef.current?.(80)
     } else if (entry.action === 'create') {
       const snapshot = entry.snapshot
       const restoredRoom: Room = {
@@ -937,7 +1005,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         },
       }))
       syncPendingState()
-      await delay(40)
+      await safeDelayRef.current?.(40)
     } else if (entry.action === 'update') {
       setState((prev) => ({
         ...prev,
@@ -956,7 +1024,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ),
       }))
       syncPendingState()
-      await delay(30)
+      await safeDelayRef.current?.(30)
     }
   }, [persistRoomStack, setState, syncPendingState, user])
 
@@ -1052,7 +1120,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             },
           }
         })
-        await delay(50)
+        await safeDelayRef.current?.(50)
       } else if (entry.action === 'create') {
         const targetId = entry.snapshot.timer.id
         updateTimers(roomId, (timers) => {
@@ -1070,7 +1138,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             },
           }
         })
-        await delay(30)
+        await safeDelayRef.current?.(30)
       } else if (entry.action === 'update') {
         updateTimers(roomId, (timers) =>
           timers
@@ -1097,7 +1165,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
                 : timer,
             ) as Timer[],
         )
-        await delay(20)
+        await safeDelayRef.current?.(20)
       }
     },
     [persistTimerStack, syncPendingState, updateRoom, updateTimers, user],
@@ -1140,7 +1208,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           ),
         }
       })
-      await delay()
+      await safeDelayRef.current?.()
     },
     [pendingRooms, setState, user],
   )
@@ -1149,26 +1217,19 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     async (roomId: string, targetIndex: number) => {
       if (!user) return
       setState((prev) => {
-        const owned = prev.rooms
-          .filter((room) => room.ownerId === user.uid && !pendingRooms.has(room.id))
-          .sort((a, b) => roomOrderKey(a) - roomOrderKey(b))
-        const fromIndex = owned.findIndex((room) => room.id === roomId)
-        if (fromIndex === -1) return prev
-        const [moved] = owned.splice(fromIndex, 1)
-        const clampedIndex = Math.max(0, Math.min(targetIndex, owned.length))
-        owned.splice(clampedIndex, 0, moved)
-        const updatedOrders = owned.reduce<Record<string, number>>((acc, room, idx) => {
-          acc[room.id] = (idx + 1) * 10
-          return acc
-        }, {})
-        return {
-          ...prev,
-          rooms: prev.rooms.map((room) =>
-            updatedOrders[room.id] !== undefined ? { ...room, order: updatedOrders[room.id] } : room,
-          ),
+        const nextRooms = reorderOwnedRooms(
+          prev.rooms,
+          user.uid,
+          pendingRooms,
+          roomId,
+          targetIndex,
+        )
+        if (nextRooms === prev.rooms) {
+          return prev
         }
+        return { ...prev, rooms: nextRooms }
       })
-      await delay()
+      await safeDelayRef.current?.()
     },
     [pendingRooms, setState, user],
   )
@@ -1190,7 +1251,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           order: (idx + 1) * 10,
         }))
       })
-      await delay()
+      await safeDelayRef.current?.()
     },
     [updateTimers],
   )
@@ -1212,7 +1273,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           order: (idx + 1) * 10,
         }))
       })
-      await delay()
+      await safeDelayRef.current?.()
     },
     [updateTimers],
   )
@@ -1235,7 +1296,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         }
       })
-      await delay(120)
+      await safeDelayRef.current?.(120)
     },
     [updateRoom],
   )
@@ -1264,7 +1325,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         }
       })
-      await delay(80)
+      await safeDelayRef.current?.(80)
     },
     [updateRoom],
   )
@@ -1293,7 +1354,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         },
       }
     })
-    await delay(60)
+    await safeDelayRef.current?.(60)
   }, [updateRoom])
 
   const resetTimer = useCallback(async (roomId: string) => {
@@ -1314,7 +1375,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         },
       }
     })
-    await delay(60)
+    await safeDelayRef.current?.(60)
   }, [updateRoom])
 
   const nudgeTimer = useCallback(async (roomId: string, deltaMs: number) => {
@@ -1351,7 +1412,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         ),
       }
     })
-    await delay(60)
+    await safeDelayRef.current?.(60)
   }, [setState])
 
   const setClockMode = useCallback(
@@ -1363,7 +1424,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           showClock: enabled,
         },
       }))
-      await delay(60)
+      await safeDelayRef.current?.(60)
     },
     [updateRoom],
   )
@@ -1377,7 +1438,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           clockMode: format,
         },
       }))
-      await delay(60)
+      await safeDelayRef.current?.(60)
     },
     [updateRoom],
   )
@@ -1397,7 +1458,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         },
       }))
-      await delay(80)
+      await safeDelayRef.current?.(80)
     },
     [updateRoom],
   )

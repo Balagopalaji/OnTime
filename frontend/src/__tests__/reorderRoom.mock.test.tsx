@@ -1,50 +1,42 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
-import { MockDataProvider } from '../context/MockDataContext'
-import { useDataContext } from '../context/DataProvider'
+import { describe, it, expect } from 'vitest'
+import { reorderOwnedRooms } from '../context/MockDataContext'
+import type { Room } from '../types'
 
-vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { uid: 'user-1', displayName: 'Tester' } }),
-}))
+// TODO: Test is skipped. MockDataContext has timers/storage side effects that keep Vitest alive.
+// Fix path: refactor MockDataContext for testability (extract pure reorder helper, disable persistence/timers in tests),
+// or provide a test harness that stubs/cleans all intervals/storage listeners.
 
-vi.mock('../lib/utils', async () => {
-  const actual = await vi.importActual<typeof import('../lib/utils')>('../lib/utils')
-  return { ...actual, delay: () => Promise.resolve() }
+const createRoom = (id: string, order: number, title: string): Room => ({
+  id,
+  ownerId: 'user-1',
+  title,
+  timezone: 'UTC',
+  createdAt: order,
+  order,
+  config: { warningSec: 120, criticalSec: 30 },
+  state: {
+    activeTimerId: null,
+    isRunning: false,
+    startedAt: null,
+    elapsedOffset: 0,
+    progress: {},
+    showClock: false,
+    clockMode: '24h',
+    message: {
+      text: '',
+      visible: false,
+      color: 'green',
+    },
+  },
 })
 
-describe.skip('reorderRoom (mock provider)', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
+describe.skip('reorderOwnedRooms', () => {
+  it('reorders rooms for the owner and updates order values', () => {
+    const rooms = [createRoom('room-1', 10, 'First'), createRoom('room-2', 20, 'Second')]
 
-  afterEach(() => {
-    vi.runOnlyPendingTimers()
-    vi.useRealTimers()
-  })
+    const nextRooms = reorderOwnedRooms(rooms, 'user-1', new Set<string>(), 'room-2', 0)
 
-  it('persists custom order when dragging rooms', async () => {
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <MockDataProvider>{children}</MockDataProvider>
-    )
-    const { result, unmount } = renderHook(() => useDataContext(), { wrapper })
-
-    await act(async () => {
-      await result.current.createRoom({ title: 'First', timezone: 'UTC', ownerId: 'user-1' })
-      await result.current.createRoom({ title: 'Second', timezone: 'UTC', ownerId: 'user-1' })
-    })
-
-    const initial = result.current.rooms.filter((room) => room.ownerId === 'user-1')
-    expect(initial.map((room) => room.title)).toEqual(['First', 'Second'])
-
-    await act(async () => {
-      await result.current.reorderRoom?.(initial[1].id, 0)
-    })
-
-    const reordered = result.current.rooms.filter((room) => room.ownerId === 'user-1')
-    expect(reordered.map((room) => room.title)).toEqual(['Second', 'First'])
-    expect(reordered[0]?.order).toBeLessThan(reordered[1]?.order ?? Infinity)
-
-    vi.runAllTimers()
-    unmount()
+    expect(nextRooms.map((room) => room.title)).toEqual(['Second', 'First'])
+    expect(nextRooms[0]?.order).toBeLessThan(nextRooms[1]?.order ?? Infinity)
   })
 })
