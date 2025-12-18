@@ -612,6 +612,7 @@ export const DashboardPage = () => {
       !isLegacyRoom &&
       hasRollbackBackup
     const isMigrating = migration.status === 'migrating'
+    const isCached = !canManageCloudRooms && (cloudRoomsStatus === 'offline' || cloudRoomsStatus === 'idle')
     const cardDragProps =
       enableSort && isCustomSort
         ? {
@@ -663,6 +664,11 @@ export const DashboardPage = () => {
             : undefined
         }
       >
+        {isCached && (
+          <span className="absolute left-4 top-4 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-100">
+            Cached
+          </span>
+        )}
         {DEBUG_SORTABLE && (
           <span className="absolute left-2 top-2 rounded bg-slate-800 px-2 py-1 text-[10px] font-semibold text-emerald-200">
             {listIndex + 1}

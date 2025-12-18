@@ -339,6 +339,13 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 - [ ] All four providers nested correctly
 - [ ] Mock mode still works as escape hatch
 
+## Notes (multi-client + viewer guard updates)
+- UnifiedDataContext now enforces viewer read-only: all timer/room mutations short-circuit when `clientType === 'viewer'`.
+- SYNC storm fix: pending sync is cleared after the first SYNC emission or on incoming deltas; reduces repeat SYNC_ROOM_STATE spam when multiple controllers connect.
+- Companion multi-client ready on the web side; if multiple controllers still conflict, the limitation is likely in the Companion server (single-client socket). Update the server to allow multiple connections/broadcasts.
+- Cross-tab mode sync added (localStorage/BroadcastChannel) so mode changes propagate across tabs.
+- Dashboard shows cloud rooms even in local/hybrid modes (cached when offline); creation still requires online + Firebase config.
+
 **Repo Prompt Files:**
 ```
 frontend/src/context/DataProvider.tsx
