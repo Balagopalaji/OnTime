@@ -154,11 +154,11 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }, 0)
   }, [discoverCompanion, token])
 
+  // Fetch initial token on mount
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    clearToken()
     void fetchToken()
-  }, [clearToken, fetchToken])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run once on mount
 
   useEffect(() => {
     if (!socket) return

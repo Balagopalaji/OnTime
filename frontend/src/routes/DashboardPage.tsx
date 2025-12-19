@@ -8,6 +8,7 @@ import { SortableList } from '../components/sortable/SortableList'
 import { useSortableList } from '../hooks/useSortableList'
 import { Tooltip } from '../components/core/Tooltip'
 import { useAuth } from '../context/AuthContext'
+import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataProvider'
 import type { DataContextValue } from '../context/DataContext'
 import { db } from '../lib/firebase'
@@ -70,6 +71,7 @@ export const DashboardPage = () => {
     import.meta.env.VITE_FIREBASE_PROJECT_ID &&
     import.meta.env.VITE_FIREBASE_APP_ID,
   )
+  const { discoverCompanion } = useCompanionConnection()
   const [companionReachable, setCompanionReachable] = useState(false)
   const canCreateRooms =
     hasFirebaseConfig && Boolean(user?.uid) && (typeof navigator === 'undefined' ? true : navigator.onLine)
@@ -104,6 +106,21 @@ export const DashboardPage = () => {
       controller?.abort()
     }
   }, [effectiveMode])
+
+  // Auto-connect to companion on dashboard mount
+  // The CompanionConnectionContext handles the connection and UnifiedDataContext
+  // will restore cached subscriptions once handshake completes
+  useEffect(() => {
+    if (!discoverCompanion) return
+
+    // Only skip discovery if user explicitly set mode to 'cloud'
+    // In 'auto' mode, effectiveMode might be 'cloud' initially but we still want to attempt discovery
+    if (mode === 'cloud') return
+
+    // Trigger discovery immediately - don't wait for companionReachable probe
+    // CompanionConnectionContext will handle retries with backoff
+    void discoverCompanion()
+  }, [discoverCompanion, mode])
 
   const ensureCompanionToken = useCallback(async (): Promise<string | null> => {
     const existing = sessionStorage.getItem('ontime:companionToken')

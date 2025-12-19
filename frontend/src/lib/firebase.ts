@@ -14,11 +14,22 @@ const firebaseConfig = {
 
 const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig)
-const auth = getAuth(app)
-const db = getFirestore(app)
+// Only initialize Firebase if config is present (allows local/companion-only mode)
+const hasConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId)
 
-if (useEmulator) {
+let app: ReturnType<typeof initializeApp> | null = null
+let auth: ReturnType<typeof getAuth> | null = null
+let db: ReturnType<typeof getFirestore> | null = null
+
+if (hasConfig) {
+  app = getApps().length ? getApp() : initializeApp(firebaseConfig)
+  auth = getAuth(app)
+  db = getFirestore(app)
+} else {
+  console.warn('[Firebase] No configuration found - running in local/companion mode only')
+}
+
+if (useEmulator && auth && db) {
   try {
     connectAuthEmulator(auth, 'http://localhost:9099')
     connectFirestoreEmulator(db, 'localhost', 8080)

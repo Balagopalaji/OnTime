@@ -534,15 +534,28 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (bootstrappedSubsRef.current) return
+    // Only restore subscriptions when companion is connected and handshake successful
+    if (!socket || !token || handshakeStatus !== 'ack') return
+
     bootstrappedSubsRef.current = true
     const saved = readCachedSubscriptions()
     if (!Object.keys(saved).length) return
+
+    if (debugCompanion) {
+      console.info('[companion] restoring subscriptions', Object.keys(saved))
+    }
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubscribedRooms(() => {
-      persistSubscriptions({})
-      return {}
+      // Update tokens in saved subscriptions to match current token
+      const updated = Object.entries(saved).reduce<Record<string, { clientType: 'controller' | 'viewer'; token: string }>>((acc, [roomId, sub]) => {
+        acc[roomId] = { ...sub, token: token }
+        return acc
+      }, {})
+      persistSubscriptions(updated)
+      return updated
     })
-  }, [])
+  }, [debugCompanion, handshakeStatus, socket, token])
 
   const unsubscribeFromCompanionRoom = useCallback((roomId: string) => {
     setSubscribedRooms((prev) => {

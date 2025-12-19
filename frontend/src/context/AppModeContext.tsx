@@ -23,10 +23,11 @@ type AppModeContextValue = {
 const AppModeContext = createContext<AppModeContextValue | undefined>(undefined)
 
 const readInitialMode = (): AppMode => {
-  if (typeof window === 'undefined') return 'cloud'
+  if (typeof window === 'undefined') return 'auto'
   const raw = window.localStorage.getItem(STORAGE_KEY)
   if (raw === 'auto' || raw === 'local' || raw === 'hybrid' || raw === 'cloud') return raw
-  return 'cloud'
+  // Default to 'auto' to allow companion auto-discovery on first load
+  return 'auto'
 }
 
 export const AppModeProvider = ({ children }: { children: ReactNode }) => {
