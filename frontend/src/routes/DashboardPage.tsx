@@ -2,9 +2,10 @@ import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Check, Clock, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
-import { collection, getDocs, limit, query, where } from 'firebase/firestore'
+import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
+import { useSortableList } from '../hooks/useSortableList'
 import { Tooltip } from '../components/core/Tooltip'
 import { useAuth } from '../context/AuthContext'
 import { useDataContext } from '../context/DataProvider'
@@ -13,7 +14,6 @@ import { db } from '../lib/firebase'
 import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
-import type { Room } from '../types'
 
 const DEBUG_SORTABLE = false
 
@@ -168,19 +168,14 @@ export const DashboardPage = () => {
     if (saved === '1' || saved === '2' || saved === '3' || saved === '4') return Number(saved) as 1 | 2 | 3 | 4
     return 2
   })
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [overIndex, setOverIndex] = useState<number | null>(null)
   const [justDroppedId, setJustDroppedId] = useState<string | null>(null)
   const [migrationState, setMigrationState] = useState<
     Record<string, { status: 'idle' | 'migrating' | 'complete' | 'failed'; error?: string }>
   >({})
   const [recentlyMigrated, setRecentlyMigrated] = useState<Set<string>>(new Set())
   const [rollbackAvailable, setRollbackAvailable] = useState<Record<string, boolean>>({})
-  const dragFromIndexRef = useRef<number | null>(null)
-  const overIndexRef = useRef<number | null>(null)
-  const itemRefs = useRef<Record<string, HTMLElement | null>>({})
-  const dragRectsRef = useRef<Array<{ id: string; index: number; centerX: number; centerY: number }>>([])
   const dropFlashTimeoutRef = useRef<number | null>(null)
+  const listRef = useRef<HTMLUListElement | null>(null)
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -294,6 +289,40 @@ export const DashboardPage = () => {
     [orderKey, sortedPlaceholders, sortedRooms],
   )
 
+  const sortableItems = useMemo(
+    () => renderEntries.map((entry) => ({ id: entry.id, value: entry })),
+    [renderEntries],
+  )
+
+  const { draggingId, overIndex, getItemProps } = useSortableList({
+    items: sortableItems,
+    containerRef: listRef,
+    onReorder: (from, to) => {
+      const movingEntry = renderEntries[from]
+      if (
+        isCustomSort &&
+        reorderRoom &&
+        movingEntry &&
+        movingEntry.kind === 'room' &&
+        from !== to
+      ) {
+        const working = [...renderEntries]
+        const [moved] = working.splice(from, 1)
+        working.splice(to, 0, moved)
+        const roomOrder = working.filter((entry) => entry.kind === 'room').map((entry) => entry.id)
+        const targetRoomIndex = roomOrder.indexOf(movingEntry.id)
+        if (targetRoomIndex >= 0) {
+          if (dropFlashTimeoutRef.current) {
+            window.clearTimeout(dropFlashTimeoutRef.current)
+          }
+          setJustDroppedId(movingEntry.id)
+          dropFlashTimeoutRef.current = window.setTimeout(() => setJustDroppedId(null), 200)
+          void reorderRoom(movingEntry.id, targetRoomIndex)
+        }
+      }
+    },
+  })
+
   const displayEntries = useMemo(() => {
     if (!draggingId || overIndex === null) return renderEntries
     const current = [...renderEntries]
@@ -305,126 +334,14 @@ export const DashboardPage = () => {
     return current
   }, [draggingId, overIndex, renderEntries])
 
-  useEffect(() => {
-    const validKeys = new Set(renderEntries.map((entry) => entry.id))
-    Object.keys(itemRefs.current).forEach((key) => {
-      if (!validKeys.has(key)) {
-        delete itemRefs.current[key]
-      }
-    })
-  }, [renderEntries])
-
-  const resolveTargetIndex = useCallback((clientX: number, clientY: number) => {
-    const rects = dragRectsRef.current
-    if (!rects.length) return null
-    let best = rects[0]
-    let bestDist =
-      (best.centerX - clientX) * (best.centerX - clientX) + (best.centerY - clientY) * (best.centerY - clientY)
-    rects.slice(1).forEach((r) => {
-      const dist = (r.centerX - clientX) * (r.centerX - clientX) + (r.centerY - clientY) * (r.centerY - clientY)
-      if (dist < bestDist) {
-        best = r
-        bestDist = dist
-      }
-    })
-    return best.index
-  }, [])
-
-  const pointerMoveHandler = useRef<((event: PointerEvent) => void) | null>(null)
-  const pointerUpHandler = useRef<((event: PointerEvent) => void) | null>(null)
-
-  const endDrag = useCallback(() => {
-    window.setTimeout(() => {
-      setDraggingId(null)
-      setOverIndex(null)
-      dragFromIndexRef.current = null
-      overIndexRef.current = null
-      dragRectsRef.current = []
-      if (pointerMoveHandler.current) {
-        document.removeEventListener('pointermove', pointerMoveHandler.current)
-      }
-      if (pointerUpHandler.current) {
-        document.removeEventListener('pointerup', pointerUpHandler.current)
-      }
-      pointerMoveHandler.current = null
-      pointerUpHandler.current = null
-    }, 48)
-  }, [])
-
-  const startPointerDrag = useCallback(
-    (id: string, listIndex: number, event: React.PointerEvent) => {
-      event.preventDefault()
-      event.currentTarget.setPointerCapture?.(event.pointerId)
-      dragRectsRef.current = renderEntries
-        .map((entry, idx) => {
-          const el = itemRefs.current[entry.id]
-          const rect = el?.getBoundingClientRect()
-          return rect
-            ? {
-              id: entry.id,
-              index: idx,
-              centerX: rect.left + rect.width / 2,
-              centerY: rect.top + rect.height / 2,
-            }
-            : null
-        })
-        .filter((entry): entry is { id: string; index: number; centerX: number; centerY: number } => entry !== null)
-      dragFromIndexRef.current = listIndex
-      overIndexRef.current = listIndex
-      setDraggingId(id)
-      setOverIndex(listIndex)
-      pointerMoveHandler.current = (nativeEvent: PointerEvent) => {
-        const target = resolveTargetIndex(nativeEvent.clientX, nativeEvent.clientY)
-        if (target !== null) {
-          setOverIndex(target)
-          overIndexRef.current = target
-        }
-      }
-      pointerUpHandler.current = () => {
-        const fromIndex = dragFromIndexRef.current
-        const toIndex = overIndexRef.current ?? listIndex
-        const movingEntry = fromIndex != null ? renderEntries[fromIndex] : null
-        if (
-          isCustomSort &&
-          reorderRoom &&
-          movingEntry &&
-          movingEntry.kind === 'room' &&
-          fromIndex != null &&
-          toIndex != null &&
-          fromIndex !== toIndex
-        ) {
-          const working = [...renderEntries]
-          const [moved] = working.splice(fromIndex, 1)
-          working.splice(toIndex, 0, moved)
-          const roomOrder = working.filter((entry) => entry.kind === 'room').map((entry) => entry.id)
-          const targetRoomIndex = roomOrder.indexOf(movingEntry.id)
-          if (targetRoomIndex >= 0) {
-            if (dropFlashTimeoutRef.current) {
-              window.clearTimeout(dropFlashTimeoutRef.current)
-            }
-            setJustDroppedId(movingEntry.id)
-            dropFlashTimeoutRef.current = window.setTimeout(() => setJustDroppedId(null), 200)
-            void reorderRoom(movingEntry.id, targetRoomIndex)
-          }
-        }
-        endDrag()
-      }
-      document.addEventListener('pointermove', pointerMoveHandler.current)
-      document.addEventListener('pointerup', pointerUpHandler.current)
-    },
-    [endDrag, isCustomSort, renderEntries, reorderRoom, resolveTargetIndex],
-  )
 
   const renderPlaceholderItem = (placeholder: PlaceholderEntry, listIndex: number) => {
     return (
       <SortableItem
         key={`placeholder-${placeholder.roomId}`}
-        ref={(node) => {
-          itemRefs.current[`placeholder-${placeholder.roomId}`] = node
-        }}
         over={draggingId !== null && overIndex === listIndex}
         className="relative flex items-center justify-center rounded-3xl border border-dashed border-slate-800/70 bg-slate-950/50 p-6 text-center text-sm text-slate-200"
-        data-sort-index={listIndex}
+        dataIndex={listIndex}
         draggable={false}
       >
         {DEBUG_SORTABLE && (
@@ -480,50 +397,16 @@ export const DashboardPage = () => {
     const isMigrating = migration.status === 'migrating'
     // Check if room is from companion cache by checking if it's not in the live Firebase rooms list
     const isFromCache = !canManageCloudRooms && !rooms.some((r) => r.id === room.id)
-    const cardDragProps =
-      enableSort && isCustomSort
-        ? {
-          onPointerDown: (event: React.PointerEvent) => {
-            const target = event.target as HTMLElement
-            const blocker = target.closest(
-              'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
-            )
-            if (blocker && blocker !== event.currentTarget) {
-              return
-            }
-            startPointerDrag(room.id, listIndex, event)
-          },
-          onKeyDown: (event: React.KeyboardEvent) => {
-            if (event.key === ' ' || event.key.toLowerCase() === 'enter') {
-              const target = event.target as HTMLElement
-              const blocker = target.closest(
-                'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
-              )
-              if (blocker && blocker !== event.currentTarget) {
-                return
-              }
-              event.preventDefault()
-              startPointerDrag(room.id, listIndex, event as unknown as React.PointerEvent)
-            }
-          },
-          tabIndex: 0,
-          role: 'button' as const,
-          'aria-grabbed': draggingId === room.id,
-        }
-        : {}
+    const itemProps = enableSort && isCustomSort ? getItemProps(room.id, listIndex) : {}
     return (
       <SortableItem
         key={room.id}
-        ref={(node) => {
-          itemRefs.current[room.id] = node
-        }}
+        {...itemProps}
         dragging={enableSort && draggingId === room.id}
         over={enableSort && overIndex === listIndex}
         dataIndex={listIndex}
-        draggable={false}
         className={`group relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${enableSort ? 'cursor-grab select-none transition-transform duration-150' : ''
           }`}
-        {...cardDragProps}
         style={
           justDroppedId === room.id
             ? { transform: 'scale(0.99)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
@@ -1417,6 +1300,7 @@ export const DashboardPage = () => {
           )
         ) : isCustomSort ? (
           <SortableList
+            ref={listRef}
             className={`grid grid-cols-1 gap-4 ${columnCount === 1
                 ? 'md:grid-cols-1'
                 : columnCount === 2
@@ -1425,8 +1309,6 @@ export const DashboardPage = () => {
                     ? 'md:grid-cols-3'
                     : 'md:grid-cols-4'
               }`}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => event.preventDefault()}
           >
             {displayEntries.map((entry, listIndex) =>
               entry.kind === 'room'
