@@ -70,152 +70,13 @@ export const DashboardPage = () => {
     import.meta.env.VITE_FIREBASE_PROJECT_ID &&
     import.meta.env.VITE_FIREBASE_APP_ID,
   )
-  const cacheUid = user?.uid ?? (typeof window !== 'undefined' ? window.localStorage.getItem('ontime:lastAuthUid') : null)
-  const roomsCacheKey = cacheUid ? `ontime:cloudRoomsCache:${cacheUid}` : null
-  const [cloudRooms, setCloudRooms] = useState<Room[]>([])
-  const [cloudRoomsStatus, setCloudRoomsStatus] = useState<'idle' | 'loading' | 'online' | 'offline' | 'error'>('idle')
-  const [cloudRoomsError, setCloudRoomsError] = useState<string | null>(null)
   const [companionReachable, setCompanionReachable] = useState(false)
   const canCreateRooms =
     hasFirebaseConfig && Boolean(user?.uid) && (typeof navigator === 'undefined' ? true : navigator.onLine)
 
-  const displayedRooms = useMemo(() => {
-    if (canManageCloudRooms) return rooms
-    const merged = new Map<string, Room>()
-    rooms.forEach((room) => merged.set(room.id, room))
-    cloudRooms.forEach((room) => {
-      if (!merged.has(room.id)) merged.set(room.id, room)
-    })
-    return [...merged.values()]
-  }, [canManageCloudRooms, cloudRooms, rooms])
+  // UnifiedDataContext already merges cached rooms, so we can use rooms directly
+  const displayedRooms = rooms
 
-  useEffect(() => {
-    if (!roomsCacheKey) {
-      setCloudRooms([])
-      setCloudRoomsStatus('idle')
-      setCloudRoomsError(null)
-      return
-    }
-    const uid = cacheUid
-
-    const readCache = () => {
-      try {
-        const raw = window.localStorage.getItem(roomsCacheKey)
-        if (!raw) return []
-        const parsed = JSON.parse(raw) as unknown
-        if (!Array.isArray(parsed)) return []
-        return parsed as Room[]
-      } catch {
-        return []
-      }
-    }
-
-    // Always hydrate from cache first (helps offline/local modes).
-    setCloudRooms(readCache())
-
-    const toMillis = (val: unknown, fallback: number | null = null): number | null => {
-      if (typeof val === 'number') return val
-      if (val && typeof val === 'object' && 'seconds' in val) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (val as any).seconds * 1000
-      }
-      return fallback
-    }
-
-    const mapRoomLite = (id: string, data: Record<string, unknown>): Room => {
-      const createdAtMs = toMillis(data.createdAt, Date.now()) ?? Date.now()
-      const configRaw = (data.config && typeof data.config === 'object' ? (data.config as Record<string, unknown>) : null) ?? {}
-      const stateRaw = (data.state && typeof data.state === 'object' ? (data.state as Record<string, unknown>) : null) ?? {}
-      const messageRaw =
-        (stateRaw.message && typeof stateRaw.message === 'object' ? (stateRaw.message as Record<string, unknown>) : null) ?? {}
-      const featuresRaw =
-        (data.features && typeof data.features === 'object' ? (data.features as Record<string, unknown>) : null) ?? {}
-
-      return {
-        id,
-        ownerId: typeof data.ownerId === 'string' ? data.ownerId : 'unknown',
-        title: typeof data.title === 'string' ? data.title : 'Room',
-        timezone: typeof data.timezone === 'string' ? data.timezone : 'UTC',
-        createdAt: createdAtMs,
-        order: typeof data.order === 'number' ? data.order : createdAtMs,
-        config: {
-          warningSec: typeof configRaw.warningSec === 'number' ? configRaw.warningSec : 120,
-          criticalSec: typeof configRaw.criticalSec === 'number' ? configRaw.criticalSec : 30,
-        },
-        _version: typeof data._version === 'number' ? data._version : 1,
-        tier: data.tier === 'basic' || data.tier === 'show_control' || data.tier === 'production' ? (data.tier as Room['tier']) : 'basic',
-        features: {
-          localMode: featuresRaw.localMode !== undefined ? Boolean(featuresRaw.localMode) : true,
-          showControl: featuresRaw.showControl !== undefined ? Boolean(featuresRaw.showControl) : false,
-          powerpoint: featuresRaw.powerpoint !== undefined ? Boolean(featuresRaw.powerpoint) : false,
-          externalVideo: featuresRaw.externalVideo !== undefined ? Boolean(featuresRaw.externalVideo) : false,
-        },
-        state: {
-          activeTimerId: typeof stateRaw.activeTimerId === 'string' ? stateRaw.activeTimerId : null,
-          isRunning: Boolean(stateRaw.isRunning),
-          startedAt: toMillis(stateRaw.startedAt, null),
-          elapsedOffset: typeof stateRaw.elapsedOffset === 'number' ? stateRaw.elapsedOffset : 0,
-          progress: (stateRaw.progress && typeof stateRaw.progress === 'object' ? (stateRaw.progress as Record<string, number>) : {}) ?? {},
-          showClock: Boolean(stateRaw.showClock),
-          clockMode: stateRaw.clockMode === 'ampm' ? 'ampm' : '24h',
-          message: {
-            text: typeof messageRaw.text === 'string' ? messageRaw.text : '',
-            visible: Boolean(messageRaw.visible),
-            color:
-              messageRaw.color === 'green' ||
-                messageRaw.color === 'yellow' ||
-                messageRaw.color === 'red' ||
-                messageRaw.color === 'blue' ||
-                messageRaw.color === 'white' ||
-                messageRaw.color === 'none'
-                ? (messageRaw.color as Room['state']['message']['color'])
-                : 'green',
-          },
-        },
-      }
-    }
-
-    const fetchOwnedRooms = async () => {
-      // When Cloud provider is active, it already streams rooms. We only need this fallback when not in Cloud mode.
-      if (canManageCloudRooms) return
-      if (!hasFirebaseConfig) {
-        setCloudRoomsStatus(rooms.length ? 'online' : 'offline')
-        return
-      }
-      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
-      if (!isOnline) {
-        setCloudRoomsStatus(displayedRooms.length ? 'online' : 'offline')
-        return
-      }
-      // If user isn't authenticated, we can only show cached rooms.
-      if (!uid) {
-        setCloudRoomsStatus(displayedRooms.length ? 'online' : 'offline')
-        return
-      }
-      setCloudRoomsStatus('loading')
-      setCloudRoomsError(null)
-      try {
-        const snap = await getDocs(query(collection(db, 'rooms'), where('ownerId', '==', uid)))
-        const next = snap.docs.map((docSnap) => mapRoomLite(docSnap.id, docSnap.data() as Record<string, unknown>))
-        next.sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt))
-        setCloudRooms(next)
-        setCloudRoomsStatus('online')
-        try {
-          window.localStorage.setItem(roomsCacheKey, JSON.stringify(next))
-        } catch {
-          // ignore cache write failures
-        }
-      } catch (err) {
-        setCloudRoomsStatus('error')
-        setCloudRoomsError(String(err))
-      }
-    }
-
-    void fetchOwnedRooms()
-    const handleOnline = () => void fetchOwnedRooms()
-    window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [cacheUid, canManageCloudRooms, hasFirebaseConfig, rooms, roomsCacheKey, user])
 
   useEffect(() => {
     let cancelled = false
@@ -617,7 +478,8 @@ export const DashboardPage = () => {
       !isLegacyRoom &&
       hasRollbackBackup
     const isMigrating = migration.status === 'migrating'
-    const isCached = !canManageCloudRooms && (cloudRoomsStatus === 'offline' || cloudRoomsStatus === 'idle')
+    // Check if room is from companion cache by checking if it's not in the live Firebase rooms list
+    const isFromCache = !canManageCloudRooms && !rooms.some((r) => r.id === room.id)
     const cardDragProps =
       enableSort && isCustomSort
         ? {
@@ -668,7 +530,7 @@ export const DashboardPage = () => {
             : undefined
         }
       >
-        {isCached && (
+        {isFromCache && (
           <span className="absolute left-4 top-4 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-100">
             Cached
           </span>
@@ -1415,15 +1277,6 @@ export const DashboardPage = () => {
               <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Cloud rooms</p>
               <p className="mt-1">
                 Cloud rooms are visible in {mode === 'auto' ? `auto (${effectiveMode})` : effectiveMode} mode; switch to <span className="font-semibold">Cloud</span> to edit.
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                {cloudRoomsStatus === 'offline'
-                  ? 'Offline: showing cached rooms (if available).'
-                  : cloudRoomsStatus === 'loading'
-                    ? 'Loading rooms from Firestore…'
-                    : cloudRoomsStatus === 'error'
-                      ? `Failed to load rooms: ${cloudRoomsError ?? 'unknown error'}`
-                      : 'Showing latest Firestore rooms.'}
               </p>
             </div>
             <button
