@@ -346,6 +346,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const companionRoomsRef = useRef(companionRooms)
   const companionTimersRef = useRef(companionTimers)
   const tokenRefreshInFlightRef = useRef(false)
+  const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
   const firestoreEnabled = typeof navigator === 'undefined' || navigator.onLine
   const isViewerClient = useCallback(
@@ -388,30 +389,44 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
   }, [])
 
-  // Re-emit JOIN_ROOM on socket reconnect to restore subscriptions.
   useEffect(() => {
-    if (!socket) return
-    const handleReconnect = () => {
-      const rooms = subscribedRoomsRef.current
-      Object.entries(rooms).forEach(([roomId, sub]) => {
+    subscribedRoomsRef.current = subscribedRooms
+  }, [subscribedRooms])
+
+  useEffect(() => {
+    if (!token) return
+    const entries = Object.entries(subscribedRoomsRef.current)
+    if (!entries.length) return
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSubscribedRooms((prev) => {
+      let changed = false
+      const next = { ...prev }
+      Object.entries(prev).forEach(([roomId, sub]) => {
+        if (sub.token !== token) {
+          next[roomId] = { ...sub, token }
+          changed = true
+        }
+      })
+      if (changed) {
+        persistSubscriptions(next)
+        return next
+      }
+      return prev
+    })
+
+    if (socket) {
+      entries.forEach(([roomId, sub]) => {
         socket.emit('JOIN_ROOM', {
           type: 'JOIN_ROOM',
           roomId,
-          token: sub.token,
+          token,
           clientType: sub.clientType,
           clientId,
         })
       })
     }
-    socket.on('connect', handleReconnect)
-    return () => {
-      socket.off('connect', handleReconnect)
-    }
-  }, [clientId, socket])
-
-  useEffect(() => {
-    subscribedRoomsRef.current = subscribedRooms
-  }, [subscribedRooms])
+  }, [clientId, socket, token])
 
   useEffect(() => {
     companionRoomsRef.current = companionRooms
@@ -471,24 +486,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const subscribeToCompanionRoom = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', tokenOverride?: string) => {
       void (async () => {
-        const storedToken = (() => {
-          try {
-            return sessionStorage.getItem('ontime:companionToken') ?? localStorage.getItem('ontime:companionToken')
-          } catch {
-            return null
-          }
-        })()
-        const joinToken = tokenOverride ?? storedToken ?? token ?? (await fetchToken())
+        const joinToken = token ?? (await fetchToken()) ?? tokenOverride ?? null
         if (!joinToken) {
           console.warn('[UnifiedDataContext] missing Companion token for room', roomId)
           return
-        }
-
-        try {
-          window.localStorage.setItem('ontime:companionToken', joinToken)
-          sessionStorage.setItem('ontime:companionToken', joinToken)
-        } catch {
-          // ignore
         }
 
         setSubscribedRooms((prev) => {
@@ -532,18 +533,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
 
   useEffect(() => {
+    if (bootstrappedSubsRef.current) return
+    bootstrappedSubsRef.current = true
     const saved = readCachedSubscriptions()
     if (!Object.keys(saved).length) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSubscribedRooms((prev) => {
-      const next = { ...prev, ...saved }
-      persistSubscriptions(next)
-      return next
+    setSubscribedRooms(() => {
+      persistSubscriptions({})
+      return {}
     })
-    Object.entries(saved).forEach(([roomId, sub]) => {
-      subscribeToCompanionRoom(roomId, sub.clientType, sub.token)
-    })
-  }, [subscribeToCompanionRoom])
+  }, [])
 
   const unsubscribeFromCompanionRoom = useCallback((roomId: string) => {
     setSubscribedRooms((prev) => {
@@ -790,13 +789,34 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!socket) return
 
-    const handleConnect = () => {
+    const handleConnect = async () => {
+      if (debugCompanion) console.info('[companion] connect')
+
+      const joinToken = token ?? (await fetchToken())
+      if (!joinToken) {
+        if (debugCompanion) console.warn('[companion] connect missing token, skipping JOIN replay')
+        return
+      }
+
+      setSubscribedRooms((prev) => {
+        let changed = false
+        const next = { ...prev }
+        Object.entries(prev).forEach(([roomId, sub]) => {
+          if (sub.token !== joinToken) {
+            next[roomId] = { ...sub, token: joinToken }
+            changed = true
+          }
+        })
+        if (changed) persistSubscriptions(next)
+        return changed ? next : prev
+      })
+
       const rooms = subscribedRoomsRef.current
       Object.entries(rooms).forEach(([roomId, sub]) => {
         socket.emit('JOIN_ROOM', {
           type: 'JOIN_ROOM',
           roomId,
-          token: sub.token,
+          token: joinToken,
           clientType: sub.clientType,
           clientId,
         })
@@ -807,6 +827,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleDisconnect = () => {
+      if (debugCompanion) console.info('[companion] disconnect')
       const rooms = subscribedRoomsRef.current
       const usingCompanion = effectiveMode !== 'cloud' && Object.keys(rooms).length > 0
       setRoomAuthority((prev) => {
@@ -1044,6 +1065,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     replayRoomQueue,
     socket,
     firebase,
+    token,
   ])
 
   useEffect(() => {
@@ -1072,11 +1094,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]
       const offline = typeof navigator !== 'undefined' ? !navigator.onLine : false
+      const companionAllowed = effectiveMode !== 'cloud' || offline
       const preferCompanion =
-        authority.source === 'companion' ||
-        authority.source === 'pending' ||
-        shouldUseCompanion(roomId) ||
-        offline
+        companionAllowed &&
+        (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId) || offline)
       if (preferCompanion) {
         const companionState =
           companionRooms[roomId] ??
@@ -1088,7 +1109,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       return firebase.getRoom(roomId) ?? cached?.room
     },
-    [companionRooms, firebase, roomAuthority, shouldUseCompanion],
+    [companionRooms, effectiveMode, firebase, roomAuthority, shouldUseCompanion],
   )
 
   const getTimers = useCallback(
@@ -1096,11 +1117,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]?.timers ?? []
       const offline = typeof navigator !== 'undefined' ? !navigator.onLine : false
+      const companionAllowed = effectiveMode !== 'cloud' || offline
       const preferCompanion =
-        authority.source === 'companion' ||
-        authority.source === 'pending' ||
-        shouldUseCompanion(roomId) ||
-        offline
+        companionAllowed &&
+        (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId) || offline)
       if (preferCompanion) {
         const timers = companionTimers[roomId] ?? cached
         if (timers) return [...timers].sort((a, b) => a.order - b.order)
@@ -1108,7 +1128,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const timers = firebase.getTimers(roomId)
       return timers.length ? timers : cached
     },
-    [companionTimers, firebase, roomAuthority, shouldUseCompanion],
+    [companionTimers, effectiveMode, firebase, roomAuthority, shouldUseCompanion],
   )
 
   const createTimer = useCallback<DataContextValue['createTimer']>(

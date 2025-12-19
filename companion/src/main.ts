@@ -222,17 +222,14 @@ async function getMachineId(): Promise<string> {
   }
 }
 
-function generateJwt(): { token: string; expiresAt: number; secret: string } {
-  const secret = crypto.randomBytes(32).toString('hex');
+function generateJwt(secretOverride?: string): { token: string; secret: string; expiresAt: number } {
+  const secret = secretOverride ?? crypto.randomBytes(32).toString('hex');
   const expiresAt = Date.now() + TOKEN_TTL_MS;
   const token = jwt.sign(
-    {
-      scope: 'companion',
-      exp: Math.floor(expiresAt / 1000),
-    },
-    secret
+    { sub: 'companion', exp: Math.floor(expiresAt / 1000) },
+    secret,
   );
-  return { token, expiresAt, secret };
+  return { token, secret, expiresAt };
 }
 
 async function saveTokenToKeychain(token: string, expiresAt: number): Promise<void> {
@@ -401,7 +398,8 @@ async function bootstrap() {
 
   await loadRoomCache();
 
-  const { token, expiresAt, secret } = generateJwt();
+  const envSecret = process.env.COMPANION_JWT_SECRET || undefined;
+  const { token, secret, expiresAt } = generateJwt(envSecret);
   currentToken = token;
   currentTokenExpiresAt = expiresAt;
   jwtSecret = secret;

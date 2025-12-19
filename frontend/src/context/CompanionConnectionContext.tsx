@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { io, type Socket } from 'socket.io-client'
+import { io, type Socket, type DisconnectReason } from 'socket.io-client'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 
@@ -155,6 +155,12 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [discoverCompanion, token])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    clearToken()
+    void fetchToken()
+  }, [clearToken, fetchToken])
+
+  useEffect(() => {
     if (!socket) return
     // If we have a token but the socket isn't connected/active (e.g., Companion restarted), kick a connect.
     if (token && !socket.connected && !socket.active) {
@@ -198,8 +204,12 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       // Stay idle until a room join drives a handshake ACK/ERROR.
       setHandshakeStatus('idle')
     }
-    const handleDisconnect = () => {
-      if (debugCompanion) console.info('[companion] disconnect')
+    const handleDisconnect = (reason?: DisconnectReason) => {
+      if (debugCompanion) console.info('[companion] disconnect', reason)
+      if (reason === 'io server disconnect') {
+        clearToken()
+        setHandshakeStatus('error')
+      }
       setIsConnected(false)
       setHandshakeStatus('idle')
     }
@@ -217,6 +227,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleHandshakeError = () => {
       if (debugCompanion) console.warn('[companion] HANDSHAKE_ERROR')
+      clearToken()
       setHandshakeStatus('error')
     }
 
@@ -238,7 +249,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       socket.off('HANDSHAKE_ERROR', handleHandshakeError)
       socket.disconnect()
     }
-  }, [debugCompanion, socket])
+  }, [clearToken, debugCompanion, socket])
 
   const value = useMemo(
     () => ({

@@ -62,7 +62,6 @@ export const DashboardPage = () => {
     reorderRoom,
     migrateRoomToV2,
     rollbackRoomMigration,
-    subscribeToCompanionRoom,
   } = dataContext
 
   const canManageCloudRooms = effectiveMode === 'cloud'
@@ -262,18 +261,6 @@ export const DashboardPage = () => {
       return null
     }
   }, [])
-
-  useEffect(() => {
-    if (effectiveMode === 'cloud') return
-    if (!subscribeToCompanionRoom) return
-    void (async () => {
-      const token = await ensureCompanionToken()
-      if (!token) return
-      displayedRooms.forEach((room) => {
-        subscribeToCompanionRoom(room.id, 'viewer', token)
-      })
-    })()
-  }, [displayedRooms, effectiveMode, ensureCompanionToken, subscribeToCompanionRoom])
 
   const openControllerInMode = useCallback(
     async (roomId: string, target: 'cloud' | 'hybrid' | 'local') => {
