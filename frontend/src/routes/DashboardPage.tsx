@@ -67,8 +67,8 @@ export const DashboardPage = () => {
   const canManageCloudRooms = effectiveMode === 'cloud'
   const hasFirebaseConfig = Boolean(
     import.meta.env.VITE_FIREBASE_API_KEY &&
-      import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-      import.meta.env.VITE_FIREBASE_APP_ID,
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID,
   )
   const cacheUid = user?.uid ?? (typeof window !== 'undefined' ? window.localStorage.getItem('ontime:lastAuthUid') : null)
   const roomsCacheKey = cacheUid ? `ontime:cloudRoomsCache:${cacheUid}` : null
@@ -163,11 +163,11 @@ export const DashboardPage = () => {
             visible: Boolean(messageRaw.visible),
             color:
               messageRaw.color === 'green' ||
-              messageRaw.color === 'yellow' ||
-              messageRaw.color === 'red' ||
-              messageRaw.color === 'blue' ||
-              messageRaw.color === 'white' ||
-              messageRaw.color === 'none'
+                messageRaw.color === 'yellow' ||
+                messageRaw.color === 'red' ||
+                messageRaw.color === 'blue' ||
+                messageRaw.color === 'white' ||
+                messageRaw.color === 'none'
                 ? (messageRaw.color as Room['state']['message']['color'])
                 : 'green',
           },
@@ -215,7 +215,7 @@ export const DashboardPage = () => {
     const handleOnline = () => void fetchOwnedRooms()
     window.addEventListener('online', handleOnline)
     return () => window.removeEventListener('online', handleOnline)
-  }, [cacheUid, canManageCloudRooms, displayedRooms, hasFirebaseConfig, rooms, roomsCacheKey, user])
+  }, [cacheUid, canManageCloudRooms, hasFirebaseConfig, rooms, roomsCacheKey, user])
 
   useEffect(() => {
     let cancelled = false
@@ -423,11 +423,11 @@ export const DashboardPage = () => {
           'id' in entry && 'ownerId' in entry
             ? { kind: 'room' as const, id: entry.id, order: orderKey(entry), room: entry }
             : {
-                kind: 'placeholder' as const,
-                id: `placeholder-${(entry as PlaceholderEntry).roomId}`,
-                order: orderKey(entry as PlaceholderEntry),
-                placeholder: entry as PlaceholderEntry,
-              },
+              kind: 'placeholder' as const,
+              id: `placeholder-${(entry as PlaceholderEntry).roomId}`,
+              order: orderKey(entry as PlaceholderEntry),
+              placeholder: entry as PlaceholderEntry,
+            },
         )
         .sort((a, b) => a.order - b.order),
     [orderKey, sortedPlaceholders, sortedRooms],
@@ -500,11 +500,11 @@ export const DashboardPage = () => {
           const rect = el?.getBoundingClientRect()
           return rect
             ? {
-                id: entry.id,
-                index: idx,
-                centerX: rect.left + rect.width / 2,
-                centerY: rect.top + rect.height / 2,
-              }
+              id: entry.id,
+              index: idx,
+              centerX: rect.left + rect.width / 2,
+              centerY: rect.top + rect.height / 2,
+            }
             : null
         })
         .filter((entry): entry is { id: string; index: number; centerX: number; centerY: number } => entry !== null)
@@ -621,7 +621,18 @@ export const DashboardPage = () => {
     const cardDragProps =
       enableSort && isCustomSort
         ? {
-            onPointerDown: (event: React.PointerEvent) => {
+          onPointerDown: (event: React.PointerEvent) => {
+            const target = event.target as HTMLElement
+            const blocker = target.closest(
+              'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
+            )
+            if (blocker && blocker !== event.currentTarget) {
+              return
+            }
+            startPointerDrag(room.id, listIndex, event)
+          },
+          onKeyDown: (event: React.KeyboardEvent) => {
+            if (event.key === ' ' || event.key.toLowerCase() === 'enter') {
               const target = event.target as HTMLElement
               const blocker = target.closest(
                 'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
@@ -629,25 +640,14 @@ export const DashboardPage = () => {
               if (blocker && blocker !== event.currentTarget) {
                 return
               }
-              startPointerDrag(room.id, listIndex, event)
-            },
-            onKeyDown: (event: React.KeyboardEvent) => {
-              if (event.key === ' ' || event.key.toLowerCase() === 'enter') {
-                const target = event.target as HTMLElement
-                const blocker = target.closest(
-                  'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
-                )
-                if (blocker && blocker !== event.currentTarget) {
-                  return
-                }
-                event.preventDefault()
-                startPointerDrag(room.id, listIndex, event as unknown as React.PointerEvent)
-              }
-            },
-            tabIndex: 0,
-            role: 'button' as const,
-            'aria-grabbed': draggingId === room.id,
-          }
+              event.preventDefault()
+              startPointerDrag(room.id, listIndex, event as unknown as React.PointerEvent)
+            }
+          },
+          tabIndex: 0,
+          role: 'button' as const,
+          'aria-grabbed': draggingId === room.id,
+        }
         : {}
     return (
       <SortableItem
@@ -659,9 +659,8 @@ export const DashboardPage = () => {
         over={enableSort && overIndex === listIndex}
         dataIndex={listIndex}
         draggable={false}
-        className={`group relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${
-          enableSort ? 'cursor-grab select-none transition-transform duration-150' : ''
-        }`}
+        className={`group relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${enableSort ? 'cursor-grab select-none transition-transform duration-150' : ''
+          }`}
         {...cardDragProps}
         style={
           justDroppedId === room.id
@@ -1137,7 +1136,7 @@ export const DashboardPage = () => {
                         : 'https://stagetime.app'
                     const viewerUrl = `${origin}/room/${room.id}/view`
                     if (navigator.share) {
-                      void navigator.share({ title: room.title, url: viewerUrl }).catch(() => {})
+                      void navigator.share({ title: room.title, url: viewerUrl }).catch(() => { })
                     } else {
                       void navigator.clipboard.writeText(viewerUrl).then(() => window.alert('Viewer link copied to clipboard'))
                     }
@@ -1151,11 +1150,10 @@ export const DashboardPage = () => {
                 <Tooltip content="Show QR Code">
                   <button
                     type="button"
-                    className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border px-3 font-semibold transition ${
-                      qrOpenId === room.id
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border px-3 font-semibold transition ${qrOpenId === room.id
                         ? 'border-emerald-400/70 text-emerald-200'
                         : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
-                    }`}
+                      }`}
                     ref={(node) => {
                       qrButtonRefs.current[room.id] = node
                     }}
@@ -1197,9 +1195,9 @@ export const DashboardPage = () => {
                       const centerLeft =
                         rect && typeof window !== 'undefined'
                           ? Math.min(
-                              viewportWidth - 320 - margin,
-                              Math.max(margin, rect.left + rect.width / 2 - 160),
-                            )
+                            viewportWidth - 320 - margin,
+                            Math.max(margin, rect.left + rect.width / 2 - 160),
+                          )
                           : clampedRight
                       const left = rect && overflowRight <= 0 ? clampedRight : centerLeft
                       return (
@@ -1383,20 +1381,20 @@ export const DashboardPage = () => {
   const qrOverlay =
     qrOpenId && typeof document !== 'undefined'
       ? createPortal(
-          <div
-            className="fixed inset-0 z-[120] cursor-default bg-transparent"
-            role="presentation"
-            onPointerDown={() => {
-              setQrOpenId(null)
-              setQrModalId(null)
-            }}
-            onClick={() => {
-              setQrOpenId(null)
-              setQrModalId(null)
-            }}
-          />,
-          document.body,
-        )
+        <div
+          className="fixed inset-0 z-[120] cursor-default bg-transparent"
+          role="presentation"
+          onPointerDown={() => {
+            setQrOpenId(null)
+            setQrModalId(null)
+          }}
+          onClick={() => {
+            setQrOpenId(null)
+            setQrModalId(null)
+          }}
+        />,
+        document.body,
+      )
       : null
 
   if (!user) {
@@ -1566,15 +1564,14 @@ export const DashboardPage = () => {
           )
         ) : isCustomSort ? (
           <SortableList
-            className={`grid grid-cols-1 gap-4 ${
-              columnCount === 1
+            className={`grid grid-cols-1 gap-4 ${columnCount === 1
                 ? 'md:grid-cols-1'
                 : columnCount === 2
                   ? 'md:grid-cols-2'
                   : columnCount === 3
                     ? 'md:grid-cols-3'
                     : 'md:grid-cols-4'
-            }`}
+              }`}
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => event.preventDefault()}
           >
@@ -1586,15 +1583,14 @@ export const DashboardPage = () => {
           </SortableList>
         ) : (
           <SortableList
-            className={`grid grid-cols-1 gap-4 ${
-              columnCount === 1
+            className={`grid grid-cols-1 gap-4 ${columnCount === 1
                 ? 'md:grid-cols-1'
                 : columnCount === 2
                   ? 'md:grid-cols-2'
                   : columnCount === 3
                     ? 'md:grid-cols-3'
                     : 'md:grid-cols-4'
-            }`}
+              }`}
           >
             {[...sortedRooms.map((room) => ({
               kind: 'room' as const,
