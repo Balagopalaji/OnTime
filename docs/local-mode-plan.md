@@ -13,7 +13,7 @@ The frontend will support two distinct transport mechanisms:
 ### 2.1.1 App Modes (Operator UX)
 The UI exposes explicit modes to the operator:
 - **Cloud:** Firebase-only. No Companion required.
-- **Local:** Companion primary. **Still writes to Firestore when online** for backup/fallback.
+- **Local:** Companion primary. **No Firebase required but: Still writes to Firestore when online** for backup/fallback.
 - **Hybrid:** Same as Local (Companion primary + Firestore write-through when online). Exists for clarity.
 - **Auto:** If Companion is reachable, use Local/Hybrid; otherwise use Cloud.
 
