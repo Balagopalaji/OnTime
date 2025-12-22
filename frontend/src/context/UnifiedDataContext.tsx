@@ -277,7 +277,7 @@ export const isSnapshotStale = (
   timer?: Timer,
 ): boolean => {
   const age = now - snapshotTimestamp
-  const baseElapsed = state.currentTime ?? state.elapsedOffset ?? 0
+  const baseElapsed = Math.max(state.currentTime ?? 0, state.elapsedOffset ?? 0)
   const hasProgress =
     baseElapsed > 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) > 0)
   const adjustments = timer?.adjustmentLog?.filter(

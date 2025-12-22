@@ -127,7 +127,7 @@ export const AppShell = () => {
       
       setMode(nextMode)
     }
-  }, [data, effectiveMode, location.pathname, mode, setMode])
+  }, [data, effectiveMode, location.pathname, setMode])
 
   const handleQuickConnect = useMemo(
     () => async () => {
