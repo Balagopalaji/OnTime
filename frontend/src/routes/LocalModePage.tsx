@@ -67,11 +67,11 @@ export const LocalModePage = () => {
           <select
             className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-white"
             value={mode}
-            onChange={(e) => setMode(e.target.value as 'cloud' | 'local' | 'hybrid')}
+            onChange={(e) => setMode(e.target.value as 'auto' | 'cloud' | 'local')}
           >
-            <option value="local">local (Companion only)</option>
-            <option value="hybrid">hybrid (Companion + Firestore best-effort)</option>
-            <option value="cloud">cloud (Firebase)</option>
+            <option value="auto">auto (freshest source)</option>
+            <option value="local">local (Companion preferred)</option>
+            <option value="cloud">cloud (Firebase preferred)</option>
           </select>
         </label>
 
@@ -129,4 +129,3 @@ export const LocalModePage = () => {
     </div>
   )
 }
-

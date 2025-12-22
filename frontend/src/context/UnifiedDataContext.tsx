@@ -248,6 +248,8 @@ const deriveCompanionStateFromRoom = (room: Room): CompanionRoomState => ({
 
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 const MAX_QUEUE = 100
+const QUEUE_WARNING_THRESHOLD = 0.8
+const CONFIDENCE_WINDOW_MS = 2000
 
 const translateCompanionStateToFirebase = (
   companion: CompanionRoomState,
@@ -272,16 +274,29 @@ export const isSnapshotStale = (
   state: Room['state'],
   snapshotTimestamp: number,
   now: number = Date.now(),
+  timer?: Timer,
 ): boolean => {
   const age = now - snapshotTimestamp
+  const baseElapsed = state.currentTime ?? state.elapsedOffset ?? 0
+  const hasProgress =
+    baseElapsed > 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) > 0)
+  const adjustments = timer?.adjustmentLog?.filter(
+    (entry) => entry.timestamp > snapshotTimestamp && entry.timestamp < now,
+  ) ?? []
+  const totalAdjustments = adjustments.reduce((sum, entry) => sum + entry.delta, 0)
+  const adjustedElapsed = baseElapsed + age + totalAdjustments
+
   if (state.isRunning) {
+    if (timer?.duration) {
+      return adjustedElapsed > timer.duration * 1000 * 3
+    }
     return age > 30_000
   }
-  const hasProgress =
-    (state.elapsedOffset ?? 0) > 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) > 0)
+
   if (hasProgress) {
     return age > 24 * 60 * 60 * 1000
   }
+
   return false
 }
 
@@ -323,7 +338,7 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
 const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
-  const { effectiveMode } = useAppMode()
+  const { effectiveMode, mode } = useAppMode()
   const { socket, handshakeStatus, token, fetchToken, clearToken } = useCompanionConnection()
   const [roomAuthority, setRoomAuthority] = useState<Record<string, RoomAuthority>>({})
   const [companionRooms, setCompanionRooms] = useState<Record<string, CompanionRoomState>>({})
@@ -332,6 +347,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     Record<string, { clientType: 'controller' | 'viewer'; token: string }>
   >({})
   const [cachedSnapshots, setCachedSnapshots] = useState<Record<string, CachedRoomSnapshot>>({})
+  const [queueStatus, setQueueStatus] = useState<
+    Record<string, { count: number; max: number; nearLimit: boolean; percent: number }>
+  >({})
   const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>({})
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
@@ -507,10 +525,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           },
         }))
 
-        if (effectiveMode === 'local' || effectiveMode === 'hybrid') {
-          if (clientType === 'controller') {
-            addPendingSyncRoom(roomId)
-          }
+        if (clientType === 'controller') {
+          addPendingSyncRoom(roomId)
         }
 
         if (!socket) return
@@ -529,7 +545,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       })()
     },
-    [addPendingSyncRoom, clientId, debugCompanion, effectiveMode, fetchToken, socket, token],
+    [addPendingSyncRoom, clientId, debugCompanion, fetchToken, socket, token],
   )
 
   useEffect(() => {
@@ -598,10 +614,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const shouldUseCompanion = useCallback(
     (roomId: string) => {
-      if (effectiveMode === 'cloud') return false
       return Boolean(subscribedRooms[roomId])
     },
-    [effectiveMode, subscribedRooms],
+    [subscribedRooms],
   )
 
   useEffect(() => {
@@ -676,6 +691,20 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     return Math.max(0, state.currentTime)
   }, [])
 
+  const updateQueueStatus = useCallback((roomId: string, queue: QueuedEvent[]) => {
+    const count = queue.length
+    const percent = MAX_QUEUE > 0 ? count / MAX_QUEUE : 0
+    setQueueStatus((prev) => ({
+      ...prev,
+      [roomId]: {
+        count,
+        max: MAX_QUEUE,
+        percent,
+        nearLimit: percent >= QUEUE_WARNING_THRESHOLD,
+      },
+    }))
+  }, [])
+
   const loadQueue = useCallback((roomId: string): QueuedEvent[] => {
     if (typeof localStorage === 'undefined') return []
     try {
@@ -683,7 +712,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (!raw) return []
       const parsed = JSON.parse(raw) as unknown
       if (!Array.isArray(parsed)) return []
-      return parsed
+      const queue = parsed
         .map((entry: unknown) => {
           if (!entry || typeof entry !== 'object') return null
           const record = entry as Record<string, unknown>
@@ -707,20 +736,23 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           return null
         })
         .filter(Boolean) as QueuedEvent[]
+      updateQueueStatus(roomId, queue)
+      return queue
     } catch (error) {
       console.warn('[UnifiedDataContext] Failed to load queue', error)
       return []
     }
-  }, [])
+  }, [updateQueueStatus])
 
   const saveQueue = useCallback((roomId: string, queue: QueuedEvent[]) => {
     if (typeof localStorage === 'undefined') return
     try {
       localStorage.setItem(`ontime:queue:${roomId}`, JSON.stringify(queue))
+      updateQueueStatus(roomId, queue)
     } catch (error) {
       console.warn('[UnifiedDataContext] Failed to save queue', error)
     }
-  }, [])
+  }, [updateQueueStatus])
 
   const enqueueAction = useCallback(
     (roomId: string, action: QueuedEvent) => {
@@ -739,18 +771,86 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [loadQueue, saveQueue],
   )
 
+  const mergeQueuedEvents = useCallback((queue: QueuedEvent[]): QueuedEvent[] => {
+    const grouped = new Map<string, QueuedEvent[]>()
+    const keyFor = (event: QueuedEvent) => {
+      switch (event.type) {
+        case 'TIMER_ACTION':
+          return `TIMER_ACTION:${event.timerId}`
+        case 'CREATE_TIMER':
+        case 'UPDATE_TIMER':
+        case 'DELETE_TIMER':
+          return `TIMER_CRUD:${event.type === 'CREATE_TIMER' ? event.timer.id : event.timerId}`
+        case 'REORDER_TIMERS':
+          return `TIMER_REORDER:${event.roomId}`
+        default:
+          return `UNKNOWN:${event.roomId}`
+      }
+    }
+
+    queue.forEach((event) => {
+      const key = keyFor(event)
+      const list = grouped.get(key) ?? []
+      list.push(event)
+      grouped.set(key, list)
+    })
+
+    const merged: QueuedEvent[] = []
+    grouped.forEach((events) => {
+      const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp)
+      const latest = sorted[sorted.length - 1]
+
+      const deletes = sorted.filter((event) => event.type === 'DELETE_TIMER') as Array<
+        Extract<QueuedEvent, { type: 'DELETE_TIMER' }>
+      >
+      if (deletes.length) {
+        merged.push(deletes[deletes.length - 1])
+        return
+      }
+
+      const creates = sorted.filter((event) => event.type === 'CREATE_TIMER') as Array<
+        Extract<QueuedEvent, { type: 'CREATE_TIMER' }>
+      >
+      const updates = sorted.filter((event) => event.type === 'UPDATE_TIMER') as Array<
+        Extract<QueuedEvent, { type: 'UPDATE_TIMER' }>
+      >
+
+      if (creates.length) {
+        const create = creates[creates.length - 1]
+        const update = updates[updates.length - 1]
+        if (update) {
+          const mergedTimer = { ...create.timer, ...(update.changes as Partial<Timer>) }
+          const useUpdate = update.timestamp >= create.timestamp
+          merged.push({
+            ...create,
+            timer: mergedTimer,
+            timestamp: Math.max(create.timestamp, update.timestamp),
+            clientId: useUpdate ? update.clientId : create.clientId,
+          })
+          return
+        }
+        merged.push(create)
+        return
+      }
+
+      merged.push(latest)
+    })
+
+    return merged.sort((a, b) => a.timestamp - b.timestamp)
+  }, [])
+
   const replayRoomQueue = useCallback(
     (roomId: string) => {
       if (!socket) return
       const queue = loadQueue(roomId)
       if (!queue.length) return
       isReplayingRef.current = true
-      const sorted = [...queue].sort((a, b) => a.timestamp - b.timestamp)
-      sorted.forEach((item) => socket.emit(item.type, item))
+      const merged = mergeQueuedEvents(queue)
+      merged.forEach((item) => socket.emit(item.type, item))
       saveQueue(roomId, [])
       isReplayingRef.current = false
     },
-    [loadQueue, saveQueue, socket],
+    [loadQueue, mergeQueuedEvents, saveQueue, socket],
   )
 
   const emitOrQueue = useCallback(
@@ -833,7 +933,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           clientType: sub.clientType,
           clientId,
         })
-        if ((effectiveMode === 'local' || effectiveMode === 'hybrid') && sub.clientType === 'controller') {
+        if (sub.clientType === 'controller') {
           addPendingSyncRoom(roomId)
         }
       })
@@ -858,6 +958,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleHandshakeError = (err: HandshakeError) => {
+      if (err?.code === 'CONTROLLER_TAKEN') {
+        // TODO: prompt for takeover and emit CONTROLLER_TAKEOVER when protocol is finalized.
+        return
+      }
       if (err?.code !== 'INVALID_TOKEN') return
       clearToken()
       if (tokenRefreshInFlightRef.current) return
@@ -892,7 +996,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const baseRoom = firebase.getRoom(payload.roomId)
       const translatedState = translateCompanionStateToFirebase(payload.state, baseRoom?.state)
       const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
-      if (isSnapshotStale(translatedState, snapshotTs)) {
+      const cachedTimers = cachedSnapshotsRef.current[payload.roomId]?.timers ?? []
+      const firebaseTimers = firebase.getTimers(payload.roomId)
+      const timers = firebaseTimers.length ? firebaseTimers : cachedTimers
+      const activeId = translatedState.activeTimerId ?? baseRoom?.state.activeTimerId ?? null
+      const activeTimer = activeId ? timers.find((timer) => timer.id === activeId) : undefined
+      if (isSnapshotStale(translatedState, snapshotTs, Date.now(), activeTimer)) {
         if (debugCompanion) {
           console.info('[companion] snapshot stale, ignoring', {
             roomId: payload.roomId,
@@ -1082,7 +1191,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   ])
 
   useEffect(() => {
-    if (effectiveMode !== 'local' && effectiveMode !== 'hybrid') return
+    if (effectiveMode !== 'local') return
     Object.entries(subscribedRooms).forEach(([roomId, sub]) => {
       if (sub.clientType !== 'controller') return
       addPendingSyncRoom(roomId)
@@ -1098,50 +1207,88 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [addPendingSyncRoom, effectiveMode, subscribedRooms])
 
   useEffect(() => {
-    if (effectiveMode !== 'cloud') return
-    clearPendingSyncRooms()
-  }, [clearPendingSyncRooms, effectiveMode])
+    if (!socket?.connected) return
+    Object.entries(roomAuthority).forEach(([roomId, authority]) => {
+      if (authority.source !== 'companion') return
+      const subscription = subscribedRoomsRef.current[roomId]
+      if (subscription?.clientType !== 'controller') return
+      const firebaseRoom = firebase.getRoom(roomId)
+      const companionState = companionRoomsRef.current[roomId]
+      if (!firebaseRoom || !companionState) return
+      const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
+      const companionTs = companionState.lastUpdate ?? 0
+      if (firebaseTs > companionTs + CONFIDENCE_WINDOW_MS) {
+        emitSyncRoomState(roomId)
+      }
+    })
+  }, [companionRooms, emitSyncRoomState, firebase, roomAuthority, socket])
+
+  const pickSource = useCallback(
+    (roomId: string, firebaseTs: number, companionTs: number, authority: RoomAuthority) => {
+      const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(roomId)
+      if (viewerSyncGuard) return 'cloud'
+
+      if (Math.abs(firebaseTs - companionTs) < CONFIDENCE_WINDOW_MS) {
+        if (authority.source === 'companion' || authority.source === 'pending') return 'companion'
+        return 'cloud'
+      }
+
+      if (mode === 'auto') {
+        return companionTs > firebaseTs ? 'companion' : 'cloud'
+      }
+
+      if (effectiveMode === 'local') {
+        return companionTs >= firebaseTs ? 'companion' : 'cloud'
+      }
+
+      return firebaseTs >= companionTs ? 'cloud' : 'companion'
+    },
+    [effectiveMode, isViewerClient, mode],
+  )
 
   const getRoom = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]
-      const offline = typeof navigator !== 'undefined' ? !navigator.onLine : false
-      const companionAllowed = effectiveMode !== 'cloud' || offline
-      const preferCompanion =
-        companionAllowed &&
-        (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId) || offline)
-      if (preferCompanion) {
-        const companionState =
-          companionRooms[roomId] ??
-          (cached ? deriveCompanionStateFromRoom(cached.room) : undefined)
-        if (companionState) {
-          const baseRoom = firebase.getRoom(roomId) ?? cached?.room
-          return buildRoomFromCompanion(roomId, companionState, baseRoom)
-        }
+      const firebaseRoom = firebase.getRoom(roomId) ?? cached?.room
+      const companionState =
+        companionRooms[roomId] ??
+        (cached ? deriveCompanionStateFromRoom(cached.room) : undefined)
+
+      if (!companionState) return firebaseRoom
+      if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState)
+
+      const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
+      const companionTs = companionState.lastUpdate ?? 0
+      const source = pickSource(roomId, firebaseTs, companionTs, authority)
+      if (source === 'companion') {
+        return buildRoomFromCompanion(roomId, companionState, firebaseRoom)
       }
-      return firebase.getRoom(roomId) ?? cached?.room
+      return firebaseRoom
     },
-    [companionRooms, effectiveMode, firebase, roomAuthority, shouldUseCompanion],
+    [companionRooms, firebase, pickSource, roomAuthority],
   )
 
   const getTimers = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]?.timers ?? []
-      const offline = typeof navigator !== 'undefined' ? !navigator.onLine : false
-      const companionAllowed = effectiveMode !== 'cloud' || offline
-      const preferCompanion =
-        companionAllowed &&
-        (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId) || offline)
-      if (preferCompanion) {
+      const firebaseRoom = firebase.getRoom(roomId) ?? cachedSnapshotsRef.current[roomId]?.room
+      const companionState = companionRooms[roomId]
+      const companionTs = companionState?.lastUpdate ?? 0
+      const firebaseTs = firebaseRoom?.state.lastUpdate ?? 0
+      const source =
+        companionState && firebaseRoom ? pickSource(roomId, firebaseTs, companionTs, authority) : companionState ? 'companion' : 'cloud'
+
+      if (source === 'companion') {
         const timers = companionTimers[roomId] ?? cached
-        if (timers) return [...timers].sort((a, b) => a.order - b.order)
+        return [...timers].sort((a, b) => a.order - b.order)
       }
+
       const timers = firebase.getTimers(roomId)
       return timers.length ? timers : cached
     },
-    [companionTimers, effectiveMode, firebase, roomAuthority, shouldUseCompanion],
+    [companionRooms, companionTimers, firebase, pickSource, roomAuthority],
   )
 
   const createTimer = useCallback<DataContextValue['createTimer']>(
@@ -1518,6 +1665,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       return {
         ...firebase,
         rooms: [...mergedRoomsMap.values()],
+        queueStatus,
         getRoom,
         getTimers,
         createTimer,
@@ -1548,6 +1696,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       getTimers,
       moveTimer,
       pauseTimer,
+      queueStatus,
       reorderTimer,
       resetTimer,
       roomAuthority,

@@ -113,12 +113,8 @@ export const DashboardPage = () => {
   useEffect(() => {
     if (!discoverCompanion) return
 
-    // Only skip discovery if user explicitly set mode to 'cloud'
-    // In 'auto' mode, effectiveMode might be 'cloud' initially but we still want to attempt discovery
-    if (mode === 'cloud') return
-
-    // Trigger discovery immediately - don't wait for companionReachable probe
-    // CompanionConnectionContext will handle retries with backoff
+    // Trigger discovery immediately - don't wait for companionReachable probe.
+    // Keep Companion hot-standby even in Cloud mode.
     void discoverCompanion()
   }, [discoverCompanion, mode])
 
@@ -141,8 +137,8 @@ export const DashboardPage = () => {
   }, [])
 
   const openControllerInMode = useCallback(
-    async (roomId: string, target: 'cloud' | 'hybrid' | 'local') => {
-      if (target === 'hybrid' || target === 'local') {
+    async (roomId: string, target: 'auto' | 'cloud' | 'local') => {
+      if (target === 'auto' || target === 'local') {
         const token = await ensureCompanionToken()
         if (!token) {
           window.alert('Companion token unavailable. Start Companion and click "Connect Companion" in the header.')
@@ -858,14 +854,14 @@ export const DashboardPage = () => {
                 Cloud
               </button>
             </Tooltip>
-            <Tooltip content={companionReachable ? 'Open controller (Hybrid)' : 'Start Companion to enable Hybrid'}>
+            <Tooltip content={companionReachable ? 'Open controller (Auto)' : 'Start Companion to enable Auto'}>
               <button
                 type="button"
                 disabled={!companionReachable}
-                onClick={() => void openControllerInMode(room.id, 'hybrid')}
+                onClick={() => void openControllerInMode(room.id, 'auto')}
                 className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-40 disabled:hover:border-slate-700"
               >
-                Hybrid
+                Auto
               </button>
             </Tooltip>
             <Tooltip content={companionReachable ? 'Open controller (Local)' : 'Start Companion to enable Local'}>
@@ -1294,10 +1290,10 @@ export const DashboardPage = () => {
                 <button
                   type="button"
                   disabled={!companionReachable || !quickOpenRoomId.trim()}
-                  onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'hybrid')}
+                  onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'auto')}
                   className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
                 >
-                  Open Hybrid
+                  Open Auto
                 </button>
                 <button
                   type="button"

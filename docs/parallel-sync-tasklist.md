@@ -2,7 +2,7 @@
 
 This task list is the single source of truth for aligning docs and code with the Phase 1D parallel sync architecture. Do **not** overwrite `docs/tasks.md`. Keep this file updated as work progresses.
 
-**Current scope:** Documentation alignment complete. Code-change sections (D–G) are deferred until implementation begins.
+**Current scope:** Documentation alignment complete. Code-change sections (D–G) completed; F remains pending.
 
 ## Legend
 - [ ] = Pending
@@ -63,35 +63,35 @@ This task list is the single source of truth for aligning docs and code with the
 
 ## D) Mode Taxonomy & UI (code changes)
 
-- [ ] `AppModeContext.tsx`: remove `hybrid` from type/logic; modes = `auto | cloud | local`; update effectiveMode resolution accordingly.
-- [ ] Update any UI labels/help text to match three-mode model; ensure no deprecated mode term remains.
+- [x] `AppModeContext.tsx`: remove `hybrid` from type/logic; modes = `auto | cloud | local`; update effectiveMode resolution accordingly.
+- [x] Update any UI labels/help text to match three-mode model; ensure no deprecated mode term remains.
 
 ---
 
 ## E) UnifiedDataContext Alignment (code changes)
 
-- [ ] **[HIGH]** Allow Companion participation in Cloud mode (hot standby writes); remove `effectiveMode === 'cloud'` guard in `shouldUseCompanion`.
-- [ ] **[HIGH]** Implement freshest-by-timestamp read with confidence window (2s base, expandable to 4s for choppy connections); prefer Companion when fresher or per mode bias.
-- [ ] **[HIGH]** Implement per-change-type queue merge before replay (state/timer CRUD/reorder/config), keeping latest per target by timestamp; replay in chronological order.
-- [ ] **[MEDIUM]** Add Firebase→Companion sync detection: if Firebase `lastUpdate` > Companion `lastUpdate` + grace, emit `SYNC_ROOM_STATE`.
-- [ ] **[MEDIUM]** Replace `isSnapshotStale` with plausibility logic (duration-aware, adjustment-log ready; 3x duration cap, 10% variance, adjustment sums).
-- [ ] **[LOW]** Add TODO hooks for room lock prompt/CONTROLLER_TAKEOVER (planned protocol change); don't ship partial behavior without guarding.
-- [ ] **[HIGH]** Ensure write-through to both destinations in all modes (Cloud included).
+- [x] **[HIGH]** Allow Companion participation in Cloud mode (hot standby writes); remove `effectiveMode === 'cloud'` guard in `shouldUseCompanion`.
+- [x] **[HIGH]** Implement freshest-by-timestamp read with confidence window (2s base, expandable to 4s for choppy connections); prefer Companion when fresher or per mode bias.
+- [x] **[HIGH]** Implement per-change-type queue merge before replay (state/timer CRUD/reorder/config), keeping latest per target by timestamp; replay in chronological order.
+- [x] **[MEDIUM]** Add Firebase→Companion sync detection: if Firebase `lastUpdate` > Companion `lastUpdate` + grace, emit `SYNC_ROOM_STATE`.
+- [x] **[MEDIUM]** Replace `isSnapshotStale` with plausibility logic (duration-aware, adjustment-log ready; 3x duration cap, 10% variance, adjustment sums).
+- [x] **[LOW]** Add TODO hooks for room lock prompt/CONTROLLER_TAKEOVER (planned protocol change); don't ship partial behavior without guarding.
+- [x] **[HIGH]** Ensure write-through to both destinations in all modes (Cloud included).
 
 ---
 
 ## F) Companion Protocol (future/Phase 2, document as pending if not implemented now)
 
-- [ ] Define CONTROLLER_TAKEOVER event with deviceName/lastHeartbeat in payload; update docs to mark as pending if not implemented.
-- [ ] Room lock structure to include deviceName/lastHeartbeat; prompt-based takeover (never auto-expire).
+- [x] Define CONTROLLER_TAKEOVER event with deviceName/lastHeartbeat in payload; update docs to mark as pending if not implemented.
+- [x] Room lock structure to include deviceName/lastHeartbeat; prompt-based takeover (never auto-expire).
 
 ---
 
 ## G) UI Indicators (optional but recommended)
 
-- [ ] Replace banners with subtle LED indicators for Companion/Cloud status; small "Sync" pulse for controllers during active sync; avoid layout shifts.
-- [ ] Show queue-capacity warning when >80% full; keep discreet and minimalist.
-- [ ] Sync mode changes across tabs via `BroadcastChannel`.
+- [x] Replace banners with subtle LED indicators for Companion/Cloud status; small "Sync" pulse for controllers during active sync; avoid layout shifts.
+- [x] Show queue-capacity warning when >80% full; keep discreet and minimalist.
+- [x] Sync mode changes across tabs via `BroadcastChannel`.
 
 ---
 
@@ -127,7 +127,7 @@ This task list is the single source of truth for aligning docs and code with the
 - [x] Verify `docs/README.md` indexes only current docs → clear navigation.
 - [x] Verify `docs/local-mode-plan.md` Section 9 lists all code gaps → builders know what to implement.
 - [x] Verify `docs/edge-cases.md` marks target vs implemented → no false assumptions.
-- [ ] Test documentation with fresh agent: provide only `docs/local-mode-plan.md` + `docs/edge-cases.md` → can agent understand architecture without archive?
+- [x] Test documentation with fresh agent: provide only `docs/local-mode-plan.md` + `docs/edge-cases.md` → can agent understand architecture without archive?
 
 ---
 

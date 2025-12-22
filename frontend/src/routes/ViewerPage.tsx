@@ -54,7 +54,6 @@ export const ViewerPage = () => {
 
   useEffect(() => {
     if (!roomId) return
-    if (effectiveMode === 'cloud') return
     if (!subscribeToCompanionRoom) return
     const joinKey = `${roomId}::viewer::${effectiveMode}`
     if (lastJoinKeyRef.current === joinKey) return

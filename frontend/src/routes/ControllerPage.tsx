@@ -66,7 +66,6 @@ export const ControllerPage = () => {
   const ensureCompanionJoin = useCallback(
     (options?: { force?: boolean; reason?: string }) => {
       if (!roomId) return
-      if (effectiveMode === 'cloud') return
       if (!subscribeToCompanionRoom) return
       const joinKey = `${roomId}::controller::${effectiveMode}`
       if (!options?.force && lastJoinKeyRef.current === joinKey) return
@@ -84,14 +83,13 @@ export const ControllerPage = () => {
   const bumpCompanionOnActivity = useCallback(
     (reason: string) => {
       if (!subscribeToCompanionRoom) return
-      if (effectiveMode === 'cloud') return
       const now = Date.now()
       const idleMs = now - lastActivityRef.current
       lastActivityRef.current = now
       if (idleMs < 60_000) return
       ensureCompanionJoin({ force: true, reason })
     },
-    [effectiveMode, ensureCompanionJoin, subscribeToCompanionRoom],
+    [ensureCompanionJoin, subscribeToCompanionRoom],
   )
 
   const room = roomId ? getRoom(roomId) : undefined
@@ -108,10 +106,8 @@ export const ControllerPage = () => {
 
   useEffect(() => {
     if (!roomId) return
-    if (effectiveMode === 'cloud') return
     if (!subscribeToCompanionRoom) return
     const handleMouseMove = () => {
-      if (effectiveMode === 'cloud') return
       const now = Date.now()
       const idleMs = now - lastActivityRef.current
       if (idleMs <= 300_000) return
@@ -120,7 +116,7 @@ export const ControllerPage = () => {
     }
     window.addEventListener('mousemove', handleMouseMove)
     return () => window.removeEventListener('mousemove', handleMouseMove)
-  }, [effectiveMode, ensureCompanionJoin, handshakeStatus, roomId, subscribeToCompanionRoom])
+  }, [ensureCompanionJoin, handshakeStatus, roomId, subscribeToCompanionRoom])
 
   const activeTimer = timers.find((timer) => timer.id === room?.state.activeTimerId)
   const currentRoomId = room?.id
@@ -696,6 +692,12 @@ export const ControllerPage = () => {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <ConnectionIndicator status={connectionStatus} />
+              {roomAuthority?.status === 'syncing' ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
+                  <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
+                  Sync
+                </span>
+              ) : null}
               <Tooltip content="Undo timer delete (Cmd/Ctrl+Z)">
                 <button
                   type="button"
@@ -727,16 +729,6 @@ export const ControllerPage = () => {
               <ShareLinkButton roomId={room.id} />
             </div>
           </div>
-          {roomAuthority?.status === 'syncing' && effectiveMode !== 'cloud' && (
-            <div
-              className={`mt-4 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
-                'border-sky-500/40 bg-sky-500/10 text-sky-200'
-              }`}
-            >
-              <AlertTriangle size={16} />
-              Syncing with Companion...
-            </div>
-          )}
           {connectionStatus !== 'online' && (
             <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
               <AlertTriangle size={16} />

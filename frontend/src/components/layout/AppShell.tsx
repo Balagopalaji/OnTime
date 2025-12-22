@@ -14,6 +14,7 @@ export const AppShell = () => {
   const { mode, effectiveMode, setMode } = useAppMode()
   const data = useDataContext() as ReturnType<typeof useDataContext> & {
     flushRoomToFirestore?: (roomId: string) => Promise<void>
+    queueStatus?: Record<string, { count: number; max: number; percent: number; nearLimit: boolean }>
   }
   const connection = useCompanionConnection()
   const [isConnectOpen, setIsConnectOpen] = useState(false)
@@ -54,6 +55,16 @@ export const AppShell = () => {
     return 'Companion: offline'
   }, [connection.handshakeStatus, connection.isConnected, mode])
 
+  const queueWarning = useMemo(() => {
+    const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
+    const roomId = match?.[1]
+    const view = match?.[2]
+    if (!roomId || view !== 'control') return null
+    const status = data.queueStatus?.[roomId]
+    if (!status?.nearLimit) return null
+    return status
+  }, [data.queueStatus, location.pathname])
+
   const companionTone = useMemo(() => {
     if (mode === 'cloud') return 'border-slate-800 bg-slate-900 text-slate-300'
     if (connection.isConnected && connection.handshakeStatus === 'ack') {
@@ -72,10 +83,10 @@ export const AppShell = () => {
     return async (nextMode: AppMode) => {
       // If we are currently on Companion provider and switching to Cloud, best-effort flush the active room
       // so Cloud view doesn't "lose" timers/state.
-      const currentlyCompanion = mode === 'local' || mode === 'hybrid' || mode === 'auto'
-      const currentlyCloud = mode === 'cloud'
+      const currentlyCompanion = effectiveMode === 'local'
+      const currentlyCloud = effectiveMode === 'cloud'
       const switchingToCloud = nextMode === 'cloud'
-      const switchingToCompanion = nextMode === 'local' || nextMode === 'hybrid'
+      const switchingToCompanion = nextMode === 'local' || nextMode === 'auto'
       const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
       const roomId = match?.[1]
       
@@ -91,7 +102,7 @@ export const AppShell = () => {
         }
       }
       
-      // If switching from Cloud to Local/Hybrid, save the current Cloud state BEFORE switching
+      // If switching from Cloud to Auto/Local, save the current Cloud state BEFORE switching
       // so CompanionDataProvider can use it for SYNC_ROOM_STATE.
       if (currentlyCloud && switchingToCompanion && roomId) {
         sessionStorage.setItem('ontime:justSwitchedFromCloud', 'true')
@@ -116,7 +127,7 @@ export const AppShell = () => {
       
       setMode(nextMode)
     }
-  }, [data, location.pathname, mode, setMode])
+  }, [data, effectiveMode, location.pathname, mode, setMode])
 
   const handleQuickConnect = useMemo(
     () => async () => {
@@ -182,7 +193,6 @@ export const AppShell = () => {
               >
                 <option value="auto">Auto</option>
                 <option value="cloud">Cloud</option>
-                <option value="hybrid">Hybrid</option>
                 <option value="local">Local</option>
               </select>
             </div>
@@ -200,6 +210,11 @@ export const AppShell = () => {
               <div className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${companionTone}`}>
                 {companionLabel}
               </div>
+              {queueWarning ? (
+                <div className="rounded-full border border-amber-900/60 bg-amber-950/40 px-2.5 py-1 text-[10px] font-semibold text-amber-200">
+                  Queue {Math.round(queueWarning.percent * 100)}%
+                </div>
+              ) : null}
             </div>
 
             <button

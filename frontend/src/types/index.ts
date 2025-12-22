@@ -10,6 +10,14 @@ export type Timer = {
   speaker?: string
   type: TimerType
   order: number
+  adjustmentLog?: TimerAdjustment[]
+}
+
+export type TimerAdjustment = {
+  timestamp: number
+  delta: number // milliseconds added/subtracted
+  deviceId: string
+  reason: 'manual' | 'sync' | 'migration'
 }
 
 // Legacy types remain exported for backward compatibility.

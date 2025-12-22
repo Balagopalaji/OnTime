@@ -20,6 +20,7 @@ The frontend maintains two transport mechanisms in parallel:
 2.  **Companion (Local):** Low-latency LAN communication and offline resilience.
 
 **Key principle:** When both are available, write to both. Read preference is mode-driven with timestamp arbitration.
+**Note:** Clients auto-connect to Companion whenever reachable (even in Cloud mode) so both transports stay hot.
 
 ### 2.1.1 App Modes (Operator UX)
 The UI exposes three modes to the operator:
