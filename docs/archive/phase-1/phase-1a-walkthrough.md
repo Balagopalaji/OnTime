@@ -1,3 +1,6 @@
+> ⚠️ Deprecated
+> Historical Phase 1 walkthrough. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Phase 1A Walkthrough
 
 ## Summary

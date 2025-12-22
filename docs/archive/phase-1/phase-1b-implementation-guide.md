@@ -1,3 +1,6 @@
+> ⚠️ Deprecated
+> Historical Phase 1 guide. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Phase 1B Implementation Guide (Repo Prompt Workflow)
 
 ## Overview

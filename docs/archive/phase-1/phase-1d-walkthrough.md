@@ -1,3 +1,6 @@
+> ⚠️ Deprecated
+> Historical Phase 1 walkthrough. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Phase 1D Walkthrough (Main UI Local Mode + CI Packaging)
 
 Use this as a quick validation checklist for Phase 1D.

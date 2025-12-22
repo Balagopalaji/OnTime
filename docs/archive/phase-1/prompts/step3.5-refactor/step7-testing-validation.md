@@ -1,3 +1,6 @@
+> ⚠️ Deprecated
+> Historical Phase 1 prompt. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Step 7: Testing & Validation
 
 ## Context

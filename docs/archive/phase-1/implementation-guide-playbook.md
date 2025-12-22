@@ -1,3 +1,6 @@
+> ⚠️ Deprecated
+> Historical Phase 1 guide. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Implementation Guide Playbook (for Phase X)
 
 Use this playbook to author a Phase implementation guide that another agent can execute step-by-step. The goal is to avoid ambiguity, catch edge cases early, and ensure security/quality are baked in.

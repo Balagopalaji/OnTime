@@ -1,3 +1,6 @@
+> ⚠️ Deprecated
+> Historical Phase 1 refactor plan. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Phase 1D Step 3.5 Refactor: Unified Data Provider Architecture
 
 ## Overview

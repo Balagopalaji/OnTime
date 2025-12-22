@@ -1,22 +1,23 @@
-# OnTime Documentation Index
+# Documentation Index
 
-## Quick start (current work)
-- Product: [`frontend-prd.md`](frontend-prd.md), [`backend-prd.md`](backend-prd.md)
-- Architecture direction: [`architecture-update-2025-12.md`](architecture-update-2025-12.md)
-- Local/Hybrid foundations: [`local-mode-plan.md`](local-mode-plan.md), [`modularity-architecture.md`](modularity-architecture.md)
-- Companion protocol: [`websocket-protocol.md`](websocket-protocol.md)
-- Show control background: [`show-control-architecture.md`](show-control-architecture.md), [`show-control-decisions.md`](show-control-decisions.md)
-- Tasks/backlog: [`tasks.md`](tasks.md)
+## Current Sources of Truth
+- `docs/local-mode-plan.md` — Parallel Sync / Phase 1D architecture (to be rewritten as definitive source)
+- `docs/backend-prd.md` — Backend PRD (MVP scope)
+- `docs/frontend-prd.md` — Frontend PRD (MVP scope)
+- `docs/parallel-sync-tasklist.md` — High-priority tasks for parallel sync alignment
+- `docs/edge-cases.md` — Edge cases and resolutions (when created)
 
-## Decision & analysis
-- Modularity changelog: [`architecture-update-2025-12.md`](architecture-update-2025-12.md)
-- PRD alignment notes: [`prd-alignment-analysis.md`](prd-alignment-analysis.md) (keep until Phase 2 plan is locked)
+## Archive Policy
+- All files under `docs/archive/` are **deprecated** and preserved for historical reference only.
+- Do **not** include archive files in prompts or use them as source of truth.
+- For current guidance, use the documents listed above.
 
-## Archived (Phase 1)
-- All Phase 1 guides/walkthroughs and the step3.5 prompts live under `docs/archive/phase-1/`.
-- Legacy implementation playbook is archived there as well.
+## Helpful References
+- `docs/websocket-protocol.md`
+- `docs/architecture-update-2025-12.md`
+- `docs/modularity-architecture.md`
+- `docs/show-control-architecture.md`
+- `docs/show-control-decisions.md`
+- `docs/undo-redo-future-plan.md`
 
-## Notes
-- Phase 1 docs are retained for reference; active work should anchor on the PRDs, architecture update, and protocol docs above.
-- Migration: v2 is the baseline (no users on v1); migration content is archived.
-- Keep secrets in `.env.local` (frontend). Do not commit Firebase credentials.
+_Last updated: January 2025_

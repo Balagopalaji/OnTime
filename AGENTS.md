@@ -1,3 +1,14 @@
+## 📁 Archive Policy
+All files under `docs/archive/` are historical only and must not be used as a source of truth for current implementation.
+- Do **not** include archive files in prompts or planning.
+- If an archive file conflicts with current docs, the current docs win.
+- Current sources of truth:
+  - `docs/local-mode-plan.md` (Parallel Sync / Phase 1D)
+  - `docs/backend-prd.md`
+  - `docs/frontend-prd.md`
+  - `docs/parallel-sync-tasklist.md`
+  - `docs/edge-cases.md` (when created)
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
@@ -14,6 +25,3 @@ Write Vitest specs for every hook, provider, and timer helper. Name files `*.tes
 
 ## Commit & Pull Request Guidelines
 Follow the existing conventional git style (`docs: Add initial backend and frontend Product Requirements Documents (PRDs) for StageTime.`) using `<scope>: <sentence case detail>`. PRs must cite `docs/tasks.md`, describe the behavior change, add screenshots or GIFs for UI updates, and state that `npm run lint && npm run test` succeeded before review.
-
-## Security & Configuration Tips
-Never commit Firebase credentials; keep them in `frontend/.env.local` with `VITE_` prefixes. Develop against the mock Firestore provider so public rooms remain untouched, and mirror the security rules from `docs/backend-prd.md` inside `firebase/firestore.rules` before every deployment review.
