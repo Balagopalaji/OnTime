@@ -91,6 +91,14 @@ type RoomStateDelta = {
   timestamp: number;
 };
 
+type RoomStatePatchPayload = {
+  type: 'ROOM_STATE_PATCH';
+  roomId: string;
+  changes: Partial<RoomState>;
+  clientId?: string;
+  timestamp?: number;
+};
+
 type TimerType = 'countdown' | 'countup' | 'timeofday';
 
 type Timer = {
@@ -435,6 +443,7 @@ function startSocketServer() {
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
+    socket.on('ROOM_STATE_PATCH', (payload) => handleRoomStatePatch(socket, payload));
     socket.on('TIMER_ACTION', (payload) => handleTimerAction(socket, payload));
     socket.on('CREATE_TIMER', (payload) => handleCreateTimer(socket, payload));
     socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
@@ -881,6 +890,31 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
   return true;
 }
 
+function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePatchPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<RoomStatePatchPayload>;
+  if (data.type !== 'ROOM_STATE_PATCH') return false;
+  if (typeof data.roomId !== 'string') return false;
+  if (!data.changes || typeof data.changes !== 'object') return false;
+
+  const changes = data.changes as Partial<RoomState>;
+  const allowedKeys = new Set(['activeTimerId', 'isRunning', 'currentTime', 'lastUpdate']);
+  const keys = Object.keys(changes);
+  if (!keys.every((key) => allowedKeys.has(key))) return false;
+
+  if (changes.activeTimerId !== undefined && changes.activeTimerId !== null && typeof changes.activeTimerId !== 'string') {
+    return false;
+  }
+  if (changes.isRunning !== undefined && typeof changes.isRunning !== 'boolean') return false;
+  if (changes.currentTime !== undefined) {
+    if (typeof changes.currentTime !== 'number' || !Number.isFinite(changes.currentTime)) return false;
+  }
+  if (changes.lastUpdate !== undefined) {
+    if (typeof changes.lastUpdate !== 'number' || !Number.isFinite(changes.lastUpdate)) return false;
+  }
+  return true;
+}
+
 function emitError(socket: Socket, code: string, message: string) {
   socket.emit('ERROR', { type: 'ERROR', code, message });
 }
@@ -979,6 +1013,49 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
   socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
 
   console.log(`[ws] SYNC_ROOM_STATE room=${roomId} by=${clientId ?? socket.id} timers=${payload.timers?.length ?? 0}`);
+}
+
+function handleRoomStatePatch(socket: Socket, payload: unknown) {
+  if (!isValidRoomStatePatchPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid ROOM_STATE_PATCH payload.');
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  if (!socket.rooms.has(payload.roomId)) {
+    socket.join(payload.roomId);
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+  const state = getRoomState(roomId);
+  const changes = { ...payload.changes };
+
+  if (changes.currentTime !== undefined && Number.isFinite(changes.currentTime)) {
+    changes.currentTime = Math.max(0, changes.currentTime);
+  }
+  if (changes.lastUpdate === undefined) {
+    changes.lastUpdate = now;
+  }
+
+  const nextState: RoomState = { ...state, ...changes };
+  roomStateStore.set(roomId, nextState);
+  scheduleRoomCacheWrite();
+
+  const delta: RoomStateDelta = {
+    type: 'ROOM_STATE_DELTA',
+    roomId,
+    changes,
+    clientId,
+    timestamp: now
+  };
+
+  io?.to(roomId).emit('ROOM_STATE_DELTA', delta);
+  console.log(`[ws] ROOM_STATE_PATCH room=${roomId} by=${clientId ?? socket.id}`);
 }
 
 function handleTimerAction(socket: Socket, payload: unknown) {

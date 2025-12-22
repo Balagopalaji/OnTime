@@ -117,7 +117,28 @@ This document defines the WebSocket communication protocol between the **OnTime 
 
 ---
 
-### 3.3 Server → Client: `ROOM_STATE_DELTA`
+### 3.3 Client → Server: `ROOM_STATE_PATCH`
+
+**Purpose:** Apply a partial room state update (e.g., set active timer, nudge time).
+
+```json
+{
+  "type": "ROOM_STATE_PATCH",
+  "roomId": "abc123",
+  "changes": {
+    "activeTimerId": "timer-2",
+    "isRunning": false,
+    "currentTime": 120000,
+    "lastUpdate": 1234567895
+  },
+  "clientId": "client-uuid",
+  "timestamp": 1234567895
+}
+```
+
+---
+
+### 3.4 Server → Client: `ROOM_STATE_DELTA`
 
 **Purpose:** Broadcast incremental state changes to all clients.
 
@@ -137,7 +158,7 @@ This document defines the WebSocket communication protocol between the **OnTime 
 
 ---
 
-### 3.4 Timer CRUD (Minimal Mode)
+### 3.5 Timer CRUD (Minimal Mode)
 
 These events manage timers (create/update/delete/reorder) and are available in Minimal Mode.
 

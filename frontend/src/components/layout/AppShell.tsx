@@ -48,12 +48,10 @@ export const AppShell = () => {
   const companionLabel = useMemo(() => {
     const handshake = connection.handshakeStatus ?? 'idle'
     const connectionStatus = connection.isConnected ? 'online' : 'offline'
-    if (mode === 'cloud') return 'Companion: off'
-    if (connectionStatus === 'online' && handshake === 'ack') return 'Companion: connected'
     if (connectionStatus === 'online' && handshake === 'pending') return 'Companion: handshaking'
-    if (connectionStatus === 'online') return 'Companion: ready (not joined)'
+    if (connectionStatus === 'online') return 'Companion: connected'
     return 'Companion: offline'
-  }, [connection.handshakeStatus, connection.isConnected, mode])
+  }, [connection.handshakeStatus, connection.isConnected])
 
   const queueWarning = useMemo(() => {
     const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
@@ -66,7 +64,6 @@ export const AppShell = () => {
   }, [data.queueStatus, location.pathname])
 
   const companionTone = useMemo(() => {
-    if (mode === 'cloud') return 'border-slate-800 bg-slate-900 text-slate-300'
     if (connection.isConnected && connection.handshakeStatus === 'ack') {
       return 'border-emerald-900/60 bg-emerald-950/40 text-emerald-200'
     }
@@ -77,7 +74,7 @@ export const AppShell = () => {
       return 'border-amber-900/60 bg-amber-950/40 text-amber-200'
     }
     return 'border-rose-900/60 bg-rose-950/40 text-rose-200'
-  }, [connection.handshakeStatus, connection.isConnected, mode])
+  }, [connection.handshakeStatus, connection.isConnected])
 
   const handleModeChange = useMemo(() => {
     return async (nextMode: AppMode) => {

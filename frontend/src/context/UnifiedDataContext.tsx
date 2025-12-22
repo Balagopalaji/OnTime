@@ -50,6 +50,14 @@ type RoomStateDeltaPayload = {
   timestamp: number
 }
 
+type RoomStatePatchPayload = {
+  type: 'ROOM_STATE_PATCH'
+  roomId: string
+  changes: Partial<CompanionRoomState>
+  clientId?: string
+  timestamp: number
+}
+
 type TimerCreatedPayload = {
   type: 'TIMER_CREATED'
   roomId: string
@@ -139,6 +147,13 @@ type QueuedEvent =
     timestamp: number
     roomId: string
     timerIds: string[]
+    clientId: string
+  }
+  | {
+    type: 'ROOM_STATE_PATCH'
+    timestamp: number
+    roomId: string
+    changes: Partial<CompanionRoomState>
     clientId: string
   }
 
@@ -366,7 +381,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
-  const firestoreEnabled = typeof navigator === 'undefined' || navigator.onLine
+  const firestoreWriteThrough = Boolean(db)
   const isViewerClient = useCallback(
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
@@ -375,7 +390,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const cached = readRoomCache()
     cachedSnapshotsRef.current = cached
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCachedSnapshots(cached)
     if (Object.keys(cached).length) {
       setCompanionRooms((prev) => {
@@ -416,7 +430,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const entries = Object.entries(subscribedRoomsRef.current)
     if (!entries.length) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubscribedRooms((prev) => {
       let changed = false
       const next = { ...prev }
@@ -561,7 +574,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       console.info('[companion] restoring subscriptions', Object.keys(saved))
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubscribedRooms(() => {
       // Update tokens in saved subscriptions to match current token
       const updated = Object.entries(saved).reduce<Record<string, { clientType: 'controller' | 'viewer'; token: string }>>((acc, [roomId, sub]) => {
@@ -650,7 +662,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     })
     cachedSnapshotsRef.current = nextCache
     persistRoomCache(nextCache)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCachedSnapshots(nextCache)
   }, [companionRooms, companionTimers, firebase, roomAuthority, shouldUseCompanion])
 
@@ -683,6 +694,19 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     },
     [computeCurrentTimeMs],
   )
+
+  const resolveElapsedForTimer = useCallback((room: Room | undefined, timerId: string): number => {
+    if (!room) return 0
+    const progress = room.state.progress ?? {}
+    if (room.state.activeTimerId === timerId) {
+      const base = room.state.elapsedOffset ?? 0
+      if (room.state.isRunning && room.state.startedAt) {
+        return Math.max(0, base + (Date.now() - room.state.startedAt))
+      }
+      return Math.max(0, base)
+    }
+    return Math.max(0, progress[timerId] ?? 0)
+  }, [])
 
   const computeCompanionElapsed = useCallback((state: CompanionRoomState) => {
     if (state.isRunning) {
@@ -783,6 +807,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           return `TIMER_CRUD:${event.type === 'CREATE_TIMER' ? event.timer.id : event.timerId}`
         case 'REORDER_TIMERS':
           return `TIMER_REORDER:${event.roomId}`
+        case 'ROOM_STATE_PATCH':
+          return `ROOM_STATE_PATCH:${event.roomId}`
         default:
           return `UNKNOWN:${event.roomId}`
       }
@@ -799,6 +825,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     grouped.forEach((events) => {
       const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp)
       const latest = sorted[sorted.length - 1]
+
+      if (latest.type === 'ROOM_STATE_PATCH') {
+        merged.push(latest)
+        return
+      }
 
       const deletes = sorted.filter((event) => event.type === 'DELETE_TIMER') as Array<
         Extract<QueuedEvent, { type: 'DELETE_TIMER' }>
@@ -1291,6 +1322,122 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [companionRooms, companionTimers, firebase, pickSource, roomAuthority],
   )
 
+  const setActiveTimer = useCallback<DataContextValue['setActiveTimer']>(
+    async (roomId, timerId) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot set active timer', roomId)
+        return
+      }
+      if (!shouldUseCompanion(roomId)) {
+        return firebase.setActiveTimer(roomId, timerId)
+      }
+
+      const room = getRoom(roomId)
+      const elapsedOffset = resolveElapsedForTimer(room, timerId)
+      const now = Date.now()
+      const state = ensureCompanionRoomState(roomId)
+      const nextState: CompanionRoomState = {
+        ...state,
+        activeTimerId: timerId,
+        isRunning: false,
+        currentTime: elapsedOffset,
+        lastUpdate: now,
+      }
+      setCompanionRooms((prev) => ({ ...prev, [roomId]: nextState }))
+
+      const patch: RoomStatePatchPayload = {
+        type: 'ROOM_STATE_PATCH',
+        roomId,
+        changes: {
+          activeTimerId: timerId,
+          isRunning: false,
+          currentTime: elapsedOffset,
+          lastUpdate: now,
+        },
+        timestamp: now,
+        clientId,
+      }
+      emitOrQueue(roomId, patch)
+
+      if (firestoreWriteThrough) {
+        await firebase.setActiveTimer(roomId, timerId)
+      }
+    },
+    [
+      clientId,
+      emitOrQueue,
+      ensureCompanionRoomState,
+      firebase,
+      firestoreWriteThrough,
+      getRoom,
+      isViewerClient,
+      resolveElapsedForTimer,
+      shouldUseCompanion,
+    ],
+  )
+
+  const nudgeTimer = useCallback<DataContextValue['nudgeTimer']>(
+    async (roomId, deltaMs) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot nudge timer', roomId)
+        return
+      }
+      if (!shouldUseCompanion(roomId)) {
+        return firebase.nudgeTimer(roomId, deltaMs)
+      }
+
+      const room = getRoom(roomId)
+      const state = ensureCompanionRoomState(roomId)
+      const activeTimerId = room?.state.activeTimerId ?? state.activeTimerId
+      if (!activeTimerId) return
+      const currentElapsed = room ? computeCurrentTimeMs(room) : computeCompanionElapsed(state)
+      const nextElapsed = Math.max(0, currentElapsed - deltaMs)
+      const now = Date.now()
+      const isRunning = room?.state.isRunning ?? state.isRunning ?? false
+
+      setCompanionRooms((prev) => ({
+        ...prev,
+        [roomId]: {
+          ...state,
+          activeTimerId,
+          isRunning,
+          currentTime: nextElapsed,
+          lastUpdate: now,
+        },
+      }))
+
+      const patch: RoomStatePatchPayload = {
+        type: 'ROOM_STATE_PATCH',
+        roomId,
+        changes: {
+          activeTimerId,
+          isRunning,
+          currentTime: nextElapsed,
+          lastUpdate: now,
+        },
+        timestamp: now,
+        clientId,
+      }
+      emitOrQueue(roomId, patch)
+
+      if (firestoreWriteThrough) {
+        await firebase.nudgeTimer(roomId, deltaMs)
+      }
+    },
+    [
+      clientId,
+      computeCompanionElapsed,
+      computeCurrentTimeMs,
+      emitOrQueue,
+      ensureCompanionRoomState,
+      firebase,
+      firestoreWriteThrough,
+      getRoom,
+      isViewerClient,
+      shouldUseCompanion,
+    ],
+  )
+
   const createTimer = useCallback<DataContextValue['createTimer']>(
     async (roomId, input) => {
       if (isViewerClient(roomId)) {
@@ -1341,7 +1488,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreEnabled) {
+      if (firestoreWriteThrough) {
         const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
@@ -1350,7 +1497,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       return timer
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const updateTimer = useCallback<DataContextValue['updateTimer']>(
@@ -1384,14 +1531,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreEnabled) {
+      if (firestoreWriteThrough) {
         const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
         )
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const deleteTimer = useCallback<DataContextValue['deleteTimer']>(
@@ -1436,12 +1583,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreEnabled) {
+      if (firestoreWriteThrough) {
         const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
         await deleteDoc(timerRef).catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const reorderTimer = useCallback<DataContextValue['reorderTimer']>(
@@ -1474,7 +1621,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreEnabled) {
+      if (firestoreWriteThrough) {
         const batch = writeBatch(db)
         next.forEach((timer) => {
           batch.set(doc(db, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
@@ -1484,7 +1631,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         await batch.commit().catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreEnabled, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const moveTimer = useCallback(
@@ -1523,7 +1670,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       emitOrQueue(roomId, payload)
 
-      if (firestoreEnabled) {
+      if (firestoreWriteThrough) {
         const stateRefV2 = doc(db, 'rooms', roomId, 'state', 'current')
         const legacyRef = doc(db, 'rooms', roomId)
 
@@ -1561,7 +1708,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
     },
-    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestoreEnabled, isViewerClient],
+    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestoreWriteThrough, isViewerClient],
   )
 
   const startTimer = useCallback<DataContextValue['startTimer']>(
@@ -1673,9 +1820,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         deleteTimer,
         reorderTimer,
         moveTimer,
+        setActiveTimer,
         startTimer,
         pauseTimer,
         resetTimer,
+        nudgeTimer,
         roomAuthority,
         getRoomAuthority,
         forceCloudAuthority,
@@ -1695,11 +1844,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       getRoomAuthority,
       getTimers,
       moveTimer,
+      nudgeTimer,
       pauseTimer,
       queueStatus,
       reorderTimer,
       resetTimer,
       roomAuthority,
+      setActiveTimer,
       startTimer,
       subscribeToCompanionRoom,
       unsubscribeFromCompanionRoom,

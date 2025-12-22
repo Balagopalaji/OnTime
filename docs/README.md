@@ -9,6 +9,7 @@ Last Updated: 2025-12-22
 - `edge-cases.md` - Edge case handling (Phase 1D target)
 - `websocket-protocol.md` - WebSocket event schema
 - `parallel-sync-tasklist.md` - High-priority tasks for parallel sync alignment
+- `timer-logic.md` - Timer state math and invariants (authoritative)
 
 ### Product Requirements
 - `frontend-prd.md` - Frontend MVP specification (partial; see banner)

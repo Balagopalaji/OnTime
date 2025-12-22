@@ -75,6 +75,8 @@ A lightweight Node.js/Electron application running on the operator's machine.
 
 **Source of truth:** `docs/websocket-protocol.md`. The list below is a summary and may be incomplete.
 
+**Timer logic reference:** See `docs/timer-logic.md` for authoritative timer math and state invariants.
+
 **Client → Server Events:**
 *   `JOIN_ROOM`: `{ type: "JOIN_ROOM", roomId: string, token: string }`
 *   `TIMER_ACTION`: `{ type: "TIMER_START" | "TIMER_PAUSE" | "TIMER_RESET", roomId: string, timerId: string }`
@@ -451,6 +453,7 @@ useEffect(() => {
 - **Action queue:** `ontime:queue:{roomId}`
   - Per-room pending timer actions when Companion disconnected
   - Replayed on reconnect in timestamp order
+- **Room metadata edits:** Allowed offline (title/timezone/order/delete); queue to Firebase and reconcile on reconnect.
 
 **Staleness detection summary:**
 - Running timers: plausibility-based (3x duration grace)

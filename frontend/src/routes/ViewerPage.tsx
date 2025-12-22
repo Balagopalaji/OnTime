@@ -14,6 +14,9 @@ export const ViewerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
   const ctx = useDataContext()
+  const roomAuthority = roomId
+    ? (ctx as typeof ctx & { getRoomAuthority?: (roomId: string) => { source: string; status: string } }).getRoomAuthority?.(roomId)
+    : undefined
   const room = roomId ? ctx.getRoom(roomId) : undefined
   const timers = roomId ? ctx.getTimers(roomId) : []
   const connectionStatus = ctx.connectionStatus
@@ -132,6 +135,22 @@ export const ViewerPage = () => {
           </div>
           <div className="flex items-center gap-3 text-[11px]">
             <ConnectionIndicator status={connectionStatus} />
+            {roomAuthority ? (
+              <span
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-medium ${
+                  roomAuthority.source === 'companion'
+                    ? 'bg-emerald-400/10 text-emerald-300'
+                    : 'bg-slate-400/10 text-slate-200'
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    roomAuthority.source === 'companion' ? 'bg-emerald-300' : 'bg-slate-300'
+                  }`}
+                />
+                {roomAuthority.source === 'companion' ? 'Local' : 'Cloud'}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => {

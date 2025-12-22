@@ -65,16 +65,16 @@ export const DashboardPage = () => {
     rollbackRoomMigration,
   } = dataContext
 
-  const canManageCloudRooms = effectiveMode === 'cloud'
   const hasFirebaseConfig = Boolean(
     import.meta.env.VITE_FIREBASE_API_KEY &&
     import.meta.env.VITE_FIREBASE_PROJECT_ID &&
     import.meta.env.VITE_FIREBASE_APP_ID,
   )
+  const canManageRooms = hasFirebaseConfig && Boolean(user?.uid)
+  const canManageCloudRooms = canManageRooms && effectiveMode === 'cloud'
   const { discoverCompanion } = useCompanionConnection()
   const [companionReachable, setCompanionReachable] = useState(false)
-  const canCreateRooms =
-    hasFirebaseConfig && Boolean(user?.uid) && (typeof navigator === 'undefined' ? true : navigator.onLine)
+  const canCreateRooms = hasFirebaseConfig && Boolean(user?.uid)
 
   // UnifiedDataContext already merges cached rooms, so we can use rooms directly
   const displayedRooms = rooms
@@ -409,7 +409,7 @@ export const DashboardPage = () => {
       hasRollbackBackup
     const isMigrating = migration.status === 'migrating'
     // Check if room is from companion cache by checking if it's not in the live Firebase rooms list
-    const isFromCache = !canManageCloudRooms && !rooms.some((r) => r.id === room.id)
+    const isFromCache = !rooms.some((r) => r.id === room.id)
     const itemProps = enableSort && isCustomSort ? getItemProps(room.id, listIndex) : {}
     return (
       <SortableItem
@@ -441,11 +441,11 @@ export const DashboardPage = () => {
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Room</p>
           </div>
           <div className="flex items-start gap-2">
-            <Tooltip content={canManageCloudRooms ? 'Delete room' : 'Switch to Cloud mode to delete rooms'}>
+            <Tooltip content={canManageRooms ? 'Delete room' : 'Sign in to delete rooms'}>
               <button
                 type="button"
                 onClick={() => handleDeleteRoom(room.id)}
-                disabled={!canManageCloudRooms}
+                disabled={!canManageRooms}
                 className="rounded-full border border-transparent p-2 text-slate-400 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-40 disabled:hover:border-transparent disabled:hover:bg-transparent"
                 aria-label="Delete room"
               >
@@ -1032,8 +1032,8 @@ export const DashboardPage = () => {
   }, [])
 
   const handleDeleteRoom = async (roomId: string) => {
-    if (!canManageCloudRooms) {
-      window.alert('Switch to Cloud mode to delete rooms.')
+    if (!canManageRooms) {
+      window.alert('Sign in to delete rooms.')
       return
     }
     const room = displayedRooms.find((r) => r.id === roomId)
@@ -1060,8 +1060,8 @@ export const DashboardPage = () => {
   }, [redoRoomDelete, undoRoomDelete])
 
   const commitTitle = async (roomId: string) => {
-    if (!canManageCloudRooms) {
-      window.alert('Switch to Cloud mode to edit room details.')
+    if (!canManageRooms) {
+      window.alert('Sign in to edit room details.')
       return
     }
     const draft = drafts[roomId]
@@ -1088,8 +1088,8 @@ export const DashboardPage = () => {
   }
 
   const commitTimezone = async (roomId: string) => {
-    if (!canManageCloudRooms) {
-      window.alert('Switch to Cloud mode to edit room details.')
+    if (!canManageRooms) {
+      window.alert('Sign in to edit room details.')
       return
     }
     const draft = drafts[roomId]
@@ -1166,25 +1166,6 @@ export const DashboardPage = () => {
   return (
     <div className="space-y-8">
       {qrOverlay}
-      {!canManageCloudRooms && (
-        <div className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 text-sm text-slate-200 shadow-card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Cloud rooms</p>
-              <p className="mt-1">
-                Cloud rooms are visible in {mode === 'auto' ? `auto (${effectiveMode})` : effectiveMode} mode; switch to <span className="font-semibold">Cloud</span> to edit.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMode('cloud')}
-              className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600"
-            >
-              Switch to Cloud
-            </button>
-          </div>
-        </div>
-      )}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 shadow-card">
         <div className="flex items-center gap-3">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Rooms</p>
@@ -1193,7 +1174,7 @@ export const DashboardPage = () => {
               type="button"
               onClick={async () => {
                 if (!canCreateRooms) {
-                  window.alert('Connect to the internet and sign in to create rooms.')
+                  window.alert('Sign in to create rooms.')
                   return
                 }
                 setIsCreating(true)
@@ -1222,7 +1203,7 @@ export const DashboardPage = () => {
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
               <option value="title">Title</option>
-              <option value="custom" disabled={!canManageCloudRooms}>
+              <option value="custom" disabled={!canManageRooms}>
                 Custom
               </option>
             </select>
@@ -1270,47 +1251,41 @@ export const DashboardPage = () => {
 
       <section className="space-y-4">
         {renderEntries.filter((entry) => entry.kind === 'room').length === 0 && sortedPlaceholders.length === 0 ? (
-          canManageCloudRooms ? (
-            <div className="rounded-2xl border border-dashed border-emerald-900/60 bg-emerald-500/5 p-10 text-center text-sm text-slate-300">
-              Create a room to start building a rundown.
+          <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-10 text-center text-sm text-slate-300">
+            <p className="font-semibold text-slate-100">Create a room to start building a rundown.</p>
+            <p className="mt-2 text-slate-400">
+              If you&apos;re offline, you can still run a show locally via Companion by opening a room ID directly.
+            </p>
+            <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <input
+                value={quickOpenRoomId}
+                onChange={(e) => setQuickOpenRoomId(e.target.value)}
+                placeholder="Enter roomId (e.g. test-room)"
+                className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-white"
+              />
+              <button
+                type="button"
+                disabled={!companionReachable || !quickOpenRoomId.trim()}
+                onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'auto')}
+                className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
+              >
+                Open Auto
+              </button>
+              <button
+                type="button"
+                disabled={!companionReachable || !quickOpenRoomId.trim()}
+                onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'local')}
+                className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
+              >
+                Open Local
+              </button>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-10 text-center text-sm text-slate-300">
-              <p className="font-semibold text-slate-100">No cached Cloud rooms available.</p>
-              <p className="mt-2 text-slate-400">
-                If you&apos;re offline, you can still run a show locally via Companion by opening a room ID directly.
+            {!companionReachable ? (
+              <p className="mt-3 text-xs text-amber-200">
+                Companion not detected. Start the Companion app, then use the header "Connect Companion".
               </p>
-              <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <input
-                  value={quickOpenRoomId}
-                  onChange={(e) => setQuickOpenRoomId(e.target.value)}
-                  placeholder="Enter roomId (e.g. test-room)"
-                  className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-white"
-                />
-                <button
-                  type="button"
-                  disabled={!companionReachable || !quickOpenRoomId.trim()}
-                  onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'auto')}
-                  className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
-                >
-                  Open Auto
-                </button>
-                <button
-                  type="button"
-                  disabled={!companionReachable || !quickOpenRoomId.trim()}
-                  onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'local')}
-                  className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
-                >
-                  Open Local
-                </button>
-              </div>
-              {!companionReachable ? (
-                <p className="mt-3 text-xs text-amber-200">
-                  Companion not detected. Start the Companion app, then use the header "Connect Companion".
-                </p>
-              ) : null}
-            </div>
-          )
+            ) : null}
+          </div>
         ) : isCustomSort ? (
           <SortableList
             ref={listRef}
