@@ -1,13 +1,13 @@
 # Phase 2 Overview (OnTime)
 
-Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize Companion + hybrid transport, deliver Show Control essentials (live cues, presentation import, dual-header UI), and add production-grade UX (undo/redo, viewer polish, authority/reconnect hardening). Success means Basic tier stays lean (<50 MB Companion in Minimal mode), Show Control gains live cue visibility with low bandwidth, and Production tier has groundwork for media workflows without breaking current users or increasing Firebase costs.
+Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize Companion + parallel transport, deliver Show Control essentials (live cues, presentation import, dual-header UI), and add production-grade UX (undo/redo, viewer polish, authority/reconnect hardening). Success means Basic tier stays lean (<50 MB Companion in Minimal mode), Show Control gains live cue visibility with low bandwidth, and Production tier has groundwork for media workflows without breaking current users or increasing Firebase costs.
 
 ## Goals & Scope
-- **Transport stability:** Harden Companion multi-client flows, reconnection/backoff, and authority handling across Hybrid/Local.
+- **Transport stability:** Harden Companion multi-client flows, reconnection/backoff, and authority handling across Local/Cloud.
 - **Tier-correct UX:** End-to-end gating for Basic/Show Control/Production with clear upgrade prompts and capability-aware UI.
 - **Show Control core:** Live cue pipeline (Companion → RoomState reference → UI dual-header) with minimal data footprint.
 - **Presentation import:** Safe PPT detection + manual import workflow; Companion file ops endpoints hardened.
-- **Undo/redo return:** Command-pattern undo/redo with persistence and hybrid safety.
+- **Undo/redo return:** Command-pattern undo/redo with persistence and parallel-sync safety.
 - **UX polish:** Viewer typography/wake-lock fixes, Minimal mode aesthetics, Companion GUI with mode selection.
 - **Guardrails:** Local viewer latency <150 ms vs. controller; Cloud viewer <700 ms; Companion RAM budgets: Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB.
 
@@ -49,7 +49,7 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
 
 4. **Undo/Redo Command System**
    - Command interfaces for timer CRUD/message/reorder/room delete; per-room stacks (`undo:{uid}:{roomId}`) with caps.
-   - Hybrid-safe replay (no double-apply); UI hooks updated; tests for disconnect/reconnect and offline replay.
+  - Parallel-sync-safe replay (no double-apply); UI hooks updated; tests for disconnect/reconnect and offline replay.
    - Success: Undo/redo works across tabs; quota handled gracefully.
 
 5. **UX Polish & Companion GUI**
@@ -67,8 +67,8 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
 ## QA Focus Hooks
 - Multi-tab/controller/viewer authority locking and takeover prompts.
 - Companion restart and reconnect backoff adherence; no duplicate controllers.
-- Mode switching Cloud ↔ Hybrid/Local mid-show without timer jumps (`SYNC_ROOM_STATE`).
-- Offline/Hybrid queue + last-write-wins with undo/redo persistence intact.
+- Mode switching Cloud ↔ Local mid-show without timer jumps (`SYNC_ROOM_STATE`).
+- Offline/Local queue + last-write-wins with undo/redo persistence intact.
 - Tier gating (Basic hides/blocks; Show Control enables live cues; Production ready hooks).
 - Live cue latency measurements (local vs. cloud) within targets.
 - File ops safety (path rejection, token expiry, ffprobe missing warning).

@@ -22,9 +22,9 @@ This document tracks key architectural decisions, open questions, and recommende
 | :--- | :--- | :--- | :--- | :--- |
 | **A. Position-Based** | Trigger based on Slide Number (e.g., "Slide 5"). | Accurate; robust to pacing changes. | Hard to predict "Time until video". | |
 | **B. Time-Based** | Trigger based on estimated time (e.g., "03:22"). | Good for planning/countdown. | Fails if speaker is fast/slow. | |
-| **C. Hybrid** | Primary trigger is Position; Time is estimated for display only. | Best of both worlds. | Slightly more complex data model. | **✅ Recommended** |
+| **C. Position + Estimated Time** | Primary trigger is Position; Time is estimated for display only. | Best of both worlds. | Slightly more complex data model. | **✅ Recommended** |
 
-**Decision:** **Option C (Hybrid).** We use `position` (Slide #) as the source of truth for triggering, but calculate `estimatedTime` for the UI.
+**Decision:** **Option C (Position + Estimated Time).** We use `position` (Slide #) as the source of truth for triggering, but calculate `estimatedTime` for the UI.
 
 ### 1.3 External Video Playback (MVP)
 **Question:** How do we handle videos played outside of PowerPoint?

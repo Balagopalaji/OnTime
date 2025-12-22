@@ -252,13 +252,13 @@ These events manage timers (create/update/delete/reorder) and are available in M
 ### 3.5 Client → Server: `SYNC_ROOM_STATE` (Seamless Switching + Failover)
 
 **Purpose:** Explicitly synchronize a room snapshot to Companion to keep continuity during:
-- Cloud ↔ Hybrid/Local switching mid-show
+- Cloud ↔ Local switching mid-show
 - Backup device takeover / recovery
 
 This is intentionally **separate** from `TIMER_ACTION` so start/pause/reset semantics remain simple.
 
 **Recommended usage:**
-- When switching **Cloud → Hybrid/Local** and the room is already running in Cloud, the controller sends `SYNC_ROOM_STATE` so Companion can continue without pausing/resetting.
+- When switching **Cloud → Local** and the room is already running in Cloud, the controller sends `SYNC_ROOM_STATE` so Companion can continue without pausing/resetting.
 - When a backup device takes over, it can push the most recent known-good snapshot.
 
 ```json

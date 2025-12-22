@@ -1,3 +1,20 @@
+---
+WARNING: MVP SPECIFICATION - PARTIALLY SUPERSEDED
+This document describes the Firebase-only MVP (pre-Phase 1D).
+For the current dual-sync architecture, see:
+- docs/local-mode-plan.md
+- docs/edge-cases.md
+
+Phase 1D updates not reflected here:
+- Dual-connection model (Companion + Firebase)
+- Timestamp arbitration
+- Queue merging
+- Room lock prompt
+
+Status: Use for high-level UI specs; defer to local-mode-plan.md for sync behavior.
+Last Updated: Pre-Phase 1D (December 2024)
+---
+
 # StageTime Frontend PRD (MVP1)
 
 ## 1. Scope & Goals
