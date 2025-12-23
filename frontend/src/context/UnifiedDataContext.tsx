@@ -200,7 +200,8 @@ type CachedRoomSnapshot = {
   roomId: string
   room: Room
   timers: Timer[]
-  updatedAt: number
+  dataTs: number
+  cachedAt: number
   source: 'companion' | 'cloud'
 }
 
@@ -230,8 +231,33 @@ const readRoomCache = (): Record<string, CachedRoomSnapshot> => {
   try {
     const raw = localStorage.getItem(ROOM_CACHE_KEY)
     if (!raw) return {}
-    const parsed = JSON.parse(raw) as Record<string, CachedRoomSnapshot>
-    return parsed ?? {}
+    const parsed = JSON.parse(raw) as Record<
+      string,
+      CachedRoomSnapshot & { updatedAt?: number; cachedAt?: number; dataTs?: number }
+    >
+    return Object.entries(parsed ?? {}).reduce<Record<string, CachedRoomSnapshot>>((acc, [roomId, entry]) => {
+      if (!entry || typeof entry !== 'object') return acc
+      const legacyUpdatedAt = (entry as { updatedAt?: number }).updatedAt
+      const cachedAt =
+        typeof entry.cachedAt === 'number'
+          ? entry.cachedAt
+          : typeof legacyUpdatedAt === 'number'
+            ? legacyUpdatedAt
+            : Date.now()
+      const dataTs =
+        typeof entry.dataTs === 'number'
+          ? entry.dataTs
+          : entry.room?.state?.lastUpdate ?? (typeof legacyUpdatedAt === 'number' ? legacyUpdatedAt : 0)
+      acc[roomId] = {
+        roomId: entry.roomId ?? roomId,
+        room: entry.room,
+        timers: entry.timers ?? [],
+        dataTs,
+        cachedAt,
+        source: entry.source === 'companion' ? 'companion' : 'cloud',
+      }
+      return acc
+    }, {})
   } catch {
     return {}
   }
@@ -241,7 +267,7 @@ const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
   if (typeof localStorage === 'undefined') return
   try {
     const ordered = Object.values(entries)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => b.cachedAt - a.cachedAt)
       .slice(0, CACHE_LIMIT)
     const trimmed = ordered.reduce<Record<string, CachedRoomSnapshot>>((acc, entry) => {
       acc[entry.roomId] = entry
@@ -252,14 +278,6 @@ const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
     // ignore
   }
 }
-
-const deriveCompanionStateFromRoom = (room: Room): CompanionRoomState => ({
-  activeTimerId: room.state.activeTimerId ?? null,
-  isRunning: room.state.isRunning ?? false,
-  currentTime: room.state.elapsedOffset ?? 0,
-  lastUpdate: room.state.startedAt ?? room.createdAt ?? Date.now(),
-  activeLiveCueId: room.state.activeLiveCueId,
-})
 
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 const MAX_QUEUE = 100
@@ -361,11 +379,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [subscribedRooms, setSubscribedRooms] = useState<
     Record<string, { clientType: 'controller' | 'viewer'; token: string }>
   >({})
-  const [cachedSnapshots, setCachedSnapshots] = useState<Record<string, CachedRoomSnapshot>>({})
+  const [cachedSnapshots, setCachedSnapshots] = useState<Record<string, CachedRoomSnapshot>>(() => readRoomCache())
   const [queueStatus, setQueueStatus] = useState<
     Record<string, { count: number; max: number; nearLimit: boolean; percent: number }>
   >({})
-  const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>({})
+  const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>(cachedSnapshots)
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
     const cached = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
@@ -386,40 +404,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
   )
-
-  useEffect(() => {
-    const cached = readRoomCache()
-    cachedSnapshotsRef.current = cached
-    setCachedSnapshots(cached)
-    if (Object.keys(cached).length) {
-      setCompanionRooms((prev) => {
-        const next = { ...prev }
-        Object.values(cached).forEach((entry) => {
-          const state = deriveCompanionStateFromRoom(entry.room)
-          next[entry.roomId] = state
-        })
-        return next
-      })
-      setCompanionTimers((prev) => {
-        const next = { ...prev }
-        Object.values(cached).forEach((entry) => {
-          next[entry.roomId] = entry.timers
-        })
-        return next
-      })
-      setRoomAuthority((prev) => {
-        const next = { ...prev }
-        Object.values(cached).forEach((entry) => {
-          next[entry.roomId] = {
-            source: 'companion',
-            status: 'ready',
-            lastSyncAt: entry.updatedAt,
-          }
-        })
-        return next
-      })
-    }
-  }, [])
+  const isCompanionLive = useCallback(
+    () => Boolean(socket?.connected && handshakeStatus === 'ack'),
+    [handshakeStatus, socket],
+  )
 
   useEffect(() => {
     subscribedRoomsRef.current = subscribedRooms
@@ -430,6 +418,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const entries = Object.entries(subscribedRoomsRef.current)
     if (!entries.length) return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep subscription tokens in sync with refreshed token
     setSubscribedRooms((prev) => {
       let changed = false
       const next = { ...prev }
@@ -574,6 +563,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       console.info('[companion] restoring subscriptions', Object.keys(saved))
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate cached subscriptions after handshake
     setSubscribedRooms(() => {
       // Update tokens in saved subscriptions to match current token
       const updated = Object.entries(saved).reduce<Record<string, { clientType: 'controller' | 'viewer'; token: string }>>((acc, [roomId, sub]) => {
@@ -636,34 +626,46 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       ...Object.keys(subscribedRoomsRef.current),
       ...Object.keys(companionRoomsRef.current),
       ...Object.keys(companionTimersRef.current),
+      ...Object.keys(cachedSnapshotsRef.current),
       ...Object.keys(roomAuthority),
       ...(firebase.rooms ?? []).map((room) => room.id),
     ])
     const nextCache: Record<string, CachedRoomSnapshot> = {}
+    const companionLive = isCompanionLive()
     roomIds.forEach((roomId) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const usingCompanion =
-        authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId)
+        companionLive &&
+        (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId))
       const companionState = usingCompanion ? companionRoomsRef.current[roomId] : undefined
       const resolvedRoom = companionState
         ? buildRoomFromCompanion(roomId, companionState, firebase.getRoom(roomId))
         : firebase.getRoom(roomId)
+      if (!resolvedRoom) {
+        const cached = cachedSnapshotsRef.current[roomId]
+        if (cached) {
+          nextCache[roomId] = cached
+        }
+        return
+      }
       const timers = usingCompanion
         ? companionTimersRef.current[roomId] ?? firebase.getTimers(roomId)
         : firebase.getTimers(roomId)
-      if (!resolvedRoom) return
+      const dataTs = resolvedRoom.state.lastUpdate ?? 0
       nextCache[roomId] = {
         roomId,
         room: resolvedRoom,
         timers: timers ?? [],
-        updatedAt: Date.now(),
+        dataTs,
+        cachedAt: Date.now(),
         source: usingCompanion ? 'companion' : 'cloud',
       }
     })
     cachedSnapshotsRef.current = nextCache
     persistRoomCache(nextCache)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep cache state in sync with persisted snapshots
     setCachedSnapshots(nextCache)
-  }, [companionRooms, companionTimers, firebase, roomAuthority, shouldUseCompanion])
+  }, [companionRooms, companionTimers, firebase, isCompanionLive, roomAuthority, shouldUseCompanion])
 
   const ensureCompanionRoomState = useCallback((roomId: string) => {
     const existing = companionRoomsRef.current[roomId]
@@ -871,12 +873,20 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [])
 
   const replayRoomQueue = useCallback(
-    (roomId: string) => {
+    (roomId: string, minTimestamp?: number) => {
       if (!socket) return
       const queue = loadQueue(roomId)
       if (!queue.length) return
+      const filtered =
+        typeof minTimestamp === 'number'
+          ? queue.filter((event) => event.timestamp >= minTimestamp)
+          : queue
+      if (!filtered.length) {
+        saveQueue(roomId, [])
+        return
+      }
       isReplayingRef.current = true
-      const merged = mergeQueuedEvents(queue)
+      const merged = mergeQueuedEvents(filtered)
       merged.forEach((item) => socket.emit(item.type, item))
       saveQueue(roomId, [])
       isReplayingRef.current = false
@@ -1025,8 +1035,24 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleRoomStateSnapshot = (payload: RoomStateSnapshotPayload) => {
       const baseRoom = firebase.getRoom(payload.roomId)
-      const translatedState = translateCompanionStateToFirebase(payload.state, baseRoom?.state)
       const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
+      const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
+      const firebaseTs = baseRoom?.state.lastUpdate ?? 0
+      const isStale =
+        snapshotTs + CONFIDENCE_WINDOW_MS < existingTs ||
+        snapshotTs + CONFIDENCE_WINDOW_MS < firebaseTs
+      if (isStale) {
+        if (debugCompanion) {
+          console.info('[companion] stale update ignored', {
+            roomId: payload.roomId,
+            incomingTs: snapshotTs,
+            existingTs,
+            firebaseTs,
+          })
+        }
+        return
+      }
+      const translatedState = translateCompanionStateToFirebase(payload.state, baseRoom?.state)
       const cachedTimers = cachedSnapshotsRef.current[payload.roomId]?.timers ?? []
       const firebaseTimers = firebase.getTimers(payload.roomId)
       const timers = firebaseTimers.length ? firebaseTimers : cachedTimers
@@ -1058,7 +1084,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           activeTimerId: payload.state.activeTimerId ?? null,
           isRunning: payload.state.isRunning ?? false,
           currentTime: payload.state.currentTime ?? 0,
-          lastUpdate: payload.state.lastUpdate ?? Date.now(),
+          lastUpdate: payload.state.lastUpdate ?? snapshotTs,
           activeLiveCueId: payload.state.activeLiveCueId,
         },
       }))
@@ -1085,11 +1111,28 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
 
-      replayRoomQueue(payload.roomId)
+      replayRoomQueue(payload.roomId, snapshotTs)
     }
 
     const handleRoomStateDelta = (payload: RoomStateDeltaPayload) => {
       if (payload.clientId && payload.clientId === clientId) return
+      const incomingTs = payload.changes.lastUpdate ?? payload.timestamp ?? Date.now()
+      const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
+      const firebaseTs = firebase.getRoom(payload.roomId)?.state.lastUpdate ?? 0
+      const isStale =
+        incomingTs + CONFIDENCE_WINDOW_MS < existingTs ||
+        incomingTs + CONFIDENCE_WINDOW_MS < firebaseTs
+      if (isStale) {
+        if (debugCompanion) {
+          console.info('[companion] stale update ignored', {
+            roomId: payload.roomId,
+            incomingTs,
+            existingTs,
+            firebaseTs,
+          })
+        }
+        return
+      }
       setCompanionRooms((prev) => {
         const existing = prev[payload.roomId] ?? buildDefaultCompanionState()
         const next: CompanionRoomState = {
@@ -1098,7 +1141,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           currentTime:
             payload.changes.currentTime ?? existing.currentTime ?? 0,
           lastUpdate:
-            payload.changes.lastUpdate ?? existing.lastUpdate ?? Date.now(),
+            payload.changes.lastUpdate ?? incomingTs,
         }
         return { ...prev, [payload.roomId]: next }
       })
@@ -1123,7 +1166,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
 
-      replayRoomQueue(payload.roomId)
+      replayRoomQueue(payload.roomId, incomingTs)
     }
 
     const handleTimerCreated = (payload: TimerCreatedPayload) => {
@@ -1238,10 +1281,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [addPendingSyncRoom, effectiveMode, subscribedRooms])
 
   useEffect(() => {
-    if (!socket?.connected) return
-    Object.entries(roomAuthority).forEach(([roomId, authority]) => {
-      if (authority.source !== 'companion') return
-      const subscription = subscribedRoomsRef.current[roomId]
+    if (!isCompanionLive()) return
+    Object.entries(subscribedRoomsRef.current).forEach(([roomId, subscription]) => {
       if (subscription?.clientType !== 'controller') return
       const firebaseRoom = firebase.getRoom(roomId)
       const companionState = companionRoomsRef.current[roomId]
@@ -1252,10 +1293,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         emitSyncRoomState(roomId)
       }
     })
-  }, [companionRooms, emitSyncRoomState, firebase, roomAuthority, socket])
+  }, [companionRooms, emitSyncRoomState, firebase, isCompanionLive])
 
   const pickSource = useCallback(
     (roomId: string, firebaseTs: number, companionTs: number, authority: RoomAuthority) => {
+      if (!isCompanionLive()) return 'cloud'
       const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(roomId)
       if (viewerSyncGuard) return 'cloud'
 
@@ -1274,20 +1316,20 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       return firebaseTs >= companionTs ? 'cloud' : 'companion'
     },
-    [effectiveMode, isViewerClient, mode],
+    [effectiveMode, isCompanionLive, isViewerClient, mode],
   )
 
   const getRoom = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]
-      const firebaseRoom = firebase.getRoom(roomId) ?? cached?.room
-      const companionState =
-        companionRooms[roomId] ??
-        (cached ? deriveCompanionStateFromRoom(cached.room) : undefined)
+      const firebaseRoom = firebase.getRoom(roomId)
+      const cachedRoom = cached?.room
+      if (!isCompanionLive()) return firebaseRoom ?? cachedRoom
 
-      if (!companionState) return firebaseRoom
-      if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState)
+      const companionState = companionRooms[roomId]
+      if (!companionState) return firebaseRoom ?? cachedRoom
+      if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState, cachedRoom)
 
       const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
       const companionTs = companionState.lastUpdate ?? 0
@@ -1297,29 +1339,35 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       return firebaseRoom
     },
-    [companionRooms, firebase, pickSource, roomAuthority],
+    [companionRooms, firebase, isCompanionLive, pickSource, roomAuthority],
   )
 
   const getTimers = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]?.timers ?? []
-      const firebaseRoom = firebase.getRoom(roomId) ?? cachedSnapshotsRef.current[roomId]?.room
+      const firebaseRoom = firebase.getRoom(roomId)
+      if (!firebaseRoom && !isCompanionLive()) return cached
+
       const companionState = companionRooms[roomId]
+      if (!firebaseRoom) {
+        if (!companionState) return cached
+        const timers = companionTimers[roomId] ?? cached
+        return [...timers].sort((a, b) => a.order - b.order)
+      }
+
       const companionTs = companionState?.lastUpdate ?? 0
-      const firebaseTs = firebaseRoom?.state.lastUpdate ?? 0
-      const source =
-        companionState && firebaseRoom ? pickSource(roomId, firebaseTs, companionTs, authority) : companionState ? 'companion' : 'cloud'
+      const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
+      const source = companionState ? pickSource(roomId, firebaseTs, companionTs, authority) : 'cloud'
 
       if (source === 'companion') {
         const timers = companionTimers[roomId] ?? cached
         return [...timers].sort((a, b) => a.order - b.order)
       }
 
-      const timers = firebase.getTimers(roomId)
-      return timers.length ? timers : cached
+      return firebase.getTimers(roomId)
     },
-    [companionRooms, companionTimers, firebase, pickSource, roomAuthority],
+    [companionRooms, companionTimers, firebase, isCompanionLive, pickSource, roomAuthority],
   )
 
   const setActiveTimer = useCallback<DataContextValue['setActiveTimer']>(

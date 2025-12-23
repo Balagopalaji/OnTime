@@ -262,6 +262,10 @@ export const FirebaseDataProvider = ({
                 visible: statePayload?.message?.visible ?? room.state.message.visible ?? false,
                 color: statePayload?.message?.color ?? room.state.message.color ?? 'green',
               },
+              currentTime:
+                typeof statePayload?.currentTime === 'number' ? statePayload.currentTime : room.state.currentTime,
+              lastUpdate:
+                typeof statePayload?.lastUpdate === 'number' ? statePayload.lastUpdate : room.state.lastUpdate,
             },
           }))
           // Clear any optimistic nudge accumulator once Firestore has acknowledged a state update.

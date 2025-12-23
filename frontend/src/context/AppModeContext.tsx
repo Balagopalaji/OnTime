@@ -78,9 +78,14 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
     const handleDisconnect = () => {
       triggerCompanionFallback()
     }
+    const handleHandshakeAck = () => {
+      setIsDegraded(false)
+    }
     socket.on('disconnect', handleDisconnect)
+    socket.on('HANDSHAKE_ACK', handleHandshakeAck)
     return () => {
       socket.off('disconnect', handleDisconnect)
+      socket.off('HANDSHAKE_ACK', handleHandshakeAck)
     }
   }, [socket, triggerCompanionFallback])
 
