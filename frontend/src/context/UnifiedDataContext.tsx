@@ -1471,9 +1471,33 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
 
       const room = getRoom(roomId)
-      const elapsedOffset = resolveElapsedForTimer(room, timerId)
       const now = Date.now()
       const state = ensureCompanionRoomState(roomId)
+      const oldTimerId = state.activeTimerId
+      const isSwitchingTimer = oldTimerId && oldTimerId !== timerId
+
+      // Save old timer's progress before switching (including if it was running)
+      if (isSwitchingTimer) {
+        const oldElapsed = computeCompanionElapsed(state)
+        // Update cached room's progress map
+        const cached = cachedSnapshotsRef.current[roomId]
+        if (cached?.room) {
+          const updatedProgress = { ...(cached.room.state.progress ?? {}), [oldTimerId]: oldElapsed }
+          cachedSnapshotsRef.current = {
+            ...cachedSnapshotsRef.current,
+            [roomId]: {
+              ...cached,
+              room: {
+                ...cached.room,
+                state: { ...cached.room.state, progress: updatedProgress },
+              },
+            },
+          }
+          persistRoomCache(cachedSnapshotsRef.current)
+        }
+      }
+
+      const elapsedOffset = resolveElapsedForTimer(room, timerId)
       const nextState: CompanionRoomState = {
         ...state,
         activeTimerId: timerId,
@@ -1503,6 +1527,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     },
     [
       clientId,
+      computeCompanionElapsed,
       emitOrQueue,
       ensureCompanionRoomState,
       firebase,
