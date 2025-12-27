@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -146,6 +147,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
 type TimerDoc = {
   title: string
   duration: number
+  originalDuration?: number
   speaker?: string
   type: string
   order: number
@@ -156,6 +158,7 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
   roomId,
   title: data.title,
   duration: data.duration,
+  originalDuration: data.originalDuration,
   speaker: data.speaker ?? '',
   type: (data.type as Timer['type']) ?? 'countdown',
   order: data.order ?? 0,
@@ -789,7 +792,19 @@ export const FirebaseDataProvider = ({
       currentTime: nextElapsedOffset,
       lastUpdate: now,
     })
-  }, [firestore, getRoom])
+
+    // Restore duration to originalDuration if it was adjusted by nudge
+    if (activeId) {
+      const roomTimers = getTimers(roomId)
+      const activeTimer = roomTimers.find((t) => t.id === activeId)
+      if (activeTimer?.originalDuration !== undefined && activeTimer.duration !== activeTimer.originalDuration) {
+        await updateDoc(doc(firestore, 'rooms', roomId, 'timers', activeId), {
+          duration: activeTimer.originalDuration,
+          originalDuration: deleteField(),
+        })
+      }
+    }
+  }, [firestore, getRoom, getTimers])
 
   const nudgeTimer: DataContextValue['nudgeTimer'] = useCallback(async (roomId, deltaMs) => {
     if (migratingRoomsRef.current.has(roomId) || !firestore) return
@@ -803,7 +818,12 @@ export const FirebaseDataProvider = ({
     if (activeTimer) {
       const deltaSec = Math.round(deltaMs / 1000)
       const newDuration = Math.max(0, activeTimer.duration + deltaSec)
-      await updateDoc(doc(firestore, 'rooms', roomId, 'timers', activeId), { duration: newDuration })
+      // Set originalDuration on first nudge so reset can restore it
+      const updates: Record<string, unknown> = { duration: newDuration }
+      if (activeTimer.originalDuration === undefined) {
+        updates.originalDuration = activeTimer.duration
+      }
+      await updateDoc(doc(firestore, 'rooms', roomId, 'timers', activeId), updates)
     }
   }, [firestore, getRoom, getTimers])
 

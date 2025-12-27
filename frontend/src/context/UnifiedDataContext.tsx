@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore'
+import { deleteDoc, deleteField, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import type { Room, Timer } from '../types'
 import { db } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -1538,6 +1538,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (activeTimer) {
         const deltaSec = Math.round(deltaMs / 1000)
         const newDuration = Math.max(0, activeTimer.duration + deltaSec)
+        // Set originalDuration on first nudge so reset can restore it
+        const originalDuration = activeTimer.originalDuration ?? activeTimer.duration
+        const changes: Partial<Timer> = { duration: newDuration }
+        if (activeTimer.originalDuration === undefined) {
+          changes.originalDuration = originalDuration
+        }
 
         // Update local companion timers
         setCompanionTimers((prev) => {
@@ -1546,7 +1552,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           return {
             ...prev,
             [roomId]: list
-              .map((timer) => (timer.id === activeTimerId ? { ...timer, duration: newDuration } : timer))
+              .map((timer) => (timer.id === activeTimerId ? { ...timer, ...changes } : timer))
               .sort((a, b) => a.order - b.order),
           }
         })
@@ -1556,7 +1562,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           type: 'UPDATE_TIMER',
           roomId,
           timerId: activeTimerId,
-          changes: { duration: newDuration },
+          changes,
           timestamp: Date.now(),
           clientId,
         })
@@ -1564,7 +1570,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         // Write to Firebase
         if (firestoreWriteThrough && firestore) {
           const timerRef = doc(firestore, 'rooms', roomId, 'timers', activeTimerId)
-          await setDoc(timerRef, { duration: newDuration, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(() => undefined)
+          await setDoc(timerRef, { ...changes, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(() => undefined)
         }
       }
     },
@@ -2104,8 +2110,41 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         },
       }))
       emitTimerAction(roomId, targetId, 'RESET', 0)
+
+      // Restore duration to originalDuration if it was adjusted by nudge
+      const timers = list.length > 0 ? list : (cached?.timers ?? firebase.getTimers(roomId))
+      const activeTimer = timers.find((t) => t.id === targetId)
+      if (activeTimer?.originalDuration !== undefined && activeTimer.duration !== activeTimer.originalDuration) {
+        const restoredDuration = activeTimer.originalDuration
+        // Update local companion timers
+        setCompanionTimers((prev) => {
+          const existing = prev[roomId] ?? []
+          return {
+            ...prev,
+            [roomId]: existing
+              .map((timer) => (timer.id === targetId ? { ...timer, duration: restoredDuration, originalDuration: undefined } : timer))
+              .sort((a, b) => a.order - b.order),
+          }
+        })
+        // Emit UPDATE_TIMER to Companion
+        emitOrQueue(roomId, {
+          type: 'UPDATE_TIMER',
+          roomId,
+          timerId: targetId,
+          changes: { duration: restoredDuration },
+          timestamp: now,
+          clientId,
+        })
+        // Write to Firebase
+        if (firestoreWriteThrough && firestore) {
+          const timerRef = doc(firestore, 'rooms', roomId, 'timers', targetId)
+          await setDoc(timerRef, { duration: restoredDuration, updatedAt: now } as Record<string, unknown>, { merge: true }).catch(() => undefined)
+          // Clear originalDuration in Firebase
+          await updateDoc(timerRef, { originalDuration: deleteField() }).catch(() => undefined)
+        }
+      }
     },
-    [emitTimerAction, ensureCompanionRoomState, firebase, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, emitTimerAction, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const value = useMemo<UnifiedDataContextValue>(

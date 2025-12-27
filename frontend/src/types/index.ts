@@ -7,6 +7,7 @@ export type Timer = {
   roomId: string
   title: string
   duration: number // seconds
+  originalDuration?: number // seconds - the duration before nudge adjustments, restored on reset
   speaker?: string
   type: TimerType
   order: number

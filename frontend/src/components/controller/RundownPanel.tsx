@@ -326,7 +326,7 @@ export const RundownPanel = ({
                         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
                           Duration
                         </p>
-                        <p>{Math.round(timer.duration / 60)} min</p>
+                        <p>{Math.round((timer.originalDuration ?? timer.duration) / 60)} min</p>
                         <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
                           <div className="rounded-2xl bg-slate-900/80 px-4 py-3 text-right">
                             {editingDuration?.id === timer.id ? (
