@@ -175,6 +175,8 @@ const computeProgress = (room: Room) => {
   return progress
 }
 
+const clampElapsed = (value: number) => Math.max(0, value)
+
 
 
 export const FirebaseDataProvider = ({
@@ -686,7 +688,8 @@ export const FirebaseDataProvider = ({
     if (migratingRoomsRef.current.has(roomId) || !firestore) return
     const room = getRoom(roomId)
     const progress = room ? computeProgress(room) : {}
-    const elapsedOffset = progress[timerId] ?? 0
+    const elapsedOffset = clampElapsed(progress[timerId] ?? 0)
+    const now = Date.now()
     const stateRef =
       room?._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
     if (room?._version === 2) {
@@ -696,6 +699,8 @@ export const FirebaseDataProvider = ({
         startedAt: null,
         isRunning: false,
         progress,
+        currentTime: elapsedOffset,
+        lastUpdate: now,
       })
       return
     }
@@ -705,6 +710,8 @@ export const FirebaseDataProvider = ({
       'state.startedAt': null,
       'state.isRunning': false,
       'state.progress': progress,
+      'state.currentTime': elapsedOffset,
+      'state.lastUpdate': now,
     })
   }, [firestore, getRoom])
 
@@ -714,15 +721,18 @@ export const FirebaseDataProvider = ({
     const targetTimerId = timerId ?? room?.state.activeTimerId
     if (!targetTimerId || !room) return
     const progress = computeProgress(room)
-    const elapsedOffset = progress[targetTimerId] ?? 0
+    const elapsedOffset = clampElapsed(progress[targetTimerId] ?? 0)
+    const now = Date.now()
     const stateRef =
       room._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
     await updateDocFs(stateRef, {
       activeTimerId: targetTimerId,
       isRunning: true,
-      startedAt: Date.now(),
+      startedAt: now,
       elapsedOffset,
       progress,
+      currentTime: elapsedOffset,
+      lastUpdate: now,
     })
   }, [firestore, getRoom])
 
@@ -732,7 +742,8 @@ export const FirebaseDataProvider = ({
     if (!room?.state.activeTimerId) return
     const activeId = room.state.activeTimerId
     const progress = computeProgress(room)
-    const elapsed = progress[activeId] ?? 0
+    const elapsed = clampElapsed(progress[activeId] ?? 0)
+    const now = Date.now()
     const stateRef =
       room._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
     await updateDocFs(stateRef, {
@@ -740,6 +751,8 @@ export const FirebaseDataProvider = ({
       startedAt: null,
       elapsedOffset: elapsed,
       progress,
+      currentTime: elapsed,
+      lastUpdate: now,
     })
   }, [firestore, getRoom])
 
@@ -752,6 +765,7 @@ export const FirebaseDataProvider = ({
       progress[activeId] = 0
     }
     const nextElapsedOffset = 0
+    const now = Date.now()
     const stateRef =
       room?._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
     await updateDocFs(stateRef, {
@@ -759,6 +773,8 @@ export const FirebaseDataProvider = ({
       startedAt: null,
       elapsedOffset: nextElapsedOffset,
       progress,
+      currentTime: nextElapsedOffset,
+      lastUpdate: now,
     })
   }, [firestore, getRoom])
 
@@ -770,11 +786,13 @@ export const FirebaseDataProvider = ({
     const pending = pendingNudgeRef.current[roomId] ?? 0
     const currentProgress = computeProgress(room)[activeId] ?? room.state.elapsedOffset ?? 0
     const base = currentProgress + pending
-    const nextElapsedOffset = base - deltaMs
-    pendingNudgeRef.current[roomId] = pending + (nextElapsedOffset - base)
+    const nextElapsedOffset = clampElapsed(base - deltaMs)
+    const now = Date.now()
+    pendingNudgeRef.current[roomId] = nextElapsedOffset - currentProgress
     const progress = { ...(room.state.progress ?? {}) }
     progress[activeId] = nextElapsedOffset
-    const nextStartedAt = room.state.isRunning ? Date.now() : room.state.startedAt
+    const isRunning = room.state.isRunning
+    const nextStartedAt = isRunning ? now : null
     const stateRef =
       room._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
     if (room._version === 2) {
@@ -782,6 +800,8 @@ export const FirebaseDataProvider = ({
         elapsedOffset: nextElapsedOffset,
         startedAt: nextStartedAt,
         progress,
+        currentTime: nextElapsedOffset,
+        lastUpdate: now,
       })
       return
     }
@@ -789,6 +809,8 @@ export const FirebaseDataProvider = ({
       'state.elapsedOffset': nextElapsedOffset,
       'state.startedAt': nextStartedAt,
       'state.progress': progress,
+      'state.currentTime': nextElapsedOffset,
+      'state.lastUpdate': now,
     })
   }, [firestore, getRoom])
 

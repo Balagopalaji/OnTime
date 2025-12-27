@@ -1077,6 +1077,8 @@ function handleTimerAction(socket: Socket, payload: unknown) {
   const now = Date.now();
   const state = getRoomState(payload.roomId);
   let changes: Partial<RoomState> = {};
+  const clampElapsed = (value: number) => Math.max(0, Number.isFinite(value) ? value : 0);
+  const baseCurrent = clampElapsed(state.currentTime ?? 0);
 
   switch (payload.action) {
     case 'START': {
@@ -1084,9 +1086,9 @@ function handleTimerAction(socket: Socket, payload: unknown) {
       // Otherwise, if resuming the same timer, preserve the elapsed time.
       // If switching without provided currentTime, reset to 0.
       const isSwitchingTimer = payload.timerId !== state.activeTimerId;
-      const startTime = typeof payload.currentTime === 'number'
-        ? payload.currentTime
-        : (isSwitchingTimer ? 0 : (state.currentTime ?? 0));
+      const startTime = typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)
+        ? clampElapsed(payload.currentTime)
+        : (isSwitchingTimer ? 0 : baseCurrent);
       changes = {
         activeTimerId: payload.timerId,
         isRunning: true,
@@ -1104,7 +1106,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
         state.isRunning && typeof state.lastUpdate === 'number'
           ? Math.max(0, pauseNow - state.lastUpdate)
           : 0;
-      const nextCurrentTime = Math.max(0, (state.currentTime ?? 0) + elapsedSinceLast);
+      const nextCurrentTime = clampElapsed(baseCurrent + elapsedSinceLast);
       changes = {
         isRunning: false,
         currentTime: nextCurrentTime,
