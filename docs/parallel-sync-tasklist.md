@@ -35,7 +35,7 @@ This task list is the single source of truth for aligning docs and code with the
   - Staleness/plausibility check (duration-aware, adjustment-log ready).
   - Room lock prompt (never auto-expire; show device/time; takeover requires confirm).
   - Call out current code gaps explicitly (Companion blocked in Cloud mode; merge/replay missing; staleness naive; locks not implemented).
-- [x] Section 3.6.1: add browser cache keys (`companionRoomCache.v1`, `companionSubs.v1`, `queue:{roomId}`) and staleness/plausibility rules; offline behavior.
+- [x] Section 3.6.1: add browser cache keys (`companionRoomCache.v2`, `companionSubs.v2`, `queue:{roomId}`) and staleness/plausibility rules; offline behavior.
 - [x] Add note: deprecated mode term removed; Local represents dual-write when online.
 - [x] Add Section 9 "Code Gaps vs Target Architecture" with explicit markers:
   - ❌ Companion blocked in Cloud mode (`shouldUseCompanion` guard)

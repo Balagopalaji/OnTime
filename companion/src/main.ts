@@ -74,6 +74,7 @@ type TimerActionPayload = {
   timerId: string;
   timestamp?: number;
   clientId?: string;
+  currentTime?: number; // Optional: elapsed time to use when starting (for stored progress)
 };
 
 type RoomStateSnapshot = {
@@ -1078,16 +1079,22 @@ function handleTimerAction(socket: Socket, payload: unknown) {
   let changes: Partial<RoomState> = {};
 
   switch (payload.action) {
-    case 'START':
-      // Preserve currentTime (elapsed offset) so resuming a paused timer continues from where it left off.
-      // The frontend uses {startedAt=lastUpdate, elapsedOffset=currentTime} to compute remaining time.
+    case 'START': {
+      // Use provided currentTime if available (for stored progress when switching timers).
+      // Otherwise, if resuming the same timer, preserve the elapsed time.
+      // If switching without provided currentTime, reset to 0.
+      const isSwitchingTimer = payload.timerId !== state.activeTimerId;
+      const startTime = typeof payload.currentTime === 'number'
+        ? payload.currentTime
+        : (isSwitchingTimer ? 0 : (state.currentTime ?? 0));
       changes = {
         activeTimerId: payload.timerId,
         isRunning: true,
-        currentTime: state.currentTime ?? 0,
+        currentTime: startTime,
         lastUpdate: payload.timestamp ?? now
       };
       break;
+    }
     case 'PAUSE':
       // Persist the computed elapsed time so switching modes (Cloud↔Local) while paused does not "reset" the timer.
       // We can compute elapsed using the last running anchor (lastUpdate) and the stored base (currentTime).

@@ -365,6 +365,7 @@ export const ControllerPage = () => {
       duration: 5 * 60,
       speaker: '',
     }).then((newTimer) => {
+      if (!newTimer) return
       setSelectedTimerId(newTimer.id)
       setShortcutScope('rundown')
     })

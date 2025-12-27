@@ -51,7 +51,7 @@ export type DataContextValue = {
   getTimers: (roomId: string) => Timer[]
   createRoom: (input: CreateRoomInput) => Promise<Room>
   deleteRoom: (roomId: string) => Promise<void>
-  createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer>
+  createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer | undefined>
   updateTimer: (
     roomId: string,
     timerId: string,

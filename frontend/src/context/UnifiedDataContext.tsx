@@ -54,7 +54,7 @@ type RoomStatePatchPayload = {
   type: 'ROOM_STATE_PATCH'
   roomId: string
   changes: Partial<CompanionRoomState>
-  clientId?: string
+  clientId: string
   timestamp: number
 }
 
@@ -119,6 +119,7 @@ type QueuedEvent =
     roomId: string
     timerId: string
     clientId: string
+    currentTime?: number // Optional: elapsed time for stored progress when starting
   }
   | {
     type: 'CREATE_TIMER'
@@ -192,8 +193,8 @@ const DEFAULT_AUTHORITY: RoomAuthority = {
   lastSyncAt: 0,
 }
 
-const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v1'
-const SUBS_CACHE_KEY = 'ontime:companionSubs.v1'
+const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
+const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
 const CACHE_LIMIT = 20
 
 type CachedRoomSnapshot = {
@@ -399,7 +400,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
-  const firestoreWriteThrough = Boolean(db)
+  const firestore = db
+  const firestoreWriteThrough = Boolean(firestore)
   const isViewerClient = useCallback(
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
@@ -630,6 +632,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       ...Object.keys(roomAuthority),
       ...(firebase.rooms ?? []).map((room) => room.id),
     ])
+
+    // Prevent overwriting cache with empty data on initial load before Firebase/Companion data arrives.
+    // If we have cached data but no fresh data sources, preserve the cache.
+    const hasFirebaseData = (firebase.rooms ?? []).length > 0
+    const hasCompanionData = Object.keys(companionRoomsRef.current).length > 0
+    const hasCachedData = Object.keys(cachedSnapshotsRef.current).length > 0
+    if (hasCachedData && !hasFirebaseData && !hasCompanionData) {
+      return
+    }
+
     const nextCache: Record<string, CachedRoomSnapshot> = {}
     const companionLive = isCompanionLive()
     roomIds.forEach((roomId) => {
@@ -648,14 +660,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         }
         return
       }
-      const timers = usingCompanion
+      const freshTimers = usingCompanion
         ? companionTimersRef.current[roomId] ?? firebase.getTimers(roomId)
         : firebase.getTimers(roomId)
+      // Preserve cached timers if fresh timers haven't loaded yet (prevents flash of empty rundown)
+      const cachedEntry = cachedSnapshotsRef.current[roomId]
+      const timers = (freshTimers ?? []).length > 0 ? freshTimers : (cachedEntry?.timers ?? [])
       const dataTs = resolvedRoom.state.lastUpdate ?? 0
       nextCache[roomId] = {
         roomId,
         room: resolvedRoom,
-        timers: timers ?? [],
+        timers,
         dataTs,
         cachedAt: Date.now(),
         source: usingCompanion ? 'companion' : 'cloud',
@@ -688,10 +703,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const computeCurrentTimeWithProgress = useCallback(
     (room: Room): number => {
       const activeId = room.state.activeTimerId
+
+      // For running timers, always calculate live elapsed time to avoid stale progress values
+      if (room.state.isRunning) {
+        return computeCurrentTimeMs(room)
+      }
+
+      // For paused timers, use progress map if available
       const progress = room.state.progress ?? {}
       if (activeId && typeof progress[activeId] === 'number') {
         return Math.max(0, progress[activeId] as number)
       }
+
       return computeCurrentTimeMs(room)
     },
     [computeCurrentTimeMs],
@@ -812,7 +835,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         case 'ROOM_STATE_PATCH':
           return `ROOM_STATE_PATCH:${event.roomId}`
         default:
-          return `UNKNOWN:${event.roomId}`
+          return 'UNKNOWN'
       }
     }
 
@@ -1365,7 +1388,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return [...timers].sort((a, b) => a.order - b.order)
       }
 
-      return firebase.getTimers(roomId)
+      // Fall back to cached timers if Firebase timers haven't loaded yet
+      const firebaseTimers = firebase.getTimers(roomId)
+      return firebaseTimers.length > 0 ? firebaseTimers : cached
     },
     [companionRooms, companionTimers, firebase, isCompanionLive, pickSource, roomAuthority],
   )
@@ -1536,8 +1561,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough) {
-        const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+      if (firestoreWriteThrough && firestore) {
+        const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
         )
@@ -1545,7 +1570,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       return timer
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const updateTimer = useCallback<DataContextValue['updateTimer']>(
@@ -1579,14 +1604,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough) {
-        const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+      if (firestoreWriteThrough && firestore) {
+        const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
         )
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const deleteTimer = useCallback<DataContextValue['deleteTimer']>(
@@ -1631,12 +1656,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough) {
-        const timerRef = doc(db, 'rooms', roomId, 'timers', timerId)
+      if (firestoreWriteThrough && firestore) {
+        const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await deleteDoc(timerRef).catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const reorderTimer = useCallback<DataContextValue['reorderTimer']>(
@@ -1669,17 +1694,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough) {
-        const batch = writeBatch(db)
+      if (firestoreWriteThrough && firestore) {
+        const batch = writeBatch(firestore)
         next.forEach((timer) => {
-          batch.set(doc(db, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
+          batch.set(doc(firestore, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
             merge: true,
           })
         })
         await batch.commit().catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
   )
 
   const moveTimer = useCallback(
@@ -1702,7 +1727,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
 
   const emitTimerAction = useCallback(
-    (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET') => {
+    (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET', currentTimeMs?: number) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot control timers', roomId)
         return
@@ -1715,12 +1740,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timerId,
         timestamp,
         clientId,
+        ...(typeof currentTimeMs === 'number' && { currentTime: currentTimeMs }),
       }
       emitOrQueue(roomId, payload)
 
-      if (firestoreWriteThrough) {
-        const stateRefV2 = doc(db, 'rooms', roomId, 'state', 'current')
-        const legacyRef = doc(db, 'rooms', roomId)
+      if (firestoreWriteThrough && firestore) {
+        const stateRefV2 = doc(firestore, 'rooms', roomId, 'state', 'current')
+        const legacyRef = doc(firestore, 'rooms', roomId)
 
         const state = ensureCompanionRoomState(roomId)
         const currentElapsed = computeCompanionElapsed(state)
@@ -1756,7 +1782,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
     },
-    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestoreWriteThrough, isViewerClient],
+    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestore, firestoreWriteThrough, isViewerClient],
   )
 
   const startTimer = useCallback<DataContextValue['startTimer']>(
@@ -1773,7 +1799,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const targetId = timerId ?? state.activeTimerId ?? list[0]?.id
       if (!targetId) return
       const now = Date.now()
-      const elapsed = computeCompanionElapsed(state)
+      // If switching to a different timer, use its stored progress (from progress map).
+      // If resuming the same timer, preserve the current elapsed time.
+      const isSwitchingTimer = targetId !== state.activeTimerId
+      const room = getRoom(roomId)
+      const elapsed = isSwitchingTimer
+        ? resolveElapsedForTimer(room, targetId)
+        : computeCompanionElapsed(state)
       setCompanionRooms((prev) => ({
         ...prev,
         [roomId]: {
@@ -1784,9 +1816,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           lastUpdate: now,
         },
       }))
-      emitTimerAction(roomId, targetId, 'START')
+      emitTimerAction(roomId, targetId, 'START', elapsed)
     },
-    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, isViewerClient, shouldUseCompanion],
+    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, getRoom, isViewerClient, resolveElapsedForTimer, shouldUseCompanion],
   )
 
   const pauseTimer = useCallback<DataContextValue['pauseTimer']>(

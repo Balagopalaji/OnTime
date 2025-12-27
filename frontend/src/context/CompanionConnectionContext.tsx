@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { io, type Socket, type DisconnectReason } from 'socket.io-client'
+import { io, type Socket } from 'socket.io-client'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 
@@ -204,7 +204,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       // Stay idle until a room join drives a handshake ACK/ERROR.
       setHandshakeStatus('idle')
     }
-    const handleDisconnect = (reason?: DisconnectReason) => {
+    const handleDisconnect = (reason?: string) => {
       if (debugCompanion) console.info('[companion] disconnect', reason)
       if (reason === 'io server disconnect') {
         clearToken()

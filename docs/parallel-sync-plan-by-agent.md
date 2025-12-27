@@ -1045,15 +1045,15 @@ useEffect(() => {
 
 **Location:** Browser `localStorage`
 
-- **Room Snapshots:** `ontime:companionRoomCache.v1`
-
+- **Room Snapshots:** `ontime:companionRoomCache.v2`
+- **Subscriptions:** `ontime:companionSubs.v2`
   - Last-seen room state + timers per subscribed room
 
   - Limited to 20 most recent (LRU eviction)
 
   - Used for offline resilience + instant page loads
 
-- **Subscriptions:** `ontime:companionSubs.v1`
+- **Subscriptions:** `ontime:companionSubs.v2`
 
   - Which rooms subscribed to Companion (clientType: 'controller' | 'viewer')
 

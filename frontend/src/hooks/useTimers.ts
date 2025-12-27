@@ -23,6 +23,7 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
 })
 
 export const useTimers = (roomId: string | undefined) => {
+  const firestore = db
   const [timers, setTimers] = useState<Timer[]>([])
   const [loadingState, setLoadingState] = useState<boolean>(false)
   const [error, setError] = useState<FirestoreError | undefined>(undefined)
@@ -45,12 +46,15 @@ export const useTimers = (roomId: string | undefined) => {
   }, [])
 
   useEffect(() => {
-    if (!roomId) return undefined
+    if (!roomId || !firestore) return undefined
 
     setLoadingState(true)
     setConnectionStatusState('reconnecting')
     setError(undefined)
-    const timersQuery = query(collection(db, 'rooms', roomId, 'timers'), orderBy('order', 'asc'))
+    const timersQuery = query(
+      collection(firestore, 'rooms', roomId, 'timers'),
+      orderBy('order', 'asc'),
+    )
     const unsub = onSnapshot(
       timersQuery,
       (snapshot) => {
@@ -70,7 +74,7 @@ export const useTimers = (roomId: string | undefined) => {
       },
     )
     return () => unsub()
-  }, [roomId, subscriptionEpoch])
+  }, [firestore, roomId, subscriptionEpoch])
 
   return useMemo(() => {
     const safeTimers = roomId ? timers : []

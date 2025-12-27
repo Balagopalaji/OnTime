@@ -37,6 +37,7 @@ export const DashboardPage = () => {
   const { mode, effectiveMode, setMode } = useAppMode()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const firestore = db
   useEffect(() => {
     if (user?.uid) {
       try {
@@ -226,14 +227,16 @@ export const DashboardPage = () => {
   }, [displayedRooms, pendingRooms, user])
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !firestore) return
     let cancelled = false
     const v2OwnedRooms = ownedRooms.filter((room) => (room._version ?? 1) === 2)
 
     void Promise.all(
       v2OwnedRooms.map(async (room) => {
         try {
-          const snap = await getDocs(query(collection(db, 'rooms', room.id, 'migrationBackups'), limit(1)))
+          const snap = await getDocs(
+            query(collection(firestore, 'rooms', room.id, 'migrationBackups'), limit(1)),
+          )
           return [room.id, !snap.empty] as const
         } catch {
           return [room.id, false] as const
@@ -256,7 +259,7 @@ export const DashboardPage = () => {
     return () => {
       cancelled = true
     }
-  }, [ownedRooms, user])
+  }, [firestore, ownedRooms, user])
 
   const compareCards = useMemo(
     () => (a: { title: string; createdAt: number; order?: number }, b: { title: string; createdAt: number; order?: number }) => {
