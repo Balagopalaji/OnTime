@@ -19,6 +19,7 @@ import {
 import { db } from '../lib/firebase'
 import type { MessageColor, Room, Timer } from '../types'
 import { DataProviderBoundary, type DataContextValue } from './DataContext'
+import { computeProgress as computeProgressUtil, applyNudge, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
 import { useAuth } from './AuthContext'
 import { doc as firestoreDoc, updateDoc as updateDocFs } from 'firebase/firestore'
@@ -162,20 +163,18 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
 
 const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
 
+// Use shared timer-utils for elapsed calculations
+// IMPORTANT: No clamping - elapsed can be negative for bonus time
 const computeProgress = (room: Room) => {
-  const progress = { ...(room.state.progress ?? {}) }
-  const activeId = room.state.activeTimerId
-  if (activeId) {
-    let elapsed = room.state.elapsedOffset
-    if (room.state.isRunning && room.state.startedAt) {
-      elapsed += Date.now() - room.state.startedAt
-    }
-    progress[activeId] = elapsed
+  const state: FirebaseTimerState = {
+    isRunning: room.state.isRunning,
+    startedAt: room.state.startedAt,
+    elapsedOffset: room.state.elapsedOffset,
+    activeTimerId: room.state.activeTimerId,
+    progress: room.state.progress,
   }
-  return progress
+  return computeProgressUtil(state)
 }
-
-const clampElapsed = (value: number) => Math.max(0, value)
 
 
 
@@ -688,7 +687,7 @@ export const FirebaseDataProvider = ({
     if (migratingRoomsRef.current.has(roomId) || !firestore) return
     const room = getRoom(roomId)
     const progress = room ? computeProgress(room) : {}
-    const elapsedOffset = clampElapsed(progress[timerId] ?? 0)
+    const elapsedOffset = progress[timerId] ?? 0
     const now = Date.now()
     const stateRef =
       room?._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
@@ -721,7 +720,7 @@ export const FirebaseDataProvider = ({
     const targetTimerId = timerId ?? room?.state.activeTimerId
     if (!targetTimerId || !room) return
     const progress = computeProgress(room)
-    const elapsedOffset = clampElapsed(progress[targetTimerId] ?? 0)
+    const elapsedOffset = progress[targetTimerId] ?? 0
     const now = Date.now()
     const stateRef =
       room._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
@@ -742,7 +741,7 @@ export const FirebaseDataProvider = ({
     if (!room?.state.activeTimerId) return
     const activeId = room.state.activeTimerId
     const progress = computeProgress(room)
-    const elapsed = clampElapsed(progress[activeId] ?? 0)
+    const elapsed = progress[activeId] ?? 0
     const now = Date.now()
     const stateRef =
       room._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
@@ -786,7 +785,7 @@ export const FirebaseDataProvider = ({
     const pending = pendingNudgeRef.current[roomId] ?? 0
     const currentProgress = computeProgress(room)[activeId] ?? room.state.elapsedOffset ?? 0
     const base = currentProgress + pending
-    const nextElapsedOffset = clampElapsed(base - deltaMs)
+    const nextElapsedOffset = applyNudge(base, deltaMs)
     const now = Date.now()
     pendingNudgeRef.current[roomId] = nextElapsedOffset - currentProgress
     const progress = { ...(room.state.progress ?? {}) }

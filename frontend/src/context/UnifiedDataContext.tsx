@@ -4,6 +4,13 @@ import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore'
 import type { Room, Timer } from '../types'
 import { db } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
+import {
+  computeElapsed,
+  computeCompanionElapsed as computeCompanionElapsedUtil,
+  applyNudge,
+  resolveTimerElapsed,
+  mergeProgress,
+} from '../utils/timer-utils'
 import { FirebaseDataProvider } from './FirebaseDataContext'
 import { useAppMode } from './AppModeContext'
 import { useCompanionConnection } from './CompanionConnectionContext'
@@ -700,15 +707,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     return next
   }, [])
 
+  // Use shared timer-utils for elapsed calculations
   const computeCurrentTimeMs = useCallback((room: Room): number => {
-    const isRunning = room.state.isRunning ?? false
-    const startedAt = room.state.startedAt ?? null
-    const elapsedOffset = room.state.elapsedOffset ?? 0
-    // Allow negative elapsed to support bonus time (added beyond original duration)
-    if (isRunning && typeof startedAt === 'number') {
-      return elapsedOffset + (Date.now() - startedAt)
-    }
-    return elapsedOffset
+    return computeElapsed({
+      isRunning: room.state.isRunning ?? false,
+      startedAt: room.state.startedAt ?? null,
+      elapsedOffset: room.state.elapsedOffset ?? 0,
+    })
   }, [])
 
   const computeCurrentTimeWithProgress = useCallback(
@@ -734,24 +739,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const resolveElapsedForTimer = useCallback((room: Room | undefined, timerId: string): number => {
     if (!room) return 0
-    const progress = room.state.progress ?? {}
-    // Allow negative elapsed to support bonus time (added beyond original duration)
-    if (room.state.activeTimerId === timerId) {
-      const base = room.state.elapsedOffset ?? 0
-      if (room.state.isRunning && room.state.startedAt) {
-        return base + (Date.now() - room.state.startedAt)
-      }
-      return base
-    }
-    return progress[timerId] ?? 0
+    return resolveTimerElapsed({
+      isRunning: room.state.isRunning,
+      startedAt: room.state.startedAt,
+      elapsedOffset: room.state.elapsedOffset,
+      activeTimerId: room.state.activeTimerId,
+      progress: room.state.progress,
+    }, timerId)
   }, [])
 
   const computeCompanionElapsed = useCallback((state: CompanionRoomState) => {
-    // Allow negative elapsed to support bonus time (added beyond original duration)
-    if (state.isRunning) {
-      return state.currentTime + (Date.now() - state.lastUpdate)
-    }
-    return state.currentTime
+    return computeCompanionElapsedUtil(state)
   }, [])
 
   const updateQueueStatus = useCallback((roomId: string, queue: QueuedEvent[]) => {
@@ -1369,15 +1367,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         const cachedProgress = cachedRoom?.state.progress ?? {}
         const hasCachedProgress = Object.keys(cachedProgress).length > 0
         if (!hasCachedProgress) return room
-        // Merge cached progress with room progress, giving priority to cached values
-        // (cached values are more recent since they're updated on pause/switch)
+        // Use shared mergeProgress helper (cached values take priority)
         const roomProgress = room.state.progress ?? {}
-        const mergedProgress = { ...roomProgress, ...cachedProgress }
         return {
           ...room,
           state: {
             ...room.state,
-            progress: mergedProgress,
+            progress: mergeProgress(roomProgress, cachedProgress),
           },
         }
       }
@@ -1513,9 +1509,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const now = Date.now()
       const isRunning = room?.state.isRunning ?? state.isRunning ?? false
 
-      // Allow negative elapsed to support adding time beyond original duration
-      // Remaining = Duration - Elapsed, so negative elapsed = bonus time
-      const nextElapsed = currentElapsed - deltaMs
+      // Use shared applyNudge helper (supports negative elapsed for bonus time)
+      const nextElapsed = applyNudge(currentElapsed, deltaMs)
 
       setCompanionRooms((prev) => ({
         ...prev,
@@ -1632,7 +1627,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return firebase.updateTimer(roomId, timerId, patch)
       }
 
-      ensureCompanionRoomState(roomId)
+      const state = ensureCompanionRoomState(roomId)
+      const now = Date.now()
 
       setCompanionTimers((prev) => {
         // Use cached timers as base if companion timers don't exist yet
@@ -1646,6 +1642,65 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             .sort((a, b) => a.order - b.order),
         }
       })
+
+      // When duration changes, reset progress to 0 (timer restarts from new duration)
+      // If it's the active timer and running, keep it running from 0
+      if (patch.duration !== undefined) {
+        const isActiveTimer = state.activeTimerId === timerId
+        const wasRunning = state.isRunning
+
+        // Update cached room's progress map
+        const cached = cachedSnapshotsRef.current[roomId]
+        if (cached?.room) {
+          const updatedProgress = { ...(cached.room.state.progress ?? {}), [timerId]: 0 }
+          const updatedState = isActiveTimer
+            ? {
+                ...cached.room.state,
+                progress: updatedProgress,
+                elapsedOffset: 0,
+                startedAt: wasRunning ? now : null,
+                currentTime: 0,
+                lastUpdate: now,
+              }
+            : { ...cached.room.state, progress: updatedProgress }
+          cachedSnapshotsRef.current = {
+            ...cachedSnapshotsRef.current,
+            [roomId]: {
+              ...cached,
+              room: { ...cached.room, state: updatedState },
+            },
+          }
+          persistRoomCache(cachedSnapshotsRef.current)
+        }
+
+        // If it's the active timer, update companion state (reset to 0, keep running if was running)
+        if (isActiveTimer) {
+          setCompanionRooms((prev) => ({
+            ...prev,
+            [roomId]: {
+              ...state,
+              currentTime: 0,
+              lastUpdate: now,
+              // Keep isRunning as-is so timer continues if it was running
+            },
+          }))
+
+          // Emit state patch to companion
+          const statePatch: RoomStatePatchPayload = {
+            type: 'ROOM_STATE_PATCH',
+            roomId,
+            changes: {
+              activeTimerId: timerId,
+              isRunning: wasRunning,
+              currentTime: 0,
+              lastUpdate: now,
+            },
+            timestamp: now,
+            clientId,
+          }
+          emitOrQueue(roomId, statePatch)
+        }
+      }
 
       emitOrQueue(roomId, {
         type: 'UPDATE_TIMER',
@@ -1661,6 +1716,22 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
         )
+
+        // Also update state if duration changed
+        if (patch.duration !== undefined) {
+          const stateRef = doc(firestore, 'rooms', roomId, 'state', 'current')
+          const isActiveTimer = state.activeTimerId === timerId
+          const stateUpdate: Record<string, unknown> = {
+            [`progress.${timerId}`]: 0,
+          }
+          if (isActiveTimer) {
+            stateUpdate.elapsedOffset = 0
+            stateUpdate.startedAt = state.isRunning ? now : null
+            stateUpdate.currentTime = 0
+            stateUpdate.lastUpdate = now
+          }
+          await setDoc(stateRef, stateUpdate, { merge: true }).catch(() => undefined)
+        }
       }
     },
     [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
