@@ -1,10 +1,21 @@
 # Timer Logic (Source of Truth)
 
-Last Updated: 2025-12-27
+Last Updated: 2025-12-28
 Status: CURRENT
 
 ## 1) State Surfaces
-**Firebase (room.state, v2 doc or legacy field)**
+
+**Timer (Firebase: rooms/{roomId}/timers/{timerId})**
+- `id: string`
+- `roomId: string`
+- `title: string`
+- `duration: number` — timer duration in seconds (can be adjusted by nudge).
+- `originalDuration?: number` — duration before nudge adjustments; set on first nudge, cleared on reset.
+- `speaker?: string`
+- `type: 'countdown' | 'countup' | 'timeofday'`
+- `order: number`
+
+**Room State (Firebase: room.state, v2 doc or legacy field)**
 - `activeTimerId: string | null`
 - `isRunning: boolean`
 - `startedAt: number | null` — epoch ms when the active timer started (anchor for running).
@@ -61,18 +72,35 @@ All actions must update `currentTime` and `lastUpdate` alongside the running anc
 ### Reset
 - Target the active timer (no-op if none).
 - Updates: `isRunning = false`; `startedAt = null`; `elapsedOffset = 0`; `progress[activeId] = 0`; `currentTime = 0`; `lastUpdate = now`.
+- **Restore originalDuration:** If `originalDuration` exists and differs from `duration`:
+  - Set `duration = originalDuration` (restore to pre-nudge value).
+  - Clear `originalDuration` field (delete from Firebase).
 
 ### Set Active Timer
 - Use stored progress for the target timer (`progress[timerId] ?? 0`).
 - Updates: `activeTimerId = timerId`; `isRunning = false`; `startedAt = null`; `elapsedOffset = progress`; `currentTime = same`; `lastUpdate = now`.
 
-### Nudge (Adjust Time)
-- `deltaMs > 0` **adds** time back (reduces elapsed); `deltaMs < 0` subtracts time (increases elapsed).
-- `newElapsed = currentElapsed - deltaMs` where `currentElapsed` is live for the active timer.
-- **No clamping:** `newElapsed` can be negative (bonus time) or positive.
-- If running: keep `isRunning = true`, set `startedAt = now`, `elapsedOffset = newElapsed`.
-- If paused: `isRunning = false`, `startedAt = null`, `elapsedOffset = newElapsed`.
-- Always set `progress[activeId] = newElapsed`, `currentTime = newElapsed`, `lastUpdate = now`.
+### Nudge (Adjust Time) — Duration-Based Approach
+Nudge adjusts the timer's **duration** rather than elapsed time. This provides reliable cross-browser sync via the timer document sync path.
+
+- `deltaMs > 0` **adds** time (increases duration); `deltaMs < 0` **subtracts** time (decreases duration).
+- `deltaSec = Math.round(deltaMs / 1000)`
+- `newDuration = Math.max(0, timer.duration + deltaSec)` — duration cannot go below 0.
+
+**originalDuration tracking:**
+- On **first nudge**: store `originalDuration = timer.duration` (the value before any adjustments).
+- On **subsequent nudges**: update `duration` only; `originalDuration` stays the same.
+- This allows reset to restore the original duration.
+
+**Updates (Timer document):**
+- `duration = newDuration`
+- `originalDuration = timer.duration` (only if not already set)
+
+**UI Behavior:**
+- The "Duration" label displays `originalDuration ?? duration` so it stays constant when adding/subtracting time.
+- The countdown display uses the actual `duration` for remaining time calculation.
+
+**Why duration-based?** The timer document sync path (`UPDATE_TIMER`) is more reliable than room state sync for cross-browser updates. Adjusting duration avoids issues with elapsed time sync that caused bonus time to not sync properly.
 
 ### Update Timer Duration (Inline Edit)
 When a timer's duration is changed (e.g., via inline edit in the rundown):
@@ -124,8 +152,8 @@ const mergedProgress = { ...roomProgress, ...cachedProgress }
 - **Multiple controllers:** server enforces controller access; deltas include `clientId` for reconciliation.
 - **Empty companion timers:** Fall back to cached timers to prevent rundown disappearing.
 
-## 7) Shared Helpers (Recommended Extraction)
-These functions should be extracted to a shared module used by both `FirebaseDataContext` and `UnifiedDataContext`:
+## 7) Shared Helpers
+Located in `frontend/src/utils/timer-utils.ts`, used by both `FirebaseDataContext` and `UnifiedDataContext`:
 
 ```typescript
 // timer-utils.ts
@@ -138,12 +166,7 @@ export function computeElapsed(state: {
   isRunning: boolean
   startedAt: number | null
   elapsedOffset: number
-}, now: number = Date.now()): number {
-  if (state.isRunning && typeof state.startedAt === 'number') {
-    return state.elapsedOffset + (now - state.startedAt)
-  }
-  return state.elapsedOffset
-}
+}, now: number = Date.now()): number
 
 /**
  * Compute live elapsed time for Companion state
@@ -153,36 +176,24 @@ export function computeCompanionElapsed(state: {
   isRunning: boolean
   currentTime: number
   lastUpdate: number
-}, now: number = Date.now()): number {
-  if (state.isRunning) {
-    return state.currentTime + (now - state.lastUpdate)
-  }
-  return state.currentTime
-}
-
-/**
- * Apply a nudge (time adjustment) to elapsed
- * @param currentElapsed - current elapsed in ms
- * @param deltaMs - positive adds time (reduces elapsed), negative subtracts
- * @returns new elapsed (can be negative for bonus time)
- */
-export function applyNudge(currentElapsed: number, deltaMs: number): number {
-  return currentElapsed - deltaMs
-}
+}, now: number = Date.now()): number
 
 /**
  * Resolve elapsed for a specific timer (active or from progress map)
  */
 export function resolveTimerElapsed(
-  room: { state: { activeTimerId: string | null; isRunning: boolean; startedAt: number | null; elapsedOffset: number; progress?: Record<string, number> } },
+  state: FirebaseTimerState,
   timerId: string,
   now: number = Date.now()
-): number {
-  if (room.state.activeTimerId === timerId) {
-    return computeElapsed(room.state, now)
-  }
-  return room.state.progress?.[timerId] ?? 0
-}
+): number
+
+/**
+ * Compute progress map with active timer's live elapsed
+ */
+export function computeProgress(
+  state: FirebaseTimerState,
+  now: number = Date.now()
+): Record<string, number>
 
 /**
  * Merge progress maps, with priority values taking precedence
@@ -190,7 +201,15 @@ export function resolveTimerElapsed(
 export function mergeProgress(
   base: Record<string, number>,
   priority: Record<string, number>
-): Record<string, number> {
-  return { ...base, ...priority }
-}
+): Record<string, number>
+
+/**
+ * Calculate remaining time for countdown
+ */
+export function computeRemaining(
+  durationMs: number,
+  elapsedMs: number
+): number
 ```
+
+**Note:** `applyNudge` was removed as nudge now uses duration-based adjustment instead of elapsed manipulation.
