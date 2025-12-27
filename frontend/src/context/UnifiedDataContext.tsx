@@ -1436,36 +1436,28 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const getTimers = useCallback(
     (roomId: string) => {
-      const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const cached = cachedSnapshotsRef.current[roomId]?.timers ?? []
-      const firebaseRoom = firebase.getRoom(roomId)
-      if (!firebaseRoom && !isCompanionLive()) return cached
-
-      const companionState = companionRooms[roomId]
-      if (!firebaseRoom) {
-        if (!companionState) return cached
-        // Fall back to cached if companion timers are empty (not just undefined)
-        const compTimers = companionTimers[roomId]
-        const timers = compTimers && compTimers.length > 0 ? compTimers : cached
-        return [...timers].sort((a, b) => a.order - b.order)
-      }
-
-      const companionTs = companionState?.lastUpdate ?? 0
-      const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
-      const source = companionState ? pickSource(roomId, firebaseTs, companionTs, authority) : 'cloud'
-
-      if (source === 'companion') {
-        // Fall back to cached if companion timers are empty (not just undefined)
-        const compTimers = companionTimers[roomId]
-        const timers = compTimers && compTimers.length > 0 ? compTimers : cached
-        return [...timers].sort((a, b) => a.order - b.order)
-      }
-
-      // Fall back to cached timers if Firebase timers haven't loaded yet
       const firebaseTimers = firebase.getTimers(roomId)
-      return firebaseTimers.length > 0 ? firebaseTimers : cached
+
+      // If not using companion for this room, always use Firebase timers
+      if (!shouldUseCompanion(roomId)) {
+        return firebaseTimers.length > 0 ? firebaseTimers : cached
+      }
+
+      // Using companion mode - merge Firebase and companion timers
+      // Prefer Firebase timers if they exist (they have the authoritative duration/title)
+      // But fall back to companion/cached if Firebase hasn't loaded
+      const compTimers = companionTimers[roomId]
+      if (firebaseTimers.length > 0) {
+        // Use Firebase timer data as source of truth for duration/title
+        return firebaseTimers
+      }
+      if (compTimers && compTimers.length > 0) {
+        return [...compTimers].sort((a, b) => a.order - b.order)
+      }
+      return cached
     },
-    [companionRooms, companionTimers, firebase, isCompanionLive, pickSource, roomAuthority],
+    [companionTimers, firebase, shouldUseCompanion],
   )
 
   const setActiveTimer = useCallback<DataContextValue['setActiveTimer']>(
