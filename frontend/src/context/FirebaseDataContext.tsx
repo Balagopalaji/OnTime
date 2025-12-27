@@ -19,7 +19,7 @@ import {
 import { db } from '../lib/firebase'
 import type { MessageColor, Room, Timer } from '../types'
 import { DataProviderBoundary, type DataContextValue } from './DataContext'
-import { computeProgress as computeProgressUtil, applyNudge, type FirebaseTimerState } from '../utils/timer-utils'
+import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
 import { useAuth } from './AuthContext'
 import { doc as firestoreDoc, updateDoc as updateDocFs } from 'firebase/firestore'
@@ -265,6 +265,20 @@ export const FirebaseDataProvider = ({
             roomVersion === 2
               ? (raw as RoomStateDoc)
               : (((raw as RoomDoc).state ?? {}) as RoomStateDoc)
+
+          if (import.meta.env.DEV) {
+            const activeId = statePayload?.activeTimerId ?? room.state.activeTimerId ?? null
+            const progress = statePayload?.progress ?? room.state.progress ?? {}
+            console.info('[FirebaseDataContext] state snapshot', {
+              roomId: room.id,
+              activeId,
+              elapsedOffset: statePayload?.elapsedOffset,
+              currentTime: statePayload?.currentTime,
+              lastUpdate: statePayload?.lastUpdate,
+              progressActive: activeId ? progress[activeId] : undefined,
+            })
+          }
+
           setStateOverrides((prev) => ({
             ...prev,
             [room.id]: {
@@ -782,36 +796,16 @@ export const FirebaseDataProvider = ({
     const room = getRoom(roomId)
     const activeId = room?.state.activeTimerId
     if (!room || !activeId) return
-    const pending = pendingNudgeRef.current[roomId] ?? 0
-    const currentProgress = computeProgress(room)[activeId] ?? room.state.elapsedOffset ?? 0
-    const base = currentProgress + pending
-    const nextElapsedOffset = applyNudge(base, deltaMs)
-    const now = Date.now()
-    pendingNudgeRef.current[roomId] = nextElapsedOffset - currentProgress
-    const progress = { ...(room.state.progress ?? {}) }
-    progress[activeId] = nextElapsedOffset
-    const isRunning = room.state.isRunning
-    const nextStartedAt = isRunning ? now : null
-    const stateRef =
-      room._version === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
-    if (room._version === 2) {
-      await updateDocFs(stateRef, {
-        elapsedOffset: nextElapsedOffset,
-        startedAt: nextStartedAt,
-        progress,
-        currentTime: nextElapsedOffset,
-        lastUpdate: now,
-      })
-      return
+
+    // Adjust duration instead of elapsed - uses reliable timer sync path
+    const roomTimers = getTimers(roomId)
+    const activeTimer = roomTimers.find((t) => t.id === activeId)
+    if (activeTimer) {
+      const deltaSec = Math.round(deltaMs / 1000)
+      const newDuration = Math.max(0, activeTimer.duration + deltaSec)
+      await updateDoc(doc(firestore, 'rooms', roomId, 'timers', activeId), { duration: newDuration })
     }
-    await updateDoc(doc(firestore, 'rooms', roomId), {
-      'state.elapsedOffset': nextElapsedOffset,
-      'state.startedAt': nextStartedAt,
-      'state.progress': progress,
-      'state.currentTime': nextElapsedOffset,
-      'state.lastUpdate': now,
-    })
-  }, [firestore, getRoom])
+  }, [firestore, getRoom, getTimers])
 
   const setClockMode: DataContextValue['setClockMode'] = useCallback(async (roomId, enabled) => {
     if (migratingRoomsRef.current.has(roomId) || !firestore) return

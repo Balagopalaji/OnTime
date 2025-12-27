@@ -865,7 +865,7 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
   const state = data.state as Partial<RoomState>;
   const activeOk = state.activeTimerId === null || typeof state.activeTimerId === 'string';
   const runningOk = typeof state.isRunning === 'boolean';
-  const currentTimeOk = typeof state.currentTime === 'number' && Number.isFinite(state.currentTime) && state.currentTime >= 0;
+  const currentTimeOk = typeof state.currentTime === 'number' && Number.isFinite(state.currentTime);
   const lastUpdateOk = typeof state.lastUpdate === 'number' && Number.isFinite(state.lastUpdate) && state.lastUpdate > 0;
   if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk) return false;
   if (data.timers !== undefined && !Array.isArray(data.timers)) return false;
@@ -1036,8 +1036,21 @@ function handleRoomStatePatch(socket: Socket, payload: unknown) {
   const state = getRoomState(roomId);
   const changes = { ...payload.changes };
 
-  if (changes.currentTime !== undefined && Number.isFinite(changes.currentTime)) {
-    changes.currentTime = Math.max(0, changes.currentTime);
+  // Allow negative currentTime for bonus time; only validate finiteness.
+  if (process.env.NODE_ENV === 'development') {
+    const progress = state.progress ?? {};
+    const activeId = state.activeTimerId;
+    const activeProgress = activeId ? progress[activeId] : undefined;
+    console.info('[companion] ROOM_STATE_PATCH in', {
+      roomId,
+      activeId,
+      currentTimeIncoming: changes.currentTime,
+      currentTimeExisting: state.currentTime,
+      elapsedOffset: state.elapsedOffset,
+      lastUpdateIncoming: changes.lastUpdate,
+      lastUpdateExisting: state.lastUpdate,
+      progressActive: activeProgress,
+    });
   }
   if (changes.lastUpdate === undefined) {
     changes.lastUpdate = now;
@@ -1077,8 +1090,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
   const now = Date.now();
   const state = getRoomState(payload.roomId);
   let changes: Partial<RoomState> = {};
-  const clampElapsed = (value: number) => Math.max(0, Number.isFinite(value) ? value : 0);
-  const baseCurrent = clampElapsed(state.currentTime ?? 0);
+  const baseCurrent = Number.isFinite(state.currentTime) ? (state.currentTime as number) : 0;
 
   switch (payload.action) {
     case 'START': {
@@ -1087,7 +1099,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
       // If switching without provided currentTime, reset to 0.
       const isSwitchingTimer = payload.timerId !== state.activeTimerId;
       const startTime = typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)
-        ? clampElapsed(payload.currentTime)
+        ? payload.currentTime
         : (isSwitchingTimer ? 0 : baseCurrent);
       changes = {
         activeTimerId: payload.timerId,
@@ -1106,7 +1118,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
         state.isRunning && typeof state.lastUpdate === 'number'
           ? Math.max(0, pauseNow - state.lastUpdate)
           : 0;
-      const nextCurrentTime = clampElapsed(baseCurrent + elapsedSinceLast);
+      const nextCurrentTime = baseCurrent + elapsedSinceLast;
       changes = {
         isRunning: false,
         currentTime: nextCurrentTime,

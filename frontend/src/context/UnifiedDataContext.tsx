@@ -7,7 +7,6 @@ import { DataProviderBoundary, useDataContext, type DataContextValue } from './D
 import {
   computeElapsed,
   computeCompanionElapsed as computeCompanionElapsedUtil,
-  applyNudge,
   resolveTimerElapsed,
   mergeProgress,
 } from '../utils/timer-utils'
@@ -318,9 +317,10 @@ export const isSnapshotStale = (
   timer?: Timer,
 ): boolean => {
   const age = now - snapshotTimestamp
-  const baseElapsed = Math.max(state.currentTime ?? 0, state.elapsedOffset ?? 0)
+  // Do not clamp; bonus time can make elapsed negative.
+  const baseElapsed = (state.elapsedOffset ?? state.currentTime ?? 0) as number
   const hasProgress =
-    baseElapsed > 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) > 0)
+    baseElapsed !== 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) !== 0)
   const adjustments = timer?.adjustmentLog?.filter(
     (entry) => entry.timestamp > snapshotTimestamp && entry.timestamp < now,
   ) ?? []
@@ -677,11 +677,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       // Preserve cached progress if fresh room has empty progress
       const cachedProgress = cachedEntry?.room?.state.progress ?? {}
       const roomProgress = resolvedRoom.state.progress ?? {}
-      const hasRoomProgress = Object.keys(roomProgress).length > 0
       const hasCachedProgress = Object.keys(cachedProgress).length > 0
-      const finalRoom = (!hasRoomProgress && hasCachedProgress)
-        ? { ...resolvedRoom, state: { ...resolvedRoom.state, progress: cachedProgress } }
-        : resolvedRoom
+      const progressToUse = hasCachedProgress ? mergeProgress(roomProgress, cachedProgress) : roomProgress
+
+      const finalRoom: Room = {
+        ...resolvedRoom,
+        state: {
+          ...resolvedRoom.state,
+          progress: progressToUse,
+        },
+      }
 
       const dataTs = finalRoom.state.lastUpdate ?? 0
       nextCache[roomId] = {
@@ -1092,6 +1097,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const firebaseTimers = firebase.getTimers(payload.roomId)
       const timers = firebaseTimers.length ? firebaseTimers : cachedTimers
       const activeId = translatedState.activeTimerId ?? baseRoom?.state.activeTimerId ?? null
+      if (import.meta.env.DEV) {
+        console.info('[UData] ROOM_STATE_SNAPSHOT', {
+          roomId: payload.roomId,
+          activeId,
+          currentTime: translatedState.currentTime,
+          elapsedOffset: translatedState.elapsedOffset,
+          lastUpdate: translatedState.lastUpdate,
+          snapshotTs,
+          firebaseTs,
+        })
+      }
       const activeTimer = activeId ? timers.find((timer) => timer.id === activeId) : undefined
       if (isSnapshotStale(translatedState, snapshotTs, Date.now(), activeTimer)) {
         if (debugCompanion) {
@@ -1157,6 +1173,21 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const isStale =
         incomingTs + CONFIDENCE_WINDOW_MS < existingTs ||
         incomingTs + CONFIDENCE_WINDOW_MS < firebaseTs
+      if (import.meta.env.DEV) {
+        const activeId =
+          payload.changes.activeTimerId ??
+          companionRoomsRef.current[payload.roomId]?.activeTimerId ??
+          null
+        console.info('[UData] ROOM_STATE_DELTA', {
+          roomId: payload.roomId,
+          activeId,
+          currentTime: payload.changes.currentTime,
+          lastUpdate: payload.changes.lastUpdate,
+          incomingTs,
+          existingTs,
+          firebaseTs,
+        })
+      }
       if (isStale) {
         if (debugCompanion) {
           console.info('[companion] stale update ignored', {
@@ -1505,49 +1536,53 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const state = ensureCompanionRoomState(roomId)
       const activeTimerId = room?.state.activeTimerId ?? state.activeTimerId
       if (!activeTimerId) return
-      const currentElapsed = room ? computeCurrentTimeMs(room) : computeCompanionElapsed(state)
-      const now = Date.now()
-      const isRunning = room?.state.isRunning ?? state.isRunning ?? false
 
-      // Use shared applyNudge helper (supports negative elapsed for bonus time)
-      const nextElapsed = applyNudge(currentElapsed, deltaMs)
+      // Adjust duration instead of elapsed - uses reliable timer sync path
+      const cached = cachedSnapshotsRef.current[roomId]?.timers ?? []
+      const companionList = companionTimersRef.current[roomId] ?? []
+      const timers = companionList.length > 0 ? companionList : (cached.length > 0 ? cached : firebase.getTimers(roomId))
+      const activeTimer = timers.find((t) => t.id === activeTimerId)
 
-      setCompanionRooms((prev) => ({
-        ...prev,
-        [roomId]: {
-          ...state,
-          activeTimerId,
-          isRunning,
-          currentTime: nextElapsed,
-          lastUpdate: now,
-        },
-      }))
+      if (activeTimer) {
+        const deltaSec = Math.round(deltaMs / 1000)
+        const newDuration = Math.max(0, activeTimer.duration + deltaSec)
 
-      const patch: RoomStatePatchPayload = {
-        type: 'ROOM_STATE_PATCH',
-        roomId,
-        changes: {
-          activeTimerId,
-          isRunning,
-          currentTime: nextElapsed,
-          lastUpdate: now,
-        },
-        timestamp: now,
-        clientId,
-      }
-      emitOrQueue(roomId, patch)
+        // Update local companion timers
+        setCompanionTimers((prev) => {
+          const existing = prev[roomId] ?? []
+          const list = existing.length > 0 ? existing : cached
+          return {
+            ...prev,
+            [roomId]: list
+              .map((timer) => (timer.id === activeTimerId ? { ...timer, duration: newDuration } : timer))
+              .sort((a, b) => a.order - b.order),
+          }
+        })
 
-      if (firestoreWriteThrough) {
-        await firebase.nudgeTimer(roomId, deltaMs)
+        // Emit UPDATE_TIMER to Companion (uses reliable timer sync path)
+        emitOrQueue(roomId, {
+          type: 'UPDATE_TIMER',
+          roomId,
+          timerId: activeTimerId,
+          changes: { duration: newDuration },
+          timestamp: Date.now(),
+          clientId,
+        })
+
+        // Write to Firebase
+        if (firestoreWriteThrough && firestore) {
+          const timerRef = doc(firestore, 'rooms', roomId, 'timers', activeTimerId)
+          await setDoc(timerRef, { duration: newDuration, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(() => undefined)
+        }
       }
     },
     [
       clientId,
-      computeCompanionElapsed,
-      computeCurrentTimeMs,
+      companionTimers,
       emitOrQueue,
       ensureCompanionRoomState,
       firebase,
+      firestore,
       firestoreWriteThrough,
       getRoom,
       isViewerClient,
