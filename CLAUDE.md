@@ -73,6 +73,13 @@ startedAt: number      // when timer started (running only)
 elapsedOffset: number  // base elapsed ms for paused state
 ```
 
+## Timer Logic Guardrails
+- `docs/timer-logic.md` is authoritative; align code and tests to it before changing timer behavior.
+- Use shared helpers `frontend/src/utils/timer-utils.ts` for elapsed/nudge/progress; do not reimplement formulas or clamp elapsed (negative values represent bonus time).
+- Timer actions (start/pause/reset/nudge/set active/duration edit) must update the full state tuple: `activeTimerId`, `isRunning`, `elapsedOffset/currentTime`, `startedAt`, `lastUpdate`, `progress`.
+- Duration changes reset progress to `0` immediately (including active timer); rundown reorder must not alter elapsed.
+- Run timer-focused tests (`useTimerEngine`, `snapshotStale`, related specs) plus `npm run lint && npm run test` before committing timer changes.
+
 ## Key Files
 
 | Purpose | Location |

@@ -32,6 +32,7 @@ Last Updated: 2025-12-22
 - Edge case handling: `edge-cases.md`
 - WebSocket events: `websocket-protocol.md`
 - Task alignment: `parallel-sync-tasklist.md`
+- Timer logic guardrail: `timer-logic.md` + shared helpers `frontend/src/utils/timer-utils.ts`; do not reimplement or clamp elapsed (bonus time can be negative).
 
 ## Operational Note
 - On app load, always attempt Companion auto-connect; Firebase listeners remain active. If either source is unavailable, the app continues on the remaining source.

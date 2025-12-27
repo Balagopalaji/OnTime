@@ -25,3 +25,10 @@ Write Vitest specs for every hook, provider, and timer helper. Name files `*.tes
 
 ## Commit & Pull Request Guidelines
 Follow the existing conventional git style (`docs: Add initial backend and frontend Product Requirements Documents (PRDs) for StageTime.`) using `<scope>: <sentence case detail>`. PRs must cite `docs/tasks.md`, describe the behavior change, add screenshots or GIFs for UI updates, and state that `npm run lint && npm run test` succeeded before review.
+
+## Timer Logic Guardrails
+- Treat `docs/timer-logic.md` as the authority for all timer math and transitions; never diverge without updating that doc.
+- Reuse shared helpers in `frontend/src/utils/timer-utils.ts` for elapsed/nudge/progress; do not duplicate formulas or clamp elapsed (bonus time can be negative).
+- Any timer action (start/pause/reset/nudge/set-active/duration change) must update the full tuple `{activeTimerId, isRunning, elapsedOffset/currentTime, startedAt, lastUpdate, progress}` across Firebase, Companion, and Unified paths.
+- Duration edits reset progress to 0 per spec; rundown reorders must not mutate elapsed.
+- Before shipping timer changes, run targeted tests (`useTimerEngine`, `snapshotStale`, other timer specs) plus `npm run lint && npm run test`.
