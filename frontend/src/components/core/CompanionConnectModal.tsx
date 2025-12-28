@@ -171,7 +171,7 @@ export const CompanionConnectModal = ({
             <p className="mb-3">{fetchError}</p>
             <div className="flex gap-3">
               <a 
-                href="https://github.com/your-username/OnTime/releases/latest" 
+                href="https://github.com/Balagopalaji/OnTime/releases/latest" 
                 target="_blank" 
                 rel="noreferrer"
                 className="rounded bg-rose-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"

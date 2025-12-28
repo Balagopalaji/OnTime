@@ -1,3 +1,5 @@
 .firebase/
 .DS_Store
 node_modules/
+companion/dist_out/
+companion/bin/
