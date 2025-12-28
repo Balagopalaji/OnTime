@@ -9,21 +9,33 @@ import { useClock } from '../hooks/useClock'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useDataContext } from '../context/DataProvider'
 import { useAppMode } from '../context/AppModeContext'
+import { useRoom } from '../hooks/useRoom'
+import { useTimers } from '../hooks/useTimers'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
   const ctx = useDataContext()
+  
+  // Direct Firestore access for unauthenticated users
+  const { room: publicRoom, connectionStatus: publicRoomStatus } = useRoom(roomId)
+  const { timers: publicTimers } = useTimers(roomId)
+
   const roomAuthority = roomId
     ? (ctx as typeof ctx & { getRoomAuthority?: (roomId: string) => { source: string; status: string } }).getRoomAuthority?.(roomId)
     : undefined
-  const room = roomId ? ctx.getRoom(roomId) : undefined
-  const timers = roomId ? ctx.getTimers(roomId) : []
-  const connectionStatus = ctx.connectionStatus
+  
+  // Prefer context (Companion merged), fallback to public Firestore
+  const room = (roomId ? ctx.getRoom(roomId) : undefined) ?? publicRoom
+  const ctxTimers = roomId ? ctx.getTimers(roomId) : []
+  const timers = ctxTimers.length > 0 ? ctxTimers : publicTimers
+  
+  const connectionStatus = ctx.connectionStatus === 'online' ? 'online' : publicRoomStatus
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
     subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
   }).subscribeToCompanionRoom
   const lastJoinKeyRef = useRef<string | null>(null)
+  
   const isLoading = !room && connectionStatus !== 'offline'
   const activeTimer =
     timers.find((timer) => timer.id === room?.state.activeTimerId) ?? timers[0]
