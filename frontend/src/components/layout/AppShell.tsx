@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAppMode, type AppMode } from '../../context/AppModeContext'
 import { useCompanionConnection } from '../../context/CompanionConnectionContext'
 import { useDataContext } from '../../context/DataProvider'
-import { CompanionConnectModal } from '../core/CompanionConnectModal'
+import { CompanionDownloadPrompt } from '../core/CompanionDownloadPrompt'
 
 export const AppShell = () => {
   const { user, status, login, logout } = useAuth()
@@ -17,7 +17,7 @@ export const AppShell = () => {
     queueStatus?: Record<string, { count: number; max: number; percent: number; nearLimit: boolean }>
   }
   const connection = useCompanionConnection()
-  const [isConnectOpen, setIsConnectOpen] = useState(false)
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false)
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
 
   const handleAuthClick = () => {
@@ -26,6 +26,25 @@ export const AppShell = () => {
     } else {
       void login()
     }
+  }
+
+  const handleCompanionClick = async () => {
+    if (connection.isConnected) return
+
+    // Silent check if companion is running locally
+    try {
+      const res = await fetch('http://localhost:4001/api/token')
+      if (res.ok) {
+        // It's running! Trigger connection logic (re-fetch token)
+        await connection.fetchToken()
+        return
+      }
+    } catch {
+      // Fetch failed, meaning app is likely not running
+    }
+
+    // If we're here, we couldn't connect -> offer download
+    setIsDownloadOpen(true)
   }
 
   useEffect(() => {
@@ -158,9 +177,13 @@ export const AppShell = () => {
                 >
                   {isOnline ? 'Online' : 'Offline'}
                 </div>
-                <div className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${companionTone}`}>
+                <button
+                  type="button"
+                  onClick={() => void handleCompanionClick()}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${companionTone} transition hover:opacity-80`}
+                >
                   {connection.isConnected ? 'Companion' : 'No Companion'}
-                </div>
+                </button>
                 {queueWarning ? (
                   <div className="rounded-full border border-amber-900/60 bg-amber-950/40 px-2.5 py-1 text-[10px] font-semibold text-amber-200">
                     Queue {Math.round(queueWarning.percent * 100)}%
@@ -192,7 +215,7 @@ export const AppShell = () => {
       >
         <Outlet />
       </main>
-      <CompanionConnectModal isOpen={isConnectOpen} onClose={() => setIsConnectOpen(false)} />
+      <CompanionDownloadPrompt isOpen={isDownloadOpen} onClose={() => setIsDownloadOpen(false)} />
     </div>
   )
 }

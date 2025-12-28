@@ -12,28 +12,31 @@
     "fetch-ffprobe": "node ./scripts/fetch-ffprobe.js",
     "lint": "echo \"No lint configured\""
   },
-  "build": {
-    "appId": "com.ontime.companion",
-    "productName": "OnTime Companion",
-    "directories": {
-      "output": "dist_out"
+    "build": {
+      "appId": "com.ontime.companion",
+      "productName": "OnTime Companion",
+      "directories": {
+        "output": "dist_out"
+      },
+      "mac": {
+        "target": ["dmg", "zip"],
+        "gatekeeperAssess": false,
+        "identity": null
+      },
+      "win": {
+        "target": "nsis"
+      },
+      "linux": {
+        "target": "AppImage"
+      },
+      "extraResources": [
+        {
+          "from": "bin/ffprobe",
+          "to": "bin/ffprobe"
+        }
+      ]
     },
-    "mac": {
-      "target": "dmg"
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "linux": {
-      "target": "AppImage"
-    },
-    "extraResources": [
-      {
-        "from": "bin/ffprobe",
-        "to": "bin/ffprobe"
-      }
-    ]
-  },
+  
   "dependencies": {
     "jsonwebtoken": "^9.0.2",
     "node-machine-id": "^1.1.12",

@@ -94,29 +94,40 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [])
 
   const fetchToken = useCallback(async () => {
-    const origin =
-      typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
-    try {
-      const res = await fetch('http://127.0.0.1:4001/api/token', {
-        method: 'GET',
-        headers: { Origin: origin },
-      })
-      if (!res.ok) return null
-      const data = (await res.json()) as { token?: string }
-      if (!data.token) return null
-      setToken(data.token)
-      setLastSeenAt(Date.now())
-      backoffRef.current = 10_000
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
+    
+    const tryFetch = async (host: string) => {
       try {
-        window.localStorage.setItem(TOKEN_KEY, data.token)
-        sessionStorage.setItem(TOKEN_KEY, data.token)
+        const res = await fetch(`http://${host}:4001/api/token`, {
+          method: 'GET',
+          headers: { Origin: origin },
+        })
+        if (!res.ok) return null
+        const data = (await res.json()) as { token?: string }
+        return data.token ?? null
       } catch {
-        // ignore
+        return null
       }
-      return data.token
-    } catch {
-      return null
     }
+
+    // Try localhost first (preferred for PNA), then 127.0.0.1
+    let token = await tryFetch('localhost')
+    if (!token) {
+      token = await tryFetch('127.0.0.1')
+    }
+
+    if (!token) return null
+
+    setToken(token)
+    setLastSeenAt(Date.now())
+    backoffRef.current = 10_000
+    try {
+      window.localStorage.setItem(TOKEN_KEY, token)
+      sessionStorage.setItem(TOKEN_KEY, token)
+    } catch {
+      // ignore
+    }
+    return token
   }, [])
 
   const discoverCompanion = useCallback(async () => {

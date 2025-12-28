@@ -440,7 +440,11 @@ function startSocketServer() {
   httpServer = createServer();
   io = new SocketIOServer(httpServer, {
     serveClient: false,
-    cors: { origin: '*', methods: ['GET', 'POST'] }
+    cors: { 
+      origin: true, // Allow any origin that is in the allowed list or requested
+      methods: ['GET', 'POST'],
+      credentials: true
+    }
   });
 
   io.on('connection', (socket) => {
@@ -1524,6 +1528,7 @@ function startTokenServer(token: string, expiresAt: number) {
             'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+            'Access-Control-Allow-Private-Network': 'true'
           });
           res.end();
           return;
@@ -1533,6 +1538,7 @@ function startTokenServer(token: string, expiresAt: number) {
           res.writeHead(200, {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+            'Access-Control-Allow-Private-Network': 'true'
           });
           res.end(JSON.stringify({ token, expiresAt }));
           return;
