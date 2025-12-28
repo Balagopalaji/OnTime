@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Check, Clock, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
+import { Check, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
 import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
@@ -190,6 +190,32 @@ export const DashboardPage = () => {
   const [rollbackAvailable, setRollbackAvailable] = useState<Record<string, boolean>>({})
   const dropFlashTimeoutRef = useRef<number | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimeoutRef = useRef<number | null>(null)
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+    setToast(message)
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  const openControllerWithCurrentMode = useCallback(
+    async (roomId: string) => {
+      // effectiveMode is 'cloud' | 'local' (hybrid resolves to local when companion available)
+      if (effectiveMode === 'local') {
+        const token = await ensureCompanionToken()
+        if (!token) {
+          // Fallback to cloud with toast
+          showToast('Companion unavailable, opening in Cloud mode')
+          navigate(`/room/${roomId}/control`)
+          return
+        }
+        window.localStorage.setItem('ontime:lastCompanionRoomId', roomId)
+      }
+      navigate(`/room/${roomId}/control`)
+    },
+    [effectiveMode, ensureCompanionToken, navigate, showToast],
+  )
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -206,6 +232,9 @@ export const DashboardPage = () => {
     return () => {
       if (dropFlashTimeoutRef.current) {
         window.clearTimeout(dropFlashTimeoutRef.current)
+      }
+      if (toastTimeoutRef.current) {
+        window.clearTimeout(toastTimeoutRef.current)
       }
     }
   }, [])
@@ -720,42 +749,94 @@ export const DashboardPage = () => {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col items-center gap-4">
-          <div
-            className={`flex w-full max-w-[240px] flex-col items-center gap-1 rounded-2xl border px-5 py-3 text-center ${(() => {
-              const timers = getTimers(room.id)
-              const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-              const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-              const runningElapsed =
-                active && room.state.isRunning && room.state.startedAt
-                  ? now - room.state.startedAt + baseElapsed
-                  : baseElapsed
-              const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-              const warningMs = (room.config?.warningSec ?? 120) * 1000
-              const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-              if (remainingMs < 0) {
-                return 'border-rose-500/40 bg-rose-500/10'
-              }
-              if (remainingMs <= criticalMs) {
-                return 'border-amber-500/40 bg-amber-500/10'
-              }
-              if (remainingMs <= warningMs) {
-                return 'border-yellow-500/30 bg-yellow-500/5'
-              }
-              return 'border-slate-800 bg-slate-900'
-            })()}`}
-          >
-            <p className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 leading-tight line-clamp-1 truncate">
-              {(() => {
+        <div className="mt-5 flex flex-col gap-4">
+          <Tooltip content="Open controller">
+            <button
+              type="button"
+              onClick={() => void openControllerWithCurrentMode(room.id)}
+              className={`flex w-full cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${(() => {
                 const timers = getTimers(room.id)
                 const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                return active?.title ?? 'No active segment'
-              })()}
-            </p>
-            <div className="flex w-full items-center justify-center pt-0.5">
-              <span className="relative inline-flex items-center justify-center">
-                <span
-                  className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${(() => {
+                const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                const runningElapsed =
+                  active && room.state.isRunning && room.state.startedAt
+                    ? now - room.state.startedAt + baseElapsed
+                    : baseElapsed
+                const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                const warningMs = (room.config?.warningSec ?? 120) * 1000
+                const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                if (remainingMs < 0) {
+                  return 'border-rose-500/40 bg-rose-500/10 hover:border-rose-400/60'
+                }
+                if (remainingMs <= criticalMs) {
+                  return 'border-amber-500/40 bg-amber-500/10 hover:border-amber-400/60'
+                }
+                if (remainingMs <= warningMs) {
+                  return 'border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-400/50'
+                }
+                return 'border-slate-800 bg-slate-900 hover:border-slate-600'
+              })()}`}
+            >
+              <p className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 leading-tight line-clamp-1 truncate">
+                {(() => {
+                  const timers = getTimers(room.id)
+                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                  return active?.title ?? 'No active segment'
+                })()}
+              </p>
+              <div className="flex w-full items-center justify-center pt-0.5">
+                <span className="relative inline-flex items-center justify-center">
+                  <span
+                    className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${(() => {
+                      const timers = getTimers(room.id)
+                      const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                      const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                      const runningElapsed =
+                        active && room.state.isRunning && room.state.startedAt
+                          ? now - room.state.startedAt + baseElapsed
+                          : baseElapsed
+                      const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                      const warningMs = (room.config?.warningSec ?? 120) * 1000
+                      const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                      if (remainingMs < 0) return 'bg-rose-400'
+                      if (remainingMs <= criticalMs) return 'bg-amber-400'
+                      if (remainingMs <= warningMs) return 'bg-yellow-400'
+                      return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
+                    })()}`}
+                  />
+                  <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
+                </span>
+              </div>
+              <p className="w-full text-[11px] tracking-[0.2em] text-slate-500 uppercase">
+                {(() => {
+                  const timers = getTimers(room.id)
+                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                  const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                  const runningElapsed =
+                    active && room.state.isRunning && room.state.startedAt
+                      ? now - room.state.startedAt + baseElapsed
+                      : baseElapsed
+                  const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                  const warningMs = (room.config?.warningSec ?? 120) * 1000
+                  const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                  if (remainingMs < 0) return 'Overtime'
+                  if (remainingMs <= criticalMs) return 'Critical'
+                  if (remainingMs <= warningMs) return 'Warning'
+                  return room.state.isRunning ? 'Counting' : 'Paused'
+                })()}
+              </p>
+              <p className="w-full text-[10px] tracking-[0.24em] text-slate-500 uppercase">
+                {(() => {
+                  const timers = getTimers(room.id)
+                  const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
+                  const total = timers.length
+                  if (activeIndex === -1) return `0/${total || 0}`
+                  return `${activeIndex + 1}/${total}`
+                })()}
+              </p>
+              <div className="flex h-1 w-full overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full ${(() => {
                     const timers = getTimers(room.id)
                     const active = timers.find((timer) => timer.id === room.state.activeTimerId)
                     const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
@@ -771,112 +852,34 @@ export const DashboardPage = () => {
                     if (remainingMs <= warningMs) return 'bg-yellow-400'
                     return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
                   })()}`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        (() => {
+                          const timers = getTimers(room.id)
+                          const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                          if (!active) return 0
+                          const baseElapsed = room.state.progress?.[active.id] ?? 0
+                          const runningElapsed =
+                            room.state.isRunning && room.state.startedAt
+                              ? now - room.state.startedAt + baseElapsed
+                              : baseElapsed
+                          const remainingMs = active.duration * 1000 - runningElapsed
+                          const remainingPct = (Math.max(0, remainingMs) / (active.duration * 1000)) * 100
+                          const pct = Number.isNaN(remainingPct) ? 0 : remainingPct
+                          return Number.isNaN(pct) ? 0 : pct
+                        })(),
+                      ),
+                    )}%`,
+                  }}
                 />
-                <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
-              </span>
-            </div>
-            <p className="w-full text-[11px] tracking-[0.2em] text-slate-500 uppercase">
-              {(() => {
-                const timers = getTimers(room.id)
-                const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                const runningElapsed =
-                  active && room.state.isRunning && room.state.startedAt
-                    ? now - room.state.startedAt + baseElapsed
-                    : baseElapsed
-                const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                const warningMs = (room.config?.warningSec ?? 120) * 1000
-                const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                if (remainingMs < 0) return 'Overtime'
-                if (remainingMs <= criticalMs) return 'Critical'
-                if (remainingMs <= warningMs) return 'Warning'
-                return room.state.isRunning ? 'Counting' : 'Paused'
-              })()}
-            </p>
-            <p className="w-full text-[10px] tracking-[0.24em] text-slate-500 uppercase">
-              {(() => {
-                const timers = getTimers(room.id)
-                const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
-                const total = timers.length
-                if (activeIndex === -1) return `0/${total || 0}`
-                return `${activeIndex + 1}/${total}`
-              })()}
-            </p>
-            <div className="flex h-1 w-full overflow-hidden rounded-full bg-slate-800">
-              <div
-                className={`h-full ${(() => {
-                  const timers = getTimers(room.id)
-                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                  const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                  const runningElapsed =
-                    active && room.state.isRunning && room.state.startedAt
-                      ? now - room.state.startedAt + baseElapsed
-                      : baseElapsed
-                  const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                  const warningMs = (room.config?.warningSec ?? 120) * 1000
-                  const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                  if (remainingMs < 0) return 'bg-rose-400'
-                  if (remainingMs <= criticalMs) return 'bg-amber-400'
-                  if (remainingMs <= warningMs) return 'bg-yellow-400'
-                  return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
-                })()}`}
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.max(
-                      0,
-                      (() => {
-                        const timers = getTimers(room.id)
-                        const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                        if (!active) return 0
-                        const baseElapsed = room.state.progress?.[active.id] ?? 0
-                        const runningElapsed =
-                          room.state.isRunning && room.state.startedAt
-                            ? now - room.state.startedAt + baseElapsed
-                            : baseElapsed
-                        const remainingMs = active.duration * 1000 - runningElapsed
-                        const remainingPct = (Math.max(0, remainingMs) / (active.duration * 1000)) * 100
-                        const pct = Number.isNaN(remainingPct) ? 0 : remainingPct
-                        return Number.isNaN(pct) ? 0 : pct
-                      })(),
-                    ),
-                  )}%`,
-                }}
-              />
-            </div>
-          </div>
+              </div>
+            </button>
+          </Tooltip>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Tooltip content="Open controller (Cloud)">
-              <button
-                type="button"
-                onClick={() => void openControllerInMode(room.id, 'cloud')}
-                className="inline-flex items-center gap-2 rounded-full bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
-              >
-                <Clock size={16} />
-                Cloud
-              </button>
-            </Tooltip>
-            <Tooltip content={companionReachable ? 'Open controller (Auto)' : 'Start Companion to enable Auto'}>
-              <button
-                type="button"
-                disabled={!companionReachable}
-                onClick={() => void openControllerInMode(room.id, 'auto')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-40 disabled:hover:border-slate-700"
-              >
-                Auto
-              </button>
-            </Tooltip>
-            <Tooltip content={companionReachable ? 'Open controller (Local)' : 'Start Companion to enable Local'}>
-              <button
-                type="button"
-                disabled={!companionReachable}
-                onClick={() => void openControllerInMode(room.id, 'local')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-40 disabled:hover:border-slate-700"
-              >
-                Local
-              </button>
-            </Tooltip>
             <Tooltip content="Open viewer">
               <Link
                 to={`/room/${room.id}/view`}
@@ -1169,6 +1172,12 @@ export const DashboardPage = () => {
   return (
     <div className="space-y-8">
       {qrOverlay}
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-slate-700 bg-slate-900 px-5 py-3 text-sm text-slate-200 shadow-lg">
+          {toast}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 shadow-card">
         <div className="flex items-center gap-3">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Rooms</p>
