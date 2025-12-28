@@ -58,7 +58,7 @@ export const AppShell = () => {
   const companionTone = useMemo(() => {
     // Amber for companion (distinct from mode colors), red when offline
     if (connection.isConnected) {
-      return 'border-amber-400 bg-green-950/40 text-amber-200'
+      return 'border-amber-400/50 bg-green-950/40 text-amber-200'
     }
     if (connection.handshakeStatus === 'pending') {
       return 'border-cyan-700 bg-cyan-950/40 text-cyan-400'
@@ -152,8 +152,8 @@ export const AppShell = () => {
               <div className="hidden items-center gap-2 md:flex">
                 <div
                   className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${isOnline
-                    ? 'border-emerald-900/60 bg-emerald-950/40 text-emerald-200'
-                    : 'border-rose-900/60 bg-rose-950/40 text-rose-200'
+                    ? 'border-emerald-400/60 bg-emerald-950/40 text-emerald-200'
+                    : 'border-rose-400/60 bg-rose-950/40 text-rose-200'
                     }`}
                 >
                   {isOnline ? 'Online' : 'Offline'}

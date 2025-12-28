@@ -915,8 +915,8 @@ export const DashboardPage = () => {
                   <button
                     type="button"
                     className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border px-3 font-semibold transition ${qrOpenId === room.id
-                        ? 'border-emerald-400/70 text-emerald-200'
-                        : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
+                      ? 'border-emerald-400/70 text-emerald-200'
+                      : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
                       }`}
                     ref={(node) => {
                       qrButtonRefs.current[room.id] = node
@@ -1302,12 +1302,12 @@ export const DashboardPage = () => {
           <SortableList
             ref={listRef}
             className={`grid grid-cols-1 gap-4 ${columnCount === 1
-                ? 'md:grid-cols-1'
-                : columnCount === 2
-                  ? 'md:grid-cols-2'
-                  : columnCount === 3
-                    ? 'md:grid-cols-3'
-                    : 'md:grid-cols-4'
+              ? 'md:grid-cols-1'
+              : columnCount === 2
+                ? 'md:grid-cols-2'
+                : columnCount === 3
+                  ? 'md:grid-cols-3'
+                  : 'md:grid-cols-4'
               }`}
           >
             {displayEntries.map((entry, listIndex) =>
@@ -1316,35 +1316,37 @@ export const DashboardPage = () => {
                 : renderPlaceholderItem(entry.placeholder, listIndex),
             )}
             {canCreateRooms && (
-              <button
-                key="add-room"
-                type="button"
-                onClick={async () => {
-                  setIsCreating(true)
-                  try {
-                    await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
-                  } finally {
-                    setIsCreating(false)
-                  }
-                }}
-                disabled={isCreating}
-                aria-label="Create room"
-                className="flex h-16 w-full max-w-[220px] items-center justify-center self-center rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-2xl text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
-              >
-                <Plus className="h-6 w-6" />
-                <span className="sr-only">Add new room</span>
-              </button>
+              <div className="flex h-full items-center justify-center py-8">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isCreating) return
+                    setIsCreating(true)
+                    try {
+                      await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
+                    } finally {
+                      setIsCreating(false)
+                    }
+                  }}
+                  disabled={isCreating}
+                  aria-label="Create room"
+                  className="flex h-20 w-full max-w-[200px] items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+                >
+                  <span className="text-3xl">{isCreating ? '…' : '+'}</span>
+                  <span className="sr-only">Add new room</span>
+                </button>
+              </div>
             )}
           </SortableList>
         ) : (
           <SortableList
             className={`grid grid-cols-1 gap-4 ${columnCount === 1
-                ? 'md:grid-cols-1'
-                : columnCount === 2
-                  ? 'md:grid-cols-2'
-                  : columnCount === 3
-                    ? 'md:grid-cols-3'
-                    : 'md:grid-cols-4'
+              ? 'md:grid-cols-1'
+              : columnCount === 2
+                ? 'md:grid-cols-2'
+                : columnCount === 3
+                  ? 'md:grid-cols-3'
+                  : 'md:grid-cols-4'
               }`}
           >
             {[...sortedRooms.map((room) => ({
@@ -1375,24 +1377,26 @@ export const DashboardPage = () => {
               return renderRoomCard(card.room, index, false)
             })}
             {canCreateRooms && (
-              <button
-                key="add-room"
-                type="button"
-                onClick={async () => {
-                  setIsCreating(true)
-                  try {
-                    await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
-                  } finally {
-                    setIsCreating(false)
-                  }
-                }}
-                disabled={isCreating}
-                aria-label="Create room"
-                className="flex h-16 w-full max-w-[220px] items-center justify-center self-center rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-2xl text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
-              >
-                <Plus className="h-6 w-6" />
-                <span className="sr-only">Add new room</span>
-              </button>
+              <div className="flex h-full items-center justify-center py-8">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isCreating) return
+                    setIsCreating(true)
+                    try {
+                      await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
+                    } finally {
+                      setIsCreating(false)
+                    }
+                  }}
+                  disabled={isCreating}
+                  aria-label="Create room"
+                  className="flex h-20 w-full max-w-[200px] items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+                >
+                  <span className="text-3xl">{isCreating ? '…' : '+'}</span>
+                  <span className="sr-only">Add new room</span>
+                </button>
+              </div>
             )}
           </SortableList>
         )}
