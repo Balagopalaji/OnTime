@@ -45,14 +45,6 @@ export const AppShell = () => {
     }
   }, [])
 
-  const companionLabel = useMemo(() => {
-    const handshake = connection.handshakeStatus ?? 'idle'
-    const connectionStatus = connection.isConnected ? 'online' : 'offline'
-    if (connectionStatus === 'online' && handshake === 'pending') return 'Companion: handshaking'
-    if (connectionStatus === 'online') return 'Companion: connected'
-    return 'Companion: offline'
-  }, [connection.handshakeStatus, connection.isConnected])
-
   const queueWarning = useMemo(() => {
     const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
     const roomId = match?.[1]
@@ -64,17 +56,22 @@ export const AppShell = () => {
   }, [data.queueStatus, location.pathname])
 
   const companionTone = useMemo(() => {
-    if (connection.isConnected && connection.handshakeStatus === 'ack') {
-      return 'border-emerald-900/60 bg-emerald-950/40 text-emerald-200'
+    // Amber for companion (distinct from mode colors), red when offline
+    if (connection.isConnected) {
+      return 'border-amber-400 bg-green-950/40 text-amber-200'
     }
-    if (
-      connection.handshakeStatus === 'pending' ||
-      (connection.isConnected && (connection.handshakeStatus === 'idle' || !connection.handshakeStatus))
-    ) {
-      return 'border-amber-900/60 bg-amber-950/40 text-amber-200'
+    if (connection.handshakeStatus === 'pending') {
+      return 'border-cyan-700 bg-cyan-950/40 text-cyan-400'
     }
-    return 'border-rose-900/60 bg-rose-950/40 text-rose-200'
+    return 'border-slate-700 bg-slate-900/40 text-slate-400'
   }, [connection.handshakeStatus, connection.isConnected])
+
+  const modeTone = useMemo(() => {
+    // Color-code modes: cloud=blue, auto=emerald, local=amber
+    if (mode === 'cloud') return 'border-blue-400 bg-blue-950/60 text-blue-200'
+    if (mode === 'auto') return 'border-emerald-400 bg-emerald-950/60 text-emerald-200'
+    return 'border-amber-400 bg-amber-950/60 text-amber-200' // local
+  }, [mode])
 
   const handleModeChange = useMemo(() => {
     return async (nextMode: AppMode) => {
@@ -86,7 +83,7 @@ export const AppShell = () => {
       const switchingToCompanion = nextMode === 'local' || nextMode === 'auto'
       const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
       const roomId = match?.[1]
-      
+
       if (currentlyCompanion && switchingToCloud && roomId && typeof data.flushRoomToFirestore === 'function') {
         try {
           // wait briefly for flush, but don't hang the UI forever
@@ -98,7 +95,7 @@ export const AppShell = () => {
           // ignore
         }
       }
-      
+
       // If switching from Cloud to Auto/Local, save the current Cloud state BEFORE switching
       // so CompanionDataProvider can use it for SYNC_ROOM_STATE.
       if (currentlyCloud && switchingToCompanion && roomId) {
@@ -121,122 +118,71 @@ export const AppShell = () => {
           window.localStorage.setItem(`ontime:cloudRoomSnapshot:${roomId}`, JSON.stringify(snapshot))
         }
       }
-      
+
       setMode(nextMode)
     }
   }, [data, effectiveMode, location.pathname, setMode])
 
-  const handleQuickConnect = useMemo(
-    () => async () => {
-      // Best-effort silent connect: fetch token, connect socket; only open modal if it fails.
-      const token = (await connection.fetchToken()) ?? connection.token
-      if (token && connection.socket && !connection.socket.connected && !connection.socket.active) {
-        connection.socket.connect()
-      }
-      const isReady = connection.socket?.connected ?? false
-      if (isReady) {
-        setIsConnectOpen(false)
-        return
-      }
-      setIsConnectOpen(true)
-    },
-    [connection],
-  )
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {!isViewerRoute && (
-      <header className="border-b border-slate-900/60 bg-slate-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <Link to="/" className="text-lg font-semibold text-white">
-            StageTime
-          </Link>
-          <div className="flex items-center gap-3 text-sm text-slate-300">
-            <nav className="hidden gap-4 text-sm font-medium text-slate-300 md:flex">
-              <Link
-                to="/"
-                className={`transition hover:text-white ${
-                  location.pathname === '/' ? 'text-white' : ''
-                }`}
-              >
-                Home
-              </Link>
-              {isAuthed && (
-                <Link
-                  to="/dashboard"
-                  className={`transition hover:text-white ${
-                    location.pathname.startsWith('/dashboard')
-                      ? 'text-white'
-                      : ''
-                  }`}
+        <header className="border-b border-slate-900/60 bg-slate-950/80 backdrop-blur">
+          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+            <Link to="/" className="text-lg font-semibold text-white">
+              StageTime
+            </Link>
+            <div className="flex items-center gap-3 text-sm text-slate-300">
+              {/* Combined mode selector with color coding */}
+              <div className="hidden items-center md:flex">
+                <label className="sr-only" htmlFor="mode-select">
+                  App mode
+                </label>
+                <select
+                  id="mode-select"
+                  value={mode}
+                  onChange={(e) => void handleModeChange(e.target.value as AppMode)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${modeTone}`}
                 >
-                  Dashboard
-                </Link>
-              )}
-            </nav>
-
-            <div className="hidden items-center gap-2 md:flex">
-              <div className="rounded-full border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-200">
-                Mode: {mode === 'auto' ? `Auto (${effectiveMode})` : effectiveMode}
+                  <option value="cloud">Cloud</option>
+                  <option value="auto">Auto{mode === 'auto' ? ` (${effectiveMode})` : ''}</option>
+                  <option value="local">Local</option>
+                </select>
               </div>
-              <label className="sr-only" htmlFor="mode-select">
-                App mode
-              </label>
-              <select
-                id="mode-select"
-                value={mode}
-                onChange={(e) => void handleModeChange(e.target.value as AppMode)}
-                className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
-              >
-                <option value="auto">Auto</option>
-                <option value="cloud">Cloud</option>
-                <option value="local">Local</option>
-              </select>
-            </div>
 
-            <div className="hidden items-center gap-2 md:flex">
-              <div
-                className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                  isOnline
+              <div className="hidden items-center gap-2 md:flex">
+                <div
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${isOnline
                     ? 'border-emerald-900/60 bg-emerald-950/40 text-emerald-200'
                     : 'border-rose-900/60 bg-rose-950/40 text-rose-200'
-                }`}
-              >
-                Internet: {isOnline ? 'online' : 'offline'}
-              </div>
-              <div className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${companionTone}`}>
-                {companionLabel}
-              </div>
-              {queueWarning ? (
-                <div className="rounded-full border border-amber-900/60 bg-amber-950/40 px-2.5 py-1 text-[10px] font-semibold text-amber-200">
-                  Queue {Math.round(queueWarning.percent * 100)}%
+                    }`}
+                >
+                  {isOnline ? 'Online' : 'Offline'}
                 </div>
-              ) : null}
+                <div className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${companionTone}`}>
+                  {connection.isConnected ? 'Companion' : 'No Companion'}
+                </div>
+                {queueWarning ? (
+                  <div className="rounded-full border border-amber-900/60 bg-amber-950/40 px-2.5 py-1 text-[10px] font-semibold text-amber-200">
+                    Queue {Math.round(queueWarning.percent * 100)}%
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAuthClick}
+                className="rounded-full border border-slate-800 bg-slate-900 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600"
+                disabled={status === 'loading'}
+              >
+                {status === 'loading'
+                  ? 'Please wait'
+                  : isAuthed
+                    ? 'Logout'
+                    : 'Login'}
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={() => void handleQuickConnect()}
-              className="hidden rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:border-slate-600 md:inline-flex"
-            >
-              Connect Companion
-            </button>
-
-            <button
-              type="button"
-              onClick={handleAuthClick}
-              className="rounded-full border border-slate-800 bg-slate-900 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600"
-              disabled={status === 'loading'}
-            >
-              {status === 'loading'
-                ? 'Please wait'
-                : isAuthed
-                ? 'Logout'
-                : 'Login'}
-            </button>
           </div>
-        </div>
-      </header>
+        </header>
       )}
       {/* Degraded banner removed for a cleaner, less noisy UI; status is still visible in the header badge. */}
       <main

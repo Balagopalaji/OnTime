@@ -749,12 +749,12 @@ export const DashboardPage = () => {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col gap-4">
+        <div className="mt-5 flex flex-col items-center gap-4">
           <Tooltip content="Open controller">
             <button
               type="button"
               onClick={() => void openControllerWithCurrentMode(room.id)}
-              className={`flex w-full cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${(() => {
+              className={`flex w-full max-w-sm cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${(() => {
                 const timers = getTimers(room.id)
                 const active = timers.find((timer) => timer.id === room.state.activeTimerId)
                 const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0

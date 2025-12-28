@@ -579,9 +579,6 @@ export const ControllerPage = () => {
         <header className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-4 shadow-card sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-4">
-              <span className="rounded-full bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.4em] text-white">
-                StageTime
-              </span>
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
                   Current Room
