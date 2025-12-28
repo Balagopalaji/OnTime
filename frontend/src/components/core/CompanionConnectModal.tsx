@@ -167,7 +167,25 @@ export const CompanionConnectModal = ({
 
         {fetchError ? (
           <div className="mt-3 rounded-lg border border-rose-900/60 bg-rose-950/40 p-3 text-sm text-rose-200">
-            {fetchError}
+            <p className="mb-2 font-semibold">Companion App Not Found</p>
+            <p className="mb-3">{fetchError}</p>
+            <div className="flex gap-3">
+              <a 
+                href="https://github.com/your-username/OnTime/releases/latest" 
+                target="_blank" 
+                rel="noreferrer"
+                className="rounded bg-rose-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+              >
+                Download Companion
+              </a>
+              <button
+                type="button"
+                onClick={() => void fetchToken()}
+                className="rounded border border-rose-700 bg-transparent px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-900/50"
+              >
+                Try Again
+              </button>
+            </div>
           </div>
         ) : null}
 
