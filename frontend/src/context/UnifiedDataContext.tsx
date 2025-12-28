@@ -661,8 +661,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         ? buildRoomFromCompanion(roomId, companionState, firebase.getRoom(roomId))
         : firebase.getRoom(roomId)
       if (!resolvedRoom) {
+        // Only preserve cached room if Firebase data hasn't loaded yet.
+        // If Firebase has loaded and this room isn't there, it was likely deleted.
+        // Also preserve if companion has data for this room (local-only scenario).
+        const hasCompanionDataForRoom = Boolean(companionRoomsRef.current[roomId])
         const cached = cachedSnapshotsRef.current[roomId]
-        if (cached) {
+        if (cached && (!hasFirebaseData || hasCompanionDataForRoom)) {
           nextCache[roomId] = cached
         }
         return

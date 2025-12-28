@@ -1306,6 +1306,26 @@ export const DashboardPage = () => {
                 ? renderRoomCard(entry.room, listIndex, true)
                 : renderPlaceholderItem(entry.placeholder, listIndex),
             )}
+            {canCreateRooms && (
+              <button
+                key="add-room"
+                type="button"
+                onClick={async () => {
+                  setIsCreating(true)
+                  try {
+                    await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
+                  } finally {
+                    setIsCreating(false)
+                  }
+                }}
+                disabled={isCreating}
+                aria-label="Create room"
+                className="flex h-16 w-full max-w-[220px] items-center justify-center self-center rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-2xl text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+              >
+                <Plus className="h-6 w-6" />
+                <span className="sr-only">Add new room</span>
+              </button>
+            )}
           </SortableList>
         ) : (
           <SortableList
@@ -1345,6 +1365,26 @@ export const DashboardPage = () => {
               }
               return renderRoomCard(card.room, index, false)
             })}
+            {canCreateRooms && (
+              <button
+                key="add-room"
+                type="button"
+                onClick={async () => {
+                  setIsCreating(true)
+                  try {
+                    await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
+                  } finally {
+                    setIsCreating(false)
+                  }
+                }}
+                disabled={isCreating}
+                aria-label="Create room"
+                className="flex h-16 w-full max-w-[220px] items-center justify-center self-center rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-2xl text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+              >
+                <Plus className="h-6 w-6" />
+                <span className="sr-only">Add new room</span>
+              </button>
+            )}
           </SortableList>
         )}
       </section>
