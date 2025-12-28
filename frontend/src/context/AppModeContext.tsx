@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useCompanionConnection } from './CompanionConnectionContext'
 
-export type AppMode = 'auto' | 'cloud' | 'local' | 'hybrid'
+export type AppMode = 'auto' | 'cloud' | 'local'
 export type EffectiveAppMode = Exclude<AppMode, 'auto'>
 
 const STORAGE_KEY = 'ontime:appMode'
@@ -23,25 +23,24 @@ type AppModeContextValue = {
 const AppModeContext = createContext<AppModeContextValue | undefined>(undefined)
 
 const readInitialMode = (): AppMode => {
-  if (typeof window === 'undefined') return 'cloud'
+  if (typeof window === 'undefined') return 'auto'
   const raw = window.localStorage.getItem(STORAGE_KEY)
-  if (raw === 'auto' || raw === 'local' || raw === 'hybrid' || raw === 'cloud') return raw
-  return 'cloud'
+  if (raw === 'hybrid') return 'local'
+  if (raw === 'auto' || raw === 'local' || raw === 'cloud') return raw
+  // Default to 'auto' to allow companion auto-discovery on first load
+  return 'auto'
 }
 
 export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   const { isConnected, socket } = useCompanionConnection()
   const [mode, setModeState] = useState<AppMode>(() => readInitialMode())
   const [isDegraded, setIsDegraded] = useState(false)
-  const [isOnline, setIsOnline] = useState(() =>
-    typeof navigator === 'undefined' ? true : navigator.onLine,
-  )
 
   const effectiveMode = useMemo<EffectiveAppMode>(() => {
     if (isDegraded) return 'cloud'
     if (mode !== 'auto') return mode
-    return isConnected ? (isOnline ? 'hybrid' : 'local') : 'cloud'
-  }, [isConnected, isDegraded, isOnline, mode])
+    return isConnected ? 'local' : 'cloud'
+  }, [isConnected, isDegraded, mode])
 
   const setMode = useCallback((next: AppMode) => {
     setModeState(next)
@@ -60,8 +59,8 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   const triggerCompanionFallback = useCallback(() => {
-    // Only fallback if we're currently using Companion (local/hybrid/auto resolving to those)
-    const usingCompanion = mode === 'local' || mode === 'hybrid' || (mode === 'auto' && (effectiveMode === 'local' || effectiveMode === 'hybrid'))
+    // Only fallback if we're currently using Companion (local/auto resolving to local)
+    const usingCompanion = mode === 'local' || (mode === 'auto' && effectiveMode === 'local')
     if (!usingCompanion) return
 
     const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -79,9 +78,14 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
     const handleDisconnect = () => {
       triggerCompanionFallback()
     }
+    const handleHandshakeAck = () => {
+      setIsDegraded(false)
+    }
     socket.on('disconnect', handleDisconnect)
+    socket.on('HANDSHAKE_ACK', handleHandshakeAck)
     return () => {
       socket.off('disconnect', handleDisconnect)
+      socket.off('HANDSHAKE_ACK', handleHandshakeAck)
     }
   }, [socket, triggerCompanionFallback])
 
@@ -90,20 +94,9 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true)
-    const handleOffline = () => setIsOnline(false)
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [])
-
-  useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY || !event.newValue) return
-      const next = event.newValue as AppMode
+      const next = (event.newValue === 'hybrid' ? 'local' : event.newValue) as AppMode
       if (next === mode) return
       setModeState(next)
       setIsDegraded(false)
@@ -113,7 +106,7 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
     try {
       channel = new BroadcastChannel(MODE_CHANNEL_NAME)
       channel.onmessage = (event: MessageEvent) => {
-        const next = event.data as AppMode
+        const next = (event.data === 'hybrid' ? 'local' : event.data) as AppMode
         if (!next || next === mode) return
         setModeState(next)
         setIsDegraded(false)

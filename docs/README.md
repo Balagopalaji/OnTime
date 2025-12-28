@@ -1,22 +1,38 @@
 # OnTime Documentation Index
 
-## Quick start (current work)
-- Product: [`frontend-prd.md`](frontend-prd.md), [`backend-prd.md`](backend-prd.md)
-- Architecture direction: [`architecture-update-2025-12.md`](architecture-update-2025-12.md)
-- Local/Hybrid foundations: [`local-mode-plan.md`](local-mode-plan.md), [`modularity-architecture.md`](modularity-architecture.md)
-- Companion protocol: [`websocket-protocol.md`](websocket-protocol.md)
-- Show control background: [`show-control-architecture.md`](show-control-architecture.md), [`show-control-decisions.md`](show-control-decisions.md)
-- Tasks/backlog: [`tasks.md`](tasks.md)
+Last Updated: 2025-12-22
 
-## Decision & analysis
-- Modularity changelog: [`architecture-update-2025-12.md`](architecture-update-2025-12.md)
-- PRD alignment notes: [`prd-alignment-analysis.md`](prd-alignment-analysis.md) (keep until Phase 2 plan is locked)
+## Current Documentation (Source of Truth)
 
-## Archived (Phase 1)
-- All Phase 1 guides/walkthroughs and the step3.5 prompts live under `docs/archive/phase-1/`.
-- Legacy implementation playbook is archived there as well.
+### Architecture and Design
+- `local-mode-plan.md` - Parallel Sync and Flawless Fallback architecture (Phase 1D target)
+- `edge-cases.md` - Edge case handling (Phase 1D target)
+- `websocket-protocol.md` - WebSocket event schema
+- `parallel-sync-tasklist.md` - High-priority tasks for parallel sync alignment
+- `timer-logic.md` - Timer state math and invariants (authoritative)
 
-## Notes
-- Phase 1 docs are retained for reference; active work should anchor on the PRDs, architecture update, and protocol docs above.
-- Migration: v2 is the baseline (no users on v1); migration content is archived.
-- Keep secrets in `.env.local` (frontend). Do not commit Firebase credentials.
+### Product Requirements
+- `frontend-prd.md` - Frontend MVP specification (partial; see banner)
+- `backend-prd.md` - Backend MVP specification (partial; see banner)
+
+### Feature Specs
+- `show-control-architecture.md` - Phase 2 Show Control
+- `modularity-architecture.md` - Tier-based features
+- `undo-redo-future-plan.md` - Undo/Redo system
+- `show-control-decisions.md` - Show control decisions and constraints
+- `architecture-update-2025-12.md` - Architecture update notes
+
+## Archive Policy
+- Files under `docs/archive/` are deprecated and historical only
+- Do not use archive files for implementation decisions
+- If an archive file conflicts with current docs, current docs win
+
+## Quick Reference
+- Parallel sync architecture: `local-mode-plan.md`
+- Edge case handling: `edge-cases.md`
+- WebSocket events: `websocket-protocol.md`
+- Task alignment: `parallel-sync-tasklist.md`
+- Timer logic guardrail: `timer-logic.md` + shared helpers `frontend/src/utils/timer-utils.ts`; do not reimplement or clamp elapsed (bonus time can be negative).
+
+## Operational Note
+- On app load, always attempt Companion auto-connect; Firebase listeners remain active. If either source is unavailable, the app continues on the remaining source.

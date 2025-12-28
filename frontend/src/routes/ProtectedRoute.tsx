@@ -17,8 +17,8 @@ export const ProtectedRoute = ({
   const params = useParams()
   const location = useLocation()
 
-  // In Local/Hybrid mode, bypass auth checks entirely
-  if (effectiveMode === 'local' || effectiveMode === 'hybrid') {
+  // In Local mode, bypass auth checks entirely
+  if (effectiveMode === 'local') {
     return <>{children}</>
   }
 

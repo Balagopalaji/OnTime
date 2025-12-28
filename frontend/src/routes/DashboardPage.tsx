@@ -1,19 +1,20 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Check, Clock, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
-import { collection, getDocs, limit, query, where } from 'firebase/firestore'
+import { Check, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
+import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
+import { useSortableList } from '../hooks/useSortableList'
 import { Tooltip } from '../components/core/Tooltip'
 import { useAuth } from '../context/AuthContext'
+import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataProvider'
 import type { DataContextValue } from '../context/DataContext'
 import { db } from '../lib/firebase'
 import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
-import type { Room } from '../types'
 
 const DEBUG_SORTABLE = false
 
@@ -36,6 +37,7 @@ export const DashboardPage = () => {
   const { mode, effectiveMode, setMode } = useAppMode()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const firestore = db
   useEffect(() => {
     if (user?.uid) {
       try {
@@ -64,158 +66,20 @@ export const DashboardPage = () => {
     rollbackRoomMigration,
   } = dataContext
 
-  const canManageCloudRooms = effectiveMode === 'cloud'
   const hasFirebaseConfig = Boolean(
     import.meta.env.VITE_FIREBASE_API_KEY &&
-      import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-      import.meta.env.VITE_FIREBASE_APP_ID,
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID,
   )
-  const cacheUid = user?.uid ?? (typeof window !== 'undefined' ? window.localStorage.getItem('ontime:lastAuthUid') : null)
-  const roomsCacheKey = cacheUid ? `ontime:cloudRoomsCache:${cacheUid}` : null
-  const [cloudRooms, setCloudRooms] = useState<Room[]>([])
-  const [cloudRoomsStatus, setCloudRoomsStatus] = useState<'idle' | 'loading' | 'online' | 'offline' | 'error'>('idle')
-  const [cloudRoomsError, setCloudRoomsError] = useState<string | null>(null)
+  const canManageRooms = hasFirebaseConfig && Boolean(user?.uid)
+  const canManageCloudRooms = canManageRooms && effectiveMode === 'cloud'
+  const { discoverCompanion } = useCompanionConnection()
   const [companionReachable, setCompanionReachable] = useState(false)
-  const canCreateRooms =
-    hasFirebaseConfig && Boolean(user?.uid) && (typeof navigator === 'undefined' ? true : navigator.onLine)
+  const canCreateRooms = hasFirebaseConfig && Boolean(user?.uid)
 
-  const displayedRooms = useMemo(() => {
-    if (canManageCloudRooms) return rooms
-    const merged = new Map<string, Room>()
-    rooms.forEach((room) => merged.set(room.id, room))
-    cloudRooms.forEach((room) => {
-      if (!merged.has(room.id)) merged.set(room.id, room)
-    })
-    return [...merged.values()]
-  }, [canManageCloudRooms, cloudRooms, rooms])
+  // UnifiedDataContext already merges cached rooms, so we can use rooms directly
+  const displayedRooms = rooms
 
-  useEffect(() => {
-    if (!roomsCacheKey) {
-      setCloudRooms([])
-      setCloudRoomsStatus('idle')
-      setCloudRoomsError(null)
-      return
-    }
-    const uid = cacheUid
-
-    const readCache = () => {
-      try {
-        const raw = window.localStorage.getItem(roomsCacheKey)
-        if (!raw) return []
-        const parsed = JSON.parse(raw) as unknown
-        if (!Array.isArray(parsed)) return []
-        return parsed as Room[]
-      } catch {
-        return []
-      }
-    }
-
-    // Always hydrate from cache first (helps offline/local modes).
-    setCloudRooms(readCache())
-
-    const toMillis = (val: unknown, fallback: number | null = null): number | null => {
-      if (typeof val === 'number') return val
-      if (val && typeof val === 'object' && 'seconds' in val) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (val as any).seconds * 1000
-      }
-      return fallback
-    }
-
-    const mapRoomLite = (id: string, data: Record<string, unknown>): Room => {
-      const createdAtMs = toMillis(data.createdAt, Date.now()) ?? Date.now()
-      const configRaw = (data.config && typeof data.config === 'object' ? (data.config as Record<string, unknown>) : null) ?? {}
-      const stateRaw = (data.state && typeof data.state === 'object' ? (data.state as Record<string, unknown>) : null) ?? {}
-      const messageRaw =
-        (stateRaw.message && typeof stateRaw.message === 'object' ? (stateRaw.message as Record<string, unknown>) : null) ?? {}
-      const featuresRaw =
-        (data.features && typeof data.features === 'object' ? (data.features as Record<string, unknown>) : null) ?? {}
-
-      return {
-        id,
-        ownerId: typeof data.ownerId === 'string' ? data.ownerId : 'unknown',
-        title: typeof data.title === 'string' ? data.title : 'Room',
-        timezone: typeof data.timezone === 'string' ? data.timezone : 'UTC',
-        createdAt: createdAtMs,
-        order: typeof data.order === 'number' ? data.order : createdAtMs,
-        config: {
-          warningSec: typeof configRaw.warningSec === 'number' ? configRaw.warningSec : 120,
-          criticalSec: typeof configRaw.criticalSec === 'number' ? configRaw.criticalSec : 30,
-        },
-        _version: typeof data._version === 'number' ? data._version : 1,
-        tier: data.tier === 'basic' || data.tier === 'show_control' || data.tier === 'production' ? (data.tier as Room['tier']) : 'basic',
-        features: {
-          localMode: featuresRaw.localMode !== undefined ? Boolean(featuresRaw.localMode) : true,
-          showControl: featuresRaw.showControl !== undefined ? Boolean(featuresRaw.showControl) : false,
-          powerpoint: featuresRaw.powerpoint !== undefined ? Boolean(featuresRaw.powerpoint) : false,
-          externalVideo: featuresRaw.externalVideo !== undefined ? Boolean(featuresRaw.externalVideo) : false,
-        },
-        state: {
-          activeTimerId: typeof stateRaw.activeTimerId === 'string' ? stateRaw.activeTimerId : null,
-          isRunning: Boolean(stateRaw.isRunning),
-          startedAt: toMillis(stateRaw.startedAt, null),
-          elapsedOffset: typeof stateRaw.elapsedOffset === 'number' ? stateRaw.elapsedOffset : 0,
-          progress: (stateRaw.progress && typeof stateRaw.progress === 'object' ? (stateRaw.progress as Record<string, number>) : {}) ?? {},
-          showClock: Boolean(stateRaw.showClock),
-          clockMode: stateRaw.clockMode === 'ampm' ? 'ampm' : '24h',
-          message: {
-            text: typeof messageRaw.text === 'string' ? messageRaw.text : '',
-            visible: Boolean(messageRaw.visible),
-            color:
-              messageRaw.color === 'green' ||
-              messageRaw.color === 'yellow' ||
-              messageRaw.color === 'red' ||
-              messageRaw.color === 'blue' ||
-              messageRaw.color === 'white' ||
-              messageRaw.color === 'none'
-                ? (messageRaw.color as Room['state']['message']['color'])
-                : 'green',
-          },
-        },
-      }
-    }
-
-    const fetchOwnedRooms = async () => {
-      // When Cloud provider is active, it already streams rooms. We only need this fallback when not in Cloud mode.
-      if (canManageCloudRooms) return
-      if (!hasFirebaseConfig) {
-        setCloudRoomsStatus(rooms.length ? 'online' : 'offline')
-        return
-      }
-      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
-      if (!isOnline) {
-        setCloudRoomsStatus(displayedRooms.length ? 'online' : 'offline')
-        return
-      }
-      // If user isn't authenticated, we can only show cached rooms.
-      if (!uid) {
-        setCloudRoomsStatus(displayedRooms.length ? 'online' : 'offline')
-        return
-      }
-      setCloudRoomsStatus('loading')
-      setCloudRoomsError(null)
-      try {
-        const snap = await getDocs(query(collection(db, 'rooms'), where('ownerId', '==', uid)))
-        const next = snap.docs.map((docSnap) => mapRoomLite(docSnap.id, docSnap.data() as Record<string, unknown>))
-        next.sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt))
-        setCloudRooms(next)
-        setCloudRoomsStatus('online')
-        try {
-          window.localStorage.setItem(roomsCacheKey, JSON.stringify(next))
-        } catch {
-          // ignore cache write failures
-        }
-      } catch (err) {
-        setCloudRoomsStatus('error')
-        setCloudRoomsError(String(err))
-      }
-    }
-
-    void fetchOwnedRooms()
-    const handleOnline = () => void fetchOwnedRooms()
-    window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [cacheUid, canManageCloudRooms, displayedRooms, hasFirebaseConfig, rooms, roomsCacheKey, user])
 
   useEffect(() => {
     let cancelled = false
@@ -244,6 +108,17 @@ export const DashboardPage = () => {
     }
   }, [effectiveMode])
 
+  // Auto-connect to companion on dashboard mount
+  // The CompanionConnectionContext handles the connection and UnifiedDataContext
+  // will restore cached subscriptions once handshake completes
+  useEffect(() => {
+    if (!discoverCompanion) return
+
+    // Trigger discovery immediately - don't wait for companionReachable probe.
+    // Keep Companion hot-standby even in Cloud mode.
+    void discoverCompanion()
+  }, [discoverCompanion, mode])
+
   const ensureCompanionToken = useCallback(async (): Promise<string | null> => {
     const existing = sessionStorage.getItem('ontime:companionToken')
     if (existing) return existing
@@ -263,8 +138,8 @@ export const DashboardPage = () => {
   }, [])
 
   const openControllerInMode = useCallback(
-    async (roomId: string, target: 'cloud' | 'hybrid' | 'local') => {
-      if (target === 'hybrid' || target === 'local') {
+    async (roomId: string, target: 'auto' | 'cloud' | 'local') => {
+      if (target === 'auto' || target === 'local') {
         const token = await ensureCompanionToken()
         if (!token) {
           window.alert('Companion token unavailable. Start Companion and click "Connect Companion" in the header.')
@@ -307,19 +182,40 @@ export const DashboardPage = () => {
     if (saved === '1' || saved === '2' || saved === '3' || saved === '4') return Number(saved) as 1 | 2 | 3 | 4
     return 2
   })
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [overIndex, setOverIndex] = useState<number | null>(null)
   const [justDroppedId, setJustDroppedId] = useState<string | null>(null)
   const [migrationState, setMigrationState] = useState<
     Record<string, { status: 'idle' | 'migrating' | 'complete' | 'failed'; error?: string }>
   >({})
   const [recentlyMigrated, setRecentlyMigrated] = useState<Set<string>>(new Set())
   const [rollbackAvailable, setRollbackAvailable] = useState<Record<string, boolean>>({})
-  const dragFromIndexRef = useRef<number | null>(null)
-  const overIndexRef = useRef<number | null>(null)
-  const itemRefs = useRef<Record<string, HTMLElement | null>>({})
-  const dragRectsRef = useRef<Array<{ id: string; index: number; centerX: number; centerY: number }>>([])
   const dropFlashTimeoutRef = useRef<number | null>(null)
+  const listRef = useRef<HTMLUListElement | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimeoutRef = useRef<number | null>(null)
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+    setToast(message)
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  const openControllerWithCurrentMode = useCallback(
+    async (roomId: string) => {
+      // effectiveMode is 'cloud' | 'local' (hybrid resolves to local when companion available)
+      if (effectiveMode === 'local') {
+        const token = await ensureCompanionToken()
+        if (!token) {
+          // Fallback to cloud with toast
+          showToast('Companion unavailable, opening in Cloud mode')
+          navigate(`/room/${roomId}/control`)
+          return
+        }
+        window.localStorage.setItem('ontime:lastCompanionRoomId', roomId)
+      }
+      navigate(`/room/${roomId}/control`)
+    },
+    [effectiveMode, ensureCompanionToken, navigate, showToast],
+  )
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -336,6 +232,9 @@ export const DashboardPage = () => {
     return () => {
       if (dropFlashTimeoutRef.current) {
         window.clearTimeout(dropFlashTimeoutRef.current)
+      }
+      if (toastTimeoutRef.current) {
+        window.clearTimeout(toastTimeoutRef.current)
       }
     }
   }, [])
@@ -357,14 +256,16 @@ export const DashboardPage = () => {
   }, [displayedRooms, pendingRooms, user])
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !firestore) return
     let cancelled = false
     const v2OwnedRooms = ownedRooms.filter((room) => (room._version ?? 1) === 2)
 
     void Promise.all(
       v2OwnedRooms.map(async (room) => {
         try {
-          const snap = await getDocs(query(collection(db, 'rooms', room.id, 'migrationBackups'), limit(1)))
+          const snap = await getDocs(
+            query(collection(firestore, 'rooms', room.id, 'migrationBackups'), limit(1)),
+          )
           return [room.id, !snap.empty] as const
         } catch {
           return [room.id, false] as const
@@ -387,7 +288,7 @@ export const DashboardPage = () => {
     return () => {
       cancelled = true
     }
-  }, [ownedRooms, user])
+  }, [firestore, ownedRooms, user])
 
   const compareCards = useMemo(
     () => (a: { title: string; createdAt: number; order?: number }, b: { title: string; createdAt: number; order?: number }) => {
@@ -423,15 +324,49 @@ export const DashboardPage = () => {
           'id' in entry && 'ownerId' in entry
             ? { kind: 'room' as const, id: entry.id, order: orderKey(entry), room: entry }
             : {
-                kind: 'placeholder' as const,
-                id: `placeholder-${(entry as PlaceholderEntry).roomId}`,
-                order: orderKey(entry as PlaceholderEntry),
-                placeholder: entry as PlaceholderEntry,
-              },
+              kind: 'placeholder' as const,
+              id: `placeholder-${(entry as PlaceholderEntry).roomId}`,
+              order: orderKey(entry as PlaceholderEntry),
+              placeholder: entry as PlaceholderEntry,
+            },
         )
         .sort((a, b) => a.order - b.order),
     [orderKey, sortedPlaceholders, sortedRooms],
   )
+
+  const sortableItems = useMemo(
+    () => renderEntries.map((entry) => ({ id: entry.id, value: entry })),
+    [renderEntries],
+  )
+
+  const { draggingId, overIndex, getItemProps } = useSortableList({
+    items: sortableItems,
+    containerRef: listRef,
+    onReorder: (from, to) => {
+      const movingEntry = renderEntries[from]
+      if (
+        isCustomSort &&
+        reorderRoom &&
+        movingEntry &&
+        movingEntry.kind === 'room' &&
+        from !== to
+      ) {
+        const working = [...renderEntries]
+        const [moved] = working.splice(from, 1)
+        working.splice(to, 0, moved)
+        const roomOrder = working.filter((entry) => entry.kind === 'room').map((entry) => entry.id)
+        const targetRoomIndex = roomOrder.indexOf(movingEntry.id)
+        if (targetRoomIndex >= 0) {
+          if (dropFlashTimeoutRef.current) {
+            window.clearTimeout(dropFlashTimeoutRef.current)
+          }
+          setJustDroppedId(movingEntry.id)
+          dropFlashTimeoutRef.current = window.setTimeout(() => setJustDroppedId(null), 200)
+          void reorderRoom(movingEntry.id, targetRoomIndex)
+        }
+      }
+    },
+  })
 
   const displayEntries = useMemo(() => {
     if (!draggingId || overIndex === null) return renderEntries
@@ -444,126 +379,14 @@ export const DashboardPage = () => {
     return current
   }, [draggingId, overIndex, renderEntries])
 
-  useEffect(() => {
-    const validKeys = new Set(renderEntries.map((entry) => entry.id))
-    Object.keys(itemRefs.current).forEach((key) => {
-      if (!validKeys.has(key)) {
-        delete itemRefs.current[key]
-      }
-    })
-  }, [renderEntries])
-
-  const resolveTargetIndex = useCallback((clientX: number, clientY: number) => {
-    const rects = dragRectsRef.current
-    if (!rects.length) return null
-    let best = rects[0]
-    let bestDist =
-      (best.centerX - clientX) * (best.centerX - clientX) + (best.centerY - clientY) * (best.centerY - clientY)
-    rects.slice(1).forEach((r) => {
-      const dist = (r.centerX - clientX) * (r.centerX - clientX) + (r.centerY - clientY) * (r.centerY - clientY)
-      if (dist < bestDist) {
-        best = r
-        bestDist = dist
-      }
-    })
-    return best.index
-  }, [])
-
-  const pointerMoveHandler = useRef<((event: PointerEvent) => void) | null>(null)
-  const pointerUpHandler = useRef<((event: PointerEvent) => void) | null>(null)
-
-  const endDrag = useCallback(() => {
-    window.setTimeout(() => {
-      setDraggingId(null)
-      setOverIndex(null)
-      dragFromIndexRef.current = null
-      overIndexRef.current = null
-      dragRectsRef.current = []
-      if (pointerMoveHandler.current) {
-        document.removeEventListener('pointermove', pointerMoveHandler.current)
-      }
-      if (pointerUpHandler.current) {
-        document.removeEventListener('pointerup', pointerUpHandler.current)
-      }
-      pointerMoveHandler.current = null
-      pointerUpHandler.current = null
-    }, 48)
-  }, [])
-
-  const startPointerDrag = useCallback(
-    (id: string, listIndex: number, event: React.PointerEvent) => {
-      event.preventDefault()
-      event.currentTarget.setPointerCapture?.(event.pointerId)
-      dragRectsRef.current = renderEntries
-        .map((entry, idx) => {
-          const el = itemRefs.current[entry.id]
-          const rect = el?.getBoundingClientRect()
-          return rect
-            ? {
-                id: entry.id,
-                index: idx,
-                centerX: rect.left + rect.width / 2,
-                centerY: rect.top + rect.height / 2,
-              }
-            : null
-        })
-        .filter((entry): entry is { id: string; index: number; centerX: number; centerY: number } => entry !== null)
-      dragFromIndexRef.current = listIndex
-      overIndexRef.current = listIndex
-      setDraggingId(id)
-      setOverIndex(listIndex)
-      pointerMoveHandler.current = (nativeEvent: PointerEvent) => {
-        const target = resolveTargetIndex(nativeEvent.clientX, nativeEvent.clientY)
-        if (target !== null) {
-          setOverIndex(target)
-          overIndexRef.current = target
-        }
-      }
-      pointerUpHandler.current = () => {
-        const fromIndex = dragFromIndexRef.current
-        const toIndex = overIndexRef.current ?? listIndex
-        const movingEntry = fromIndex != null ? renderEntries[fromIndex] : null
-        if (
-          isCustomSort &&
-          reorderRoom &&
-          movingEntry &&
-          movingEntry.kind === 'room' &&
-          fromIndex != null &&
-          toIndex != null &&
-          fromIndex !== toIndex
-        ) {
-          const working = [...renderEntries]
-          const [moved] = working.splice(fromIndex, 1)
-          working.splice(toIndex, 0, moved)
-          const roomOrder = working.filter((entry) => entry.kind === 'room').map((entry) => entry.id)
-          const targetRoomIndex = roomOrder.indexOf(movingEntry.id)
-          if (targetRoomIndex >= 0) {
-            if (dropFlashTimeoutRef.current) {
-              window.clearTimeout(dropFlashTimeoutRef.current)
-            }
-            setJustDroppedId(movingEntry.id)
-            dropFlashTimeoutRef.current = window.setTimeout(() => setJustDroppedId(null), 200)
-            void reorderRoom(movingEntry.id, targetRoomIndex)
-          }
-        }
-        endDrag()
-      }
-      document.addEventListener('pointermove', pointerMoveHandler.current)
-      document.addEventListener('pointerup', pointerUpHandler.current)
-    },
-    [endDrag, isCustomSort, renderEntries, reorderRoom, resolveTargetIndex],
-  )
 
   const renderPlaceholderItem = (placeholder: PlaceholderEntry, listIndex: number) => {
     return (
       <SortableItem
         key={`placeholder-${placeholder.roomId}`}
-        ref={(node) => {
-          itemRefs.current[`placeholder-${placeholder.roomId}`] = node
-        }}
         over={draggingId !== null && overIndex === listIndex}
         className="relative flex items-center justify-center rounded-3xl border border-dashed border-slate-800/70 bg-slate-950/50 p-6 text-center text-sm text-slate-200"
-        data-sort-index={listIndex}
+        dataIndex={listIndex}
         draggable={false}
       >
         {DEBUG_SORTABLE && (
@@ -617,59 +440,25 @@ export const DashboardPage = () => {
       !isLegacyRoom &&
       hasRollbackBackup
     const isMigrating = migration.status === 'migrating'
-    const isCached = !canManageCloudRooms && (cloudRoomsStatus === 'offline' || cloudRoomsStatus === 'idle')
-    const cardDragProps =
-      enableSort && isCustomSort
-        ? {
-            onPointerDown: (event: React.PointerEvent) => {
-              const target = event.target as HTMLElement
-              const blocker = target.closest(
-                'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
-              )
-              if (blocker && blocker !== event.currentTarget) {
-                return
-              }
-              startPointerDrag(room.id, listIndex, event)
-            },
-            onKeyDown: (event: React.KeyboardEvent) => {
-              if (event.key === ' ' || event.key.toLowerCase() === 'enter') {
-                const target = event.target as HTMLElement
-                const blocker = target.closest(
-                  'button, a, input, textarea, select, option, [role="button"], [contenteditable="true"]',
-                )
-                if (blocker && blocker !== event.currentTarget) {
-                  return
-                }
-                event.preventDefault()
-                startPointerDrag(room.id, listIndex, event as unknown as React.PointerEvent)
-              }
-            },
-            tabIndex: 0,
-            role: 'button' as const,
-            'aria-grabbed': draggingId === room.id,
-          }
-        : {}
+    // Check if room is from companion cache by checking if it's not in the live Firebase rooms list
+    const isFromCache = !rooms.some((r) => r.id === room.id)
+    const itemProps = enableSort && isCustomSort ? getItemProps(room.id, listIndex) : {}
     return (
       <SortableItem
         key={room.id}
-        ref={(node) => {
-          itemRefs.current[room.id] = node
-        }}
+        {...itemProps}
         dragging={enableSort && draggingId === room.id}
         over={enableSort && overIndex === listIndex}
         dataIndex={listIndex}
-        draggable={false}
-        className={`group relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${
-          enableSort ? 'cursor-grab select-none transition-transform duration-150' : ''
-        }`}
-        {...cardDragProps}
+        className={`group relative flex flex-col overflow-visible rounded-3xl border border-slate-800/90 bg-slate-950/80 p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] ${enableSort ? 'cursor-grab select-none transition-transform duration-150' : ''
+          }`}
         style={
           justDroppedId === room.id
             ? { transform: 'scale(0.99)', boxShadow: '0 0 0 4px rgba(56,189,248,0.35)' }
             : undefined
         }
       >
-        {isCached && (
+        {isFromCache && (
           <span className="absolute left-4 top-4 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-100">
             Cached
           </span>
@@ -684,11 +473,11 @@ export const DashboardPage = () => {
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Room</p>
           </div>
           <div className="flex items-start gap-2">
-            <Tooltip content={canManageCloudRooms ? 'Delete room' : 'Switch to Cloud mode to delete rooms'}>
+            <Tooltip content={canManageRooms ? 'Delete room' : 'Sign in to delete rooms'}>
               <button
                 type="button"
                 onClick={() => handleDeleteRoom(room.id)}
-                disabled={!canManageCloudRooms}
+                disabled={!canManageRooms}
                 className="rounded-full border border-transparent p-2 text-slate-400 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-40 disabled:hover:border-transparent disabled:hover:bg-transparent"
                 aria-label="Delete room"
               >
@@ -961,41 +750,93 @@ export const DashboardPage = () => {
         </div>
 
         <div className="mt-5 flex flex-col items-center gap-4">
-          <div
-            className={`flex w-full max-w-[240px] flex-col items-center gap-1 rounded-2xl border px-5 py-3 text-center ${(() => {
-              const timers = getTimers(room.id)
-              const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-              const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-              const runningElapsed =
-                active && room.state.isRunning && room.state.startedAt
-                  ? now - room.state.startedAt + baseElapsed
-                  : baseElapsed
-              const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-              const warningMs = (room.config?.warningSec ?? 120) * 1000
-              const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-              if (remainingMs < 0) {
-                return 'border-rose-500/40 bg-rose-500/10'
-              }
-              if (remainingMs <= criticalMs) {
-                return 'border-amber-500/40 bg-amber-500/10'
-              }
-              if (remainingMs <= warningMs) {
-                return 'border-yellow-500/30 bg-yellow-500/5'
-              }
-              return 'border-slate-800 bg-slate-900'
-            })()}`}
-          >
-            <p className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 leading-tight line-clamp-1 truncate">
-              {(() => {
+          <Tooltip content="Open controller">
+            <button
+              type="button"
+              onClick={() => void openControllerWithCurrentMode(room.id)}
+              className={`flex w-full max-w-sm cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${(() => {
                 const timers = getTimers(room.id)
                 const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                return active?.title ?? 'No active segment'
-              })()}
-            </p>
-            <div className="flex w-full items-center justify-center pt-0.5">
-              <span className="relative inline-flex items-center justify-center">
-                <span
-                  className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${(() => {
+                const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                const runningElapsed =
+                  active && room.state.isRunning && room.state.startedAt
+                    ? now - room.state.startedAt + baseElapsed
+                    : baseElapsed
+                const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                const warningMs = (room.config?.warningSec ?? 120) * 1000
+                const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                if (remainingMs < 0) {
+                  return 'border-rose-500/40 bg-rose-500/10 hover:border-rose-400/60'
+                }
+                if (remainingMs <= criticalMs) {
+                  return 'border-amber-500/40 bg-amber-500/10 hover:border-amber-400/60'
+                }
+                if (remainingMs <= warningMs) {
+                  return 'border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-400/50'
+                }
+                return 'border-slate-800 bg-slate-900 hover:border-slate-600'
+              })()}`}
+            >
+              <p className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 leading-tight line-clamp-1 truncate">
+                {(() => {
+                  const timers = getTimers(room.id)
+                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                  return active?.title ?? 'No active segment'
+                })()}
+              </p>
+              <div className="flex w-full items-center justify-center pt-0.5">
+                <span className="relative inline-flex items-center justify-center">
+                  <span
+                    className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${(() => {
+                      const timers = getTimers(room.id)
+                      const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                      const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                      const runningElapsed =
+                        active && room.state.isRunning && room.state.startedAt
+                          ? now - room.state.startedAt + baseElapsed
+                          : baseElapsed
+                      const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                      const warningMs = (room.config?.warningSec ?? 120) * 1000
+                      const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                      if (remainingMs < 0) return 'bg-rose-400'
+                      if (remainingMs <= criticalMs) return 'bg-amber-400'
+                      if (remainingMs <= warningMs) return 'bg-yellow-400'
+                      return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
+                    })()}`}
+                  />
+                  <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
+                </span>
+              </div>
+              <p className="w-full text-[11px] tracking-[0.2em] text-slate-500 uppercase">
+                {(() => {
+                  const timers = getTimers(room.id)
+                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                  const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
+                  const runningElapsed =
+                    active && room.state.isRunning && room.state.startedAt
+                      ? now - room.state.startedAt + baseElapsed
+                      : baseElapsed
+                  const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
+                  const warningMs = (room.config?.warningSec ?? 120) * 1000
+                  const criticalMs = (room.config?.criticalSec ?? 30) * 1000
+                  if (remainingMs < 0) return 'Overtime'
+                  if (remainingMs <= criticalMs) return 'Critical'
+                  if (remainingMs <= warningMs) return 'Warning'
+                  return room.state.isRunning ? 'Counting' : 'Paused'
+                })()}
+              </p>
+              <p className="w-full text-[10px] tracking-[0.24em] text-slate-500 uppercase">
+                {(() => {
+                  const timers = getTimers(room.id)
+                  const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
+                  const total = timers.length
+                  if (activeIndex === -1) return `0/${total || 0}`
+                  return `${activeIndex + 1}/${total}`
+                })()}
+              </p>
+              <div className="flex h-1 w-full overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full ${(() => {
                     const timers = getTimers(room.id)
                     const active = timers.find((timer) => timer.id === room.state.activeTimerId)
                     const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
@@ -1011,112 +852,34 @@ export const DashboardPage = () => {
                     if (remainingMs <= warningMs) return 'bg-yellow-400'
                     return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
                   })()}`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        (() => {
+                          const timers = getTimers(room.id)
+                          const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+                          if (!active) return 0
+                          const baseElapsed = room.state.progress?.[active.id] ?? 0
+                          const runningElapsed =
+                            room.state.isRunning && room.state.startedAt
+                              ? now - room.state.startedAt + baseElapsed
+                              : baseElapsed
+                          const remainingMs = active.duration * 1000 - runningElapsed
+                          const remainingPct = (Math.max(0, remainingMs) / (active.duration * 1000)) * 100
+                          const pct = Number.isNaN(remainingPct) ? 0 : remainingPct
+                          return Number.isNaN(pct) ? 0 : pct
+                        })(),
+                      ),
+                    )}%`,
+                  }}
                 />
-                <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
-              </span>
-            </div>
-            <p className="w-full text-[11px] tracking-[0.2em] text-slate-500 uppercase">
-              {(() => {
-                const timers = getTimers(room.id)
-                const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                const runningElapsed =
-                  active && room.state.isRunning && room.state.startedAt
-                    ? now - room.state.startedAt + baseElapsed
-                    : baseElapsed
-                const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                const warningMs = (room.config?.warningSec ?? 120) * 1000
-                const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                if (remainingMs < 0) return 'Overtime'
-                if (remainingMs <= criticalMs) return 'Critical'
-                if (remainingMs <= warningMs) return 'Warning'
-                return room.state.isRunning ? 'Counting' : 'Paused'
-              })()}
-            </p>
-            <p className="w-full text-[10px] tracking-[0.24em] text-slate-500 uppercase">
-              {(() => {
-                const timers = getTimers(room.id)
-                const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
-                const total = timers.length
-                if (activeIndex === -1) return `0/${total || 0}`
-                return `${activeIndex + 1}/${total}`
-              })()}
-            </p>
-            <div className="flex h-1 w-full overflow-hidden rounded-full bg-slate-800">
-              <div
-                className={`h-full ${(() => {
-                  const timers = getTimers(room.id)
-                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                  const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                  const runningElapsed =
-                    active && room.state.isRunning && room.state.startedAt
-                      ? now - room.state.startedAt + baseElapsed
-                      : baseElapsed
-                  const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                  const warningMs = (room.config?.warningSec ?? 120) * 1000
-                  const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                  if (remainingMs < 0) return 'bg-rose-400'
-                  if (remainingMs <= criticalMs) return 'bg-amber-400'
-                  if (remainingMs <= warningMs) return 'bg-yellow-400'
-                  return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
-                })()}`}
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.max(
-                      0,
-                      (() => {
-                        const timers = getTimers(room.id)
-                        const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                        if (!active) return 0
-                        const baseElapsed = room.state.progress?.[active.id] ?? 0
-                        const runningElapsed =
-                          room.state.isRunning && room.state.startedAt
-                            ? now - room.state.startedAt + baseElapsed
-                            : baseElapsed
-                        const remainingMs = active.duration * 1000 - runningElapsed
-                        const remainingPct = (Math.max(0, remainingMs) / (active.duration * 1000)) * 100
-                        const pct = Number.isNaN(remainingPct) ? 0 : remainingPct
-                        return Number.isNaN(pct) ? 0 : pct
-                      })(),
-                    ),
-                  )}%`,
-                }}
-              />
-            </div>
-          </div>
+              </div>
+            </button>
+          </Tooltip>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Tooltip content="Open controller (Cloud)">
-              <button
-                type="button"
-                onClick={() => void openControllerInMode(room.id, 'cloud')}
-                className="inline-flex items-center gap-2 rounded-full bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
-              >
-                <Clock size={16} />
-                Cloud
-              </button>
-            </Tooltip>
-            <Tooltip content={companionReachable ? 'Open controller (Hybrid)' : 'Start Companion to enable Hybrid'}>
-              <button
-                type="button"
-                disabled={!companionReachable}
-                onClick={() => void openControllerInMode(room.id, 'hybrid')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-40 disabled:hover:border-slate-700"
-              >
-                Hybrid
-              </button>
-            </Tooltip>
-            <Tooltip content={companionReachable ? 'Open controller (Local)' : 'Start Companion to enable Local'}>
-              <button
-                type="button"
-                disabled={!companionReachable}
-                onClick={() => void openControllerInMode(room.id, 'local')}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70 disabled:opacity-40 disabled:hover:border-slate-700"
-              >
-                Local
-              </button>
-            </Tooltip>
             <Tooltip content="Open viewer">
               <Link
                 to={`/room/${room.id}/view`}
@@ -1137,7 +900,7 @@ export const DashboardPage = () => {
                         : 'https://stagetime.app'
                     const viewerUrl = `${origin}/room/${room.id}/view`
                     if (navigator.share) {
-                      void navigator.share({ title: room.title, url: viewerUrl }).catch(() => {})
+                      void navigator.share({ title: room.title, url: viewerUrl }).catch(() => { })
                     } else {
                       void navigator.clipboard.writeText(viewerUrl).then(() => window.alert('Viewer link copied to clipboard'))
                     }
@@ -1151,11 +914,10 @@ export const DashboardPage = () => {
                 <Tooltip content="Show QR Code">
                   <button
                     type="button"
-                    className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border px-3 font-semibold transition ${
-                      qrOpenId === room.id
-                        ? 'border-emerald-400/70 text-emerald-200'
-                        : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
-                    }`}
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border px-3 font-semibold transition ${qrOpenId === room.id
+                      ? 'border-emerald-400/70 text-emerald-200'
+                      : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
+                      }`}
                     ref={(node) => {
                       qrButtonRefs.current[room.id] = node
                     }}
@@ -1197,9 +959,9 @@ export const DashboardPage = () => {
                       const centerLeft =
                         rect && typeof window !== 'undefined'
                           ? Math.min(
-                              viewportWidth - 320 - margin,
-                              Math.max(margin, rect.left + rect.width / 2 - 160),
-                            )
+                            viewportWidth - 320 - margin,
+                            Math.max(margin, rect.left + rect.width / 2 - 160),
+                          )
                           : clampedRight
                       const left = rect && overflowRight <= 0 ? clampedRight : centerLeft
                       return (
@@ -1276,8 +1038,8 @@ export const DashboardPage = () => {
   }, [])
 
   const handleDeleteRoom = async (roomId: string) => {
-    if (!canManageCloudRooms) {
-      window.alert('Switch to Cloud mode to delete rooms.')
+    if (!canManageRooms) {
+      window.alert('Sign in to delete rooms.')
       return
     }
     const room = displayedRooms.find((r) => r.id === roomId)
@@ -1304,8 +1066,8 @@ export const DashboardPage = () => {
   }, [redoRoomDelete, undoRoomDelete])
 
   const commitTitle = async (roomId: string) => {
-    if (!canManageCloudRooms) {
-      window.alert('Switch to Cloud mode to edit room details.')
+    if (!canManageRooms) {
+      window.alert('Sign in to edit room details.')
       return
     }
     const draft = drafts[roomId]
@@ -1332,8 +1094,8 @@ export const DashboardPage = () => {
   }
 
   const commitTimezone = async (roomId: string) => {
-    if (!canManageCloudRooms) {
-      window.alert('Switch to Cloud mode to edit room details.')
+    if (!canManageRooms) {
+      window.alert('Sign in to edit room details.')
       return
     }
     const draft = drafts[roomId]
@@ -1383,20 +1145,20 @@ export const DashboardPage = () => {
   const qrOverlay =
     qrOpenId && typeof document !== 'undefined'
       ? createPortal(
-          <div
-            className="fixed inset-0 z-[120] cursor-default bg-transparent"
-            role="presentation"
-            onPointerDown={() => {
-              setQrOpenId(null)
-              setQrModalId(null)
-            }}
-            onClick={() => {
-              setQrOpenId(null)
-              setQrModalId(null)
-            }}
-          />,
-          document.body,
-        )
+        <div
+          className="fixed inset-0 z-[120] cursor-default bg-transparent"
+          role="presentation"
+          onPointerDown={() => {
+            setQrOpenId(null)
+            setQrModalId(null)
+          }}
+          onClick={() => {
+            setQrOpenId(null)
+            setQrModalId(null)
+          }}
+        />,
+        document.body,
+      )
       : null
 
   if (!user) {
@@ -1410,32 +1172,10 @@ export const DashboardPage = () => {
   return (
     <div className="space-y-8">
       {qrOverlay}
-      {!canManageCloudRooms && (
-        <div className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 text-sm text-slate-200 shadow-card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Cloud rooms</p>
-              <p className="mt-1">
-                Cloud rooms are visible in {mode === 'auto' ? `auto (${effectiveMode})` : effectiveMode} mode; switch to <span className="font-semibold">Cloud</span> to edit.
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                {cloudRoomsStatus === 'offline'
-                  ? 'Offline: showing cached rooms (if available).'
-                  : cloudRoomsStatus === 'loading'
-                    ? 'Loading rooms from Firestore…'
-                    : cloudRoomsStatus === 'error'
-                      ? `Failed to load rooms: ${cloudRoomsError ?? 'unknown error'}`
-                      : 'Showing latest Firestore rooms.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMode('cloud')}
-              className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600"
-            >
-              Switch to Cloud
-            </button>
-          </div>
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-slate-700 bg-slate-900 px-5 py-3 text-sm text-slate-200 shadow-lg">
+          {toast}
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-900/70 bg-slate-950/70 p-5 shadow-card">
@@ -1446,7 +1186,7 @@ export const DashboardPage = () => {
               type="button"
               onClick={async () => {
                 if (!canCreateRooms) {
-                  window.alert('Connect to the internet and sign in to create rooms.')
+                  window.alert('Sign in to create rooms.')
                   return
                 }
                 setIsCreating(true)
@@ -1475,7 +1215,7 @@ export const DashboardPage = () => {
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
               <option value="title">Title</option>
-              <option value="custom" disabled={!canManageCloudRooms}>
+              <option value="custom" disabled={!canManageRooms}>
                 Custom
               </option>
             </select>
@@ -1523,78 +1263,91 @@ export const DashboardPage = () => {
 
       <section className="space-y-4">
         {renderEntries.filter((entry) => entry.kind === 'room').length === 0 && sortedPlaceholders.length === 0 ? (
-          canManageCloudRooms ? (
-            <div className="rounded-2xl border border-dashed border-emerald-900/60 bg-emerald-500/5 p-10 text-center text-sm text-slate-300">
-              Create a room to start building a rundown.
+          <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-10 text-center text-sm text-slate-300">
+            <p className="font-semibold text-slate-100">Create a room to start building a rundown.</p>
+            <p className="mt-2 text-slate-400">
+              If you&apos;re offline, you can still run a show locally via Companion by opening a room ID directly.
+            </p>
+            <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <input
+                value={quickOpenRoomId}
+                onChange={(e) => setQuickOpenRoomId(e.target.value)}
+                placeholder="Enter roomId (e.g. test-room)"
+                className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-white"
+              />
+              <button
+                type="button"
+                disabled={!companionReachable || !quickOpenRoomId.trim()}
+                onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'auto')}
+                className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
+              >
+                Open Auto
+              </button>
+              <button
+                type="button"
+                disabled={!companionReachable || !quickOpenRoomId.trim()}
+                onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'local')}
+                className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
+              >
+                Open Local
+              </button>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/50 p-10 text-center text-sm text-slate-300">
-              <p className="font-semibold text-slate-100">No cached Cloud rooms available.</p>
-              <p className="mt-2 text-slate-400">
-                If you&apos;re offline, you can still run a show locally via Companion by opening a room ID directly.
+            {!companionReachable ? (
+              <p className="mt-3 text-xs text-amber-200">
+                Companion not detected. Start the Companion app, then use the header "Connect Companion".
               </p>
-              <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <input
-                  value={quickOpenRoomId}
-                  onChange={(e) => setQuickOpenRoomId(e.target.value)}
-                  placeholder="Enter roomId (e.g. test-room)"
-                  className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm text-white"
-                />
-                <button
-                  type="button"
-                  disabled={!companionReachable || !quickOpenRoomId.trim()}
-                  onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'hybrid')}
-                  className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
-                >
-                  Open Hybrid
-                </button>
-                <button
-                  type="button"
-                  disabled={!companionReachable || !quickOpenRoomId.trim()}
-                  onClick={() => void openControllerInMode(quickOpenRoomId.trim(), 'local')}
-                  className="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-slate-600 disabled:opacity-40"
-                >
-                  Open Local
-                </button>
-              </div>
-              {!companionReachable ? (
-                <p className="mt-3 text-xs text-amber-200">
-                  Companion not detected. Start the Companion app, then use the header "Connect Companion".
-                </p>
-              ) : null}
-            </div>
-          )
+            ) : null}
+          </div>
         ) : isCustomSort ? (
           <SortableList
-            className={`grid grid-cols-1 gap-4 ${
-              columnCount === 1
-                ? 'md:grid-cols-1'
-                : columnCount === 2
-                  ? 'md:grid-cols-2'
-                  : columnCount === 3
-                    ? 'md:grid-cols-3'
-                    : 'md:grid-cols-4'
-            }`}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => event.preventDefault()}
+            ref={listRef}
+            className={`grid grid-cols-1 gap-4 ${columnCount === 1
+              ? 'md:grid-cols-1'
+              : columnCount === 2
+                ? 'md:grid-cols-2'
+                : columnCount === 3
+                  ? 'md:grid-cols-3'
+                  : 'md:grid-cols-4'
+              }`}
           >
             {displayEntries.map((entry, listIndex) =>
               entry.kind === 'room'
                 ? renderRoomCard(entry.room, listIndex, true)
                 : renderPlaceholderItem(entry.placeholder, listIndex),
             )}
+            {canCreateRooms && (
+              <div className="flex h-full items-center justify-center py-8">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isCreating) return
+                    setIsCreating(true)
+                    try {
+                      await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
+                    } finally {
+                      setIsCreating(false)
+                    }
+                  }}
+                  disabled={isCreating}
+                  aria-label="Create room"
+                  className="flex h-20 w-full max-w-[200px] items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+                >
+                  <span className="text-3xl">{isCreating ? '…' : '+'}</span>
+                  <span className="sr-only">Add new room</span>
+                </button>
+              </div>
+            )}
           </SortableList>
         ) : (
           <SortableList
-            className={`grid grid-cols-1 gap-4 ${
-              columnCount === 1
-                ? 'md:grid-cols-1'
-                : columnCount === 2
-                  ? 'md:grid-cols-2'
-                  : columnCount === 3
-                    ? 'md:grid-cols-3'
-                    : 'md:grid-cols-4'
-            }`}
+            className={`grid grid-cols-1 gap-4 ${columnCount === 1
+              ? 'md:grid-cols-1'
+              : columnCount === 2
+                ? 'md:grid-cols-2'
+                : columnCount === 3
+                  ? 'md:grid-cols-3'
+                  : 'md:grid-cols-4'
+              }`}
           >
             {[...sortedRooms.map((room) => ({
               kind: 'room' as const,
@@ -1623,6 +1376,28 @@ export const DashboardPage = () => {
               }
               return renderRoomCard(card.room, index, false)
             })}
+            {canCreateRooms && (
+              <div className="flex h-full items-center justify-center py-8">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isCreating) return
+                    setIsCreating(true)
+                    try {
+                      await createRoom({ title: 'New Room', timezone: localTimezone, ownerId: user.uid })
+                    } finally {
+                      setIsCreating(false)
+                    }
+                  }}
+                  disabled={isCreating}
+                  aria-label="Create room"
+                  className="flex h-20 w-full max-w-[200px] items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-slate-200 transition hover:border-slate-500 hover:text-white disabled:opacity-50"
+                >
+                  <span className="text-3xl">{isCreating ? '…' : '+'}</span>
+                  <span className="sr-only">Add new room</span>
+                </button>
+              </div>
+            )}
           </SortableList>
         )}
       </section>

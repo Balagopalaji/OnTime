@@ -36,8 +36,10 @@ export const TimerPanel = ({
 
   useEffect(() => {
     if (!timer) return
+    // Show originalDuration if timer was nudged, otherwise actual duration
+    const displayDuration = timer.originalDuration ?? timer.duration
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDurationInput(Math.max(0, Math.round(timer.duration / 60)).toString())
+    setDurationInput(Math.max(0, Math.round(displayDuration / 60)).toString())
   }, [timer])
 
   let displayValue = '00:00'
@@ -125,7 +127,8 @@ export const TimerPanel = ({
               if (!Number.isNaN(parsed) && parsed >= 0) {
                 onSaveDuration(parsed)
               } else {
-                setDurationInput(Math.max(0, Math.round(timer.duration / 60)).toString())
+                const displayDuration = timer.originalDuration ?? timer.duration
+                setDurationInput(Math.max(0, Math.round(displayDuration / 60)).toString())
               }
               setIsDurationEditing(false)
             }}
@@ -140,7 +143,8 @@ export const TimerPanel = ({
               }
               if (event.key === 'Escape') {
                 event.preventDefault()
-                setDurationInput(Math.max(0, Math.round(timer.duration / 60)).toString())
+                const displayDuration = timer.originalDuration ?? timer.duration
+                setDurationInput(Math.max(0, Math.round(displayDuration / 60)).toString())
                 setIsDurationEditing(false)
               }
             }}
@@ -213,7 +217,7 @@ export const TimerPanel = ({
               className="text-lg font-semibold text-white hover:text-emerald-300"
               onClick={() => setIsDurationEditing(true)}
             >
-              {Math.round((timer?.duration ?? 0) / 60)} minutes
+              {Math.round((timer?.originalDuration ?? timer?.duration ?? 0) / 60)} minutes
             </button>
           </div>
           <div>

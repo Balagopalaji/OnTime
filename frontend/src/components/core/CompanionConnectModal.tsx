@@ -77,8 +77,8 @@ export const CompanionConnectModal = ({
 
   const enableCompanion = useCallback(() => {
     const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
-    // If Companion is reachable and we’re online, Hybrid is the most useful default; otherwise Local.
-    setMode(isOnline ? 'hybrid' : 'local')
+    // If online, Auto is the most useful default; otherwise Local.
+    setMode(isOnline ? 'auto' : 'local')
   }, [setMode])
 
   if (!isOpen) return null
@@ -192,5 +192,4 @@ export const CompanionConnectModal = ({
     </div>
   )
 }
-
 

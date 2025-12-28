@@ -37,13 +37,14 @@ const DEMO_USER: AuthUser = {
   displayName: 'StageTime Operator',
 }
 
-const STORAGE_KEY = 'stagetime.auth.v1'
+const STORAGE_KEY = 'stagetime.auth.v2'
 // Only use mocks when explicitly opted in.
 const useMockAuth = import.meta.env.VITE_USE_MOCK === 'true'
 // Default to popup unless explicitly told to redirect.
 const preferRedirect = import.meta.env.VITE_AUTH_METHOD === 'redirect'
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const firebaseAuth = auth
   const [user, setUser] = useState<AuthUser | null>(() => {
     if (typeof window === 'undefined') return null
     return window.localStorage.getItem(STORAGE_KEY) && useMockAuth ? DEMO_USER : null
@@ -55,10 +56,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const timer = setTimeout(() => setStatus('ready'), 200)
       return () => clearTimeout(timer)
     }
+    if (!firebaseAuth) {
+      setStatus('ready')
+      return
+    }
 
     let unsub = () => {}
     try {
-      unsub = onAuthStateChanged(auth, (fbUser: FirebaseUser | null) => {
+      unsub = onAuthStateChanged(firebaseAuth, (fbUser: FirebaseUser | null) => {
         if (fbUser) {
           setUser({
             uid: fbUser.uid,
@@ -76,7 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     return () => unsub()
-  }, [])
+  }, [firebaseAuth])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -95,6 +100,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setStatus('ready')
       return
     }
+    if (!firebaseAuth) {
+      console.warn('Firebase auth unavailable, cannot sign in.')
+      setStatus('ready')
+      return
+    }
     setStatus('loading')
     try {
       const provider = new GoogleAuthProvider()
@@ -102,13 +112,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const shouldRedirectFirst =
         preferRedirect && (typeof window === 'undefined' || window.crossOriginIsolated)
       if (shouldRedirectFirst) {
-        await signInWithRedirect(auth, provider)
+        await signInWithRedirect(firebaseAuth, provider)
       } else {
         try {
-          await signInWithPopup(auth, provider)
+          await signInWithPopup(firebaseAuth, provider)
         } catch (error) {
           console.warn('Popup sign-in failed, falling back to redirect', error)
-          await signInWithRedirect(auth, provider)
+          await signInWithRedirect(firebaseAuth, provider)
         }
       }
     } catch (error) {
@@ -116,7 +126,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setStatus('ready')
     }
-  }, [])
+  }, [firebaseAuth])
 
   const logout = useCallback(async () => {
     if (useMockAuth) {
@@ -126,13 +136,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setStatus('ready')
       return
     }
+    if (!firebaseAuth) {
+      console.warn('Firebase auth unavailable, cannot sign out.')
+      setStatus('ready')
+      return
+    }
     setStatus('loading')
     try {
-      await signOut(auth)
+      await signOut(firebaseAuth)
     } finally {
       setStatus('ready')
     }
-  }, [])
+  }, [firebaseAuth])
 
   const value = useMemo(() => ({ user, status, login, logout }), [
     user,

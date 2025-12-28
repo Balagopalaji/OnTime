@@ -40,6 +40,7 @@ const CompanionTestInner = () => {
     () => roomTimers.find((timer) => timer.id === timerId) ?? null,
     [roomTimers, timerId],
   )
+  const queueInfo = ctx.queueStatus?.[roomId]
 
   const handleJoin = () => {
     if (!token) return
@@ -130,10 +131,9 @@ const CompanionTestInner = () => {
             : 'unavailable'}
         </div>
         <div className="flex items-center gap-3">
-          <span>Queue depth: {ctx.queueDepth ?? 0}</span>
-          {ctx.isReplayingQueue ? <span className="text-amber-400">📤 Syncing...</span> : null}
-          {ctx.queueWarning === 'full' ? (
-            <span className="text-red-400">Queue full, some actions may be lost</span>
+          <span>Queue depth: {queueInfo?.count ?? 0}</span>
+          {queueInfo?.nearLimit ? (
+            <span className="text-amber-400">Queue nearing limit</span>
           ) : null}
         </div>
       </div>
@@ -147,7 +147,7 @@ const CompanionTestInner = () => {
         </button>
         <button
           className="bg-yellow-600 text-white px-3 py-1 rounded"
-          onClick={() => ctx.pauseTimer?.(roomId, timerId)}
+          onClick={() => ctx.pauseTimer?.(roomId)}
         >
           Pause Timer
         </button>
@@ -185,7 +185,9 @@ const CompanionTestInner = () => {
             onClick={() =>
               void ctx
                 .createTimer?.(roomId, { title: newTitle, duration: newDuration })
-                .then((timer) => setTimerId(timer.id))
+                .then((timer) => {
+                  if (timer) setTimerId(timer.id)
+                })
             }
           >
             Create

@@ -1,3 +1,14 @@
+---
+IMPLEMENTATION COMPLETE - DEPRECATED
+This document describes Phase 1 implementation steps which are now complete.
+Current architecture: See `docs/local-mode-plan.md` (parallel sync)
+Last accurate: December 2024 (Phase 1D Step 3.5 completion)
+Use case: Historical reference only; do NOT use for new development.
+---
+
+> ⚠️ Deprecated
+> Historical Phase 1 guide. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Implementation Guide Playbook (for Phase X)
 
 Use this playbook to author a Phase implementation guide that another agent can execute step-by-step. The goal is to avoid ambiguity, catch edge cases early, and ensure security/quality are baked in.

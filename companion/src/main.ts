@@ -65,6 +65,8 @@ type RoomState = {
   isRunning: boolean;
   currentTime: number;
   lastUpdate: number;
+  elapsedOffset?: number;
+  progress?: Record<string, number>;
 };
 
 type TimerActionPayload = {
@@ -74,6 +76,7 @@ type TimerActionPayload = {
   timerId: string;
   timestamp?: number;
   clientId?: string;
+  currentTime?: number; // Optional: elapsed time to use when starting (for stored progress)
 };
 
 type RoomStateSnapshot = {
@@ -91,6 +94,14 @@ type RoomStateDelta = {
   timestamp: number;
 };
 
+type RoomStatePatchPayload = {
+  type: 'ROOM_STATE_PATCH';
+  roomId: string;
+  changes: Partial<RoomState>;
+  clientId?: string;
+  timestamp?: number;
+};
+
 type TimerType = 'countdown' | 'countup' | 'timeofday';
 
 type Timer = {
@@ -98,6 +109,7 @@ type Timer = {
   roomId: string;
   title: string;
   duration: number; // seconds
+  originalDuration?: number; // seconds - the duration before nudge adjustments
   speaker?: string;
   type: TimerType;
   order: number;
@@ -435,6 +447,7 @@ function startSocketServer() {
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
+    socket.on('ROOM_STATE_PATCH', (payload) => handleRoomStatePatch(socket, payload));
     socket.on('TIMER_ACTION', (payload) => handleTimerAction(socket, payload));
     socket.on('CREATE_TIMER', (payload) => handleCreateTimer(socket, payload));
     socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
@@ -855,7 +868,7 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
   const state = data.state as Partial<RoomState>;
   const activeOk = state.activeTimerId === null || typeof state.activeTimerId === 'string';
   const runningOk = typeof state.isRunning === 'boolean';
-  const currentTimeOk = typeof state.currentTime === 'number' && Number.isFinite(state.currentTime) && state.currentTime >= 0;
+  const currentTimeOk = typeof state.currentTime === 'number' && Number.isFinite(state.currentTime);
   const lastUpdateOk = typeof state.lastUpdate === 'number' && Number.isFinite(state.lastUpdate) && state.lastUpdate > 0;
   if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk) return false;
   if (data.timers !== undefined && !Array.isArray(data.timers)) return false;
@@ -877,6 +890,31 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
       );
     });
     if (!ok) return false;
+  }
+  return true;
+}
+
+function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePatchPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<RoomStatePatchPayload>;
+  if (data.type !== 'ROOM_STATE_PATCH') return false;
+  if (typeof data.roomId !== 'string') return false;
+  if (!data.changes || typeof data.changes !== 'object') return false;
+
+  const changes = data.changes as Partial<RoomState>;
+  const allowedKeys = new Set(['activeTimerId', 'isRunning', 'currentTime', 'lastUpdate']);
+  const keys = Object.keys(changes);
+  if (!keys.every((key) => allowedKeys.has(key))) return false;
+
+  if (changes.activeTimerId !== undefined && changes.activeTimerId !== null && typeof changes.activeTimerId !== 'string') {
+    return false;
+  }
+  if (changes.isRunning !== undefined && typeof changes.isRunning !== 'boolean') return false;
+  if (changes.currentTime !== undefined) {
+    if (typeof changes.currentTime !== 'number' || !Number.isFinite(changes.currentTime)) return false;
+  }
+  if (changes.lastUpdate !== undefined) {
+    if (typeof changes.lastUpdate !== 'number' || !Number.isFinite(changes.lastUpdate)) return false;
   }
   return true;
 }
@@ -981,6 +1019,62 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
   console.log(`[ws] SYNC_ROOM_STATE room=${roomId} by=${clientId ?? socket.id} timers=${payload.timers?.length ?? 0}`);
 }
 
+function handleRoomStatePatch(socket: Socket, payload: unknown) {
+  if (!isValidRoomStatePatchPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid ROOM_STATE_PATCH payload.');
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  if (!socket.rooms.has(payload.roomId)) {
+    socket.join(payload.roomId);
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+  const state = getRoomState(roomId);
+  const changes = { ...payload.changes };
+
+  // Allow negative currentTime for bonus time; only validate finiteness.
+  if (process.env.NODE_ENV === 'development') {
+    const progress = state.progress ?? {};
+    const activeId = state.activeTimerId;
+    const activeProgress = activeId ? progress[activeId] : undefined;
+    console.info('[companion] ROOM_STATE_PATCH in', {
+      roomId,
+      activeId,
+      currentTimeIncoming: changes.currentTime,
+      currentTimeExisting: state.currentTime,
+      elapsedOffset: state.elapsedOffset,
+      lastUpdateIncoming: changes.lastUpdate,
+      lastUpdateExisting: state.lastUpdate,
+      progressActive: activeProgress,
+    });
+  }
+  if (changes.lastUpdate === undefined) {
+    changes.lastUpdate = now;
+  }
+
+  const nextState: RoomState = { ...state, ...changes };
+  roomStateStore.set(roomId, nextState);
+  scheduleRoomCacheWrite();
+
+  const delta: RoomStateDelta = {
+    type: 'ROOM_STATE_DELTA',
+    roomId,
+    changes,
+    clientId,
+    timestamp: now
+  };
+
+  io?.to(roomId).emit('ROOM_STATE_DELTA', delta);
+  console.log(`[ws] ROOM_STATE_PATCH room=${roomId} by=${clientId ?? socket.id}`);
+}
+
 function handleTimerAction(socket: Socket, payload: unknown) {
   if (!isValidTimerActionPayload(payload)) {
     console.warn(`[ws] Invalid TIMER_ACTION payload from socket=${socket.id}`);
@@ -999,18 +1093,25 @@ function handleTimerAction(socket: Socket, payload: unknown) {
   const now = Date.now();
   const state = getRoomState(payload.roomId);
   let changes: Partial<RoomState> = {};
+  const baseCurrent = Number.isFinite(state.currentTime) ? (state.currentTime as number) : 0;
 
   switch (payload.action) {
-    case 'START':
-      // Preserve currentTime (elapsed offset) so resuming a paused timer continues from where it left off.
-      // The frontend uses {startedAt=lastUpdate, elapsedOffset=currentTime} to compute remaining time.
+    case 'START': {
+      // Use provided currentTime if available (for stored progress when switching timers).
+      // Otherwise, if resuming the same timer, preserve the elapsed time.
+      // If switching without provided currentTime, reset to 0.
+      const isSwitchingTimer = payload.timerId !== state.activeTimerId;
+      const startTime = typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)
+        ? payload.currentTime
+        : (isSwitchingTimer ? 0 : baseCurrent);
       changes = {
         activeTimerId: payload.timerId,
         isRunning: true,
-        currentTime: state.currentTime ?? 0,
+        currentTime: startTime,
         lastUpdate: payload.timestamp ?? now
       };
       break;
+    }
     case 'PAUSE':
       // Persist the computed elapsed time so switching modes (Cloud↔Local) while paused does not "reset" the timer.
       // We can compute elapsed using the last running anchor (lastUpdate) and the stored base (currentTime).
@@ -1020,7 +1121,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
         state.isRunning && typeof state.lastUpdate === 'number'
           ? Math.max(0, pauseNow - state.lastUpdate)
           : 0;
-      const nextCurrentTime = Math.max(0, (state.currentTime ?? 0) + elapsedSinceLast);
+      const nextCurrentTime = baseCurrent + elapsedSinceLast;
       changes = {
         isRunning: false,
         currentTime: nextCurrentTime,

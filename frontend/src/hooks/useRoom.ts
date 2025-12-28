@@ -83,6 +83,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
 }
 
 export const useRoom = (roomId: string | undefined) => {
+  const firestore = db
   const [room, setRoom] = useState<Room | undefined>(undefined)
   const [roomVersion, setRoomVersion] = useState<1 | 2>(1)
   const [v2State, setV2State] = useState<Partial<Room['state']> | null>(null)
@@ -107,13 +108,13 @@ export const useRoom = (roomId: string | undefined) => {
   }, [])
 
   useEffect(() => {
-    if (!roomId) return undefined
+    if (!roomId || !firestore) return undefined
 
     setLoadingState(true)
     setConnectionStatusState('reconnecting')
     setError(undefined)
     const unsub = onSnapshot(
-      doc(db, 'rooms', roomId),
+      doc(firestore, 'rooms', roomId),
       (snapshot) => {
         if (!snapshot.exists()) {
           setRoom(undefined)
@@ -138,12 +139,12 @@ export const useRoom = (roomId: string | undefined) => {
       },
     )
     return () => unsub()
-  }, [roomId, subscriptionEpoch])
+  }, [firestore, roomId, subscriptionEpoch])
 
   useEffect(() => {
-    if (!roomId || roomVersion !== 2) return undefined
+    if (!roomId || roomVersion !== 2 || !firestore) return undefined
     const unsub = onSnapshot(
-      doc(db, 'rooms', roomId, 'state', 'current'),
+      doc(firestore, 'rooms', roomId, 'state', 'current'),
       (snapshot) => {
         if (!snapshot.exists()) {
           setV2State(null)
@@ -164,7 +165,7 @@ export const useRoom = (roomId: string | undefined) => {
       },
     )
     return () => unsub()
-  }, [roomId, roomVersion])
+  }, [firestore, roomId, roomVersion])
 
   const loading = roomId ? loadingState : false
   const connectionStatus = roomId ? connectionStatusState : 'offline'

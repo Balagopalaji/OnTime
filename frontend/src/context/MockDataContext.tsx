@@ -32,7 +32,7 @@ import { useAuth } from './AuthContext'
 
 const isTestEnv = Boolean((import.meta as unknown as { vitest?: unknown })?.vitest)
 
-const STORAGE_KEY = 'stagetime.mockState.v1'
+const STORAGE_KEY = 'stagetime.mockState.v2'
 
 const DEFAULT_CONFIG = {
   warningSec: 120,
@@ -77,6 +77,39 @@ type PendingTimeout = { handle: ReturnType<typeof setTimeout>; resolve: () => vo
 type MockState = {
   rooms: Room[]
   timers: Record<string, Timer[]>
+}
+
+type RoomSnapshot = {
+  id: string
+  ownerId: string
+  title: string
+  timezone: string
+  createdAt: number
+  order?: number
+  config: Room['config']
+  state: Room['state']
+  timers: Timer[]
+}
+
+type TimerSnapshot = {
+  roomId: string
+  timer: Timer
+  progress: number
+}
+
+const coerceRoomSnapshot = (snapshot: unknown): RoomSnapshot | null => {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const record = snapshot as RoomSnapshot
+  if (typeof record.id !== 'string') return null
+  if (!Array.isArray(record.timers)) return null
+  return record
+}
+
+const coerceTimerSnapshot = (snapshot: unknown): TimerSnapshot | null => {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const record = snapshot as TimerSnapshot
+  if (!record.timer || typeof record.timer.id !== 'string') return null
+  return record
 }
 
 const normalizeState = (state: MockState): MockState => {
@@ -177,8 +210,8 @@ const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
       stack.undo
         .filter((entry) => entry.kind === 'timer' && entry.action === 'delete')
         .map((entry) => {
-          const snap = entry.snapshot as { timer?: { id?: string } } | undefined
-          return snap?.timer?.id ?? ''
+          const snap = coerceTimerSnapshot(entry.snapshot)
+          return snap?.timer.id ?? ''
         }),
     )
     if (pending.size) {
@@ -188,7 +221,7 @@ const derivePendingTimers = (stacks: Record<string, UndoStack>) => {
   return next
 }
 
-const buildRoomSnapshot = (room: Room, timers: Timer[]): Record<string, unknown> => ({
+const buildRoomSnapshot = (room: Room, timers: Timer[]): RoomSnapshot => ({
   id: room.id,
   ownerId: room.ownerId,
   title: room.title,
@@ -203,7 +236,7 @@ const buildRoomSnapshot = (room: Room, timers: Timer[]): Record<string, unknown>
   timers: timers.map((timer) => ({ ...timer })),
 })
 
-const buildTimerSnapshot = (room: Room, timer: Timer): Record<string, unknown> => ({
+const buildTimerSnapshot = (room: Room, timer: Timer): TimerSnapshot => ({
   roomId: room.id,
   timer: { ...timer },
   progress: captureProgress(room)[timer.id] ?? 0,
@@ -369,13 +402,19 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     )
     setPendingRooms(new Set(roomEntries.map((entry) => entry.roomId)))
     setPendingRoomPlaceholders(
-      roomEntries.map((entry) => ({
-        roomId: entry.roomId,
-        title: entry.snapshot.title,
-        expiresAt: entry.expiresAt,
-        createdAt: entry.snapshot.createdAt,
-        order: entry.snapshot.order,
-      })),
+      roomEntries.flatMap((entry) => {
+        const snapshot = coerceRoomSnapshot(entry.snapshot)
+        if (!snapshot) return []
+        return [
+          {
+            roomId: entry.roomId,
+            title: snapshot.title,
+            expiresAt: entry.expiresAt,
+            createdAt: snapshot.createdAt,
+            order: snapshot.order,
+          },
+        ]
+      }),
     )
 
     const timerPlaceholders: Record<
@@ -387,12 +426,18 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         (entry) => entry.kind === 'timer' && entry.action === 'delete',
       )
       if (!entries.length) return
-      timerPlaceholders[roomId] = entries.map((entry) => ({
-        timerId: entry.snapshot.timer.id,
-        title: entry.snapshot.timer.title,
-        order: entry.snapshot.timer.order,
-        expiresAt: entry.expiresAt,
-      }))
+      timerPlaceholders[roomId] = entries.flatMap((entry) => {
+        const snapshot = coerceTimerSnapshot(entry.snapshot)
+        if (!snapshot) return []
+        return [
+          {
+            timerId: snapshot.timer.id,
+            title: snapshot.timer.title,
+            order: snapshot.timer.order,
+            expiresAt: entry.expiresAt,
+          },
+        ]
+      })
     })
     setPendingTimerPlaceholders(timerPlaceholders)
     setPendingTimers(derivePendingTimers(timerStacksRef.current))
@@ -779,9 +824,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
         const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
         if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
-          updateTimers(evicted.roomId, (timers) =>
-            timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
-          )
+          const snapshot = coerceTimerSnapshot(evicted.snapshot)
+          if (snapshot) {
+            updateTimers(evicted.roomId, (timers) =>
+              timers.filter((candidate) => candidate.id !== snapshot.timer.id),
+            )
+          }
         }
         timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
         syncPendingState()
@@ -828,9 +876,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
             STACK_CAP,
           )
           if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
-            updateTimers(evicted.roomId, (timers) =>
-              timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
-            )
+            const snapshot = coerceTimerSnapshot(evicted.snapshot)
+            if (snapshot) {
+              updateTimers(evicted.roomId, (timers) =>
+                timers.filter((candidate) => candidate.id !== snapshot.timer.id),
+              )
+            }
           }
           timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
           syncPendingState()
@@ -888,9 +939,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       const currentStack = timerStacksRef.current[roomId] ?? createEmptyStack()
       const { stack, evicted } = pushWithCap(currentStack, entry, STACK_CAP)
       if (evicted && evicted.kind === 'timer' && evicted.action === 'delete') {
-        updateTimers(evicted.roomId, (timers) =>
-          timers.filter((candidate) => candidate.id !== evicted.snapshot.timer.id),
-        )
+        const snapshot = coerceTimerSnapshot(evicted.snapshot)
+        if (snapshot) {
+          updateTimers(evicted.roomId, (timers) =>
+            timers.filter((candidate) => candidate.id !== snapshot.timer.id),
+          )
+        }
       }
       timerStacksRef.current = { ...timerStacksRef.current, [roomId]: stack }
       syncPendingState()
@@ -910,7 +964,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     persistRoomStack(nextStack)
 
     if (entry.action === 'delete') {
-      const snapshot = entry.snapshot
+      const snapshot = coerceRoomSnapshot(entry.snapshot)
+      if (!snapshot) return
       const restoredRoom: Room = {
         id: snapshot.id,
         ownerId: snapshot.ownerId,
@@ -981,7 +1036,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       }))
       await safeDelayRef.current?.(80)
     } else if (entry.action === 'create') {
-      const snapshot = entry.snapshot
+      const snapshot = coerceRoomSnapshot(entry.snapshot)
+      if (!snapshot) return
       const restoredRoom: Room = {
         id: snapshot.id,
         ownerId: snapshot.ownerId,
@@ -1034,13 +1090,15 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       syncPendingState()
       persistTimerStack(roomId, nextStack)
       if (entry.action === 'create') {
+        const snapshot = coerceTimerSnapshot(entry.snapshot)
+        if (!snapshot) return
         updateTimers(roomId, (timers) =>
-          timers.filter((timer) => timer.id !== entry.snapshot.timer.id),
+          timers.filter((timer) => timer.id !== snapshot.timer.id),
         )
         updateRoom(roomId, (room) => {
           const progress = { ...(room.state.progress ?? {}) }
-          delete progress[entry.snapshot.timer.id]
-          const isActive = room.state.activeTimerId === entry.snapshot.timer.id
+          delete progress[snapshot.timer.id]
+          const isActive = room.state.activeTimerId === snapshot.timer.id
           return {
             ...room,
             state: {
@@ -1097,7 +1155,9 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       persistTimerStack(roomId, nextStack)
 
       if (entry.action === 'delete') {
-        const targetId = entry.snapshot.timer.id
+        const snapshot = coerceTimerSnapshot(entry.snapshot)
+        if (!snapshot) return
+        const targetId = snapshot.timer.id
         updateTimers(roomId, (timers) => timers.filter((timer) => timer.id !== targetId))
         updateRoom(roomId, (room) => {
           const progress = { ...(room.state.progress ?? {}) }
@@ -1117,14 +1177,16 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         })
         await safeDelayRef.current?.(50)
       } else if (entry.action === 'create') {
-        const targetId = entry.snapshot.timer.id
+        const snapshot = coerceTimerSnapshot(entry.snapshot)
+        if (!snapshot) return
+        const targetId = snapshot.timer.id
         updateTimers(roomId, (timers) => {
           const filtered = timers.filter((timer) => timer.id !== targetId)
-          return [...filtered, entry.snapshot.timer].sort((a, b) => a.order - b.order)
+          return [...filtered, snapshot.timer].sort((a, b) => a.order - b.order)
         })
         updateRoom(roomId, (room) => {
           const progress = { ...(room.state.progress ?? {}) }
-          progress[targetId] = entry.snapshot.progress ?? 0
+          progress[targetId] = snapshot.progress ?? 0
           return {
             ...room,
             state: {

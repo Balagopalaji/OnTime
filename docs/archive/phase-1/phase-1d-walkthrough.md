@@ -1,3 +1,14 @@
+---
+IMPLEMENTATION COMPLETE - DEPRECATED
+This document describes Phase 1 implementation steps which are now complete.
+Current architecture: See `docs/local-mode-plan.md` (parallel sync)
+Last accurate: December 2024 (Phase 1D Step 3.5 completion)
+Use case: Historical reference only; do NOT use for new development.
+---
+
+> ⚠️ Deprecated
+> Historical Phase 1 walkthrough. Do not use as source of truth. See `docs/local-mode-plan.md` for current parallel sync architecture.
+
 # Phase 1D Walkthrough (Main UI Local Mode + CI Packaging)
 
 Use this as a quick validation checklist for Phase 1D.

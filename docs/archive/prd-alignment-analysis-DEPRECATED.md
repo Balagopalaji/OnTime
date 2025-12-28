@@ -1,10 +1,16 @@
+# ⚠️ DEPRECATED – PRD Alignment Analysis (December 2025)
+
+This document is preserved for historical reference only and is **not** a source of truth. Current architecture and planning are defined in `docs/local-mode-plan.md` and related Phase 1D documents.
+
+---
+
 # PRD Alignment Analysis (December 2025)
 
 ## Summary
 Both `frontend-prd.md` and `backend-prd.md` describe the **current MVP** (Firebase-only, no Companion App). They are **accurate for the existing system** but do not reflect Phase 1+ architecture changes.
 
 ## Recommendation
-✅ **Keep PRDs as-is** - They serve as documentation of the current working system.  
+✅ **Keep PRDs as-is** - They serve as documentation of the current working system.
 ✅ **Phase 1 architecture documents supersede PRDs** for new implementation work.
 
 ---
@@ -85,7 +91,7 @@ match /rooms/{roomId} {
 +   allow read: if isAuthenticated();
 +   allow write: if isOwner(roomId);
 + }
-+ 
++
 + match /liveCues/{cueId} {
 +   allow read: if hasShowControlTier(roomId);
 +   allow write: if isOwner(roomId) && hasShowControlTier(roomId);
@@ -104,7 +110,7 @@ match /rooms/{roomId} {
 - New users or migrated rooms use Phase 1 data model
 - Frontend detects which model via `_version` field
 
-**Pros:** Zero downtime, gradual rollout  
+**Pros:** Zero downtime, gradual rollout
 **Cons:** Temporary code complexity
 
 ### Option B: Big Bang Migration
@@ -112,7 +118,7 @@ match /rooms/{roomId} {
 - Migrate all `/rooms/{roomId}` documents to new structure
 - Deploy updated frontend + Companion simultaneously
 
-**Pros:** Clean cutover  
+**Pros:** Clean cutover
 **Cons:** Risk of data loss, all users impacted
 
 ### Recommendation: **Option A** with these steps:
@@ -166,5 +172,5 @@ match /rooms/{roomId} {
 
 ---
 
-**Last Updated:** December 11, 2025  
+**Last Updated:** December 11, 2025
 **Status:** Ready for Phase 1A implementation

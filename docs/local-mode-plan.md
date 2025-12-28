@@ -1,3 +1,12 @@
+---
+CURRENT SOURCE OF TRUTH - Phase 1D Parallel Sync Architecture
+This document describes the target architecture for OnTime's dual-connection (Companion + Firebase) system.
+Status: Target architecture; some features are marked "TO BE IMPLEMENTED".
+Supersedes: prior single-provider model, "Hybrid" mode, Firebase-only MVP specs (see PRD banners).
+Last Updated: 2025-12-22
+Code Alignment: See Section 9 "Code Gaps vs Target Architecture".
+---
+
 # Implementation Plan: Local Mode Foundation (Phase 1)
 
 ## 1. Goal
@@ -5,19 +14,47 @@ Establish a stable, offline-capable "Local Mode" where the OnTime Controller and
 
 ## 2. Architecture
 
-### 2.1 The "Hybrid" Transport Layer
-The frontend will support two distinct transport mechanisms:
-1.  **Firebase (Cloud):** Existing implementation. Used for remote access and persistence.
-2.  **Companion (Local):** New implementation. Used for low-latency LAN communication and offline resilience.
+### 2.1 Dual-Connection Transport Layer (Parallel Sync)
+The frontend maintains two transport mechanisms in parallel:
+1.  **Firebase (Cloud):** Persistence and remote access.
+2.  **Companion (Local):** Low-latency LAN communication and offline resilience.
+
+**Key principle:** When both are available, write to both. Read preference is mode-driven with timestamp arbitration.
+**Note:** Clients auto-connect to Companion whenever reachable (even in Cloud mode) so both transports stay hot.
 
 ### 2.1.1 App Modes (Operator UX)
-The UI exposes explicit modes to the operator:
-- **Cloud:** Firebase-only. No Companion required.
-- **Local:** Companion primary. **Still writes to Firestore when online** for backup/fallback.
-- **Hybrid:** Same as Local (Companion primary + Firestore write-through when online). Exists for clarity.
-- **Auto:** If Companion is reachable, use Local/Hybrid; otherwise use Cloud.
+The UI exposes three modes to the operator:
 
-**Design decision:** Local and Hybrid behave identically when online - both write to Firestore. This ensures seamless fallback to Cloud if Companion drops unexpectedly. The distinction is mainly for operator mental model; functionally they are equivalent when internet is available.
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| **Auto** | Smart selection: prefer freshest data by timestamp | Default for most users |
+| **Local** | Prefer Companion for reads; write to both when online | Unreliable internet venues |
+| **Cloud** | Prefer Firebase for reads; write to both if Companion connected | Remote-only shows |
+
+**Key principles:**
+1. **All modes dual-write when both systems are available**
+   - If Companion connected: write to Companion
+   - If online: write to Firebase
+   - Neither is "primary" - they are mutual backups
+2. **Mode only affects read preference**
+   - Local mode: prefer Companion when timestamps tie
+   - Cloud mode: prefer Firebase when timestamps tie
+   - Auto mode: freshest timestamp wins
+3. **Write-through ensures seamless fallback**
+   - If Companion drops: Firebase already has latest state
+   - If internet drops: Companion already has latest state
+   - Operator can switch devices/modes without data loss
+
+**Hybrid term deprecated:** "Hybrid" is removed. Local now describes dual-write behavior when online.
+
+**Seamless mode switching:**
+- `AppModeProvider` updates `effectiveMode`
+- `UnifiedDataResolver` adjusts `roomAuthority` per room
+- Running timers continue without interruption (state preserved in both systems)
+- Controllers show a brief "Sync" LED indicator during authority handoff
+- Viewers pick freshest data by timestamp (no "Syncing" banner)
+
+**CODE GAP:** `AppModeContext` still exposes `hybrid`. See Section 9.
 
 ### 2.2 The Companion App (Electron)
 A lightweight Node.js/Electron application running on the operator's machine.
@@ -35,6 +72,10 @@ A lightweight Node.js/Electron application running on the operator's machine.
 ## 3. Technical Specifications
 
 ### 3.1 WebSocket Protocol (Event Schema)
+
+**Source of truth:** `docs/websocket-protocol.md`. The list below is a summary and may be incomplete.
+
+**Timer logic reference:** See `docs/timer-logic.md` for authoritative timer math and state invariants.
 
 **Client → Server Events:**
 *   `JOIN_ROOM`: `{ type: "JOIN_ROOM", roomId: string, token: string }`
@@ -57,22 +98,312 @@ A lightweight Node.js/Electron application running on the operator's machine.
 *   `ROOM_STATE_DELTA`: `{ type: "ROOM_STATE_DELTA", roomId: string, changes: Partial<RoomState> }`
 *   `ERROR`: `{ type: "ERROR", code: string, message: string }`
 
-### 3.2 Frontend Integration (`CompanionDataProvider`)
+### 3.2 Frontend Integration (Unified Data Provider)
 
-> **Architecture Update (Phase 1D):** The original design described below has been superseded by the **Unified Data Provider Architecture**. See `docs/phase-1d-step3.5-refactor-plan.md` for the current approach, which runs Firebase and Companion connections **in parallel** rather than swapping providers.
+> **Implementation status:** Verify in code. Provider nesting is expected but not confirmed here.
+> **Code gap:** Read preference and Companion participation in Cloud mode (see Section 9).
 
-We will implement the `DataProvider` interface using a WebSocket client.
-*   **Connection:** Connects to `ws://localhost:4000` with auth token.
-*   **State Management:** Updates local React state on `ROOM_STATE_*` events.
-*   **Optimistic Updates:** Applies changes locally immediately, then emits to socket.
+The frontend uses a Unified Data Provider architecture where Firebase and Companion connections run in parallel.
 
-### 3.3 Hybrid Sync Strategy
-*   **Write-Through:** In **Hybrid** mode, controller writes to *both* WebSocket and Firestore (if online).
-*   **Read Preference:** Viewers prefer WebSocket data for latency, falling back to Firestore.
-*   **Offline Queue Implementation:**
-    *   **Storage:** Persisted to disk (`~/.ontime/queue/pending.json`).
-    *   **Conflict Resolution:** Last-Write-Wins (newer timestamp overwrites).
-    *   **Flush Strategy:** On reconnect, replay actions in timestamp order.
+**Provider nesting structure:**
+
+```tsx
+<CompanionConnectionProvider>  {/* Socket + token management */}
+  <AppModeProvider>            {/* Mode resolution + fallback triggers */}
+    <FirebaseDataProvider>     {/* Always subscribed to Firestore */}
+      <UnifiedDataResolver>    {/* Per-room authority coordination */}
+        {children}
+      </UnifiedDataResolver>
+    </FirebaseDataProvider>
+  </AppModeProvider>
+</CompanionConnectionProvider>
+```
+
+**Connection policy:** On app load, always attempt Companion connection; Firebase listeners stay active in all modes. If either source is unavailable, the app degrades gracefully and continues on the remaining source.
+
+**Component responsibilities:**
+1. **CompanionConnectionProvider** (`CompanionConnectionContext.tsx`)
+   - Manages WebSocket connection to `ws://localhost:4000`
+   - Handles token refresh and handshake lifecycle
+   - Exposes `socket`, `isConnected`, `handshakeStatus` to children
+2. **AppModeProvider** (`AppModeContext.tsx`)
+   - Resolves `effectiveMode` based on socket state and network status
+   - Triggers fallback to Cloud when Companion drops (sets `isDegraded` flag)
+   - Syncs mode changes across browser tabs via `BroadcastChannel`
+3. **FirebaseDataProvider** (`FirebaseDataContext.tsx`)
+   - Always subscribed to Firestore (even in Local mode)
+   - Provides baseline room data and timers for fallback
+4. **UnifiedDataResolver** (`UnifiedDataContext.tsx`)
+   - Per-room authority tracking (`roomAuthority`)
+   - Data resolution: `getRoom(roomId)` and `getTimers(roomId)` select authoritative source
+   - Format translation: converts Companion format to Firebase format transparently
+   - Sync orchestration: sends `SYNC_ROOM_STATE` when controller joins Companion room
+
+### 3.3 Parallel Sync & Flawless Fallback Architecture
+
+**Target behavior:** This section describes intended behavior. Items marked "TO BE IMPLEMENTED" are not yet in code.
+
+**Mutual backups:** When both are available, always write to both; reads pick freshest by timestamp with a 2s confidence window (expandable to 4s on choppy links).
+
+#### Write behavior (all modes)
+
+| Mode  | Companion write | Firebase write | Notes |
+|-------|-----------------|----------------|-------|
+| Cloud | Yes (if connected) | Yes | Both are mutual backups |
+| Local | Yes | Yes (if online) | Both are mutual backups |
+| Auto  | Depends on connection | Depends on connection | Smart selection based on availability |
+
+**Implementation sketch:**
+
+```ts
+function writeTimerAction(action: TimerAction) {
+  const companionAvailable = socket?.connected && handshakeStatus === 'ack'
+  const cloudAvailable = navigator.onLine && firebase.user
+
+  if (companionAvailable) {
+    socket.emit('TIMER_ACTION', action)
+  } else {
+    enqueueAction(action) // Queue for when Companion reconnects
+  }
+
+  if (cloudAvailable) {
+    void firebaseWrite(action).catch(() => {}) // Best-effort
+  }
+}
+```
+
+**CODE GAP:** Current code blocks Companion writes in Cloud mode. See Section 9.
+
+#### Read behavior (timestamp arbitration)
+
+**Target:** Pick freshest data by timestamp with mode bias.
+**Current:** Code respects `roomAuthority` only; no timestamp comparison.
+
+**Viewer sync guard:** While `authority.status === 'syncing'`, viewers fall back to Firebase until status is `ready`, then apply timestamp arbitration.
+
+**Authority rule for confidence window (Auto mode):** Within the confidence window (2s), trust `roomAuthority`. This prevents flickering when both sources update near-simultaneously. If no `roomAuthority` is set (fresh room, no writes yet), default to Firebase until the first controller write establishes authority.
+
+**Target logic:**
+
+```ts
+function getRoom(roomId: string): Room | undefined {
+  const authority = roomAuthority[roomId]
+  const firebaseRoom = firebase.getRoom(roomId)
+  const companionState = companionRooms[roomId]
+
+  if (!companionState) return firebaseRoom
+  if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState)
+
+  const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
+  const companionTs = companionState.lastUpdate ?? 0
+  const confidenceMs = 2000 // Expand to 4000ms on choppy links
+
+  if (Math.abs(firebaseTs - companionTs) < confidenceMs) {
+    if (authority?.source === 'companion') {
+      return buildRoomFromCompanion(roomId, companionState, firebaseRoom)
+    }
+    return firebaseRoom
+  }
+
+  if (effectiveMode === 'local') {
+    return companionTs >= firebaseTs
+      ? buildRoomFromCompanion(roomId, companionState, firebaseRoom)
+      : firebaseRoom
+  }
+
+  if (effectiveMode === 'cloud') {
+    return firebaseTs >= companionTs
+      ? firebaseRoom
+      : buildRoomFromCompanion(roomId, companionState, firebaseRoom)
+  }
+
+  return companionTs > firebaseTs
+    ? buildRoomFromCompanion(roomId, companionState, firebaseRoom)
+    : firebaseRoom
+}
+```
+
+**TO BE IMPLEMENTED:** Timestamp arbitration with confidence window.
+
+#### Change merging (multi-device scenarios)
+
+**Problem:** Device A offline makes Change 1 (ts: 100); Device B online makes Change 2 (ts: 200). Orthogonal changes should coexist.
+
+**Solution:** Group by change type + target, keep latest per group.
+
+```ts
+type ChangeType =
+  | 'STATE_CHANGE'   // activeTimerId, isRunning, currentTime
+  | 'TIMER_CRUD'     // createTimer, updateTimer, deleteTimer
+  | 'TIMER_REORDER'  // order field changes
+  | 'ROOM_CONFIG'    // title, timezone, config
+
+function mergeQueuedEvents(queue: QueuedEvent[]): QueuedEvent[] {
+  const grouped = queue.reduce((acc, event) => {
+    const key = `${event.type}:${event.timerId ?? event.roomId}`
+    if (!acc[key]) acc[key] = []
+    acc[key].push(event)
+    return acc
+  }, {} as Record<string, QueuedEvent[]>)
+
+  const merged = Object.values(grouped).map(group =>
+    group.sort((a, b) => b.timestamp - a.timestamp)[0]
+  )
+
+  return merged.sort((a, b) => a.timestamp - b.timestamp)
+}
+```
+
+**TO BE IMPLEMENTED:** Per-change-type merge.
+
+#### Offline queue replay (timestamp-safe)
+
+**Target:** Merge by change type, then replay in timestamp order.
+**Current:** FIFO replay with basic timestamp filtering.
+
+```ts
+const replayRoomQueue = useCallback((roomId: string) => {
+  if (!socket) return
+  const queue = loadQueue(roomId)
+  if (!queue.length) return
+
+  const merged = mergeQueuedEvents(queue)
+
+  isReplayingRef.current = true
+  merged.forEach(item => socket.emit(item.type, item))
+  saveQueue(roomId, [])
+  isReplayingRef.current = false
+}, [socket])
+```
+
+**Queue limits:**
+- Max 100 events per room
+- Oldest dropped if exceeded (FIFO)
+- UI warning when >80% full; keep discreet and minimalist
+
+**TO BE IMPLEMENTED:** Per-change-type merge before replay.
+
+#### Firebase to Companion sync
+
+**Target:** Detect Firebase changes while Companion has authority, push newer Firebase state to Companion.
+**Current:** Not implemented.
+
+```ts
+useEffect(() => {
+  Object.entries(roomAuthority).forEach(([roomId, auth]) => {
+    if (auth.source !== 'companion') return
+    const firebaseRoom = firebase.getRoom(roomId)
+    const companionState = companionRooms[roomId]
+    const firebaseTs = firebaseRoom?.state.lastUpdate ?? 0
+    const companionTs = companionState?.lastUpdate ?? 0
+
+    if (firebaseTs > companionTs + 2000) {
+      emitSyncRoomState(roomId)
+    }
+  })
+}, [firebase.rooms, companionRooms, roomAuthority, effectiveMode])
+```
+
+**TO BE IMPLEMENTED:** Firebase to Companion sync (not mode-gated).
+
+#### Staleness detection (plausibility-based)
+
+**Target:** Accept snapshots if elapsed time is plausible (duration-aware + adjustment-log support).
+**Current:** Fixed 30s/24h thresholds; no adjustment log.
+
+```ts
+type TimerAdjustment = {
+  timestamp: number
+  delta: number
+  deviceId: string
+  reason: 'manual' | 'sync' | 'migration'
+}
+
+function isSnapshotPlausible(
+  state: Room['state'],
+  timer: Timer,
+  snapshotTimestamp: number,
+  now: number
+): boolean {
+  const age = now - snapshotTimestamp
+  const snapshotElapsed = state.elapsedOffset ?? 0
+  const adjustments = timer.adjustmentLog?.filter(adj =>
+    adj.timestamp > snapshotTimestamp &&
+    adj.timestamp < now &&
+    isAuthorityDevice(adj.deviceId)
+  ) ?? []
+  const totalAdjustments = adjustments.reduce((sum, adj) => sum + adj.delta, 0)
+  const adjustedExpected = snapshotElapsed + age + totalAdjustments
+  const variance = Math.abs((snapshotElapsed + age) - adjustedExpected)
+  const maxVariance = timer.duration * 1000 * 0.1
+  if (variance > maxVariance) return false
+  return adjustedExpected <= (timer.duration * 1000 * 3)
+}
+```
+
+**TO BE IMPLEMENTED:** Adjustment log + plausibility check.
+
+#### Room lock (never auto-expire)
+
+**Target:** Prompt-based takeover with device name + time since last heartbeat.
+**Current:** Companion server has single-controller lock; no heartbeat or prompt in web app.
+
+```ts
+type RoomLock = {
+  deviceId: string
+  lockedBy: string
+  lockedAt: number
+  lastHeartbeat: number
+  deviceName: string
+}
+
+async function claimRoomLock(roomId: string) {
+  const room = firebase.getRoom(roomId)
+  if (room?.lock) {
+    const lockAge = Date.now() - room.lock.lastHeartbeat
+    const lockAgeMinutes = Math.floor(lockAge / 60000)
+    const confirmed = window.confirm(
+      `Room lock warning\n\n` +
+      `Locked by: ${room.lock.lockedBy}\n` +
+      `Device: ${room.lock.deviceName}\n` +
+      `Last active: ${lockAgeMinutes}m ago\n\n` +
+      `Taking over will disconnect their session. Continue?`
+    )
+    if (!confirmed) {
+      subscribeToCompanionRoom(roomId, 'viewer')
+      return false
+    }
+    socket.emit('CONTROLLER_TAKEOVER', {
+      roomId,
+      newDeviceId: clientId,
+      takenFrom: room.lock.deviceId
+    })
+  }
+
+  await setDoc(doc(db, 'rooms', roomId), {
+    lock: {
+      deviceId: clientId,
+      lockedBy: firebase.user?.email,
+      lockedAt: Date.now(),
+      lastHeartbeat: Date.now(),
+      deviceName: getDeviceName()
+    }
+  }, { merge: true })
+}
+
+useEffect(() => {
+  const interval = setInterval(() => {
+    Object.keys(subscribedRooms).forEach(roomId => {
+      setDoc(doc(db, 'rooms', roomId), {
+        'lock.lastHeartbeat': Date.now()
+      }, { merge: true })
+    })
+  }, 30000)
+  return () => clearInterval(interval)
+}, [subscribedRooms])
+```
+
+**TO BE IMPLEMENTED:** Room lock + heartbeat + `CONTROLLER_TAKEOVER` event.
 
 ### 3.4 File Operations API (Required for Phase 2)
 *   `POST /api/open`: Opens local file in default OS app. Body: `{ path: string }`.
@@ -87,11 +418,17 @@ We will implement the `DataProvider` interface using a WebSocket client.
 *   **HTTP auth:** File operations require `Authorization: Bearer <token>`.
 *   **Validation:** Server rejects invalid/expired tokens and invalid Origins; never logs raw tokens.
 
-### 3.5.1 Controller Lock (Phase 1)
-* **Single-controller per room:** Only one controller is allowed per room at a time (unlimited viewers).
-* If a second controller attempts to join:
-  - Reject by default (`HANDSHAKE_ERROR: CONTROLLER_TAKEN`)
-  - Optional takeover (`JOIN_ROOM.takeOver=true`) disconnects the existing controller and claims the lock.
+### 3.5.1 Room Lock (Target + Current)
+**Target behavior:**
+- Lock never auto-expires
+- Heartbeat updates `lock.lastHeartbeat` every 30s
+- Takeover requires explicit confirmation with device name + last active time
+- Uses `CONTROLLER_TAKEOVER` event
+
+**Current behavior:**
+- Single-controller per room; unlimited viewers
+- Second controller rejected by default (`HANDSHAKE_ERROR: CONTROLLER_TAKEN`)
+- Optional takeover (`JOIN_ROOM.takeOver=true`) disconnects existing controller and claims the lock
 
 ### 3.6 State Initialization
 *   **Cache Location (Platform-Specific):**
@@ -101,6 +438,29 @@ We will implement the `DataProvider` interface using a WebSocket client.
 *   **Startup:** Companion loads state from local cache.
 *   **Sync:** If online, fetches latest from Firebase to update cache.
 *   **Fallback:** If offline + no cache, starts empty.
+
+### 3.6.1 Browser Cache (Frontend Resilience)
+
+**Location:** Browser `localStorage`
+
+- **Room snapshots:** `ontime:companionRoomCache.v2`
+- **Subscriptions:** `ontime:companionSubs.v2`
+  - Limited to 20 most recent (LRU eviction)
+  - Used for offline resilience and fast page loads
+- **Subscriptions:** `ontime:companionSubs.v2`
+  - Rooms subscribed to Companion (clientType: `controller` | `viewer`)
+  - Restored on page reload
+- **Action queue:** `ontime:queue:{roomId}`
+  - Per-room pending timer actions when Companion disconnected
+  - Replayed on reconnect in timestamp order
+- **Room metadata edits:** Allowed offline (title/timezone/order/delete); queue to Firebase and reconcile on reconnect.
+
+**Staleness detection summary:**
+- Running timers: plausibility-based (3x duration grace)
+- Paused timers with progress: 24-hour threshold
+- Fresh timers (0 elapsed): accept any age
+
+If stale, `UnifiedDataResolver` falls back to Firebase.
 
 ### 3.7 Feature Flags & Modularity
 *   **Room Configuration:** Each room has feature flags determining available capabilities.
@@ -118,8 +478,8 @@ We will implement the `DataProvider` interface using a WebSocket client.
 *   **Scope:**
     *   Electron App Skeleton (Port 4000) with Minimal Mode.
     *   WebSocket Server (No Auth).
-    *   `CompanionDataProvider` (Read/Write).
-    *   Basic `ROOM_STATE_UPDATE` broadcast.
+    *   Unified Data Provider (Companion + Firebase) baseline.
+    *   Basic `ROOM_STATE_*` broadcast.
     *   Feature flag infrastructure (room config).
 
 ### Phase 1B: Production Hardening (Weeks 3-5)
@@ -128,7 +488,7 @@ We will implement the `DataProvider` interface using a WebSocket client.
     *   Token-based Authentication.
     *   State Initialization (Cache).
     *   Offline Queue & Conflict Resolution.
-    *   Hybrid Sync Logic.
+    *   Parallel Sync Logic.
 
 ### Phase 1C: File Operations (Weeks 6-7)
 *   **Goal:** Ready for Show Control.
@@ -201,3 +561,68 @@ onSnapshot(roomRef, (snap) => {
 *   **Phase 1C:** Click "Open Video" in Controller -> VLC launches.
 *   **Phase 1 (Ops sanity):** Attempt to connect two controllers to the same room:
     - Second controller rejected unless `takeOver=true`.
+
+## 7. Testing and Risks
+
+**Code gaps to validate:**
+- Companion participation in Cloud mode
+- Timestamp arbitration with confidence window
+- Per-change-type queue merge and timestamp replay
+- Firebase to Companion sync (when Firebase is newer)
+- Plausibility-based staleness detection with adjustment log
+- Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
+- Removal of `hybrid` in app mode types
+
+**Regression risks:**
+- Mode switch continuity (no timer resets, no provider churn)
+- Queue replay correctness (no duplicate or missing actions)
+- Staleness acceptance (valid snapshots should not be rejected)
+- Viewer freshness (viewers should not see stale Companion data)
+
+---
+
+## 9. Code Gaps vs Target Architecture
+
+### ❌ High Priority (Breaks Parallel Sync)
+- **Companion blocked in Cloud mode**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`shouldUseCompanion`)
+  - Issue: Guard blocks Companion when `effectiveMode === 'cloud'`
+  - Fix: Allow Companion participation in all modes (hot standby writes)
+- **No timestamp arbitration**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`getRoom`/`getTimers`)
+  - Issue: Authority-only reads; no `lastUpdate` comparison
+  - Fix: Implement freshest-by-timestamp with confidence window
+- **Queue replay is FIFO only**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`replayRoomQueue`)
+  - Issue: No per-change-type merge before replay
+  - Fix: Group by change type + target, keep latest, replay in timestamp order
+
+### ⚠️ Medium Priority (Reliability)
+- **Firebase to Companion sync missing**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx`
+  - Issue: No detection of newer Firebase state while Companion has authority
+  - Fix: Emit `SYNC_ROOM_STATE` when Firebase is newer (not mode-gated)
+- **Naive staleness check**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`isSnapshotStale`)
+  - Issue: Fixed 30s/24h thresholds; no adjustment log
+  - Fix: Plausibility-based check with adjustment log and 3x duration cap
+
+### ⏸️ Low Priority (Future)
+- **Room lock + heartbeat not implemented**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx`, `companion/src/main.ts`
+  - Issue: No heartbeat, no takeover prompt in web app
+  - Fix: Add `lock.lastHeartbeat`, heartbeat interval, takeover prompt, `CONTROLLER_TAKEOVER`
+- **Deprecated mode type still in code**
+  - Location: `frontend/src/context/AppModeContext.tsx`
+  - Issue: `hybrid` still present in type/logic
+  - Fix: Remove `hybrid`; use `auto | cloud | local`
+
+**Open gaps vs code checklist**
+- [ ] Companion participates in Cloud mode (hot standby writes)
+- [ ] Timestamp arbitration with confidence window
+- [ ] Per-change-type merge before queue replay
+- [ ] Firebase to Companion sync when Firebase is newer
+- [ ] Plausibility-based staleness detection
+- [ ] Viewer reads use Firebase during `authority.status === 'syncing'`
+- [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
+- [ ] Remove `hybrid` from app mode types

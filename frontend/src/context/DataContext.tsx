@@ -15,6 +15,13 @@ type CreateTimerInput = {
   speaker?: string
 }
 
+type QueueStatus = {
+  count: number
+  max: number
+  percent: number
+  nearLimit: boolean
+}
+
 export type DataContextValue = {
   rooms: Room[]
   connectionStatus: ConnectionStatus
@@ -32,6 +39,7 @@ export type DataContextValue = {
     string,
     Array<{ timerId: string; title: string; order: number; expiresAt: number }>
   >
+  queueStatus?: Record<string, QueueStatus>
   undoRoomDelete: () => Promise<void>
   redoRoomDelete: () => Promise<void>
   undoTimerDelete: (roomId: string) => Promise<void>
@@ -43,7 +51,7 @@ export type DataContextValue = {
   getTimers: (roomId: string) => Timer[]
   createRoom: (input: CreateRoomInput) => Promise<Room>
   deleteRoom: (roomId: string) => Promise<void>
-  createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer>
+  createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer | undefined>
   updateTimer: (
     roomId: string,
     timerId: string,
