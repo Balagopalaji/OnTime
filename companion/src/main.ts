@@ -65,6 +65,8 @@ type RoomState = {
   isRunning: boolean;
   currentTime: number;
   lastUpdate: number;
+  elapsedOffset?: number;
+  progress?: Record<string, number>;
 };
 
 type TimerActionPayload = {
@@ -107,6 +109,7 @@ type Timer = {
   roomId: string;
   title: string;
   duration: number; // seconds
+  originalDuration?: number; // seconds - the duration before nudge adjustments
   speaker?: string;
   type: TimerType;
   order: number;
