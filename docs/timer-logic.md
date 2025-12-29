@@ -151,6 +151,7 @@ const mergedProgress = { ...roomProgress, ...cachedProgress }
 - When both sources are present, prefer the freshest `lastUpdate` and ensure `currentTime`/`elapsedOffset` match that anchor.
 - Offline/Hold: queue events, replay in order, and coalesce where possible; queue size is bounded.
 - Staleness: running timers are stale when adjusted elapsed exceeds `duration * 3`; if duration is unknown, stale when snapshot age > 30s. Paused timers with progress are stale after 24h; paused with no progress are accepted. Adjustment log deltas are applied if present; no authority/variance logic yet.
+- Confidence window: the 2s window is for **timestamp arbitration** between sources, not staleness. Do not conflate the two.
 
 ## 6) Edge Cases
 - **Negative elapsed:** Allowed and expected when bonus time is added. Do NOT clamp.

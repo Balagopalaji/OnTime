@@ -1,15 +1,15 @@
 ---
 Type: Interface
-Status: draft
+Status: current
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
 # Interface Specification (v1.0.0)
 
 **Changelog**
-- v1.0.0 (2025-12-29): Initial consolidated interface specification.
+- v1.0.0 (2025-12-30): Initial consolidated interface specification; aligned with current Companion + Firebase behavior.
 
 ## 1. Scope and Roles
 - **Controller**: Authenticated owner role; can write and control timers.
@@ -103,6 +103,9 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
   "takeOver": false
 }
 ```
+Notes:
+- `clientType` defaults to `viewer` unless explicitly set to `controller`.
+- `clientId` defaults to the socket id if not provided.
 
 **Server → Client: `HANDSHAKE_ACK`**
 ```json
@@ -131,6 +134,7 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
   "message": "Invalid token."
 }
 ```
+**Handshake error codes (current):** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`.
 
 **Server → Client: `ROOM_STATE_SNAPSHOT`**
 ```json
@@ -170,7 +174,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
   "roomId": "abc123",
   "timerId": "timer-1",
   "timestamp": 1234567890,
-  "clientId": "client-uuid"
+  "clientId": "client-uuid",
+  "currentTime": 12345
 }
 ```
 
@@ -189,6 +194,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
   "timestamp": 1234567895
 }
 ```
+Notes:
+- `timestamp` is optional; server uses `Date.now()` if omitted.
 
 **Client → Server: `SYNC_ROOM_STATE`**
 ```json
@@ -206,6 +213,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
   "timestamp": 1234567890
 }
 ```
+Notes:
+- `timers` is optional; when omitted, only state is applied.
 
 **Timer CRUD (Client → Server)**
 - `CREATE_TIMER`, `UPDATE_TIMER`, `DELETE_TIMER`, `REORDER_TIMERS`
@@ -218,21 +227,23 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `PRESENTATION_LOADED`, `PRESENTATION_UPDATE`
 
 ### 3.3 Error Codes
-- `INVALID_TOKEN`
-- `INVALID_PAYLOAD`
-- `PERMISSION_DENIED`
-- `NOT_FOUND`
-- `FEATURE_UNAVAILABLE`
+**Generic `ERROR` event codes:** `INVALID_PAYLOAD`, `PERMISSION_DENIED`
+
+**`TIMER_ERROR` codes:** `INVALID_PAYLOAD`, `INVALID_FIELDS`, `NOT_FOUND`
+
+**`HANDSHAKE_ERROR` codes:** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`
+
+**Show-control errors (planned):** `FEATURE_UNAVAILABLE`
 
 ### 3.4 PNA/CORS Requirements
-- Must include `Access-Control-Allow-Private-Network: true` for LAN preflight.
+- `GET /api/token` includes `Access-Control-Allow-Private-Network: true` to satisfy browser private-network access.
+- LAN-mode endpoints should include PNA headers when LAN binding is enabled (planned).
 - Origins must be allowlisted by Companion.
 
 ## 4. Companion REST API (Loopback by Default)
-- `GET /api/token` → `{ token, expiresAt }`
-- `POST /api/open` → `{ path }` (file open; requires Bearer token)
-- `GET /api/file/exists?path=...` → `{ exists }`
-- `GET /api/file/metadata?path=...` → `{ duration, resolution }`
+- `GET /api/token` → `{ token, expiresAt }` (JSON), or HTML when using `?return=` for trust flow
+- `POST /api/open` → `{ success: true }` (file open; requires Bearer token)
+- `GET /api/file/metadata?path=...` → `{ size, duration?, resolution?, warning? }`
 
 ## 5. Bridge Protocol (Local ↔ Cloud)
 - Controllers emit `SYNC_ROOM_STATE` to align Companion with Firebase.
