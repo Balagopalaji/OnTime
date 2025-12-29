@@ -2,15 +2,15 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Parallel sync architecture reference (Phase 1D).
 ---
 
 CURRENT SOURCE OF TRUTH - Phase 1D Parallel Sync Architecture
 This document describes OnTime's dual-connection (Companion + Firebase) system.
-Status: ✅ IMPLEMENTED - Phase 1D Parallel Sync is complete (2025-12-29).
+Status: ✅ IMPLEMENTED - Phase 1D Parallel Sync is complete (2025-12-30).
 Supersedes: prior single-provider model, "Hybrid" mode, Firebase-only MVP specs (see PRD banners).
-Last Updated: 2025-12-29
+Last Updated: 2025-12-30
 
 # Local Mode Architecture (Phase 1D)
 
@@ -161,7 +161,7 @@ function writeTimerAction(action: TimerAction) {
 #### Read behavior (timestamp arbitration)
 
 **Target:** Pick freshest data by timestamp with mode bias.
-**Current:** Code respects `roomAuthority` only; no timestamp comparison.
+**Current:** Timestamp arbitration is implemented in `getRoom` with a 2s confidence window and mode bias; viewers use Firebase while `authority.status === 'syncing'`.
 
 **Viewer sync guard:** While `authority.status === 'syncing'`, viewers fall back to Firebase until status is `ready`, then apply timestamp arbitration.
 
@@ -207,7 +207,7 @@ function getRoom(roomId: string): Room | undefined {
 }
 ```
 
-**TO BE IMPLEMENTED:** Timestamp arbitration with confidence window.
+**Implemented:** Timestamp arbitration with 2s confidence window. Dynamic expansion to 4s on choppy links is not implemented.
 
 #### Change merging (multi-device scenarios)
 
@@ -238,12 +238,12 @@ function mergeQueuedEvents(queue: QueuedEvent[]): QueuedEvent[] {
 }
 ```
 
-**TO BE IMPLEMENTED:** Per-change-type merge.
+**Implemented:** Per-change-type merge in `mergeQueuedEvents` (groups by type + target, keeps latest, replays in timestamp order).
 
 #### Offline queue replay (timestamp-safe)
 
 **Target:** Merge by change type, then replay in timestamp order.
-**Current:** FIFO replay with basic timestamp filtering.
+**Current:** Merge by change type, then replay in timestamp order (uses `mergeQueuedEvents`).
 
 ```ts
 const replayRoomQueue = useCallback((roomId: string) => {
@@ -265,12 +265,12 @@ const replayRoomQueue = useCallback((roomId: string) => {
 - Oldest dropped if exceeded (FIFO)
 - UI warning when >80% full; keep discreet and minimalist
 
-**TO BE IMPLEMENTED:** Per-change-type merge before replay.
+**Implemented:** Per-change-type merge before replay.
 
 #### Firebase to Companion sync
 
 **Target:** Detect Firebase changes while Companion has authority, push newer Firebase state to Companion.
-**Current:** Not implemented.
+**Current:** Implemented; emits `SYNC_ROOM_STATE` when Firebase is newer than Companion by the confidence window.
 
 ```ts
 useEffect(() => {
@@ -288,12 +288,12 @@ useEffect(() => {
 }, [firebase.rooms, companionRooms, roomAuthority, effectiveMode])
 ```
 
-**TO BE IMPLEMENTED:** Firebase to Companion sync (not mode-gated).
+**Implemented:** Firebase to Companion sync (not mode-gated).
 
 #### Staleness detection (plausibility-based)
 
 **Target:** Accept snapshots if elapsed time is plausible (duration-aware + adjustment-log support).
-**Current:** Fixed 30s/24h thresholds; no adjustment log.
+**Current:** Duration-based cap (3x duration) with a 30s fallback when duration is unknown; paused-with-progress uses 24h; optional adjustment log applied if present. No authority/variance logic yet.
 
 ```ts
 type TimerAdjustment = {
@@ -325,7 +325,7 @@ function isSnapshotPlausible(
 }
 ```
 
-**TO BE IMPLEMENTED:** Adjustment log + plausibility check.
+**Remaining:** Authority/variance plausibility check and device-scoped adjustment validation.
 
 #### Room lock (never auto-expire)
 

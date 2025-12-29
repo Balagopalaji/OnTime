@@ -2,13 +2,13 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Edge cases and resolutions for sync, lock, and timer behavior.
 ---
 
 # OnTime Edge Cases and Resolutions
 
-Last Updated: 2025-12-22
+Last Updated: 2025-12-30
 Status: CURRENT (Phase 1D target architecture)
 
 ---
@@ -44,8 +44,10 @@ Target behavior (not yet implemented):
 - Only accept adjustments from the authorized controller with valid timestamps
 
 Current state:
-- Fixed 30s/24h staleness thresholds
-- No adjustment log
+- Duration-based staleness cap (3x duration) with 30s fallback when duration is unknown
+- Paused-with-progress uses a 24h threshold
+- Optional `adjustmentLog` is applied if present, but the app does not populate it yet
+- No authority/variance logic
 
 ---
 
@@ -63,7 +65,8 @@ Example grouping:
 - TIMER_CRUD:timer2 -> keep ts: 200
 
 Current state:
-- Queue replay is FIFO only; no grouping or deduplication
+- Queue replay merges by change type + target, then replays in timestamp order
+- No authority-based filtering of queued events
 
 ---
 
@@ -93,14 +96,15 @@ Target behavior (not yet implemented):
 - Pick freshest data; if within 2s confidence window, trust `roomAuthority`
 
 Current state:
-- Code respects `roomAuthority` only; no timestamp comparison
-- Viewer may see stale Companion data
+- Timestamp arbitration implemented (2s confidence window + mode bias)
+- Viewer sync guard uses Firebase while `authority.status === 'syncing'`
+- Timer list arbitration still prefers Firebase when available (no timestamp arbitration on timers)
 
 Impact:
-- If Companion is stale (ts: 50) and Firebase is fresh (ts: 100), viewers can show outdated timers until Companion sync completes.
+- If Companion is stale and Firebase is fresh, viewers should see Firebase data while sync is in progress.
 
 Mitigation:
-- Use Firebase during `authority.status === 'syncing'` and apply staleness checks on stale snapshots.
+- Maintain sync guard + staleness checks; consider timer list timestamp arbitration if conflicts appear.
 
 ---
 
@@ -147,7 +151,8 @@ Target behavior (not yet implemented):
 - Confidence window prevents premature switch to stale Companion
 
 Current state:
-- Viewer respects `roomAuthority` immediately; may show stale Companion data during sync
+- Viewer sync guard uses Firebase while `authority.status === 'syncing'`
+- Staleness checks reject implausible snapshots, but dynamic confidence window expansion is not implemented
 
 Mitigation:
 - SYNC timeout (5s) forces authority resolution

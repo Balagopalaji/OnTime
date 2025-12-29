@@ -2,13 +2,13 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Authoritative timer math and state transitions.
 ---
 
 # Timer Logic (Source of Truth)
 
-Last Updated: 2025-12-28
+Last Updated: 2025-12-30
 Status: CURRENT
 
 ## 1) State Surfaces
@@ -150,7 +150,7 @@ const mergedProgress = { ...roomProgress, ...cachedProgress }
 - Do not emit partial updates (e.g., changing `activeTimerId` without elapsed + anchors).
 - When both sources are present, prefer the freshest `lastUpdate` and ensure `currentTime`/`elapsedOffset` match that anchor.
 - Offline/Hold: queue events, replay in order, and coalesce where possible; queue size is bounded.
-- Confidence: treat snapshots as stale if `now - snapshotTimestamp` exceeds 2s while running, or 24h while paused with progress. Overtime guard: if adjusted elapsed exceeds `duration * 3`, request a resync.
+- Staleness: running timers are stale when adjusted elapsed exceeds `duration * 3`; if duration is unknown, stale when snapshot age > 30s. Paused timers with progress are stale after 24h; paused with no progress are accepted. Adjustment log deltas are applied if present; no authority/variance logic yet.
 
 ## 6) Edge Cases
 - **Negative elapsed:** Allowed and expected when bonus time is added. Do NOT clamp.
