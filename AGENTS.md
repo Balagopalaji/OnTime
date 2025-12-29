@@ -1,13 +1,18 @@
 ## 📁 Archive Policy
-All files under `docs/archive/` are historical only and must not be used as a source of truth for current implementation.
+Archived docs are historical only and must not be used as a source of truth for current implementation.
 - Do **not** include archive files in prompts or planning.
 - If an archive file conflicts with current docs, the current docs win.
 - Current sources of truth:
-  - `docs/local-mode-plan.md` (Parallel Sync / Phase 1D)
-  - `docs/backend-prd.md`
-  - `docs/frontend-prd.md`
-  - `docs/parallel-sync-tasklist.md`
-  - `docs/edge-cases.md` (when created)
+  - `docs/app-prd.md`
+  - `docs/client-prd.md`
+  - `docs/cloud-server-prd.md`
+  - `docs/local-server-prd.md`
+  - `docs/interface.md`
+  - `docs/local-mode.md` (Parallel Sync)
+  - `docs/local-offline-lan-plan.md`
+  - `docs/tasks.md`
+  - `docs/phase-2-tasklist.md`
+  - `docs/edge-cases.md`
 
 # Repository Guidelines
 

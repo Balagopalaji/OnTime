@@ -1,3 +1,11 @@
+---
+Type: Plan
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Local/offline and LAN viewer plan and constraints.
+---
+
 # Local/Offline + LAN Viewer Plan (Alignment Draft)
 
 Audience: product + engineering. Captures decisions/constraints before PRD updates.

@@ -1,0 +1,46 @@
+---
+Type: PRD
+Status: draft
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Companion local server requirements (Electron/Node).
+---
+
+# OnTime Local Server (Companion) PRD
+
+## Goals / Non-goals
+**Goals**
+- Provide a low-latency local relay for controller/viewer clients.
+- Offer token-based auth for local connections.
+- Persist room state for offline continuity.
+
+**Non-goals**
+- Full LAN viewer distribution in Phase 1 (see `docs/local-offline-lan-plan.md`).
+- Advanced show-control integrations beyond current scope.
+
+## Roles & Permissions
+- **Controller**: Authorized to issue timer actions and CRUD operations.
+- **Viewer**: Read-only access to room state.
+
+## User Flows
+- Companion runs on the operator machine and exposes local WebSocket + token endpoints.
+- Controller joins with token, syncs room state, and broadcasts updates to viewers.
+
+## Current Behavior (Reality)
+- Local WebSocket relay with token validation and room state cache.
+- HTTP token endpoint on loopback with Origin allowlist.
+- State persistence in Companion cache to survive restarts.
+
+## Planned Phases (Roadmap)
+- LAN viewer hosting and pairing, including certificate strategy and static viewer bundle (see `docs/local-offline-lan-plan.md`).
+- Additional show-control signals (Phase 2+).
+
+## Acceptance Criteria
+- Valid tokens are required for local connections.
+- State updates are broadcast reliably to connected clients.
+- Cache restore works after Companion restart.
+
+## Out of Scope
+- Protocol contracts (see `docs/interface.md`).
+- Cloud persistence (see `docs/cloud-server-prd.md`).
+- Frontend UX details (see `docs/client-prd.md`).

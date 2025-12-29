@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Feature flag and tier architecture.
+---
+
 # Modularity & Feature Flag Architecture
 
 ## 1. Overview
@@ -45,55 +53,10 @@ interface RoomFeatures {
 
 ### 3.1 Core vs. Optional Data
 
-**Room Configuration** (rarely changes): `/rooms/{roomId}`
-```typescript
-interface Room {
-  id: string;
-  name: string;
-  ownerId: string;
-  createdAt: number;
-  
-  // Subscription tier & features (changes rarely)
-  tier: 'basic' | 'show_control' | 'production';
-  features: {
-    localMode: boolean;
-    showControl: boolean;
-    powerpoint: boolean;
-    externalVideo: boolean;
-  };
-}
-```
-
-**Room State** (real-time, syncs constantly): `/rooms/{roomId}/state/current`
-```typescript
-interface RoomState {
-  // Core timer state (all tiers)
-  activeTimerId: string | null;
-  isRunning: boolean;
-  currentTime: number;
-  lastUpdate: number;
-  
-  // Lightweight reference (Show Control+ only)
-  activeLiveCueId?: string;  // 10 bytes vs 2-5 KB
-}
-```
-
-**Why This Matters:**
-- `Room` document: Read once on load, ~200 bytes
-- `RoomState`: Updates every second, ~100 bytes (vs 5 KB in old architecture)
-- Firestore charges per document write, not per byte - but smaller writes = faster sync
-
-**Show Control Subcollection** (only synced when tier ≥ show_control): `/rooms/{roomId}/liveCues/{cueId}`
-```typescript
-{
-  id: string;
-  source: 'powerpoint' | 'external_video';
-  duration: number;
-  startedAt: number;
-  metadata: { /* heavy data */ };
-  config: { /* warnings, thresholds */ };
-}
-```
+See `docs/interface.md` for canonical schemas of:
+- `rooms/{roomId}` (config + tier/features)
+- `rooms/{roomId}/state/current` (real-time state)
+- `rooms/{roomId}/liveCues/{cueId}` (show control data)
 
 **Benefits:**
 - Room config: Read once per session (~200 bytes)
@@ -103,29 +66,7 @@ interface RoomState {
 
 ### 3.2 Firestore Security Rules
 
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /rooms/{roomId} {
-      // Core room data: all tiers can read
-      allow read: if isAuthenticated();
-      allow write: if canEditRoom(roomId);
-      
-      // Live cues subcollection: Show Control tier+
-      match /liveCues/{cueId} {
-        allow read: if hasFeature(roomId, 'showControl');
-        allow write: if hasFeature(roomId, 'showControl') && canEditRoom(roomId);
-      }
-      
-      // Production features: Production tier only
-      match /operators/{operatorId} {
-        allow read, write: if hasFeature(roomId, 'multiOperator');
-      }
-    }
-  }
-}
-```
+See `docs/interface.md` for the canonical rules summary and schema references.
 
 ## 4. Companion App Modes
 

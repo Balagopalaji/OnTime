@@ -30,9 +30,9 @@ npm run dist       # Package app (dmg/nsis/appimage)
 
 ### Operation Modes
 The app supports three modes controlled by `AppModeContext`:
-- **cloud**: Firebase only
-- **local**: Companion app only
-- **hybrid**: Companion preferred, Cloud fallback
+- **auto**: Prefer Companion when connected, otherwise Cloud
+- **local**: Prefer Companion
+- **cloud**: Prefer Firebase
 
 ### Data Flow
 ```
@@ -52,7 +52,7 @@ DataProvider
 ### Companion Communication
 - WebSocket: `ws://localhost:4000` (Socket.IO)
 - Token API: `http://127.0.0.1:4001/api/token` (loopback only)
-- See `docs/websocket-protocol.md` for event specs
+- See `docs/interface.md` for protocol specs
 
 Key events: `JOIN_ROOM`, `TIMER_ACTION`, `ROOM_STATE_SNAPSHOT`, `ROOM_STATE_DELTA`, `CREATE_TIMER`, `UPDATE_TIMER`, `DELETE_TIMER`
 
@@ -94,10 +94,10 @@ elapsedOffset: number  // base elapsed ms for paused state
 
 ## Documentation
 
-- Architecture overview: `docs/architecture-update-2025-12.md`
-- WebSocket protocol: `docs/websocket-protocol.md`
-- Product requirements: `docs/frontend-prd.md`, `docs/backend-prd.md`
-- Local mode design: `docs/local-mode-plan.md`
+- Architecture overview: `docs/phase-2-overview.md`
+- Interface contract: `docs/interface.md`
+- Product requirements: `docs/app-prd.md`, `docs/client-prd.md`, `docs/cloud-server-prd.md`, `docs/local-server-prd.md`
+- Local mode design: `docs/local-mode.md`
 
 ## Environment Variables
 

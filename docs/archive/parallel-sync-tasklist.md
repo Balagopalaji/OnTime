@@ -1,3 +1,11 @@
+---
+Type: Tasklist
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Phase 1D parallel sync task completion record.
+---
+
 # Parallel Sync & Flawless Fallback – Task List
 
 **STATUS: ✅ COMPLETE (2025-12-29)**
@@ -19,11 +27,11 @@ This task list was the single source of truth for aligning docs and code with th
 
 ## A) Documentation Hygiene (do first)
 
-- [x] Add archive notice: create `docs/archive/README-DEPRECATION-NOTICE.md` stating all archive files are historical only; instruct agents not to use them as source of truth.
+- [x] Add archive notice: create `archived/README-DEPRECATION-NOTICE.md` stating all archive files are historical only; instruct agents not to use them as source of truth.
 - [x] Update `AGENTS.md`: add "Archive Policy" section forbidding archive files as active context; list current sources of truth.
-- [x] Move `docs/prd-alignment-analysis.md` to `docs/archive/prd-alignment-analysis-DEPRECATED.md` with a deprecation banner.
-- [x] Add banners to archive Phase 1 guides (`docs/archive/phase-1/*.md` and `docs/archive/phase-1/prompts/*`) marking them DEPRECATED and pointing to `docs/local-mode-plan.md` once rewritten.
-- [x] Create/Update `docs/README.md` to index current docs: `docs/local-mode-plan.md` (parallel sync), `docs/backend-prd.md`, `docs/frontend-prd.md`, new edge-cases doc (see C).
+- [x] Move `docs/prd-alignment-analysis.md` to `archived/prd-alignment-analysis-DEPRECATED.md` with a deprecation banner.
+- [x] Add banners to archive Phase 1 guides (`archived/phase-1/*.md` and `archived/phase-1/prompts/*`) marking them DEPRECATED and pointing to `docs/local-mode-plan.md` once rewritten.
+- [x] Create/Update `docs/README.md` to index current docs: `docs/local-mode-plan.md` (parallel sync), `docs/cloud-server-prd.md`, `docs/client-prd.md`, new edge-cases doc (see C).
 
 ---
 
@@ -103,7 +111,7 @@ This task list was the single source of truth for aligning docs and code with th
 
 ## H) PRD Alignment
 
-- [x] Add deprecation banners to `docs/frontend-prd.md` and `docs/backend-prd.md`:
+- [x] Add deprecation banners to `docs/client-prd.md` and `docs/cloud-server-prd.md`:
   - Top banner: "⚠️ MVP SPECIFICATION - PARTIALLY SUPERSEDED"
   - Pointer to `docs/local-mode-plan.md` for dual-sync behavior
   - Note what Phase 1D changes aren't reflected (dual-connection, timestamp arbitration, queue merging, room lock)
@@ -139,7 +147,7 @@ This task list was the single source of truth for aligning docs and code with th
 
 ## Expected Outputs of This Task List
 
-- New docs: `docs/archive/README-DEPRECATION-NOTICE.md`, updated `docs/local-mode-plan.md`, `docs/edge-cases.md`.
+- New docs: `archived/README-DEPRECATION-NOTICE.md`, updated `docs/local-mode-plan.md`, `docs/edge-cases.md`.
 - Updated `AGENTS.md` archive policy.
 - Archived `prd-alignment-analysis.md`.
 - Clear, honest "code gaps vs target" section so builders know what to implement next.

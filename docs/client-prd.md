@@ -1,21 +1,56 @@
 ---
-WARNING: MVP SPECIFICATION - PARTIALLY SUPERSEDED
-This document describes the Firebase-only MVP (pre-Phase 1D).
-For the current dual-sync architecture, see:
-- docs/local-mode-plan.md
-- docs/edge-cases.md
-
-Phase 1D updates not reflected here:
-- Dual-connection model (Companion + Firebase)
-- Timestamp arbitration
-- Queue merging
-- Room lock prompt
-
-Status: Use for high-level UI specs; defer to local-mode-plan.md for sync behavior.
-Last Updated: Pre-Phase 1D (December 2024)
+Type: PRD
+Status: draft
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
-# StageTime Frontend PRD (MVP1)
+# OnTime Client PRD
+
+## Goals / Non-goals
+**Goals**
+- Deliver a controller and viewer experience aligned with the current dual-sync architecture (Firebase + Companion).
+- Keep public viewer access frictionless while enforcing owner-only control.
+- Maintain deterministic timer math using the shared timer logic rules.
+
+**Non-goals**
+- LAN viewer hosting and certificate management (see `docs/local-offline-lan-plan.md`).
+- Room lock takeover UX beyond what is already implemented (tracked in plans).
+
+## Roles & Permissions
+- **Owner/Controller**: Authenticated user with write access to a room.
+- **Viewer**: Public read-only access (no auth required).
+
+## User Flows
+- Create room → open controller → start/pause/reset timers → share viewer link.
+- Viewer opens link → sees active timer and messages → no auth required.
+
+## Current Behavior (Reality)
+- Dual-connection model for data: Firebase + Companion, with mode bias defined in `docs/local-mode.md`.
+- Viewer is public; controller is owner-only.
+- Timer math and transitions follow `docs/timer-logic.md`.
+- Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
+
+## Planned Phases (Roadmap)
+- LAN viewer hosting and pairing (Phase 2+), see `docs/local-offline-lan-plan.md`.
+- Additional show-control features (Phase 2+), see `docs/phase-2-overview.md`.
+
+## Acceptance Criteria
+- Controller actions update timers and messages for viewers without drift.
+- Viewer route works without authentication and renders active timer state.
+- Timer math remains consistent with `docs/timer-logic.md`.
+
+## Out of Scope
+- Protocol contracts (see `docs/interface.md`).
+- Companion server implementation details (see `docs/local-server-prd.md`).
+- Cloud security rules (see `docs/cloud-server-prd.md`).
+
+## Legacy MVP UI Spec (Pre-Phase 1D)
+The sections below capture the original MVP UI spec. They are partially superseded
+by the current dual-sync architecture but remain useful for UI structure details.
+
+### StageTime Frontend PRD (MVP1)
 
 ## 1. Scope & Goals
 StageTime MVP1 delivers a real-time event timer platform with a controller interface and public viewer display. This document governs the React 18 + Vite + TypeScript + Tailwind CSS frontend, using React Router DOM v6+, date-fns/date-fns-tz for time logic, and lucide-react for icons. Objectives:
@@ -114,4 +149,4 @@ StageTime MVP1 delivers a real-time event timer platform with a controller inter
 - **Preset Messages:** Initial set (e.g., "Wrap Up", "Applause", "Standby") to be finalized with stakeholders.
 - **Timer Types:** UI currently focuses on countdown; countup/time-of-day support will follow same schema but may need specialized controls.
 
-This PRD should be reviewed alongside `docs/backend-prd.md` to ensure end-to-end consistency across the StageTime MVP1 stack.
+This PRD should be reviewed alongside `docs/cloud-server-prd.md` to ensure end-to-end consistency.

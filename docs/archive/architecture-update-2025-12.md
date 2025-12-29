@@ -1,7 +1,17 @@
+---
+Type: Reference
+Status: planned
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Planned architecture update notes for modularity and tiered access.
+---
+
 # Architecture Update: Modularity & Tiered Access (Dec 2025)
 
 ## 📋 Document Purpose
 This document explains the architectural changes made to OnTime to support **modular feature access**, **tier-based pricing**, and **resource efficiency**. It serves as a transition guide for future AI agents or developers working on this project.
+
+**Note:** This is a forward-looking architecture reference. Canonical schemas and protocols live in `docs/interface.md`.
 
 ---
 
@@ -131,39 +141,10 @@ activeLiveCueId?: string
 ## 💾 Data Structure Examples
 
 ### Core Room Document (Always Synced)
-```json
-{
-  "activeTimerId": "timer-1",
-  "isRunning": true,
-  "currentTime": 12345,
-  "tier": "show_control",
-  "features": {
-    "localMode": true,
-    "showControl": true,
-    "powerpoint": true,
-    "externalVideo": false
-  },
-  "activeLiveCueId": "cue-abc123"  // Lightweight reference
-}
-```
+See `docs/interface.md` for the canonical schema for `rooms/{roomId}` and state documents.
 
 ### Live Cue Subcollection (Show Control+ Only)
-```json
-// /rooms/{roomId}/liveCues/cue-abc123
-{
-  "id": "cue-abc123",
-  "source": "powerpoint",
-  "title": "Intro Video (Slide 5)",
-  "duration": 154,
-  "startedAt": 1234567890,
-  "status": "playing",
-  "metadata": {
-    "slideNumber": 5,
-    "totalSlides": 67,
-    "slideNotes": "Cue lights down at video end"
-  }
-}
-```
+See `docs/interface.md` for the canonical `rooms/{roomId}/liveCues/{cueId}` schema.
 
 ---
 
@@ -186,45 +167,19 @@ activeLiveCueId?: string
 - Users clicking PowerPoint buttons when Companion is in Minimal Mode
 - Confusing error messages ("Feature unavailable")
 
-**Solution:** Added `HANDSHAKE_ACK` event in WebSocket protocol:
-```json
-{
-  "type": "HANDSHAKE_ACK",
-  "companionMode": "minimal",
-  "capabilities": {
-    "powerpoint": false,
-    "externalVideo": false
-  }
-}
-```
+**Solution:** Added `HANDSHAKE_ACK` event in WebSocket protocol (see `docs/interface.md` for the full payload).
 
 **UI Behavior:**
 - If `companionMode === 'minimal'`: Hide/disable PowerPoint UI elements
 - If `capabilities.powerpoint === false`: Show "Upgrade Companion Mode" tooltip
 - Prevents user confusion and failed feature attempts
 
-**Reference:** See `docs/websocket-protocol.md` for full handshake specification.
+**Reference:** See `docs/interface.md` for full handshake specification.
 
 ---
 
 ## 🔐 Security Rules Updates
-
-```javascript
-// Basic tier: Can only read core room doc
-match /rooms/{roomId} {
-  allow read: if isAuthenticated();
-  
-  // Show Control tier: Can access liveCues subcollection
-  match /liveCues/{cueId} {
-    allow read: if hasFeature(roomId, 'showControl');
-  }
-  
-  // Production tier: Can access operator roles
-  match /operators/{operatorId} {
-    allow read, write: if hasFeature(roomId, 'multiOperator');
-  }
-}
-```
+See `docs/interface.md` for the canonical rules summary and schema references.
 
 ---
 

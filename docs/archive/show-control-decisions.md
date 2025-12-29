@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: planned
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Show control decisions and open questions.
+---
+
 # Show Control Decision Matrix
 
 This document tracks key architectural decisions, open questions, and recommended approaches for the Show Control integration.

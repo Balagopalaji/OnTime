@@ -1,3 +1,11 @@
+---
+Type: Tasklist
+Status: planned
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Phase 2 task list and prerequisites.
+---
+
 # Phase 2 Task List (Builder-Focused, Pass-Scoped)
 
 This file translates the Phase 2 plan into granular, implementable steps for builder agents. Phase 2 starts only after Phase 1D gaps are closed (see checklist below) and the unified data provider architecture is stable. Same codebase for all tiers; features are gated via flags/rules, not forks. Milestones are split into explicit passes to keep each builder run small and verifiable.
@@ -13,7 +21,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 ### ✅ Medium Priority (Complete)
 - [x] Firebase → Companion sync when Firebase is newer (`SYNC_ROOM_STATE`)
-- [x] Plausibility-based staleness check (duration-aware, 3x cap, variance tolerance)
+- [x] Plausibility-based staleness check (duration-aware cap; authority/variance deferred)
 
 ### ⏸️ Low Priority (Deferred to Phase 2)
 - [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
@@ -29,12 +37,14 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **Latency (viewers):** Local viewer (Companion) <150 ms delta from controller; Cloud viewer <700 ms. Measure via stopwatch harness (see QA hooks).
 - **Reconnect backoff (Companion clients):** Attempt 1 immediate; attempts 2–5 at 2s; 6+ at 10s; cap at 60s; stop after 20 attempts and surface retry CTA.
 - **Preview cache (dashboard):** TTL 10s or on `HANDSHAKE_ACK` capability change, whichever is sooner.
-- **Authority confidence window (room reads):** 2s base, expand to 4s on reconnect churn (per local-mode-plan.md Section 3.3).
+- **Authority confidence window (room reads):** 2s base, expand to 4s on reconnect churn (per local-mode.md Section 3.3).
 - **Companion RAM budgets (steady state after 60s idle, average of 3 samples):** Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB.
 - **Feature gating:** Legacy rooms without `features` default to deny Show Control/Production data paths; UI must hide gated features and emit upgrade prompts.
 - **File ops security:** Normalize path, require path within user home or OS app data; reject symlinks pointing outside allowed roots; reject UNC/network paths; bind HTTP to 127.0.0.1; token auth required.
 - **Tokens:** TTL 30 minutes; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
-- **Undo/redo storage:** localStorage key `undo:{uid}:{roomId}`; cap 500 commands or 2 MB per room; on quota errors drop oldest and surface non-blocking warning.
+
+## Deferred to Phase 3 (Not in Phase 2 scope)
+- Undo/redo command system and persistence (see `docs/phase-2-overview.md`).
 
 ## Builder Pass Guidance
 - Keep each pass focused (single concern); run lint/tests relevant to touched surfaces.
@@ -76,7 +86,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Goal:** End-to-end live cue visibility for Show Control tier with minimal bandwidth.
 
 **Pass A: Protocol & Plumbing**
-- [ ] Companion emits `LIVE_CUE_*` and `PRESENTATION_*` per `websocket-protocol.md`; maintain in-memory `liveCues` with timestamps.
+- [ ] Companion emits `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
 - [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `source=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
 - [ ] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
   - Cost note: each cue change = 1 write + N reads (viewers). For high-frequency shows (>1 cue/sec), batch or use reference-only mode with `activeLiveCueId`.
@@ -122,30 +132,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 ---
 
-## Milestone 4: Undo/Redo Command System
-**Goal:** Restore undo/redo with stable API and persistence.
-
-**Pass A: Command Core**
-- [ ] Command interface for timer CRUD, message, reorder, room delete; include `execute`, `undo`, optional optimistic hooks.
-- [ ] Storage policy: per-room stacks; key `undo:{uid}:{roomId}`; cap 500 commands or 2 MB; on quota error, drop oldest until write succeeds and show warning banner.
-- [ ] Unit tests for command serialization/deserialization and storage caps.
-
-**Pass B: Integration & Parallel Sync Safety**
-- [ ] Replace stubs in FirebaseDataContext/MockDataContext; keep public API (`undoLatest`, `redoLatest`, `undoRoomDelete`, `canUndo`, `canRedo`).
-- [ ] Ensure command replay idempotent across Firebase + Companion; avoid double-apply on reconnect/offline replay.
-- [ ] Integration tests: sequence with disconnect/reconnect; offline queue replay + undo.
-
-**Success Criteria**
-- Undo/redo works across tabs for same room without cross-room leakage.
-- Quota handling degrades gracefully; no uncaught errors.
-- UI buttons reflect availability accurately after reconnect.
-
-**Risks/Unknowns**
-- Storage limits on Safari/iOS; consider noop persistence when unsupported.
-
----
-
-## Milestone 5: UX Polish & Companion GUI
+## Milestone 4: UX Polish & Companion GUI
 **Goal:** Production-ready operator and viewer experience within resource budgets.
 
 **Pass A: Viewer/Controller Polish**
@@ -177,7 +164,6 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Tier gating: Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
 - [ ] Live cue latency: record local vs. cloud viewer deltas; keep within targets.
 - [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path.
-- [ ] Undo/redo: command persistence across reload; overflow handling.
 - [ ] Viewer during controller sync: verify Firebase fallback when `authority.status === 'syncing'`.
 
 ---

@@ -1,3 +1,11 @@
+---
+Type: Plan
+Status: planned
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Future undo/redo implementation plan.
+---
+
 # Undo/Redo System - Future Implementation Plan
 
 ## Current State (December 2025)

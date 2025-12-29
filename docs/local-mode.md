@@ -1,12 +1,18 @@
 ---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Parallel sync architecture reference (Phase 1D).
+---
+
 CURRENT SOURCE OF TRUTH - Phase 1D Parallel Sync Architecture
 This document describes OnTime's dual-connection (Companion + Firebase) system.
 Status: ✅ IMPLEMENTED - Phase 1D Parallel Sync is complete (2025-12-29).
 Supersedes: prior single-provider model, "Hybrid" mode, Firebase-only MVP specs (see PRD banners).
 Last Updated: 2025-12-29
----
 
-# Implementation Plan: Local Mode Foundation (Phase 1)
+# Local Mode Architecture (Phase 1D)
 
 ## 1. Goal
 Establish a stable, offline-capable "Local Mode" where the OnTime Controller and Viewers communicate via a local Companion App (WebSocket Relay) instead of Firebase. This serves as the foundation for future Show Control features.
@@ -72,30 +78,9 @@ A lightweight Node.js/Electron application running on the operator's machine.
 
 ### 3.1 WebSocket Protocol (Event Schema)
 
-**Source of truth:** `docs/websocket-protocol.md`. The list below is a summary and may be incomplete.
+**Source of truth:** `docs/interface.md` (canonical event schemas and payloads).
 
 **Timer logic reference:** See `docs/timer-logic.md` for authoritative timer math and state invariants.
-
-**Client → Server Events:**
-*   `JOIN_ROOM`: `{ type: "JOIN_ROOM", roomId: string, token: string }`
-*   `TIMER_ACTION`: `{ type: "TIMER_START" | "TIMER_PAUSE" | "TIMER_RESET", roomId: string, timerId: string }`
-*   `TIMER_UPDATE`: `{ type: "TIMER_UPDATE", roomId: string, timerId: string, changes: Partial<Timer> }`
-*   `SET_ACTIVE_TIMER`: `{ type: "SET_ACTIVE_TIMER", roomId: string, timerId: string }`
-
-**Example: TIMER_START**
-```json
-{
-  "type": "TIMER_START",
-  "roomId": "abc123",
-  "timerId": "timer-1",
-  "timestamp": 1234567890
-}
-```
-
-**Server → Client Events:**
-*   `ROOM_STATE_SNAPSHOT`: `{ type: "ROOM_STATE_SNAPSHOT", roomId: string, state: RoomState }`
-*   `ROOM_STATE_DELTA`: `{ type: "ROOM_STATE_DELTA", roomId: string, changes: Partial<RoomState> }`
-*   `ERROR`: `{ type: "ERROR", code: string, message: string }`
 
 ### 3.2 Frontend Integration (Unified Data Provider)
 
@@ -499,41 +484,7 @@ If stale, `UnifiedDataResolver` falls back to Firebase.
 ## 5. Edge Cases & Implementation Notes
 
 ### 5.1 Firestore Security Rules Update
-With the new data model separation, security rules must be updated:
-
-```javascript
-match /rooms/{roomId} {
-  // Room config: Public read for viewers (share-by-roomId), owner write.
-  // If we ever need "private rooms", change reads to authenticated-only and gate viewer access explicitly.
-  allow read: if true;
-  allow write: if isOwner(roomId);
-  
-  // RoomState subcollection (v2): public read for viewers, owner write.
-  match /state/current {
-    allow read: if true;
-    allow write: if isOwner(roomId);
-  }
-
-  // Timers: public read for viewers, owner write.
-  match /timers/{timerId} {
-    allow read: if true;
-    allow write: if isOwner(roomId);
-  }
-  
-  // LiveCues: Show Control tier+ only (auth read + owner write).
-  match /liveCues/{cueId} {
-    allow read: if isAuthenticated() && hasShowControlTier(roomId);
-    allow write: if isOwner(roomId) && hasShowControlTier(roomId);
-  }
-
-  // Migration backups (rollback support): owner-only.
-  match /migrationBackups/{backupId} {
-    allow read, write: if isOwner(roomId);
-  }
-}
-```
-
-**Action:** Update `firebase/firestore.rules` during Phase 1C (production hardening) and deploy rules before enabling migration/rollback in production.
+See `docs/interface.md` for the canonical rules summary and schema references.
 
 ### 5.2 Tier Upgrade Cache Invalidation
 **Scenario:** User upgrades from Basic → Show Control mid-session.
@@ -563,14 +514,14 @@ onSnapshot(roomRef, (snap) => {
 
 ## 7. Testing and Risks
 
-**Code gaps to validate:**
-- Companion participation in Cloud mode
-- Timestamp arbitration with confidence window
-- Per-change-type queue merge and timestamp replay
-- Firebase to Companion sync (when Firebase is newer)
-- Plausibility-based staleness detection with adjustment log
-- Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
-- Removal of `hybrid` in app mode types
+**Validation checklist (code vs docs):**
+- Companion participation in Cloud mode (implemented; verify)
+- Timestamp arbitration with confidence window (implemented; verify)
+- Per-change-type queue merge and timestamp replay (implemented; verify)
+- Firebase to Companion sync when Firebase is newer (implemented; verify)
+- Staleness detection (implemented with duration cap + optional adjustment log; no authority/variance logic yet)
+- Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER` (not implemented)
+- Mode types `auto | cloud | local` (implemented; verify)
 
 **Regression risks:**
 - Mode switch continuity (no timer resets, no provider churn)
@@ -582,28 +533,31 @@ onSnapshot(roomRef, (snap) => {
 
 ## 9. Code Gaps vs Target Architecture
 
-**Status (Updated 2025-12-29):** Phase 1D Parallel Sync is COMPLETE. All high and medium priority items are implemented.
+**Status (Updated 2025-12-29):** Core Phase 1D sync behaviors are implemented in code. Remaining items are Phase 2+.
 
-### ✅ Completed (Phase 1D Parallel Sync)
-- **Companion participates in Cloud mode** - Hot standby writes enabled in all modes
-- **Timestamp arbitration** - Freshest-by-timestamp with 2s confidence window (expandable to 4s)
-- **Per-change-type queue merge** - Groups by change type + target, keeps latest, replays in timestamp order
-- **Firebase to Companion sync** - Emits `SYNC_ROOM_STATE` when Firebase is newer
-- **Plausibility-based staleness** - Duration-aware checks with 3x cap and variance tolerance
-- **Mode types cleaned** - Uses `auto | cloud | local` (no `hybrid`)
+### ✅ Implemented (Phase 1D Core)
+- **Companion participates in Cloud mode** - subscription-based; not mode-gated
+- **Timestamp arbitration (room state)** - 2s confidence window in `getRoom`
+- **Per-change-type queue merge** - groups by change type + target, replays in timestamp order
+- **Firebase to Companion sync** - emits `SYNC_ROOM_STATE` when Firebase is newer
+- **Mode types cleaned** - uses `auto | cloud | local` (no `hybrid`)
 
-### ⏸️ Future (Phase 2)
+### ⚠️ Partially implemented
+- **Staleness detection** - duration-based cap + optional adjustment log; no authority/variance logic
+- **Timer list arbitration** - prefers Firebase timers when available; no timestamp-based arbitration between sources
+
+### ⏸️ Future (Phase 2+)
 - **Room lock + heartbeat not implemented**
   - Location: `frontend/src/context/UnifiedDataContext.tsx`, `companion/src/main.ts`
   - Issue: No heartbeat, no takeover prompt in web app
   - Fix: Add `lock.lastHeartbeat`, heartbeat interval, takeover prompt, `CONTROLLER_TAKEOVER`
 
-**Completed checklist**
-- [x] Companion participates in Cloud mode (hot standby writes)
-- [x] Timestamp arbitration with confidence window
+**Alignment checklist**
+- [x] Companion participates in Cloud mode (subscription-based)
+- [x] Timestamp arbitration for room state
 - [x] Per-change-type merge before queue replay
 - [x] Firebase to Companion sync when Firebase is newer
-- [x] Plausibility-based staleness detection
-- [x] Viewer reads use freshest data by timestamp
+- [ ] Staleness detection parity (authority/variance logic)
+- [ ] Timer list arbitration by timestamp
 - [x] Mode types use `auto | cloud | local`
 - [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER` (Phase 2)

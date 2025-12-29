@@ -1,4 +1,14 @@
-# WebSocket Protocol Specification
+---
+Type: Reference
+Status: deprecated
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Legacy WebSocket protocol spec; superseded by docs/interface.md.
+---
+
+# DEPRECATED: WebSocket Protocol Specification
+
+This document is deprecated. See `docs/interface.md` for the canonical protocol contract.
 
 ## 1. Overview
 

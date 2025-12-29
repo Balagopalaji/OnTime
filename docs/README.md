@@ -1,38 +1,56 @@
+---
+Type: Index
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Canonical documentation index and taxonomy for the OnTime repo.
+---
+
 # OnTime Documentation Index
 
-Last Updated: 2025-12-29
+This index lists canonical documentation by type and links to the feature matrix.
 
-## Current Documentation (Source of Truth)
+## Taxonomy
+- **PRD**: Product requirements (What/Why).
+- **Interface**: Protocol contracts (How).
+- **Plan**: Phased implementation roadmap.
+- **Reference**: Authoritative logic or decisions.
+- **Tasklist**: Execution tracking.
+- **Index**: Doc indexes and matrices.
 
-### Architecture and Design
-- `local-mode-plan.md` - Parallel Sync architecture (✅ Phase 1D COMPLETE)
-- `edge-cases.md` - Edge case handling
-- `websocket-protocol.md` - WebSocket event schema
-- `phase-2-tasklist.md` - Phase 2 milestones and tasks
-- `timer-logic.md` - Timer state math and invariants (authoritative)
+## Doc Creation Rules
+- Prefer updating an existing doc when the scope fits (avoid new files by default).
+- Create a new doc only for a new module/major feature area that does not fit existing scopes.
+- Every new doc must include front matter (Type, Status, Owner, Last updated, Scope) and be added to this index.
+- Update `docs/doc-matrix.md` when a new feature or doc is introduced.
+- Do not create new subfolders under `docs/` without explicit approval.
 
-### Product Requirements
-- `frontend-prd.md` - Frontend MVP specification (partial; see banner)
-- `backend-prd.md` - Backend MVP specification (partial; see banner)
+## Indexes
+- `docs/README.md` (this file)
+- `docs/doc-matrix.md` (feature-to-doc matrix)
 
-### Feature Specs
-- `show-control-architecture.md` - Phase 2 Show Control
-- `modularity-architecture.md` - Tier-based features
-- `undo-redo-future-plan.md` - Undo/Redo system
-- `show-control-decisions.md` - Show control decisions and constraints
-- `architecture-update-2025-12.md` - Architecture update notes
+## PRDs
+- `docs/app-prd.md` (overall product requirements)
+- `docs/client-prd.md` (frontend requirements)
+- `docs/cloud-server-prd.md` (Firebase cloud requirements)
+- `docs/local-server-prd.md` (Companion requirements)
+
+## Interface
+- `docs/interface.md` (canonical protocol contract)
+
+## Plans
+- `docs/local-offline-lan-plan.md` (local/offline + LAN viewers)
+
+## References
+- `docs/local-mode.md` (parallel sync architecture)
+- `docs/timer-logic.md` (authoritative timer math)
+- `docs/edge-cases.md`
+- `docs/phase-2-overview.md`
+
+## Tasklists
+- `docs/tasks.md`
+- `docs/phase-2-tasklist.md`
 
 ## Archive Policy
-- Files under `docs/archive/` are deprecated and historical only
-- Do not use archive files for implementation decisions
-- If an archive file conflicts with current docs, current docs win
-
-## Quick Reference
-- Parallel sync architecture: `local-mode-plan.md` (Phase 1D complete)
-- Edge case handling: `edge-cases.md`
-- WebSocket events: `websocket-protocol.md`
-- Phase 2 planning: `phase-2-tasklist.md`
-- Timer logic guardrail: `timer-logic.md` + shared helpers `frontend/src/utils/timer-utils.ts`; do not reimplement or clamp elapsed (bonus time can be negative).
-
-## Operational Note
-- On app load, always attempt Companion auto-connect; Firebase listeners remain active. If either source is unavailable, the app continues on the remaining source.
+- Archived docs are historical only and never sources of truth.
+- If an archived doc conflicts with current docs, current docs win.

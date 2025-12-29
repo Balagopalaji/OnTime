@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Authoritative timer math and state transitions.
+---
+
 # Timer Logic (Source of Truth)
 
 Last Updated: 2025-12-28

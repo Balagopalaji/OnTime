@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2025-12-29
+Scope: Edge cases and resolutions for sync, lock, and timer behavior.
+---
+
 # OnTime Edge Cases and Resolutions
 
 Last Updated: 2025-12-22
