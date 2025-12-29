@@ -59,8 +59,13 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const socket = useMemo<Socket | null>(() => {
     if (typeof window === 'undefined') return null
-    return io('http://localhost:4000', {
-      transports: ['websocket'],
+    const securePage = window.location.protocol === 'https:'
+    const socketUrl = securePage ? 'https://localhost:4440' : 'http://localhost:4000'
+    // Browsers block ws:// upgrades from an https page; keep polling-only when served over HTTPS.
+    const transports = securePage ? ['polling'] : ['websocket', 'polling']
+    return io(socketUrl, {
+      transports,
+      upgrade: !securePage,
       autoConnect: false,
     })
   }, [])
@@ -95,11 +100,14 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
 
   const fetchToken = useCallback(async () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
-    
-    const tryFetch = async (host: string) => {
+
+    const tryFetch = async (url: string) => {
       try {
-        const res = await fetch(`http://${host}:4001/api/token`, {
+        const res = await fetch(url, {
           method: 'GET',
+          mode: 'cors',
+          cache: 'no-store',
+          credentials: 'omit',
           headers: { Origin: origin },
         })
         if (!res.ok) return null
@@ -110,10 +118,30 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       }
     }
 
-    // Try localhost first (preferred for PNA), then 127.0.0.1
-    let token = await tryFetch('localhost')
-    if (!token) {
-      token = await tryFetch('127.0.0.1')
+    const securePage = typeof window !== 'undefined' ? window.location.protocol === 'https:' : false
+    const endpoints = securePage
+      ? [
+          'https://localhost:4441/api/token',
+          'https://127.0.0.1:4441/api/token',
+          'https://[::1]:4441/api/token',
+          // Fallback to http if user has explicitly allowed insecure loopback
+          'http://localhost:4001/api/token',
+          'http://127.0.0.1:4001/api/token',
+          'http://[::1]:4001/api/token',
+        ]
+      : [
+          'http://localhost:4001/api/token',
+          'http://127.0.0.1:4001/api/token',
+          'http://[::1]:4001/api/token',
+          'https://localhost:4441/api/token',
+          'https://127.0.0.1:4441/api/token',
+          'https://[::1]:4441/api/token',
+        ]
+
+    let token: string | null = null
+    for (const endpoint of endpoints) {
+      token = await tryFetch(endpoint)
+      if (token) break
     }
 
     if (!token) return null

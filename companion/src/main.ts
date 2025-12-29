@@ -1,5 +1,6 @@
-import { app, Menu, Tray, nativeImage, clipboard } from 'electron';
+import { app, Menu, Tray, nativeImage, clipboard, shell, dialog } from 'electron';
 import { createServer, Server as HttpServer } from 'node:http';
+import { createServer as createHttpsServer, Server as HttpsServer } from 'node:https';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -8,6 +9,7 @@ import path from 'node:path';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { machineId } from 'node-machine-id';
+import selfsigned from 'selfsigned';
 
 let tray: Tray | null = null;
 
@@ -24,7 +26,13 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://127.0.0.1:3000',
   'http://[::1]:5173',
-  'http://[::1]:3000'
+  'http://[::1]:3000',
+  // Hosted Firebase web app
+  'https://stagetime-2d3df.web.app',
+  'https://stagetime-2d3df.firebaseapp.com',
+  // Wildcards for other OnTime Firebase deployments
+  'https://stagetime-*.web.app',
+  'https://stagetime-*.firebaseapp.com'
 ];
 const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
@@ -200,9 +208,20 @@ type TimersReordered = {
 };
 
 let io: SocketIOServer | null = null;
+let ioSecure: SocketIOServer | null = null;
 let httpServer: HttpServer | null = null;
+let httpsServer: HttpsServer | null = null;
 let tokenServerV4: HttpServer | null = null;
 let tokenServerV6: HttpServer | null = null;
+let tokenServerTlsV4: HttpsServer | null = null;
+let tokenServerTlsV6: HttpsServer | null = null;
+const ioServers: SocketIOServer[] = [];
+
+function emitToRoom(roomId: string, event: string, payload: unknown) {
+  ioServers.forEach((server) => {
+    server.to(roomId).emit(event, payload);
+  });
+}
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
 const roomControllerStore: Map<string, { clientId: string; socketId: string; connectedAt: number }> = new Map();
@@ -285,6 +304,251 @@ async function ensureDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
+function getLocalhostCertPaths() {
+  const base = path.join(getCacheBaseDir(), 'ssl');
+  return {
+    certPath: path.join(base, 'localhost-cert.pem'),
+    keyPath: path.join(base, 'localhost-key.pem'),
+    trustFlagPath: path.join(base, 'trust-shown.txt'),
+    trustInstalledFlagPath: path.join(base, 'trust-installed.txt'),
+    trustSkipFlagPath: path.join(base, 'trust-skip.txt'),
+  };
+}
+
+async function generateLocalhostCert(): Promise<{ key: string; cert: string }> {
+  try {
+    const mod = await import('selfsigned');
+    const selfsigned = (mod as any).default ?? mod;
+    const attrs = [{ name: 'commonName', value: 'localhost' }];
+    const pems = selfsigned.generate(attrs, {
+      days: 825, // within Chrome's 825-day cap
+      keySize: 2048,
+      extensions: [
+        { name: 'basicConstraints', cA: false },
+        { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true },
+        {
+          name: 'subjectAltName',
+          altNames: [
+            { type: 2, value: 'localhost' }, // DNS
+            { type: 7, ip: '127.0.0.1' }, // IPv4
+            { type: 7, ip: '::1' } // IPv6
+          ]
+        }
+      ]
+    });
+    return { key: pems.private, cert: pems.cert };
+  } catch (error) {
+    console.warn('[tls] selfsigned unavailable, using bundled localhost certificate');
+    return { key: BUNDLED_LOCALHOST_KEY, cert: BUNDLED_LOCALHOST_CERT };
+  }
+}
+
+function isCertExpiring(certPem: string, minMsRemaining = 30 * 24 * 60 * 60 * 1000): boolean {
+  try {
+    const cert = new crypto.X509Certificate(certPem);
+    const expiresAt = new Date(cert.validTo).getTime();
+    return Number.isNaN(expiresAt) || expiresAt - Date.now() < minMsRemaining;
+  } catch {
+    return true;
+  }
+}
+
+async function loadOrCreateLocalhostCert(): Promise<{ key: string; cert: string }> {
+  const { certPath, keyPath } = getLocalhostCertPaths();
+  try {
+    const [cert, key] = await Promise.all([fs.readFile(certPath, 'utf8'), fs.readFile(keyPath, 'utf8')]);
+    if (cert && key && !isCertExpiring(cert)) {
+      return { cert, key };
+    }
+  } catch {
+    // fall through to generate
+  }
+  const next = await generateLocalhostCert();
+  await ensureDir(certPath);
+  await ensureDir(keyPath);
+  await Promise.all([fs.writeFile(certPath, next.cert, 'utf8'), fs.writeFile(keyPath, next.key, 'utf8')]);
+  console.log('[tls] Generated new localhost certificate for Companion HTTPS');
+  return next;
+}
+
+async function installTrustIfNeeded(certPath: string): Promise<boolean> {
+  const { trustInstalledFlagPath, trustSkipFlagPath } = getLocalhostCertPaths();
+  try {
+    await fs.access(trustSkipFlagPath);
+    return false; // user skipped OS trust
+  } catch {
+    // continue
+  }
+  try {
+    await fs.access(trustInstalledFlagPath);
+    return true; // already trusted
+  } catch {
+    // continue
+  }
+
+  const platform = process.platform;
+  const args: string[] = [];
+  let cmd = '';
+
+  if (platform === 'darwin') {
+    cmd = 'security';
+    args.push('add-trusted-cert', '-d', '-r', 'trustRoot', '-k', `${process.env.HOME ?? os.homedir()}/Library/Keychains/login.keychain-db`, certPath);
+  } else if (platform === 'win32') {
+    cmd = 'certutil';
+    args.push('-addstore', '-f', 'Root', certPath);
+  } else {
+    return false; // skip auto-trust on other platforms
+  }
+
+  return await new Promise((resolve) => {
+    const proc = spawn(cmd, args, { stdio: 'ignore' });
+    proc.on('exit', async (code) => {
+      if (code === 0) {
+        try {
+          await ensureDir(trustInstalledFlagPath);
+          await fs.writeFile(trustInstalledFlagPath, `trusted at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+        } catch {
+          // ignore flag errors
+        }
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    });
+    proc.on('error', () => resolve(false));
+  });
+}
+
+async function installSystemTrust(certPath: string): Promise<boolean> {
+  const { trustInstalledFlagPath, trustSkipFlagPath } = getLocalhostCertPaths();
+  const platform = process.platform;
+  const args: string[] = [];
+  let cmd = '';
+
+  if (platform === 'darwin') {
+    cmd = 'sudo';
+    args.push('security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-k', '/Library/Keychains/System.keychain', certPath);
+  } else if (platform === 'win32') {
+    cmd = 'certutil';
+    args.push('-addstore', '-f', 'Root', certPath);
+  } else {
+    return false;
+  }
+
+  return await new Promise((resolve) => {
+    const proc = spawn(cmd, args, { stdio: 'ignore' });
+    proc.on('exit', async (code) => {
+      if (code === 0) {
+        try {
+          await ensureDir(trustInstalledFlagPath);
+          await fs.writeFile(trustInstalledFlagPath, `trusted-system at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+        } catch {
+          // ignore
+        }
+        resolve(true);
+      } else {
+        try {
+          await ensureDir(trustSkipFlagPath);
+          await fs.writeFile(trustSkipFlagPath, `system trust failed at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+        } catch {
+          // ignore
+        }
+        resolve(false);
+      }
+    });
+    proc.on('error', async () => {
+      try {
+        await ensureDir(trustSkipFlagPath);
+        await fs.writeFile(trustSkipFlagPath, `system trust error at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+      } catch {
+        // ignore
+      }
+      resolve(false);
+    });
+  });
+}
+
+async function maybePromptTrust(_certPath: string) {
+  console.log('[tls] Opening HTTPS token page so you can trust the Companion localhost certificate once.');
+  console.log('      If a browser warns about the certificate, expand "Advanced" and proceed to https://localhost:4441.');
+  try {
+    await openTrustPages('https://localhost:4441/api/token');
+  } catch (error) {
+    console.warn('[tls] Failed to open trust URL automatically. Please visit https://localhost:4441/api/token in your browser and accept the warning once.', error);
+  }
+}
+
+function hasFile(pathToCheck: string): Promise<boolean> {
+  return fs
+    .access(pathToCheck)
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function openTrustPages(url: string) {
+  // Always open in default browser
+  await shell.openExternal(url);
+
+  // Best-effort: also open in common Chromium browsers so they get a chance to cache the exception
+  if (process.platform === 'darwin') {
+    const chromiumApps = ['Google Chrome', 'Arc', 'Brave Browser', 'Microsoft Edge'];
+    chromiumApps.forEach((app) => {
+      const child = spawn('open', ['-a', app, url], { stdio: 'ignore' });
+      child.on('error', () => {
+        // ignore missing apps
+      });
+    });
+  }
+}
+
+async function maybeHandleTrust(certPath: string): Promise<void> {
+  const { trustSkipFlagPath, trustInstalledFlagPath } = getLocalhostCertPaths();
+
+  const alreadyTrusted = await hasFile(trustInstalledFlagPath);
+  if (alreadyTrusted) return;
+
+
+  const skipped = await hasFile(trustSkipFlagPath);
+  if (skipped) return;
+
+  const result = await dialog.showMessageBox({
+    type: 'info',
+    buttons: ['Allow (Recommended)', 'Open Trust Page', 'Advanced: System Trust (Admin)', 'Skip'],
+    defaultId: 0,
+    cancelId: 3,
+    title: 'Allow Companion Local Connection',
+    message: 'Trust Companion to talk to your browser over localhost (secure, stays on your machine).',
+    detail:
+      'We need a local-only certificate so the browser can securely reach Companion at https://localhost.\n' +
+      'This never leaves your machine. Choose:\n' +
+      '• Allow (Recommended): Approve once in your browser.\n' +
+      '• Open Trust Page: Same as Allow, opens the page to approve once.\n' +
+      '• Advanced: System Trust (Admin): Add certificate to system trust (admin prompt).\n' +
+      '• Skip: I’ll handle trust later.',
+  });
+
+  if (result.response === 0) {
+    const trusted = await installTrustIfNeeded(certPath);
+    if (!trusted) {
+      await maybePromptTrust(certPath);
+    }
+  } else if (result.response === 1) {
+    await maybePromptTrust(certPath);
+  } else if (result.response === 2) {
+    const osTrusted = await installSystemTrust(certPath);
+    if (!osTrusted) {
+      await maybePromptTrust(certPath);
+    }
+  } else {
+    try {
+      await ensureDir(trustSkipFlagPath);
+      await fs.writeFile(trustSkipFlagPath, `skipped at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+    } catch {
+      // ignore
+    }
+  }
+}
+
 async function deriveKey(): Promise<Buffer> {
   const salt = await getMachineId();
   return await new Promise((resolve, reject) => {
@@ -343,12 +607,33 @@ function parseAllowedOrigins(): string[] {
 
 function validateOrigin(origin: string | undefined, allowedOrigins: string[]): boolean {
   if (!origin) return true; // allow CLI tools like curl without Origin
+  const normalized = normalizeOrigin(origin);
+  return matchesAllowedOrigin(normalized, allowedOrigins);
+}
+
+function normalizeOrigin(origin: string): string | null {
   try {
     const url = new URL(origin);
-    return allowedOrigins.includes(`${url.protocol}//${url.host}`);
+    return `${url.protocol}//${url.host}`;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function matchesAllowedOrigin(normalizedOrigin: string | null, allowedOrigins: string[]): boolean {
+  if (!normalizedOrigin) return false;
+  return allowedOrigins.some((allowed) => {
+    if (!allowed) return false;
+    if (!allowed.includes('*')) {
+      return normalizedOrigin === allowed;
+    }
+    // Convert wildcard entries like https://stagetime-*.web.app to a regex
+    const pattern = allowed
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&') // escape regex chars
+      .replace(/\\\*/g, '[^.]+'); // wildcard only spans a single label
+    const re = new RegExp(`^${pattern}$`);
+    return re.test(normalizedOrigin);
+  });
 }
 
 function createTray(token: string, expiresAt: number) {
@@ -422,13 +707,19 @@ async function bootstrap() {
     console.warn('[auth] Failed to persist token', error);
   }
 
+  const tls = await loadOrCreateLocalhostCert();
+  const { certPath } = getLocalhostCertPaths();
+  await maybeHandleTrust(certPath);
+
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
   }
 
   createTray(token, expiresAt);
   startSocketServer();
+  startSecureSocketServer(tls);
   startTokenServer(token, expiresAt);
+  startSecureTokenServer(token, expiresAt, tls);
 }
 
 bootstrap().catch((error) => {
@@ -436,18 +727,32 @@ bootstrap().catch((error) => {
   app.quit();
 });
 
-function startSocketServer() {
-  httpServer = createServer();
-  io = new SocketIOServer(httpServer, {
-    serveClient: false,
-    cors: { 
-      origin: true, // Allow any origin that is in the allowed list or requested
-      methods: ['GET', 'POST'],
-      credentials: true
-    }
+function attachEngineCors(sio: SocketIOServer) {
+  // Allow secure contexts to call into the loopback server (Chrome PNA preflight)
+  sio.engine.on('initial_headers', (headers, req) => {
+    const allowedOrigins = parseAllowedOrigins();
+    const origin = req.headers?.origin as string | undefined;
+    const remoteAddress = req.socket?.remoteAddress;
+    if (!isLoopback(remoteAddress)) return;
+    if (!validateOrigin(origin, allowedOrigins)) return;
+    headers['Access-Control-Allow-Origin'] = origin ?? allowedOrigins[0];
+    headers['Access-Control-Allow-Private-Network'] = 'true';
+    headers['Vary'] = 'Origin';
   });
+  sio.engine.on('headers', (headers, req) => {
+    const allowedOrigins = parseAllowedOrigins();
+    const origin = req.headers?.origin as string | undefined;
+    const remoteAddress = req.socket?.remoteAddress;
+    if (!isLoopback(remoteAddress)) return;
+    if (!validateOrigin(origin, allowedOrigins)) return;
+    headers['Access-Control-Allow-Origin'] = origin ?? allowedOrigins[0];
+    headers['Access-Control-Allow-Private-Network'] = 'true';
+    headers['Vary'] = 'Origin';
+  });
+}
 
-  io.on('connection', (socket) => {
+function registerSocketHandlers(server: SocketIOServer) {
+  server.on('connection', (socket) => {
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
@@ -475,17 +780,51 @@ function startSocketServer() {
       console.warn(`[ws] transport error for socket=${socket.id}: ${err}`);
     });
   });
+}
+
+function createSocketServer(server: HttpServer | HttpsServer): SocketIOServer {
+  const sio = new SocketIOServer(server, {
+    serveClient: false,
+    cors: {
+      origin: true, // Allow any origin that is in the allowed list or requested
+      methods: ['GET', 'POST'],
+      credentials: true
+    }
+  });
+  attachEngineCors(sio);
+  registerSocketHandlers(sio);
+  return sio;
+}
+
+function startSocketServer() {
+  httpServer = createServer();
+  io = createSocketServer(httpServer);
+  ioServers.push(io);
 
   httpServer.listen(4000, () => {
     console.log('[ws] Companion listening on ws://localhost:4000');
   });
 
   app.on('before-quit', () => {
-    io?.close();
+    ioServers.forEach((server) => server.close());
     httpServer?.close();
+    httpsServer?.close();
     tokenServerV4?.close();
     tokenServerV6?.close();
+    tokenServerTlsV4?.close();
+    tokenServerTlsV6?.close();
     void flushRoomCache();
+  });
+}
+
+function startSecureSocketServer(tls: { key: string; cert: string }) {
+  httpsServer = createHttpsServer({ key: tls.key, cert: tls.cert });
+  ioSecure = createSocketServer(httpsServer);
+  ioServers.push(ioSecure);
+
+  httpsServer.listen(4440, '127.0.0.1', () => {
+    console.log('[wss] Companion listening on wss://localhost:4440');
+    console.log('[wss] If the browser blocks self-signed certs, open https://localhost:4441 once and accept the warning.');
   });
 }
 
@@ -962,7 +1301,7 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
           // Intentionally omit clientId so all clients apply it (including the controller that sent SYNC).
           timestamp: now,
         };
-        io?.to(roomId).emit('TIMER_DELETED', deleted);
+        emitToRoom(roomId, 'TIMER_DELETED', deleted);
       }
     });
 
@@ -977,7 +1316,7 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
         // Intentionally omit clientId so the sender also applies it.
         timestamp: now,
       };
-      io?.to(roomId).emit('TIMER_CREATED', created);
+      emitToRoom(roomId, 'TIMER_CREATED', created);
     });
     normalizeTimerOrder(roomId);
 
@@ -989,7 +1328,7 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
       clientId,
       timestamp: now,
     };
-    io?.to(roomId).emit('TIMERS_REORDERED', reordered);
+    emitToRoom(roomId, 'TIMERS_REORDERED', reordered);
   }
 
   // 2) Apply state snapshot
@@ -1009,7 +1348,7 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
     clientId,
     timestamp: now,
   };
-  io?.to(roomId).emit('ROOM_STATE_DELTA', delta);
+  emitToRoom(roomId, 'ROOM_STATE_DELTA', delta);
 
   // Also ack with a fresh snapshot to the sender (optional but helpful).
   const snapshot: RoomStateSnapshot = {
@@ -1075,7 +1414,7 @@ function handleRoomStatePatch(socket: Socket, payload: unknown) {
     timestamp: now
   };
 
-  io?.to(roomId).emit('ROOM_STATE_DELTA', delta);
+  emitToRoom(roomId, 'ROOM_STATE_DELTA', delta);
   console.log(`[ws] ROOM_STATE_PATCH room=${roomId} by=${clientId ?? socket.id}`);
 }
 
@@ -1162,7 +1501,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
     )}`
   );
 
-  io?.to(payload.roomId).emit('ROOM_STATE_DELTA', delta);
+  emitToRoom(payload.roomId, 'ROOM_STATE_DELTA', delta);
   console.log(
     `[ws] broadcast ROOM_STATE_DELTA to room=${payload.roomId}: ${JSON.stringify(delta.changes)}`
   );
@@ -1320,7 +1659,7 @@ function handleCreateTimer(socket: Socket, payload: unknown) {
     socket.join(roomId);
   }
 
-  io?.to(roomId).emit('TIMER_CREATED', event);
+  emitToRoom(roomId, 'TIMER_CREATED', event);
   console.log(`[ws] TIMER_CREATED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
 }
 
@@ -1393,7 +1732,7 @@ function handleUpdateTimer(socket: Socket, payload: unknown) {
     socket.join(roomId);
   }
 
-  io?.to(roomId).emit('TIMER_UPDATED', event);
+  emitToRoom(roomId, 'TIMER_UPDATED', event);
   console.log(`[ws] TIMER_UPDATED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
 }
 
@@ -1428,7 +1767,7 @@ function handleDeleteTimer(socket: Socket, payload: unknown) {
     clientId,
     timestamp: now,
   };
-  io?.to(roomId).emit('TIMER_DELETED', deleted);
+  emitToRoom(roomId, 'TIMER_DELETED', deleted);
 
   const reordered: TimersReordered = {
     type: 'TIMERS_REORDERED',
@@ -1437,7 +1776,7 @@ function handleDeleteTimer(socket: Socket, payload: unknown) {
     clientId,
     timestamp: now,
   };
-  io?.to(roomId).emit('TIMERS_REORDERED', reordered);
+  emitToRoom(roomId, 'TIMERS_REORDERED', reordered);
 
   scheduleRoomCacheWrite();
   console.log(`[ws] TIMER_DELETED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
@@ -1470,7 +1809,7 @@ function handleReorderTimers(socket: Socket, payload: unknown) {
     socket.join(roomId);
   }
 
-  io?.to(roomId).emit('TIMERS_REORDERED', event);
+  emitToRoom(roomId, 'TIMERS_REORDERED', event);
   console.log(`[ws] TIMERS_REORDERED room=${roomId} by=${clientId ?? socket.id} count=${finalOrder.length}`);
 }
 
@@ -1501,8 +1840,8 @@ function getRoomState(roomId: string): RoomState {
   return initial;
 }
 
-function startTokenServer(token: string, expiresAt: number) {
-  const handler = (req: any, res: any) => {
+function createTokenHandler(token: string, expiresAt: number) {
+  return (req: any, res: any) => {
     const allowedOrigins = parseAllowedOrigins();
     const origin = req.headers.origin as string | undefined;
     const remoteAddress = req.socket?.remoteAddress;
@@ -1535,6 +1874,30 @@ function startTokenServer(token: string, expiresAt: number) {
         }
 
         if (req.method === 'GET') {
+          const returnTo = url.searchParams.get('return');
+          const isHttp = (value: string) => value.startsWith('http://') || value.startsWith('https://');
+          const safeReturn = returnTo && isHttp(returnTo) ? returnTo : null;
+          if (safeReturn) {
+            const escape = (value: string) => value.replace(/"/g, '&quot;');
+            const html = `<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Companion Trust</title></head>
+<body style="font-family:system-ui;background:#0b1220;color:#e5e7eb;padding:24px;">
+<h1 style="font-size:18px;margin:0 0 12px;">Local Companion trusted</h1>
+<p style="margin:0 0 8px;">We fetched your Companion token on this device.</p>
+<pre style="white-space:pre-wrap;background:#0f172a;border:1px solid #1e293b;padding:12px;border-radius:8px;">${JSON.stringify({ token, expiresAt }, null, 2)}</pre>
+<p style="margin:12px 0 16px;">Redirecting you back to the app…</p>
+<script>setTimeout(function(){ window.location.href="${escape(safeReturn)}"; }, 800);</script>
+</body>
+</html>`;
+            res.writeHead(200, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+              'Access-Control-Allow-Private-Network': 'true'
+            });
+            res.end(html);
+            return;
+          }
           res.writeHead(200, {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
@@ -1712,6 +2075,10 @@ function startTokenServer(token: string, expiresAt: number) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
   };
+}
+
+function startTokenServer(token: string, expiresAt: number) {
+  const handler = createTokenHandler(token, expiresAt);
 
   tokenServerV4 = createServer(handler);
   tokenServerV6 = createServer(handler);
@@ -1722,6 +2089,20 @@ function startTokenServer(token: string, expiresAt: number) {
 
   tokenServerV6.listen({ port: 4001, host: '::1', ipv6Only: true }, () => {
     console.log('[http] Token endpoint listening on http://[::1]:4001/api/token');
+  });
+}
+
+function startSecureTokenServer(token: string, expiresAt: number, tls: { key: string; cert: string }) {
+  const handler = createTokenHandler(token, expiresAt);
+  tokenServerTlsV4 = createHttpsServer({ key: tls.key, cert: tls.cert }, handler);
+  tokenServerTlsV6 = createHttpsServer({ key: tls.key, cert: tls.cert }, handler);
+
+  tokenServerTlsV4.listen(4441, '127.0.0.1', () => {
+    console.log('[https] Token endpoint listening on https://127.0.0.1:4441/api/token');
+  });
+
+  tokenServerTlsV6.listen({ port: 4441, host: '::1', ipv6Only: true }, () => {
+    console.log('[https] Token endpoint listening on https://[::1]:4441/api/token');
   });
 }
 

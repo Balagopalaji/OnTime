@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppMode, type AppMode } from '../../context/AppModeContext'
 import { useCompanionConnection } from '../../context/CompanionConnectionContext'
 import { useDataContext } from '../../context/DataProvider'
@@ -18,7 +18,15 @@ export const AppShell = () => {
   }
   const connection = useCompanionConnection()
   const [isDownloadOpen, setIsDownloadOpen] = useState(false)
+  const [showCompanionWizard, setShowCompanionWizard] = useState(false)
+  const [showTrustStep, setShowTrustStep] = useState(false)
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
+
+  const openTrustPage = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const current = window.location.pathname === '/' ? '/dashboard' : window.location.pathname
+    window.location.href = `/companion/trust?return=${encodeURIComponent(current)}`
+  }, [])
 
   const handleAuthClick = () => {
     if (isAuthed) {
@@ -30,21 +38,7 @@ export const AppShell = () => {
 
   const handleCompanionClick = async () => {
     if (connection.isConnected) return
-
-    // Silent check if companion is running locally
-    try {
-      const res = await fetch('http://localhost:4001/api/token')
-      if (res.ok) {
-        // It's running! Trigger connection logic (re-fetch token)
-        await connection.fetchToken()
-        return
-      }
-    } catch {
-      // Fetch failed, meaning app is likely not running
-    }
-
-    // If we're here, we couldn't connect -> offer download
-    setIsDownloadOpen(true)
+    setShowCompanionWizard(true)
   }
 
   useEffect(() => {
@@ -215,6 +209,130 @@ export const AppShell = () => {
       >
         <Outlet />
       </main>
+      {showCompanionWizard ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-3xl rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase text-amber-300">Local Companion</p>
+                <h2 className="text-xl font-semibold text-white">Get Companion connected</h2>
+                <p className="text-sm text-slate-300">
+                  Use the Companion app to control timers locally. Choose the path that matches your setup.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCompanionWizard(false)}
+                className="text-slate-400 transition hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+                <p className="text-sm font-semibold text-white">I need to install Companion</p>
+                <ol className="mt-2 space-y-1 text-sm text-slate-300 list-decimal list-inside">
+                  <li>Download and install the Companion app.</li>
+                  <li>Launch it (it runs in the menu bar/tray).</li>
+                  <li>Return here and click “Retry connect”.</li>
+                </ol>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDownloadOpen(true)}
+                    className="rounded-md border border-amber-400/60 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/10"
+                  >
+                    Download Companion
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+                <p className="text-sm font-semibold text-white">I already have Companion</p>
+                <div className="mt-2 space-y-2 text-sm text-slate-300">
+                  <p className="font-semibold text-emerald-200">Secure local link</p>
+                  <p>
+                    Your browser needs to trust the Companion running on this machine so offline/local mode works.
+                    This approval is local-only and never leaves your device.
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Arc/Chrome: you’ll see a “Not private” page; click Advanced → Proceed once. Safari/Firefox: approve once if prompted.
+                  </p>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTrustStep(true)
+                    }}
+                    className="rounded-md border border-emerald-400/60 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/10"
+                  >
+                    Retry connect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCompanionWizard(false)}
+                    className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showTrustStep ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
+          <div className="w-full max-w-xl rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase text-amber-300">Trust Companion</p>
+                <h3 className="text-lg font-semibold text-white">Allow your browser to talk to Companion</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTrustStep(false)}
+                className="text-slate-400 transition hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2 text-sm text-slate-300">
+              <p>
+                We need a one-time approval so your browser can securely reach the Companion app on this device
+                (https://localhost). This stays on your machine and does not expose your data online.
+              </p>
+              <p className="text-slate-200 font-semibold">What happens next?</p>
+              <ul className="list-disc list-inside space-y-1 text-slate-300">
+                <li>A “Not private” page opens. Click Advanced → Proceed to trust localhost.</li>
+                <li>This only allows your browser to talk to the Companion on this computer.</li>
+                <li>After approving, reload if prompted and the connection will complete.</li>
+              </ul>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  openTrustPage()
+                  void connection.fetchToken()
+                  setShowTrustStep(false)
+                  setShowCompanionWizard(false)
+                }}
+                className="rounded-md border border-emerald-400/60 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/10"
+              >
+                Open trust page
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTrustStep(false)}
+                className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <CompanionDownloadPrompt isOpen={isDownloadOpen} onClose={() => setIsDownloadOpen(false)} />
     </div>
   )

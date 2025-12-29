@@ -162,9 +162,9 @@ export const DashboardPage = () => {
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [now, setNow] = useState(() => Date.now())
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'custom'>(() => {
-    if (typeof window === 'undefined') return 'newest'
+    if (typeof window === 'undefined') return 'custom'
     const saved = window.localStorage.getItem('stagetime.sort')
-    return saved === 'oldest' || saved === 'title' || saved === 'custom' ? saved : 'newest'
+    return saved === 'oldest' || saved === 'title' || saved === 'newest' ? saved : 'custom'
   })
   const titleRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const tzRefs = useRef<Record<string, HTMLInputElement | null>>({})
@@ -1212,12 +1212,12 @@ export const DashboardPage = () => {
               onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
               className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs uppercase tracking-wide text-slate-200"
             >
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="title">Title</option>
               <option value="custom" disabled={!canManageRooms}>
                 Custom
               </option>
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="title">Title</option>
             </select>
           </label>
           <label className="flex items-center gap-2">
