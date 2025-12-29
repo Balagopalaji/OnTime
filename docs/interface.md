@@ -107,6 +107,7 @@ Notes:
 - `clientType` defaults to `viewer` unless explicitly set to `controller`.
 - `clientId` defaults to the socket id if not provided.
 - `takeOver` is currently ignored; the Companion server allows multiple controllers (no lock enforcement yet).
+- Planned: controller lock + explicit takeover semantics (see `docs/local-offline-lan-plan.md`).
 
 **Server → Client: `HANDSHAKE_ACK`**
 ```json
