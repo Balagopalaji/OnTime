@@ -1878,16 +1878,29 @@ function createTokenHandler(token: string, expiresAt: number) {
           const isHttp = (value: string) => value.startsWith('http://') || value.startsWith('https://');
           const safeReturn = returnTo && isHttp(returnTo) ? returnTo : null;
           if (safeReturn) {
-            const escape = (value: string) => value.replace(/"/g, '&quot;');
+            const escapeAttr = (value: string) => value.replace(/"/g, '&quot;');
+            const redirectTarget = JSON.stringify(safeReturn);
+            const escapedAttr = escapeAttr(safeReturn);
             const html = `<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Companion Trust</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>Companion Trust</title>
+  <meta http-equiv="refresh" content="0;url=${escapedAttr}">
+</head>
 <body style="font-family:system-ui;background:#0b1220;color:#e5e7eb;padding:24px;">
-<h1 style="font-size:18px;margin:0 0 12px;">Local Companion trusted</h1>
-<p style="margin:0 0 8px;">We fetched your Companion token on this device.</p>
-<pre style="white-space:pre-wrap;background:#0f172a;border:1px solid #1e293b;padding:12px;border-radius:8px;">${JSON.stringify({ token, expiresAt }, null, 2)}</pre>
-<p style="margin:12px 0 16px;">Redirecting you back to the app…</p>
-<script>setTimeout(function(){ window.location.href="${escape(safeReturn)}"; }, 800);</script>
+  <h1 style="font-size:18px;margin:0 0 12px;">Local Companion trusted</h1>
+  <p style="margin:0 0 8px;">We fetched your Companion token on this device.</p>
+  <pre style="white-space:pre-wrap;background:#0f172a;border:1px solid #1e293b;padding:12px;border-radius:8px;">${JSON.stringify({ token, expiresAt }, null, 2)}</pre>
+  <p style="margin:12px 0 16px;">Redirecting you back to the app… If it doesn’t move, <a href="${escapedAttr}" style="color:#a5b4fc;">click here</a>.</p>
+  <script>
+    const target = ${redirectTarget};
+    function go() {
+      try { window.location.replace(target); } catch (err) { window.location.href = target; }
+    }
+    setTimeout(go, 60);
+    setTimeout(() => { try { window.close(); } catch (err) {} }, 1600);
+  </script>
 </body>
 </html>`;
             res.writeHead(200, {

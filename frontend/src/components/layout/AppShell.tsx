@@ -24,7 +24,8 @@ export const AppShell = () => {
 
   const openTrustPage = useCallback(() => {
     if (typeof window === 'undefined') return
-    const current = window.location.pathname === '/' ? '/dashboard' : window.location.pathname
+    const pathWithSearch = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const current = pathWithSearch === '/' ? '/dashboard' : pathWithSearch
     window.location.href = `/companion/trust?return=${encodeURIComponent(current)}`
   }, [])
 

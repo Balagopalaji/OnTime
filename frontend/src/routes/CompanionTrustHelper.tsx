@@ -5,7 +5,13 @@ export const CompanionTrustHelper = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const searchParams = new URLSearchParams(location.search)
-  const returnTo = searchParams.get('return') || '/dashboard'
+  const stored = typeof window !== 'undefined' ? window.localStorage.getItem('stagetime.lastPath') : null
+  const returnTo =
+    searchParams.get('return') ||
+    location.state?.from ||
+    stored ||
+    `${window.location.pathname}${window.location.search}${window.location.hash}` ||
+    '/dashboard'
   const absoluteReturn =
     returnTo.startsWith('http://') || returnTo.startsWith('https://')
       ? returnTo
