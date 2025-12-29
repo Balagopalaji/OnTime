@@ -1,14 +1,14 @@
 # OnTime Documentation Index
 
-Last Updated: 2025-12-22
+Last Updated: 2025-12-29
 
 ## Current Documentation (Source of Truth)
 
 ### Architecture and Design
-- `local-mode-plan.md` - Parallel Sync and Flawless Fallback architecture (Phase 1D target)
-- `edge-cases.md` - Edge case handling (Phase 1D target)
+- `local-mode-plan.md` - Parallel Sync architecture (✅ Phase 1D COMPLETE)
+- `edge-cases.md` - Edge case handling
 - `websocket-protocol.md` - WebSocket event schema
-- `parallel-sync-tasklist.md` - High-priority tasks for parallel sync alignment
+- `phase-2-tasklist.md` - Phase 2 milestones and tasks
 - `timer-logic.md` - Timer state math and invariants (authoritative)
 
 ### Product Requirements
@@ -28,10 +28,10 @@ Last Updated: 2025-12-22
 - If an archive file conflicts with current docs, current docs win
 
 ## Quick Reference
-- Parallel sync architecture: `local-mode-plan.md`
+- Parallel sync architecture: `local-mode-plan.md` (Phase 1D complete)
 - Edge case handling: `edge-cases.md`
 - WebSocket events: `websocket-protocol.md`
-- Task alignment: `parallel-sync-tasklist.md`
+- Phase 2 planning: `phase-2-tasklist.md`
 - Timer logic guardrail: `timer-logic.md` + shared helpers `frontend/src/utils/timer-utils.ts`; do not reimplement or clamp elapsed (bonus time can be negative).
 
 ## Operational Note

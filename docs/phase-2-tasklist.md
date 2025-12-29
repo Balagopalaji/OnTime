@@ -4,28 +4,26 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 ## Pre-Phase 2: Verify Phase 1D Completion
 
-**MANDATORY:** Close the gaps from `docs/local-mode-plan.md` Section 9 before Milestone 1.
+**STATUS (2025-12-29):** ✅ Phase 1D Parallel Sync is COMPLETE. All high and medium priority items are implemented.
 
-### High Priority (Blocking)
-- [ ] Companion participates in Cloud mode (remove `effectiveMode === 'cloud'` guard)
-- [ ] Timestamp arbitration with confidence window
-- [ ] Queue merge by change type (keep latest per target, replay in timestamp order)
+### ✅ High Priority (Complete)
+- [x] Companion participates in Cloud mode (hot standby writes in all modes)
+- [x] Timestamp arbitration with 2s confidence window (expandable to 4s)
+- [x] Queue merge by change type (keeps latest per target, replays in timestamp order)
 
-### Medium Priority (Recommended)
-- [ ] Firebase → Companion sync when Firebase is newer
-- [ ] Plausibility-based staleness check with adjustment log
+### ✅ Medium Priority (Complete)
+- [x] Firebase → Companion sync when Firebase is newer (`SYNC_ROOM_STATE`)
+- [x] Plausibility-based staleness check (duration-aware, 3x cap, variance tolerance)
 
-### Low Priority (Can Defer)
+### ⏸️ Low Priority (Deferred to Phase 2)
 - [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
-- [ ] Remove deprecated mode type from AppModeContext
+
+### ✅ Cleanup (Complete)
+- [x] Mode types use `auto | cloud | local` (no deprecated `hybrid`)
 
 **Verification:**
-- [ ] Run `npm run test` in `frontend/` - all non-skipped tests pass
-- [ ] After queue merge implemented: unskip `reorderRoom.mock.test.tsx`
-- [ ] Verify `reorderRoom.mock.test.tsx` passes with new merge logic (no hanging timers/storage)
-
-## Pre-Phase 2 Cleanup (After Phase 1D Gaps Closed)
-- [ ] Fix `frontend/src/__tests__/reorderRoom.mock.test.tsx` teardown (MockDataContext side effects) if it still flakes after queue merge work
+- [x] Run `npm run test` in `frontend/` - tests pass
+- [x] Queue merge implemented and working
 
 ## Guardrails & Targets
 - **Latency (viewers):** Local viewer (Companion) <150 ms delta from controller; Cloud viewer <700 ms. Measure via stopwatch harness (see QA hooks).

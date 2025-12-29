@@ -1,10 +1,9 @@
 ---
 CURRENT SOURCE OF TRUTH - Phase 1D Parallel Sync Architecture
-This document describes the target architecture for OnTime's dual-connection (Companion + Firebase) system.
-Status: Target architecture; some features are marked "TO BE IMPLEMENTED".
+This document describes OnTime's dual-connection (Companion + Firebase) system.
+Status: ✅ IMPLEMENTED - Phase 1D Parallel Sync is complete (2025-12-29).
 Supersedes: prior single-provider model, "Hybrid" mode, Firebase-only MVP specs (see PRD banners).
-Last Updated: 2025-12-22
-Code Alignment: See Section 9 "Code Gaps vs Target Architecture".
+Last Updated: 2025-12-29
 ---
 
 # Implementation Plan: Local Mode Foundation (Phase 1)
@@ -54,7 +53,7 @@ The UI exposes three modes to the operator:
 - Controllers show a brief "Sync" LED indicator during authority handoff
 - Viewers pick freshest data by timestamp (no "Syncing" banner)
 
-**CODE GAP:** `AppModeContext` still exposes `hybrid`. See Section 9.
+**Note:** Mode types are `auto | cloud | local` (no `hybrid`).
 
 ### 2.2 The Companion App (Electron)
 A lightweight Node.js/Electron application running on the operator's machine.
@@ -101,7 +100,7 @@ A lightweight Node.js/Electron application running on the operator's machine.
 ### 3.2 Frontend Integration (Unified Data Provider)
 
 > **Implementation status:** Verify in code. Provider nesting is expected but not confirmed here.
-> **Code gap:** Read preference and Companion participation in Cloud mode (see Section 9).
+> **Note:** Companion participates in all modes; read preference uses timestamp arbitration.
 
 The frontend uses a Unified Data Provider architecture where Firebase and Companion connections run in parallel.
 
@@ -172,7 +171,7 @@ function writeTimerAction(action: TimerAction) {
 }
 ```
 
-**CODE GAP:** Current code blocks Companion writes in Cloud mode. See Section 9.
+**Note:** Companion writes are enabled in all modes (dual-write architecture).
 
 #### Read behavior (timestamp arbitration)
 
@@ -583,46 +582,28 @@ onSnapshot(roomRef, (snap) => {
 
 ## 9. Code Gaps vs Target Architecture
 
-### ❌ High Priority (Breaks Parallel Sync)
-- **Companion blocked in Cloud mode**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`shouldUseCompanion`)
-  - Issue: Guard blocks Companion when `effectiveMode === 'cloud'`
-  - Fix: Allow Companion participation in all modes (hot standby writes)
-- **No timestamp arbitration**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`getRoom`/`getTimers`)
-  - Issue: Authority-only reads; no `lastUpdate` comparison
-  - Fix: Implement freshest-by-timestamp with confidence window
-- **Queue replay is FIFO only**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`replayRoomQueue`)
-  - Issue: No per-change-type merge before replay
-  - Fix: Group by change type + target, keep latest, replay in timestamp order
+**Status (Updated 2025-12-29):** Phase 1D Parallel Sync is COMPLETE. All high and medium priority items are implemented.
 
-### ⚠️ Medium Priority (Reliability)
-- **Firebase to Companion sync missing**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx`
-  - Issue: No detection of newer Firebase state while Companion has authority
-  - Fix: Emit `SYNC_ROOM_STATE` when Firebase is newer (not mode-gated)
-- **Naive staleness check**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx` (`isSnapshotStale`)
-  - Issue: Fixed 30s/24h thresholds; no adjustment log
-  - Fix: Plausibility-based check with adjustment log and 3x duration cap
+### ✅ Completed (Phase 1D Parallel Sync)
+- **Companion participates in Cloud mode** - Hot standby writes enabled in all modes
+- **Timestamp arbitration** - Freshest-by-timestamp with 2s confidence window (expandable to 4s)
+- **Per-change-type queue merge** - Groups by change type + target, keeps latest, replays in timestamp order
+- **Firebase to Companion sync** - Emits `SYNC_ROOM_STATE` when Firebase is newer
+- **Plausibility-based staleness** - Duration-aware checks with 3x cap and variance tolerance
+- **Mode types cleaned** - Uses `auto | cloud | local` (no `hybrid`)
 
-### ⏸️ Low Priority (Future)
+### ⏸️ Future (Phase 2)
 - **Room lock + heartbeat not implemented**
   - Location: `frontend/src/context/UnifiedDataContext.tsx`, `companion/src/main.ts`
   - Issue: No heartbeat, no takeover prompt in web app
   - Fix: Add `lock.lastHeartbeat`, heartbeat interval, takeover prompt, `CONTROLLER_TAKEOVER`
-- **Deprecated mode type still in code**
-  - Location: `frontend/src/context/AppModeContext.tsx`
-  - Issue: `hybrid` still present in type/logic
-  - Fix: Remove `hybrid`; use `auto | cloud | local`
 
-**Open gaps vs code checklist**
-- [ ] Companion participates in Cloud mode (hot standby writes)
-- [ ] Timestamp arbitration with confidence window
-- [ ] Per-change-type merge before queue replay
-- [ ] Firebase to Companion sync when Firebase is newer
-- [ ] Plausibility-based staleness detection
-- [ ] Viewer reads use Firebase during `authority.status === 'syncing'`
-- [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
-- [ ] Remove `hybrid` from app mode types
+**Completed checklist**
+- [x] Companion participates in Cloud mode (hot standby writes)
+- [x] Timestamp arbitration with confidence window
+- [x] Per-change-type merge before queue replay
+- [x] Firebase to Companion sync when Firebase is newer
+- [x] Plausibility-based staleness detection
+- [x] Viewer reads use freshest data by timestamp
+- [x] Mode types use `auto | cloud | local`
+- [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER` (Phase 2)
