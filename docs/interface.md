@@ -106,6 +106,7 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 Notes:
 - `clientType` defaults to `viewer` unless explicitly set to `controller`.
 - `clientId` defaults to the socket id if not provided.
+- `takeOver` is currently ignored; the Companion server allows multiple controllers (no lock enforcement yet).
 
 **Server → Client: `HANDSHAKE_ACK`**
 ```json
@@ -178,6 +179,8 @@ Notes:
   "currentTime": 12345
 }
 ```
+Notes:
+- `currentTime` is optional and used when switching timers to preserve stored progress; if omitted while switching, the server resets `currentTime` to 0.
 
 **Client → Server: `ROOM_STATE_PATCH`**
 ```json
@@ -196,6 +199,7 @@ Notes:
 ```
 Notes:
 - `timestamp` is optional; server uses `Date.now()` if omitted.
+- Only the following change keys are accepted: `activeTimerId`, `isRunning`, `currentTime`, `lastUpdate`.
 
 **Client → Server: `SYNC_ROOM_STATE`**
 ```json
@@ -221,6 +225,18 @@ Notes:
 
 **Timer CRUD (Server → Client)**
 - `TIMER_CREATED`, `TIMER_UPDATED`, `TIMER_DELETED`, `TIMERS_REORDERED`
+
+**Server → Client: `TIMER_ERROR`**
+```json
+{
+  "type": "TIMER_ERROR",
+  "roomId": "abc123",
+  "code": "INVALID_FIELDS",
+  "message": "Timer requires non-empty title and duration > 0.",
+  "clientId": "client-uuid",
+  "timestamp": 1234567899
+}
+```
 
 **Show Control Events (planned)**
 - `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`
