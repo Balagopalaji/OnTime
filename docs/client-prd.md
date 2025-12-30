@@ -103,19 +103,12 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 
 **Tech viewer roles**
 - Built-in roles: LX, AX, VX, SM, TD, Director, FOH, Custom.
-- Role selection highlights your cues and allows hiding other roles per operator.
-- If no cues exist yet, show an empty state ("No cues configured yet").
+- Role selection is visible in the header for labeling and future filtering.
 
-**Cue list + states (read-only in Phase 2c)**
-- Cues render from `rooms/{roomId}/cues` when present; authoring is Phase 3.
-- State thresholds (defaults):
-  - Future: > 2:00
-  - Standby: 2:00 - 1:00 (show "STBY" badge)
-  - Warning: 1:00 - 0:10 (pulse border)
-  - Imminent: < 0:10 (strong pulse)
-  - Go: 0:00 (flash, stays active until acknowledgment)
-- Go state requires manual acknowledgment: **Done**, **Skip**, or **+30s** (delay the Go window).
-- Completed cues are muted with checkmark; skipped cues are struck through.
+**Data model distinction**
+- **Phase 2c:** Uses `liveCues` (presentation-driven, auto-generated from PowerPoint detection).
+- **Phase 3:** Adds `cues` (manual rundown cues authored in Show Planner).
+- Phase 2c shows presentation status only; cue lists and countdown states begin in Phase 3.
 
 **Presentation status panel**
 - Shows slide progress (e.g., "7/24") and video timing.
@@ -134,21 +127,20 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 
 **Phase 2c layout (tech viewer)**
 ```
-HEADER: Room | Timer Status | Role: [LX] | Connection | PIN: 4821 | Settings
----------------------------------------------------------------
-MAIN DISPLAY                         | STATUS PANEL
-Current timer (large)                | Slide 7/24
-"Pastor Introduction"                | Video remaining 0:45
-                                     | Progress bar
-                                     | -------------------------
-                                     | YOUR CUES (LX)
-                                     | GO: Cue 12 [Done] [Skip] [+30s]
-                                     | STBY Cue 13 in 1:30
-                                     | -------------------------
-                                     | OTHER CUES (collapsible)
-                                     | AX Cue 8 in 0:30
-                                     | VX Cue 5 in 1:00
-                                     | [Scroll] [Jump to NOW]
+┌─────────────────────────────────────────────────────────────────────────┐
+│ HEADER: Room | Timer | Role: [LX ▾] | ● Local+Cloud | PIN: 4821 | [⚙️]  │
+├─────────────────────────────────────────────┬───────────────────────────┤
+│                                             │ STATUS PANEL              │
+│   MAIN DISPLAY                              │ ┌───────────────────────┐ │
+│                                             │ │ ▶ Slide 7/24          │ │
+│   ┌─────────────────────────────────┐       │ │ 🎬 Video: 0:45 left   │ │
+│   │                                 │       │ │ ━━━━━━━━━░░░░ 75%     │ │
+│   │          05:32                  │       │ └───────────────────────┘ │
+│   │                                 │       │ (No presentation → show │
+│   │    "Pastor Introduction"        │       │  "No presentation found")│
+│   │                                 │       │                           │
+│   └─────────────────────────────────┘       │ (Cue list begins Phase 3) │
+└─────────────────────────────────────────────┴───────────────────────────┘
 ```
 
 **Phase 3 preview (Show Planner)**
@@ -157,7 +149,7 @@ Current timer (large)                | Slide 7/24
 - Crew chat widget (small, collapsible, optional audio notifications).
 - Multi-room dashboard for breakout monitoring.
 ```
-HEADER: Room | Timer Status | Role: [LX] | Connection | PIN: 4821 | Settings
+HEADER: Room | Timer | Role: [LX] | Connection | PIN: 4821 | Settings
 --------------------------------------------------------------------------------
 RUNDOWN (left)          | MAIN DISPLAY (center)        | STATUS PANEL (right top)
 Segment list + cues     | Current timer (large)        | Slide 7/24
@@ -177,6 +169,30 @@ Add segment button      |                               | Progress bar
                          |                               | SM: Copy that
                          |                               | [Send]
 ```
+
+**Cue list + states (Phase 3)**
+- Phase 3 cue authoring in Show Planner; manual **acknowledgment works** (Done/Skip/+30s).
+- State thresholds (defaults, configurable per room):
+  - Future: > 2:00
+  - Standby: 2:00 - 1:00 (show "STBY" badge)
+  - Warning: 1:00 - 0:10 (pulse border)
+  - Imminent: < 0:10 (strong pulse + optional audio ping)
+  - Go: 0:00 (flash, stays active until acknowledgment)
+- Go state requires manual acknowledgment: **Done**, **Skip**, or **+30s** (delay the Go window).
+- Completed cues are muted with checkmark; skipped cues are struck through.
+
+**Visual treatment (YOUR CUES vs OTHER CUES)**
+- **Your role's cues:** Highlighted border (role color), enlarged text, pulsing animation when imminent.
+- **Other roles' cues:** Normal size, muted/grayed styling, collapsible section.
+- **Hidden roles:** Not displayed (configurable per operator).
+
+**Audio notifications (optional, default ON)**
+- Audio ping when your cue enters Imminent state (< 10s).
+- Configurable in settings: enable/disable per role or globally.
+
+**Cue list navigation**
+- Scrollable list of upcoming cues.
+- **"Jump to NOW"** button: Refocuses list to current/upcoming position after scrolling.
 
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core (`docs/phase-2-overview.md`).

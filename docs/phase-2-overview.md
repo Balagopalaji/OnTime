@@ -163,44 +163,77 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - Companion emits `LIVE_CUE_*`/`PRESENTATION_*`; controller writes `activeLiveCueId`.
   - Dual-header/tech overlay UI with tier/capability gating.
   - File operations hardened (`/api/open`, `/api/file/metadata`); add `/api/file/exists` if required by PPT workflows.
-  - Tech viewer roles (LX, AX, VX, SM, TD, Director, FOH, Custom) with per-role cue highlighting and filters.
-  - Cue states (Future/Standby/Warning/Imminent/Go) with manual acknowledgment (Done/Skip/+30s).
+  - Tech viewer roles (LX, AX, VX, SM, TD, Director, FOH, Custom) for labeling and future filtering.
   - Video timing display emphasizes remaining time; pulse warnings under 30s/10s.
   - PPT slide tracking on Windows and macOS; video timing Windows-only with macOS fallback message.
 - **Acceptance:**
   - Live cues update within latency targets; Basic tier never sees show-control UI.
   - PowerPoint video elapsed/remaining time updates accurately during playback.
-  - Role-based cue list renders correctly; Go state requires manual acknowledgment.
+  - Presentation status panel renders correctly for all Show Control viewers.
   - File ops are secure (path validation + token auth).
 - **Phase 3 readiness:**
   - Viewer-role variants scaffolded (stage manager, lighting, sound) without breaking basic viewer.
 
 #### Phase 2c Layout (Tech Viewer)
-```
-HEADER: Room | Timer Status | Role: [LX] | Connection | PIN: 4821 | Settings
----------------------------------------------------------------------------
-MAIN DISPLAY                              | STATUS PANEL
-Current timer (large)                     | Slide 7/24
-"Pastor Introduction"                     | Video remaining 0:45
-                                          | Progress bar
-                                          | -----------------------------
-                                          | YOUR CUES (LX)
-                                          | GO: Cue 12 [Done] [Skip] [+30s]
-                                          | STBY Cue 13 in 1:30
-                                          | -----------------------------
-                                          | OTHER CUES (collapsible)
-                                          | AX Cue 8 in 0:30
-                                          | VX Cue 5 in 1:00
-                                          | [Scroll] [Jump to NOW]
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│ HEADER: Room | Timer | Role: [LX ▾] | ● Local+Cloud | PIN: 4821 | [⚙️]  │
+├─────────────────────────────────────────────┬───────────────────────────┤
+│                                             │ STATUS PANEL              │
+│   MAIN DISPLAY                              │ ┌───────────────────────┐ │
+│                                             │ │ ▶ Slide 7/24          │ │
+│   ┌─────────────────────────────────┐       │ │ 🎬 Video: 0:45 left   │ │
+│   │                                 │       │ │ ━━━━━━━━━░░░░ 75%     │ │
+│   │          05:32                  │       │ └───────────────────────┘ │
+│   │                                 │       │ (No presentation → show │
+│   │    "Pastor Introduction"        │       │  "No presentation found")│
+│   │                                 │       │                           │
+│   └─────────────────────────────────┘       │ (Cue list begins Phase 3) │
+└─────────────────────────────────────────────┴───────────────────────────┘
 ```
 
-#### Cue Timing States (Default Thresholds)
-```
-Future   > 2:00
-Standby  2:00 - 1:00  (STBY badge)
-Warning  1:00 - 0:10  (pulse border)
-Imminent < 0:10       (strong pulse)
-Go       0:00         (manual Done/Skip/+30s)
+#### Phase 2c Data Flow
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    SHOW CONTROL DATA FLOW                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐                                               │
+│  │  PowerPoint  │                                               │
+│  │  (running)   │                                               │
+│  └──────┬───────┘                                               │
+│         │ COM API (Win) / AppleScript (Mac)                     │
+│         ▼                                                       │
+│  ┌──────────────┐      LIVE_CUE_*        ┌──────────────┐       │
+│  │  Companion   │ ─────────────────────► │  Controller  │       │
+│  │  (detects    │      PRESENTATION_*    │  (updates    │       │
+│  │   PPT state) │                        │   UI)        │       │
+│  └──────────────┘                        └──────┬───────┘       │
+│        │                                        │               │
+│        │ local viewers subscribe                │               │
+│        ▼                                        │               │
+│  ┌──────────────┐                               │               │
+│  │ Local Viewer │                               │               │
+│  │ (tech view)  │                               │               │
+│  └──────────────┘                               │               │
+│                                                 │               │
+│                                    writes activeLiveCueId       │
+│                                                 │               │
+│                                                 ▼               │
+│                                          ┌──────────────┐       │
+│                                          │  Firestore   │       │
+│                                          │  (cloud)     │       │
+│                                          └──────┬───────┘       │
+│                                                 │               │
+│                                          subscribes             │
+│                                                 │               │
+│                                                 ▼               │
+│                                          ┌──────────────┐       │
+│                                          │ Cloud Viewer │       │
+│                                          │ (tech view)  │       │
+│                                          └──────────────┘       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Show Control Architecture (Planned Summary)
@@ -242,6 +275,62 @@ This section summarizes the show-control architecture at a high level. Canonical
 - Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline.
 - Crew chat widget (role-targeted messaging with presets and optional audio).
 - Multi-room dashboard for TD breakout monitoring (status-at-a-glance + quick links).
+
+#### Phase 3 Cue Timing States (Show Planner)
+```
+Future   > 2:00
+Standby  2:00 - 1:00  (STBY badge)
+Warning  1:00 - 0:10  (pulse border)
+Imminent < 0:10       (strong pulse + optional audio ping)
+Go       0:00         (manual Done/Skip/+30s)
+```
+
+#### Phase 3 Cue State Lifecycle
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    CUE STATE LIFECYCLE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Time to cue > 2:00                                             │
+│        │                                                        │
+│        ▼                                                        │
+│  ┌─────────────┐                                                │
+│  │   FUTURE    │  (default state, no badge)                     │
+│  └──────┬──────┘                                                │
+│         │ < 2:00                                                │
+│         ▼                                                       │
+│  ┌─────────────┐                                                │
+│  │   STANDBY   │  (STBY badge, your cues highlighted)           │
+│  └──────┬──────┘                                                │
+│         │ < 1:00                                                │
+│         ▼                                                       │
+│  ┌─────────────┐                                                │
+│  │   WARNING   │  (pulse border, enlarged)                      │
+│  └──────┬──────┘                                                │
+│         │ < 0:10                                                │
+│         ▼                                                       │
+│  ┌─────────────┐                                                │
+│  │  IMMINENT   │  (strong pulse + optional audio ping)          │
+│  └──────┬──────┘                                                │
+│         │ = 0:00                                                │
+│         ▼                                                       │
+│  ┌─────────────┐                                                │
+│  │     GO      │  (flash, awaiting acknowledgment)              │
+│  └──────┬──────┘                                                │
+│         │                                                       │
+│    ┌────┴────┬────────────┐                                     │
+│    ▼         ▼            ▼                                     │
+│ [Done]    [Skip]       [+30s]                                   │
+│    │         │            │                                     │
+│    ▼         ▼            ▼                                     │
+│ ┌──────┐  ┌──────┐  ┌───────────┐                               │
+│ │  ✓   │  │  ✗   │  │ STANDBY   │                               │
+│ │muted │  │struck│  │(countdown │                               │
+│ │      │  │      │  │ restarts) │                               │
+│ └──────┘  └──────┘  └───────────┘                               │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Cross-Cutting Risks & Mitigations
 - **Authority races:** Simultaneous reconnect + takeover; mitigate with single pending handshake and explicit takeover prompts.

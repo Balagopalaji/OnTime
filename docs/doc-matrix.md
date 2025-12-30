@@ -28,7 +28,7 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Companion WebSocket protocol | `docs/interface.md` | Interface | current | `companion/src/main.ts` |  |  |  |
 | Show control cues + video timing (Companion) | `docs/local-server-prd.md` | PRD | planned | `companion/src/main.ts` (planned) |  |  |  |
 | Show control viewer overlays (slide + video timing) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
-| Tech viewer roles + cue states (STBY/Warning/Go) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
+| Show planner cue states (STBY/Warning/Go + ack) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
 | Show planner cues (rundown cue list) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Crew chat (role-targeted messaging) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Multi-room dashboard (breakout monitoring) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |

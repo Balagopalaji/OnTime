@@ -72,7 +72,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `order: number`
 - `adjustmentLog?: Array<{ timestamp: number; delta: number; deviceId: string; reason: 'manual' | 'sync' | 'migration' }>`
 
-**`rooms/{roomId}/liveCues/{cueId}`** (show control tier; planned)
+**`rooms/{roomId}/liveCues/{cueId}`** (Phase 2c: presentation-driven, auto-generated)
+- **Purpose:** Auto-generated cues from Companion detecting PowerPoint/video state. Not manually authored.
 - `id: string`
 - `source: 'powerpoint' | 'external_video' | 'pdf'`
 - `title: string`
@@ -83,7 +84,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
   - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
 
-**`rooms/{roomId}/cues/{cueId}`** (show planner; planned)
+**`rooms/{roomId}/cues/{cueId}`** (Phase 3: manual rundown cues, Show Planner)
+- **Purpose:** Manually authored cues in the Show Planner rundown. Operators create these for coordinating lighting, sound, video, stage management, etc.
 - `id: string`
 - `roomId: string`
 - `role: string` (e.g., LX, AX, VX, SM, TD, Director, FOH, Custom)
@@ -101,6 +103,9 @@ Notes:
 - Visual cue states (Standby/Warning/Imminent/Go) are derived client-side from time-to-cue.
 - Manual acknowledgment sets `ackState` and freezes the cue as done or skipped.
 - Role labels are freeform; recommended values: LX, AX, VX, SM, TD, Director, FOH, Custom.
+- **Tech viewer separates sources:**
+  - `liveCues` appear in a **Now Playing** status panel.
+  - `cues` appear in an **Upcoming Cues** list sorted by time-to-cue.
 
 **`rooms/{roomId}/crewChat/{messageId}`** (crew messaging; planned)
 - `id: string`
@@ -294,7 +299,10 @@ Notes:
 ## 4. Companion REST API (Loopback by Default)
 - `GET /api/token` → `{ token, expiresAt }` (JSON), or HTML when using `?return=` for trust flow
 - `POST /api/open` → `{ success: true }` (file open; requires Bearer token)
-- `GET /api/file/metadata?path=...` → `{ size, duration?, resolution?, warning? }`
+- `GET /api/file/metadata?path=...` → `{ size, duration?, resolution?, warning? }` (requires Bearer token)
+- `GET /api/file/exists?path=...` → `{ exists: boolean }` (Phase 2c planned; validates path before open; requires Bearer token)
+
+Phase 2c hardening requirement: file endpoints must enforce path normalization, allowlist roots, and reject symlinks/network paths.
 
 ## 5. Bridge Protocol (Local ↔ Cloud)
 - Controllers emit `SYNC_ROOM_STATE` to align Companion with Firebase.
