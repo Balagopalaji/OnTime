@@ -37,8 +37,11 @@ Scope: Companion local server requirements (Electron/Node).
 - Companion enforces a single authoritative controller per room.
 - Non-authoritative controllers receive `PERMISSION_DENIED` on write attempts.
 - Lock state includes device + user identity, last heartbeat timestamp, and active controller id.
-- Force takeover requires **re-auth or room PIN** (even for same user).
+- Force takeover policy:
+  - Immediate force requires **re-auth or room PIN** (even for same user).
+  - If no response after timeout, force takeover allowed with confirmation (no PIN).
 - Takeover attempts are logged in Companion cache for audit.
+ - Controller request notifications are emitted to the active controller (event type TBD in `docs/interface.md`).
 
 ## Phase 2 Show Control Signals
 - Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).

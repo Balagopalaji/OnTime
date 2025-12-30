@@ -75,7 +75,9 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
     - Hand Over (current controller selects target device) for fast device switching.
     - Request Control with non-blocking notification to active controller.
     - Force takeover available immediately with re-auth or room PIN.
+    - After timeout with no response, force takeover allowed with confirmation (no PIN).
     - Stale threshold (90s) only affects prompt tone; does not gate force takeover.
+    - Takeover requests use an attention banner (red/amber pulse + optional audio chime).
   - **Room in use guard:** when a different device is active, present “Start new room / Copy room / Request control” instead of encouraging takeovers.
 - **Acceptance:**
   - Stable reconnects; no duplicate controllers.
