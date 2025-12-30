@@ -84,6 +84,7 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
   - Red/amber pulsing border, high-contrast copy, visible countdown.
   - Optional audio chime (default ON; can be disabled in settings).
 - **Post-takeover notice:** displaced controller sees “Control transferred to {device} at {time}” with **Reclaim Control** action.
+  - **Reclaim Control** follows the same takeover flow (request → wait/force).
 
 **Viewer sharing**
 - Default QR and share URL point to `https://<web-app>/view/:roomId` (cloud viewer).
