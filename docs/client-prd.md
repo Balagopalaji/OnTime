@@ -74,6 +74,12 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
   - If no response after timeout, **Force Takeover** is allowed with confirmation (no PIN).
   - Prompt tone varies by last-active time (active vs. stale).
 - **Room PIN (optional):** per-room code for fast authorized takeover; set by room owner.
+- **PIN display (authoritative controller only):**
+  - Show compact “PIN: ••••” in header; tap eye icon to reveal for 5s.
+  - If no PIN is set, show “PIN: Not set” with link to set one.
+  - Optional toggle: “Show room PIN in header” (default ON).
+  - Hide PIN display when not authoritative.
+  - Optional copy button when revealed.
 - **Viewer-only mode (optional):** hides takeover controls for observers who never want control.
 - **Room in use guard:** when a different device has control, show a “Room in use” screen with safe alternatives:
   - **Start new room** (fresh empty room).
