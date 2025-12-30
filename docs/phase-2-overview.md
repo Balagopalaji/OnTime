@@ -8,7 +8,7 @@ Scope: Phase 2 plan and roadmap (transport hardening, Electron controller, show 
 
 # Phase 2 Overview (OnTime)
 
-Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize Companion + parallel transport, deliver Show Control essentials (live cues, presentation import, dual-header UI), and add production-grade UX (undo/redo, viewer polish, authority/reconnect hardening). Success means Basic tier stays lean (<50 MB Companion in Minimal mode), Show Control gains live cue visibility with low bandwidth, and Production tier has groundwork for media workflows without breaking current users or increasing Firebase costs.
+Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize Companion + parallel transport, deliver Show Control essentials (live cues, presentation import, dual-header UI), and add production-grade UX (viewer polish, authority/reconnect hardening). Success means Basic tier stays lean (<50 MB Companion in Minimal mode), Show Control gains live cue visibility with low bandwidth, and Production tier has groundwork for media workflows without breaking current users or increasing Firebase costs.
 
 **Scope boundary:** Phase 2 focuses on Electron controller + bridge + transport hardening + show control core. LAN offline viewers are explicitly deferred to **Phase 3** (see below).
 
@@ -37,6 +37,7 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - Companion GUI/tray for mode selection/status.
   - Auto mode detection refinements and capability surfacing in UI.
   - Upgrade badges/tooltips and Basic "Simple Mode" skin.
+  - Standalone “PowerPoint Video Timer” utility (free/cheap acquisition tool).
 - **Deferred (Phase 3+)**
   - External video monitoring integrations beyond stubs.
   - Multi-operator roles/permissions.
@@ -85,6 +86,7 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - File operations hardened (`/api/open`, `/api/file/metadata`); add `/api/file/exists` if required by PPT workflows.
 - **Acceptance:**
   - Live cues update within latency targets; Basic tier never sees show-control UI.
+  - PowerPoint video elapsed/remaining time updates accurately during playback.
   - File ops are secure (path validation + token auth).
 - **Phase 3 readiness:**
   - Viewer-role variants scaffolded (stage manager, lighting, sound) without breaking basic viewer.
@@ -96,7 +98,7 @@ This section summarizes the show-control architecture at a high level. Canonical
 - **Companion role**: Companion detects PPT/video state and emits `LIVE_CUE_*` and `PRESENTATION_*` events to controller clients.
 - **Controller role**: Controller consumes live-cue events, updates UI, and writes `activeLiveCueId` to Firestore for cloud viewers.
 - **Viewer roles**: Default viewer shows main timer; tech viewer (Show Control tier) overlays live cue info.
-- **Latency targets**: Local viewers <150 ms; cloud viewers <700 ms.
+**Latency targets** are defined in Goals & Scope (avoid duplicating here).
 
 ## Milestones (High-Level)
 1. **Transport Hardening & Tier Gating**
@@ -125,6 +127,7 @@ This section summarizes the show-control architecture at a high level. Canonical
 - Pairing flow + viewer-only tokens; LAN allowlists + PNA/CORS headers as required.
 - Optional Viewer App for desktop stations (Electron) to avoid browser trust prompts.
 - Optional native mobile viewers (iOS/Android) if LAN demand warrants.
+- Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline (Phase 3 scope).
 
 ## Cross-Cutting Risks & Mitigations
 - **Authority races:** Simultaneous reconnect + takeover; mitigate with single pending handshake and explicit takeover prompts.

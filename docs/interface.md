@@ -78,7 +78,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `startedAt?: number`
 - `status?: 'playing' | 'paused' | 'ended'`
 - `config?: { warningSec?: number; criticalSec?: number }`
-- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean }`
+- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
+  - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
 
 ### 2.2 Security Rules (Summary)
 - Public read access to rooms/timers for viewers.

@@ -13,6 +13,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - Provide reliable timer control and viewing for live events.
 - Support dual-sync operation: Firebase (cloud) + Companion (local).
 - Keep public viewer access simple while enforcing controller permissions.
+- Maintain a modular product structure (timer core, show control, planner) with tiered access.
 
 **Non-goals**
 - Advanced show-control integrations beyond current scope (see Phase 2 plans).
@@ -37,6 +38,9 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - Phase 2: Electron controller + transport hardening + show-control core (see `docs/phase-2-overview.md`).
 - Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”) (see `docs/local-offline-lan-plan.md`).
 - Phase 4: AI-assisted program ingestion + optional native viewer apps.
+
+## Notes
+- This is the end-to-end summary PRD; detailed UX and protocol requirements live in the client/local/server PRDs and `docs/interface.md`.
 
 ## Acceptance Criteria
 - Controller and viewer stay in sync with deterministic timer math.

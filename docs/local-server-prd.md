@@ -33,6 +33,12 @@ Scope: Companion local server requirements (Electron/Node).
 - State persistence in Companion cache to survive restarts.
 - Multi-controller connections are currently allowed (no lock enforcement).
 
+## Phase 2 Show Control Signals
+- Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).
+- PowerPoint video timing (elapsed/remaining) is sourced from Companion detection logic (COM API + media hooks/polling as needed).
+- Video timing fields are surfaced via live cue metadata (`videoDuration`, `videoElapsed`, optional `videoRemaining` in ms).
+- If media duration is unavailable, the UI should show “Unknown duration” with a neutral state.
+
 ## Phase 2 Companion UX
 - Menu bar/tray UI with quick status dropdown:
   - Companion mode (Minimal/Show Control/Production)
@@ -50,6 +56,7 @@ Scope: Companion local server requirements (Electron/Node).
 - State updates are broadcast reliably to connected clients.
 - Cache restore works after Companion restart.
 - Companion emits show-control updates with enough data to derive slide progress and video remaining time.
+- Companion cache is versioned; migrations run on update with fallback to last good backup on failure.
 
 ## Out of Scope
 - Protocol contracts (see `docs/interface.md`).
