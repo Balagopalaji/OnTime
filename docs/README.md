@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -40,12 +40,12 @@ This index lists canonical documentation by type and links to the feature matrix
 
 ## Plans
 - `docs/local-offline-lan-plan.md` (local/offline + LAN viewers)
+- `docs/phase-2-overview.md`
 
 ## References
 - `docs/local-mode.md` (parallel sync architecture)
 - `docs/timer-logic.md` (authoritative timer math)
 - `docs/edge-cases.md`
-- `docs/phase-2-overview.md`
 
 ## Tasklists
 - `docs/tasks.md`

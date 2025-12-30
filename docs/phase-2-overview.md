@@ -1,9 +1,9 @@
 ---
-Type: Reference
+Type: Plan
 Status: planned
 Owner: KDB
 Last updated: 2025-12-30
-Scope: Phase 2 overview and goals.
+Scope: Phase 2 plan and roadmap (transport hardening, Electron controller, show control core).
 ---
 
 # Phase 2 Overview (OnTime)
@@ -19,6 +19,12 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
 - **Presentation import:** Safe PPT detection + manual import workflow; Companion file ops endpoints hardened.
 - **UX polish:** Viewer typography/wake-lock fixes, Minimal mode aesthetics, Companion GUI with mode selection.
 - **Guardrails:** Local viewer latency <150 ms vs. controller; Cloud viewer <700 ms; Companion RAM budgets: Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB.
+
+## Modular Product Principles (Phase 2)
+- **Modular by tier:** Basic = timers only; Show Control adds cues/presentation; Production adds integrations.
+- **Minimal coupling:** Timer core remains independent; advanced features use optional fields + capability flags.
+- **Future modules:** Interfaces should support a dedicated Show Planner module later without rewriting timer logic.
+- **Viewer variants:** Role-scoped viewers (display-only vs. tech overlays) must not impact Basic viewers.
 
 ## Scope Breakdown
 - **Must-have**
@@ -40,6 +46,48 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - Optional native mobile viewers (iOS/Android) if demand warrants.
   - Performance/observability suite expansion.
   - Undo/redo command system and persistence.
+
+## Phase 2 Plan (Detailed)
+
+### Phase 2a — Electron Controller Delivery
+- **Goals:** eliminate browser trust friction for operators; stabilize offline control UX.
+- **Key work:**
+  - Wrap existing controller UI in Electron (macOS + Windows).
+  - Local persistence + crash-safe recovery (reuse Companion + local cache).
+  - Mode selector (Cloud/Auto/Local) embedded in the controller UI.
+  - Code signing + auto-update pipeline (reused for a future Viewer app).
+- **Acceptance:**
+  - Controller runs fully offline with Companion; no browser trust prompts.
+  - Restart preserves state; no timer jumps.
+  - Cloud viewer URLs continue to work when bridge is online.
+- **Phase 3 readiness:**
+  - Separate build target so a viewer-only Electron app can be added later.
+
+### Phase 2b — Transport Hardening + Bridge Polish
+- **Goals:** tighten JOIN/HANDSHAKE/SYNC lifecycle; eliminate reconnection races; clarify authority.
+- **Key work:**
+  - Reconnect/backoff state machine with user-visible status.
+  - Controller lock + takeover UX (heartbeat + explicit confirmation).
+  - Bridge model: local authoritative, cloud read-only for non-bridge controllers.
+  - QR generation for cloud viewer URLs (web.app).
+- **Acceptance:**
+  - Stable reconnects; no duplicate controllers.
+  - Read-only state is explicit on remote controllers when local is authoritative.
+  - Bridge reconnect triggers a fresh snapshot to cloud.
+- **Phase 3 readiness:**
+  - Keep role scopes enforced server-side for controller-only actions.
+
+### Phase 2c — Show Control Core
+- **Goals:** deliver live cues + presentation workflows with tier gating.
+- **Key work:**
+  - Companion emits `LIVE_CUE_*`/`PRESENTATION_*`; controller writes `activeLiveCueId`.
+  - Dual-header/tech overlay UI with tier/capability gating.
+  - File operations hardened (`/api/open`, `/api/file/metadata`); add `/api/file/exists` if required by PPT workflows.
+- **Acceptance:**
+  - Live cues update within latency targets; Basic tier never sees show-control UI.
+  - File ops are secure (path validation + token auth).
+- **Phase 3 readiness:**
+  - Viewer-role variants scaffolded (stage manager, lighting, sound) without breaking basic viewer.
 
 ## Show Control Architecture (Planned Summary)
 This section summarizes the show-control architecture at a high level. Canonical schemas/events live in `docs/interface.md`.
