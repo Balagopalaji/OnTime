@@ -222,13 +222,10 @@ Segment list + cues     | Current timer (large)        | Slide 7/24
 Current segment marked  | "Worship Set"                | Video remaining 0:45
 Add segment button      |                               | Progress bar
                          |                               | ----------------------
-                         |                               | YOUR CUES (LX)
-                         |                               | GO: Cue 12 [Done] [Skip]
-                         |                               | STBY Cue 13 in 1:30
-                         |                               | ----------------------
-                         |                               | OTHER CUES (collapsible)
-                         |                               | AX Cue 8 in 0:30
-                         |                               | VX Cue 5 in 1:00
+                         |                               | CUE TIMELINE (unified)
+                         |                               | LX Cue 12 (highlighted)
+                         |                               | AX Cue 8 (compact)
+                         |                               | VX Cue 5 (compact)
                          |                               | ----------------------
                          |                               | CREW CHAT (collapsible)
                          |                               | TD: Hold cue 15
