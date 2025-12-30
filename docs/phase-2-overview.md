@@ -10,6 +10,8 @@ Scope: Phase 2 overview and goals.
 
 Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize Companion + parallel transport, deliver Show Control essentials (live cues, presentation import, dual-header UI), and add production-grade UX (undo/redo, viewer polish, authority/reconnect hardening). Success means Basic tier stays lean (<50 MB Companion in Minimal mode), Show Control gains live cue visibility with low bandwidth, and Production tier has groundwork for media workflows without breaking current users or increasing Firebase costs.
 
+**Scope boundary:** Phase 2 focuses on Electron controller + bridge + transport hardening + show control core. LAN offline viewers are explicitly deferred to **Phase 3** (see below).
+
 ## Goals & Scope
 - **Transport stability:** Harden Companion multi-client flows, reconnection/backoff, and authority handling across Local/Cloud.
 - **Tier-correct UX:** End-to-end gating for Basic/Show Control/Production with clear upgrade prompts and capability-aware UI.
