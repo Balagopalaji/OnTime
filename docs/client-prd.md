@@ -145,19 +145,49 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 
 **Phase 3 preview (Show Planner)**
 **Core concepts**
-- Full rundown with segments and nested cues.
+- Full rundown with **sections (sessions)** grouping segments (e.g., "Morning Session" → Speaker 1/2/3).
+- Sections can carry optional **section-level cues** (e.g., "Open house lights at session start").
+- Section cues use the same trigger types as segment cues; timed cues anchor to section start unless fixed_time is used.
 - Unified cue timeline (all roles in place), with role-based styling and filters.
 - Operators can create and edit their own cues; TD/Director can edit any cue.
 - Crew chat widget for quick coordination.
 - Multi-room dashboard for breakout monitoring.
+- Planned start times define order; actual runtime can drift without changing the printed schedule.
+- When a segment start time is edited, prompt to shift downstream times:
+  - Shift all future segments
+  - Shift until next break/section
+  - Shift only this section
+  - Don't shift (keep printed schedule)
+- When dragging/reordering segments with planned times, prompt with the same options and include
+  “Remember my choice” to avoid repeated prompts during rapid edits.
+- If a segment has no planned time, allow drag reorder without any prompt.
+- If order changes but planned times are kept, show a small “out of schedule order” badge.
+- Each segment has a **default timer** by default; extra timers are optional and sequential.
+- The default (master) segment timer is what viewers see by default; stage view can switch to an extra timer when needed.
+- Segment start is triggered when the operator starts the segment **or** when any segment timer starts.
+- Parallel timers are not supported in Phase 3; use a second room if a truly concurrent timer is required.
+
+**Segment card behavior (Phase 3)**
+- **Show mode (default):** compact cards for fast scanning during a show.
+  - Title, planned start, duration.
+  - Small cue badges per role (LX/AX/VX/SM) with counts.
+  - Status chip (on time / behind / ahead).
+- **Selected segment:** expands inline to show:
+  - Notes, timers in the segment, and cue list.
+  - “Add cue” / “Add timer” actions.
+- **Edit mode:** explicit toggle (similar to QLab) that reveals reorder handles, edit/delete controls, and inline timeline editing.
+  - Prevents accidental edits during live operation.
 
 **Cue trigger types**
 | Type | Behavior | Example |
 | --- | --- | --- |
-| timed | Fixed offset from segment/timer start | "Lights up at 0:30" |
+| timed | Fixed offset from segment/section start (default actual start) | "Lights up at 0:30" |
+| fixed_time | Absolute clock time | "Must fire at 13:30" |
 | sequential | Ordered, manual Go required | "After pastor finishes prayer" |
 | follow | Auto-fires after another cue completes | "Fade out follows fade in" |
 | floating | Approximate position, draggable | "Somewhere during worship" |
+Notes:
+- Timed cues default to **actual start**; operators can switch to **planned start** when needed.
 
 **Cue ownership & permissions**
 | Role | Own role cues | Other role cues | Segments | Timer control | Room config |
@@ -202,6 +232,10 @@ Presentation panel       | Filters per role; drag to reposition your cues
 - Your cues are larger, highlighted, and editable in-place.
 - Filters can hide roles without reordering cues.
 - Edited cues show "edited by {role}" with relative time.
+- Offer a list view (top-to-bottom) for precise editing as an alternative to the timeline view.
+- Extra segment timers appear as a small stack within the segment (sequential only).
+- If multiple timers are active in a segment, operators can switch which timer is displayed on their view.
+- Parallel timers are not supported; create a separate room if needed.
 
 **Timer control delegation**
 - TD/Director can delegate timer control to one operator at a time.
@@ -242,6 +276,7 @@ Add segment button      |                               | Progress bar
   - Imminent: < 0:10 (strong pulse + optional audio ping)
   - Go: 0:00 (flash, stays active until acknowledgment)
 - Sequential/follow/floating cues enter Standby when they are next for the role; Go is manual.
+- Operators can mark their cues **Done/Skip** to cross them off; TD/Director can mark any cue.
 - Go state requires manual acknowledgment: **Done**, **Skip**, or **+30s** (delay the Go window).
 - Completed cues are muted with checkmark; skipped cues are struck through.
 

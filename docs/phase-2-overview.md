@@ -47,7 +47,7 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - Optional Viewer App for desktop LAN stations (Electron, viewer-only).
   - Optional native mobile viewers (iOS/Android) if demand warrants.
   - Performance/observability suite expansion.
-  - Undo/redo command system and persistence.
+  - Undo/redo command system and persistence (Phase 4).
 
 ## Phase 2 Plan (Detailed)
 
@@ -273,12 +273,16 @@ This section summarizes the show-control architecture at a high level. Canonical
 - Optional Viewer App for desktop stations (Electron) to avoid browser trust prompts.
 - Optional native mobile viewers (iOS/Android) if LAN demand warrants.
 - Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline.
+- Sections (sessions) group segments; optional section-level cues (e.g., "house lights at session start").
 - Crew chat widget (role-targeted messaging with presets and optional audio).
 - Multi-room dashboard for TD breakout monitoring (status-at-a-glance + quick links).
 - Cue trigger types: timed, sequential, follow, floating.
 - Operator cue ownership with TD/Director override; role-based edit permissions.
 - Timer control delegation (TD -> one operator, adjustments-only or full control).
 - Show Caller Mode (audio/TTS cue calls for budget productions).
+- Segment timers: default master timer + optional sequential sub-timers (no parallel timers).
+- Segment starts when the operator starts it or when any segment timer starts.
+- Schedule drift controls: shift downstream times (all, until break/section, this section, or none).
 
 #### Phase 3 Cue Timing States (Show Planner)
 ```

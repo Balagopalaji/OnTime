@@ -36,8 +36,8 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core (see `docs/phase-2-overview.md`).
-- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including cues, crew chat, multi-room monitoring, and Show Caller Mode (see `docs/local-offline-lan-plan.md`).
-- Phase 4: AI-assisted program ingestion + optional native viewer apps.
+- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including sections/segments, cues, crew chat, multi-room monitoring, and Show Caller Mode (see `docs/local-offline-lan-plan.md`).
+- Phase 4: AI-assisted program ingestion + optional native viewer apps + undo/redo.
 
 ## Notes
 - This is the end-to-end summary PRD; detailed UX and protocol requirements live in the client/local/server PRDs and `docs/interface.md`.

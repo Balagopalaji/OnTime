@@ -30,6 +30,10 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Show control viewer overlays (slide + video timing) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
 | Show planner cue states (STBY/Warning/Go + ack) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
 | Show planner cues (rundown cue list) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
+| Rundown sections/sessions | `docs/interface.md` | Interface | planned | n/a |  |  |  |
+| Rundown segments (items) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
+| Segment timers (default + sequential sub-timers) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
+| Schedule drift shift (recalculate downstream times) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
 | Crew chat (role-targeted messaging) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Multi-room dashboard (breakout monitoring) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
 | Cue trigger types (timed/sequential/follow/floating) | `docs/interface.md` | Interface | planned | n/a |  |  |  |

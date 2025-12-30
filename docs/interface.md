@@ -74,7 +74,41 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `originalDuration?: number` (seconds)
 - `type: 'countdown' | 'countup' | 'timeofday'`
 - `order: number`
+- `segmentId?: string` (optional link to segment)
+- `segmentOrder?: number` (sequence within segment; 0 = primary timer)
 - `adjustmentLog?: Array<{ timestamp: number; delta: number; deviceId: string; reason: 'manual' | 'sync' | 'migration' }>`
+Notes:
+- Timers with the same `segmentId` are sequential; `segmentOrder` controls display/order.
+- Parallel timers are not supported in Phase 3; use a second room for truly concurrent timers.
+
+**`rooms/{roomId}/sections/{sectionId}`** (Phase 3: session/group headers)
+- **Purpose:** Session/grouping layer above segments (e.g., "Morning Session", "Worship Set").
+- `id: string`
+- `title: string`
+- `order: number`
+- `notes?: string`
+- `plannedDurationSec?: number` (optional)
+- `plannedStartAt?: number` (optional time-of-day)
+- `createdAt?: number`
+- `updatedAt?: number`
+Notes:
+- Sections are grouping headers; they can optionally carry cues via `sectionId` on cues.
+
+**`rooms/{roomId}/segments/{segmentId}`** (Phase 3: rundown items)
+- **Purpose:** Ordered items within a section (e.g., "Speaker 1", "Song 2").
+- `id: string`
+- `sectionId?: string` (optional grouping)
+- `title: string`
+- `order: number`
+- `plannedStartAt?: number` (optional time-of-day)
+- `plannedDurationSec?: number`
+- `primaryTimerId?: string` (optional link to default segment timer)
+- `notes?: string`
+- `createdAt?: number`
+- `updatedAt?: number`
+Notes:
+- If `primaryTimerId` is unset, the timer with `segmentOrder = 0` is the default segment timer.
+- Segment start is considered active when the operator starts the segment or when any segment timer starts.
 
 **`rooms/{roomId}/liveCues/{cueId}`** (Phase 2c: presentation-driven, auto-generated)
 - **Purpose:** Auto-generated cues from Companion detecting PowerPoint/video state. Not manually authored.
@@ -95,10 +129,12 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `role: string` (e.g., LX, AX, VX, SM, TD, Director, FOH, Custom)
 - `title: string`
 - `notes?: string`
+- `sectionId?: string` (optional section-level cue)
 - `segmentId?: string` (optional linkage to rundown segment)
-- `triggerType: 'timed' | 'sequential' | 'follow' | 'floating'`
+- `triggerType: 'timed' | 'fixed_time' | 'sequential' | 'follow' | 'floating'`
 - `offsetMs?: number` (timed: relative to segment or timer start)
-- `targetTimeMs?: number` (optional: absolute time-of-day)
+- `timeBase?: 'actual' | 'planned'` (timed: default actual start; planned is optional)
+- `targetTimeMs?: number` (fixed_time: absolute time-of-day)
 - `afterCueId?: string` (follow: auto-fire after another cue completes)
 - `approximatePosition?: number` (floating: 0-100% placement within segment)
 - `triggerNote?: string` (e.g., "When pastor says 'let us pray'")
@@ -118,7 +154,8 @@ Notes:
   - `liveCues` appear in a **Now Playing** status panel.
   - `cues` appear in an **Upcoming Cues** list sorted by time-to-cue.
 Trigger notes:
-- Timed cues follow countdown states.
+- Timed cues follow countdown states; `timeBase` defaults to actual start.
+- If `sectionId` is set and `segmentId` is unset, timed cues anchor to section start.
 - Sequential cues enter Standby when they are the next cue for that role; Go is manual.
 - Follow cues fire when their parent cue is marked Done (optional delay is UI-driven).
 - Floating cues are placed visually; operators can drag to approximate positions.
