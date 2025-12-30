@@ -25,4 +25,6 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Bridge sync (Local ↔ Cloud) | `docs/local-mode.md` | Reference | planned | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Firestore schema + rules | `docs/cloud-server-prd.md` | PRD | current | `firebase/firestore.rules` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | Companion WebSocket protocol | `docs/interface.md` | Interface | current | `companion/src/main.ts` |  |  |  |
+| Show control cues + video timing (Companion) | `docs/local-server-prd.md` | PRD | planned | `companion/src/main.ts` (planned) |  |  |  |
+| Show control viewer overlays (slide + video timing) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
 | LAN viewers (offline) | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |
