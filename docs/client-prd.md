@@ -73,7 +73,11 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
   - Force takeover requires **re-auth OR room PIN**, even for same user.
 - **Room PIN (optional):** per-room code for fast authorized takeover; set by room owner.
 - **Viewer-only mode (optional):** hides takeover controls for observers who never want control.
-- **Avoid accidental takeovers:** offer quick actions like “Create new room” or “Copy room” (with forced rename) as alternatives to taking over.
+- **Room in use guard:** when a different device has control, show a “Room in use” screen with safe alternatives:
+  - **Start new room** (fresh empty room).
+  - **Copy this room** (new room with timers copied + reset progress, auto-name “Copy of {name}” and forced rename).
+  - **Request control** (non-blocking request + optional force takeover).
+  - Only show this guard when an active controller is present (heartbeat < 90s). If stale, show softer “Room appears inactive” messaging.
 
 **Viewer sharing**
 - Default QR and share URL point to `https://<web-app>/view/:roomId` (cloud viewer).

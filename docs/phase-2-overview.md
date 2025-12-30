@@ -71,16 +71,18 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - Controller lock + takeover UX (heartbeat + explicit confirmation).
   - Bridge model: local authoritative, cloud read-only for non-bridge controllers.
   - QR generation for cloud viewer URLs (web.app).
-- **Control handoff specifics:**
-  - Hand Over (current controller selects target device) for fast device switching.
-  - Request Control with non-blocking notification to active controller.
-  - Force takeover available immediately with re-auth or room PIN.
-  - Stale threshold (90s) only affects prompt tone; does not gate force takeover.
+  - **Control handoff specifics:**
+    - Hand Over (current controller selects target device) for fast device switching.
+    - Request Control with non-blocking notification to active controller.
+    - Force takeover available immediately with re-auth or room PIN.
+    - Stale threshold (90s) only affects prompt tone; does not gate force takeover.
+  - **Room in use guard:** when a different device is active, present “Start new room / Copy room / Request control” instead of encouraging takeovers.
 - **Acceptance:**
   - Stable reconnects; no duplicate controllers.
   - Read-only state is explicit on remote controllers when local is authoritative.
   - Bridge reconnect triggers a fresh snapshot to cloud.
   - Force takeover requires re-auth or room PIN; audit record stored locally.
+  - Operators can start a new room or copy an existing room without disrupting an active show.
 - **Phase 3 readiness:**
   - Keep role scopes enforced server-side for controller-only actions.
 
