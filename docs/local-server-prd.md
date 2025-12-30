@@ -33,6 +33,13 @@ Scope: Companion local server requirements (Electron/Node).
 - State persistence in Companion cache to survive restarts.
 - Multi-controller connections are currently allowed (no lock enforcement). Phase 2b introduces controller lock + takeover enforcement.
 
+## Phase 2b Authority Enforcement
+- Companion enforces a single authoritative controller per room.
+- Non-authoritative controllers receive `PERMISSION_DENIED` on write attempts.
+- Lock state includes device + user identity, last heartbeat timestamp, and active controller id.
+- Force takeover requires **re-auth or room PIN** (even for same user).
+- Takeover attempts are logged in Companion cache for audit.
+
 ## Phase 2 Show Control Signals
 - Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).
 - PowerPoint video timing (elapsed/remaining) is sourced from Companion detection logic (COM API + media hooks/polling as needed).

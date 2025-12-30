@@ -64,6 +64,17 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
   - “Taking over will disconnect their session.”
   - Buttons: “Cancel” / “Take Over Control”
 
+**Control handoff & takeover (Phase 2b)**
+- **Hand Over (current controller initiates):** select target device and transfer control instantly.
+  - Same-user device switch: one-click confirm.
+  - Different user: confirm “Transfer control to {user}? They will have full control.”
+- **Request Control:** sends a non-blocking notification to the current controller.
+  - If ignored, requester can **Force Takeover** immediately (no timeout required).
+  - Force takeover requires **re-auth OR room PIN**, even for same user.
+- **Room PIN (optional):** per-room code for fast authorized takeover; set by room owner.
+- **Viewer-only mode (optional):** hides takeover controls for observers who never want control.
+- **Avoid accidental takeovers:** offer quick actions like “Create new room” or “Copy room” (with forced rename) as alternatives to taking over.
+
 **Viewer sharing**
 - Default QR and share URL point to `https://<web-app>/view/:roomId` (cloud viewer).
 - LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
