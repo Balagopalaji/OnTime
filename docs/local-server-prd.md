@@ -31,7 +31,7 @@ Scope: Companion local server requirements (Electron/Node).
 - Local WebSocket relay with token validation and room state cache.
 - HTTP token endpoint on loopback with Origin allowlist.
 - State persistence in Companion cache to survive restarts.
-- Multi-controller connections are currently allowed (no lock enforcement).
+- Multi-controller connections are currently allowed (no lock enforcement). Phase 2b introduces controller lock + takeover enforcement.
 
 ## Phase 2 Show Control Signals
 - Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).

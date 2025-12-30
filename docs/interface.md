@@ -6,9 +6,10 @@ Last updated: 2025-12-30
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
-# Interface Specification (v1.0.0)
+# Interface Specification (v1.1.0)
 
 **Changelog**
+- v1.1.0 (2025-12-30): Added live cue video timing metadata fields (additive).
 - v1.0.0 (2025-12-30): Initial consolidated interface specification; aligned with current Companion + Firebase behavior.
 
 ## 1. Scope and Roles
