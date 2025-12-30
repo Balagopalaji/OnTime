@@ -41,6 +41,7 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
 - **Deferred (Phase 3+)**
   - External video monitoring integrations beyond stubs.
   - Multi-operator roles/permissions.
+  - Show Planner (segments, cue timeline authoring, crew chat, multi-room dashboard).
   - Smart slide-note parsing/auto cues.
   - LAN offline viewers (Companion-served viewer bundle + cert/pairing/trust).
   - Optional Viewer App for desktop LAN stations (Electron, viewer-only).
@@ -162,12 +163,45 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - Companion emits `LIVE_CUE_*`/`PRESENTATION_*`; controller writes `activeLiveCueId`.
   - Dual-header/tech overlay UI with tier/capability gating.
   - File operations hardened (`/api/open`, `/api/file/metadata`); add `/api/file/exists` if required by PPT workflows.
+  - Tech viewer roles (LX, AX, VX, SM, TD, Director, FOH, Custom) with per-role cue highlighting and filters.
+  - Cue states (Future/Standby/Warning/Imminent/Go) with manual acknowledgment (Done/Skip/+30s).
+  - Video timing display emphasizes remaining time; pulse warnings under 30s/10s.
+  - PPT slide tracking on Windows and macOS; video timing Windows-only with macOS fallback message.
 - **Acceptance:**
   - Live cues update within latency targets; Basic tier never sees show-control UI.
   - PowerPoint video elapsed/remaining time updates accurately during playback.
+  - Role-based cue list renders correctly; Go state requires manual acknowledgment.
   - File ops are secure (path validation + token auth).
 - **Phase 3 readiness:**
   - Viewer-role variants scaffolded (stage manager, lighting, sound) without breaking basic viewer.
+
+#### Phase 2c Layout (Tech Viewer)
+```
+HEADER: Room | Timer Status | Role: [LX] | Connection | PIN: 4821 | Settings
+---------------------------------------------------------------------------
+MAIN DISPLAY                              | STATUS PANEL
+Current timer (large)                     | Slide 7/24
+"Pastor Introduction"                     | Video remaining 0:45
+                                          | Progress bar
+                                          | -----------------------------
+                                          | YOUR CUES (LX)
+                                          | GO: Cue 12 [Done] [Skip] [+30s]
+                                          | STBY Cue 13 in 1:30
+                                          | -----------------------------
+                                          | OTHER CUES (collapsible)
+                                          | AX Cue 8 in 0:30
+                                          | VX Cue 5 in 1:00
+                                          | [Scroll] [Jump to NOW]
+```
+
+#### Cue Timing States (Default Thresholds)
+```
+Future   > 2:00
+Standby  2:00 - 1:00  (STBY badge)
+Warning  1:00 - 0:10  (pulse border)
+Imminent < 0:10       (strong pulse)
+Go       0:00         (manual Done/Skip/+30s)
+```
 
 ## Show Control Architecture (Planned Summary)
 This section summarizes the show-control architecture at a high level. Canonical schemas/events live in `docs/interface.md`.
@@ -205,7 +239,9 @@ This section summarizes the show-control architecture at a high level. Canonical
 - Pairing flow + viewer-only tokens; LAN allowlists + PNA/CORS headers as required.
 - Optional Viewer App for desktop stations (Electron) to avoid browser trust prompts.
 - Optional native mobile viewers (iOS/Android) if LAN demand warrants.
-- Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline (Phase 3 scope).
+- Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline.
+- Crew chat widget (role-targeted messaging with presets and optional audio).
+- Multi-room dashboard for TD breakout monitoring (status-at-a-glance + quick links).
 
 ## Cross-Cutting Risks & Mitigations
 - **Authority races:** Simultaneous reconnect + takeover; mitigate with single pending handshake and explicit takeover prompts.

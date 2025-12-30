@@ -45,9 +45,18 @@ Scope: Companion local server requirements (Electron/Node).
 
 ## Phase 2 Show Control Signals
 - Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).
-- PowerPoint video timing (elapsed/remaining) is sourced from Companion detection logic (COM API + media hooks/polling as needed).
+- PowerPoint slide tracking:
+  - Windows: COM API.
+  - macOS: AppleScript (slide tracking only).
+- PowerPoint video timing (elapsed/remaining) is sourced from Companion detection logic (Windows only; COM API + media hooks/polling as needed).
 - Video timing fields are surfaced via live cue metadata (`videoDuration`, `videoElapsed`, optional `videoRemaining` in ms).
 - If media duration is unavailable, the UI should show “Unknown duration” with a neutral state.
+
+## Phase 2 File Operations
+- `/api/open` opens a local file in the default app (token required).
+- `/api/file/metadata` returns duration/resolution (token required).
+- `/api/file/exists` validates path presence before open (token required).
+- All endpoints must enforce path normalization, allowlist roots, and reject symlinks/network paths.
 
 ## Phase 2 Companion UX
 - Menu bar/tray UI with quick status dropdown:

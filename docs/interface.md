@@ -6,9 +6,10 @@ Last updated: 2025-12-30
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
-# Interface Specification (v1.1.0)
+# Interface Specification (v1.2.0)
 
 **Changelog**
+- v1.2.0 (2025-12-30): Added planned show cue + crew chat schemas (Phase 3).
 - v1.1.0 (2025-12-30): Added live cue video timing metadata fields (additive).
 - v1.0.0 (2025-12-30): Initial consolidated interface specification; aligned with current Companion + Firebase behavior.
 
@@ -81,6 +82,37 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `config?: { warningSec?: number; criticalSec?: number }`
 - `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
   - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
+
+**`rooms/{roomId}/cues/{cueId}`** (show planner; planned)
+- `id: string`
+- `roomId: string`
+- `role: string` (e.g., LX, AX, VX, SM, TD, Director, FOH, Custom)
+- `title: string`
+- `notes?: string`
+- `segmentId?: string` (optional linkage to rundown segment)
+- `offsetMs?: number` (relative to segment start or active timer start)
+- `targetTimeMs?: number` (absolute time-of-day, optional)
+- `ackState?: 'pending' | 'done' | 'skipped'`
+- `ackAt?: number`
+- `ackBy?: string`
+- `createdAt?: number`
+- `updatedAt?: number`
+Notes:
+- Visual cue states (Standby/Warning/Imminent/Go) are derived client-side from time-to-cue.
+- Manual acknowledgment sets `ackState` and freezes the cue as done or skipped.
+- Role labels are freeform; recommended values: LX, AX, VX, SM, TD, Director, FOH, Custom.
+
+**`rooms/{roomId}/crewChat/{messageId}`** (crew messaging; planned)
+- `id: string`
+- `roomId: string`
+- `senderId: string`
+- `senderName?: string`
+- `senderRole?: string`
+- `message: string`
+- `audience: 'all' | 'roles'`
+- `roles?: string[]` (when audience is `roles`)
+- `type?: 'text' | 'preset'`
+- `createdAt: number`
 
 ### 2.2 Security Rules (Summary)
 - Public read access to rooms/timers for viewers.
