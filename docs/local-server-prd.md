@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Companion local server requirements (Electron/Node).
 ---
 
@@ -13,6 +13,7 @@ Scope: Companion local server requirements (Electron/Node).
 - Provide a low-latency local relay for controller/viewer clients.
 - Offer token-based auth for local connections.
 - Persist room state for offline continuity.
+- Support show-control signal emission (live cues, presentation updates) for Phase 2.
 
 **Non-goals**
 - Full LAN viewer distribution in Phase 1 (see `docs/local-offline-lan-plan.md`).
@@ -30,15 +31,25 @@ Scope: Companion local server requirements (Electron/Node).
 - Local WebSocket relay with token validation and room state cache.
 - HTTP token endpoint on loopback with Origin allowlist.
 - State persistence in Companion cache to survive restarts.
+- Multi-controller connections are currently allowed (no lock enforcement).
+
+## Phase 2 Companion UX
+- Menu bar/tray UI with quick status dropdown:
+  - Companion mode (Minimal/Show Control/Production)
+  - Connected clients count
+  - Quick actions (restart, quit)
+- Include Companion version in `HANDSHAKE_ACK`; client shows non-blocking warning for major mismatch.
 
 ## Planned Phases (Roadmap)
-- LAN viewer hosting and pairing, including certificate strategy and static viewer bundle (see `docs/local-offline-lan-plan.md`).
-- Additional show-control signals (Phase 2+).
+- Phase 2: show-control signal pipeline (live cues, presentation updates, slide progress, video elapsed/remaining time).
+- Phase 3: LAN viewer hosting and pairing (cert strategy + static viewer bundle), see `docs/local-offline-lan-plan.md`.
+- Optional viewer-only Electron app (desktop LAN) to avoid browser trust prompts.
 
 ## Acceptance Criteria
 - Valid tokens are required for local connections.
 - State updates are broadcast reliably to connected clients.
 - Cache restore works after Companion restart.
+- Companion emits show-control updates with enough data to derive slide progress and video remaining time.
 
 ## Out of Scope
 - Protocol contracts (see `docs/interface.md`).

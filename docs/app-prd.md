@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 ---
 
@@ -34,8 +34,9 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - Local mode flows and edge cases are documented in `docs/local-mode.md` and `docs/edge-cases.md`.
 
 ## Planned Phases (Roadmap)
-- LAN viewer hosting and pairing (see `docs/local-offline-lan-plan.md`).
-- Show-control features and tiered capabilities (see `docs/phase-2-overview.md`).
+- Phase 2: Electron controller + transport hardening + show-control core (see `docs/phase-2-overview.md`).
+- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”) (see `docs/local-offline-lan-plan.md`).
+- Phase 4: AI-assisted program ingestion + optional native viewer apps.
 
 ## Acceptance Criteria
 - Controller and viewer stay in sync with deterministic timer math.

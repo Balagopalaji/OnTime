@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -13,10 +13,12 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Deliver a controller and viewer experience aligned with the current dual-sync architecture (Firebase + Companion).
 - Keep public viewer access frictionless while enforcing owner-only control.
 - Maintain deterministic timer math using the shared timer logic rules.
+- Keep web and native controller UX visually consistent (shared colors, layout, and interactions).
 
 **Non-goals**
 - LAN viewer hosting and certificate management (see `docs/local-offline-lan-plan.md`).
 - Room lock takeover UX beyond what is already implemented (tracked in plans).
+- AI-assisted program ingestion (planned later).
 
 ## Roles & Permissions
 - **Owner/Controller**: Authenticated user with write access to a room.
@@ -32,14 +34,43 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Timer math and transitions follow `docs/timer-logic.md`.
 - Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
 
+## Phase 2 UX (Electron Controller + Transport)
+**Mode selector + status**
+- Header status indicator with expandable dropdown (always visible during a show).
+- LED-style status states using the existing app palette (reuse dashboard colors).
+- Non-blocking banners on state change; auto-dismiss for non-critical states; never modal.
+
+**Auto-connect**
+- Always attempt Companion connection on launch (even in Cloud mode).
+- If Companion is missing, continue in Cloud mode with a subtle “Companion not detected” state.
+
+**First-run setup**
+- Cloud works out of the box; Local mode is opt-in.
+- If Local is selected and Companion is missing, show a contextual prompt with download link.
+
+**Read-only remote controller**
+- When local is authoritative, remote controllers show “View Only” banner; controls disabled.
+- “Request Control” triggers the takeover flow (Phase 2b).
+
+**Viewer sharing**
+- Default QR and share URL point to `https://<web-app>/view/:roomId` (cloud viewer).
+- LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
+
+## Show Control UI (Phase 2c)
+- Live cue overlays and tech viewer variants are Show Control tier only.
+- Presentation tracking displays slide progress (e.g., “7/24”) and video elapsed/remaining time.
+- Video remaining time is derived from Companion cue updates (`currentTime` + `duration`).
+
 ## Planned Phases (Roadmap)
-- LAN viewer hosting and pairing (Phase 2+), see `docs/local-offline-lan-plan.md`.
-- Additional show-control features (Phase 2+), see `docs/phase-2-overview.md`.
+- Phase 2: Electron controller + transport hardening + show-control core (`docs/phase-2-overview.md`).
+- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”).
+- Phase 4: AI-assisted program ingestion (image/PDF/Excel → auto-fill) and optional native viewer apps.
 
 ## Acceptance Criteria
 - Controller actions update timers and messages for viewers without drift.
 - Viewer route works without authentication and renders active timer state.
 - Timer math remains consistent with `docs/timer-logic.md`.
+- Status indicator reflects current transport state without blocking operator actions.
 
 ## Out of Scope
 - Protocol contracts (see `docs/interface.md`).
