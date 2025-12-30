@@ -2,7 +2,7 @@
 Type: Reference
 Status: planned
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-30
 Scope: Phase 2 overview and goals.
 ---
 
@@ -33,7 +33,9 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - External video monitoring integrations beyond stubs.
   - Multi-operator roles/permissions.
   - Smart slide-note parsing/auto cues.
-  - LAN exposure beyond loopback without new auth model.
+  - LAN offline viewers (Companion-served viewer bundle + cert/pairing/trust).
+  - Optional Viewer App for desktop LAN stations (Electron, viewer-only).
+  - Optional native mobile viewers (iOS/Android) if demand warrants.
   - Performance/observability suite expansion.
   - Undo/redo command system and persistence.
 
@@ -67,6 +69,12 @@ This section summarizes the show-control architecture at a high level. Canonical
    - Viewer typography/wake-lock fallback; Minimal mode gating copy; Basic Simple Mode skin.
    - Companion tray/window for mode selection/status reflecting capabilities; stays within RAM budgets.
    - Success: Resource targets met; clear gating/messaging without technical jargon.
+
+## Phase 3 (Planned) — LAN Offline Viewers
+- Companion-served static viewer bundle for LAN-only rooms (HTTPS/WSS + trusted cert).
+- Pairing flow + viewer-only tokens; LAN allowlists + PNA/CORS headers as required.
+- Optional Viewer App for desktop stations (Electron) to avoid browser trust prompts.
+- Optional native mobile viewers (iOS/Android) if LAN demand warrants.
 
 ## Cross-Cutting Risks & Mitigations
 - **Authority races:** Simultaneous reconnect + takeover; mitigate with single pending handshake and explicit takeover prompts.
