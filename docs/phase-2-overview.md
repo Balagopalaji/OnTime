@@ -275,6 +275,10 @@ This section summarizes the show-control architecture at a high level. Canonical
 - Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline.
 - Crew chat widget (role-targeted messaging with presets and optional audio).
 - Multi-room dashboard for TD breakout monitoring (status-at-a-glance + quick links).
+- Cue trigger types: timed, sequential, follow, floating.
+- Operator cue ownership with TD/Director override; role-based edit permissions.
+- Timer control delegation (TD -> one operator, adjustments-only or full control).
+- Show Caller Mode (audio/TTS cue calls for budget productions).
 
 #### Phase 3 Cue Timing States (Show Planner)
 ```

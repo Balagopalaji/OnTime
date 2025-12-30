@@ -144,10 +144,76 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 ```
 
 **Phase 3 preview (Show Planner)**
-- Left rundown panel with segments and nested cues.
-- Cue timeline placement within segments.
-- Crew chat widget (small, collapsible, optional audio notifications).
+**Core concepts**
+- Full rundown with segments and nested cues.
+- Unified cue timeline (all roles in place), with role-based styling and filters.
+- Operators can create and edit their own cues; TD/Director can edit any cue.
+- Crew chat widget for quick coordination.
 - Multi-room dashboard for breakout monitoring.
+
+**Cue trigger types**
+| Type | Behavior | Example |
+| --- | --- | --- |
+| timed | Fixed offset from segment/timer start | "Lights up at 0:30" |
+| sequential | Ordered, manual Go required | "After pastor finishes prayer" |
+| follow | Auto-fires after another cue completes | "Fade out follows fade in" |
+| floating | Approximate position, draggable | "Somewhere during worship" |
+
+**Cue ownership & permissions**
+| Role | Own role cues | Other role cues | Segments | Timer control | Room config |
+| --- | --- | --- | --- | --- | --- |
+| TD/Director | Full CRUD | Full CRUD | Full CRUD | Full | Full |
+| Operator (LX/AX/VX/SM) | Full CRUD | View only | View only | If delegated | None |
+| Viewer | None | View only | View only | None | None |
+
+**TD/Director command center (layout)**
+```
+HEADER: Room | Timer | Role: [TD ▾] | ● Local+Cloud | PIN: 4821 | [⚙️]
+--------------------------------------------------------------------------------
+RUNDOWN (left)        | MAIN DISPLAY (center)       | STATUS + CUES (right)
+Opening Prayer        | NOW                         | ALL ROLES STATUS
+▶ Worship Set ━━━━━   | 00:45 "Worship Set"         | LX: 3 pending
+▸ Announcements       | NEXT: Announcements (3:00)  | AX: 2 pending
+Message               |                             | VX: 1 pending
+Closing               | CONTROLS: [⏮][▶][⏭][⏹]      | SM: 0 pending
+[Add Segment]         | Timer: TD (you) [Delegate]  |
+--------------------------------------------------------------------------------
+TIMELINE (all roles, editable)
+NOW | TRANSITION | NEXT SEGMENT
+LX/AX/VX/SM cues in place; changeover zone highlighted
+--------------------------------------------------------------------------------
+CREW CHAT (expanded)
+```
+
+**Operator view (role-focused)**
+```
+HEADER: Room | Timer: SM (delegated) | Role: [LX ▾] | ● Local+Cloud | [⚙️]
+--------------------------------------------------------------------------------
+YOUR NEXT CUE (always visible)
+● GO: House lights 50%   [Done] [Skip] [+30s]
+--------------------------------------------------------------------------------
+MAIN DISPLAY             | TIMELINE (unified, editable)
+NOW / NEXT segment info  | Your cues large + highlighted; others compact + muted
+Presentation panel       | Filters per role; drag to reposition your cues
+```
+
+**Timeline behavior**
+- All cues remain in timeline order; other roles are compact but still in place.
+- Your cues are larger, highlighted, and editable in-place.
+- Filters can hide roles without reordering cues.
+- Edited cues show "edited by {role}" with relative time.
+
+**Timer control delegation**
+- TD/Director can delegate timer control to one operator at a time.
+- Delegation levels: adjustments_only or full_control.
+- All users see "Timer: {role} (delegated)" in header; audit entry recorded.
+
+**Show Caller Mode (optional)**
+- App provides standby/warning/GO calls with audio cues.
+- Optional TTS ("Standby lighting cue 5") for budget shows without a director.
+- Timed cues can auto-advance after GO; sequential cues remain manual.
+
+**Phase 3 layout (full)**
 ```
 HEADER: Room | Timer | Role: [LX] | Connection | PIN: 4821 | Settings
 --------------------------------------------------------------------------------
@@ -178,6 +244,7 @@ Add segment button      |                               | Progress bar
   - Warning: 1:00 - 0:10 (pulse border)
   - Imminent: < 0:10 (strong pulse + optional audio ping)
   - Go: 0:00 (flash, stays active until acknowledgment)
+- Sequential/follow/floating cues enter Standby when they are next for the role; Go is manual.
 - Go state requires manual acknowledgment: **Done**, **Skip**, or **+30s** (delay the Go window).
 - Completed cues are muted with checkmark; skipped cues are struck through.
 

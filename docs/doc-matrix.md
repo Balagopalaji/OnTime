@@ -32,4 +32,7 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Show planner cues (rundown cue list) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Crew chat (role-targeted messaging) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Multi-room dashboard (breakout monitoring) | `docs/client-prd.md` | PRD | planned | n/a |  |  |  |
+| Cue trigger types (timed/sequential/follow/floating) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
+| Timer control delegation | `docs/interface.md` | Interface | planned | n/a |  |  |  |
+| Show Caller Mode (app as caller) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | LAN viewers (offline) | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |

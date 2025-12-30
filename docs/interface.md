@@ -47,6 +47,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `state.message.visible: boolean`
 - `state.message.color: 'green' | 'yellow' | 'red' | 'blue' | 'white' | 'none'`
 - `state.activeLiveCueId?: string`
+- `state.timerDelegate?: { userId: string; role: string; level: 'adjustments_only' | 'full_control'; delegatedAt: number; delegatedBy: string }` (Phase 3 planned)
+- `state.showCallerMode?: { enabled: boolean; audioStandby: boolean; audioWarning: boolean; audioGo: boolean; ttsEnabled: boolean; ttsFormat: 'role_number' | 'full_title'; autoAdvanceTimedSec: number; autoFireFollow: boolean }` (Phase 3 planned)
 
 **`rooms/{roomId}/state/current`** (v2 room state)
 - `activeTimerId: string | null`
@@ -62,6 +64,8 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `message.visible: boolean`
 - `message.color: 'green' | 'yellow' | 'red' | 'blue' | 'white' | 'none'`
 - `activeLiveCueId?: string`
+- `timerDelegate?: { userId: string; role: string; level: 'adjustments_only' | 'full_control'; delegatedAt: number; delegatedBy: string }` (Phase 3 planned)
+- `showCallerMode?: { enabled: boolean; audioStandby: boolean; audioWarning: boolean; audioGo: boolean; ttsEnabled: boolean; ttsFormat: 'role_number' | 'full_title'; autoAdvanceTimedSec: number; autoFireFollow: boolean }` (Phase 3 planned)
 
 **`rooms/{roomId}/timers/{timerId}`**
 - `title: string`
@@ -92,13 +96,20 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `title: string`
 - `notes?: string`
 - `segmentId?: string` (optional linkage to rundown segment)
-- `offsetMs?: number` (relative to segment start or active timer start)
-- `targetTimeMs?: number` (absolute time-of-day, optional)
+- `triggerType: 'timed' | 'sequential' | 'follow' | 'floating'`
+- `offsetMs?: number` (timed: relative to segment or timer start)
+- `targetTimeMs?: number` (optional: absolute time-of-day)
+- `afterCueId?: string` (follow: auto-fire after another cue completes)
+- `approximatePosition?: number` (floating: 0-100% placement within segment)
+- `triggerNote?: string` (e.g., "When pastor says 'let us pray'")
 - `ackState?: 'pending' | 'done' | 'skipped'`
 - `ackAt?: number`
 - `ackBy?: string`
+- `createdBy: string`
 - `createdAt?: number`
 - `updatedAt?: number`
+- `editedBy?: string`
+- `editNote?: string` (e.g., "edited by LX 2m ago")
 Notes:
 - Visual cue states (Standby/Warning/Imminent/Go) are derived client-side from time-to-cue.
 - Manual acknowledgment sets `ackState` and freezes the cue as done or skipped.
@@ -106,6 +117,11 @@ Notes:
 - **Tech viewer separates sources:**
   - `liveCues` appear in a **Now Playing** status panel.
   - `cues` appear in an **Upcoming Cues** list sorted by time-to-cue.
+Trigger notes:
+- Timed cues follow countdown states.
+- Sequential cues enter Standby when they are the next cue for that role; Go is manual.
+- Follow cues fire when their parent cue is marked Done (optional delay is UI-driven).
+- Floating cues are placed visually; operators can drag to approximate positions.
 
 **`rooms/{roomId}/crewChat/{messageId}`** (crew messaging; planned)
 - `id: string`
@@ -117,6 +133,7 @@ Notes:
 - `audience: 'all' | 'roles'`
 - `roles?: string[]` (when audience is `roles`)
 - `type?: 'text' | 'preset'`
+- `presetId?: string` (when type is `preset`)
 - `createdAt: number`
 
 ### 2.2 Security Rules (Summary)
@@ -240,6 +257,14 @@ Notes:
 Notes:
 - `timestamp` is optional; server uses `Date.now()` if omitted.
 - Only the following change keys are accepted: `activeTimerId`, `isRunning`, `currentTime`, `lastUpdate`.
+
+**Planned Phase 3 events (Companion offline support, optional)**
+- Cue CRUD: `CREATE_CUE`, `CUE_CREATED`, `UPDATE_CUE`, `CUE_UPDATED`, `DELETE_CUE`, `CUE_DELETED`, `REORDER_CUES`, `CUES_REORDERED`.
+- Cue acknowledgment: `ACK_CUE`, `CUE_ACKED`.
+- Timer delegation: `DELEGATE_TIMER`, `TIMER_DELEGATED`, `RECLAIM_TIMER`, `TIMER_RECLAIMED`.
+- Crew chat: `SEND_CHAT`, `CHAT_MESSAGE`.
+Notes:
+- Firestore is the canonical store for cues/chat; Companion events are optional to enable offline/LAN flows.
 
 **Client → Server: `SYNC_ROOM_STATE`**
 ```json

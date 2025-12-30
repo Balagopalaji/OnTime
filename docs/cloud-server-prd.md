@@ -33,7 +33,8 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 - Timer math rules are defined in `docs/timer-logic.md`.
 
 ## Planned Phases (Roadmap)
-- Security rule refinements for new collections (e.g., live cues).
+- Security rule refinements for new collections (live cues, show planner cues, crew chat).
+- Role-based cue ownership (operators can edit only their role cues; TD/Director override).
 - Cloud-to-Companion sync improvements (see `docs/local-mode.md`).
 
 ## Acceptance Criteria
