@@ -77,10 +77,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] No Companion changes required.
 **Frontend/Electron**
 - [ ] Use `electron-builder` (target Electron 28+ for ESM support); load frontend build output.
-- [ ] IPC bridge: main process owns Companion connectivity; renderer uses `contextBridge` API only.
+- [ ] IPC bridge: renderer owns Companion connectivity (existing architecture); main process exposes platform APIs via `contextBridge` (session state, deep links, crash recovery).
 - [ ] Embed mode selector + connection indicator in Electron header.
 - [ ] Ensure local persistence for room cache and settings (survive restarts).
-- [ ] Deep link handler: register `ontime://room/:roomId` to open a room in the controller.
+- [ ] Deep link handler: register `ontime://room/:roomId` to open a room in the controller. Note: protocol registration only works in packaged builds on Windows; dev-mode deep links require manual testing via command line args.
 - [ ] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
 - [ ] Acceptance: Controller launches, connects to Companion, and runs without a browser.
 

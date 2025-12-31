@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
 import { LandingPage } from './LandingPage'
 import { DashboardPage } from './DashboardPage'
@@ -9,12 +9,20 @@ import { CompanionTestPage } from './CompanionTestPage'
 import { LocalModePage } from './LocalModePage'
 import { CompanionTrustHelper } from './CompanionTrustHelper'
 import { useEffect, useRef } from 'react'
+import { isElectron, onNavigate, updateSessionState } from '../lib/electron'
+
+// Use HashRouter in Electron (file:// protocol), BrowserRouter otherwise.
+// NOTE: This check runs at module load time. It works because Electron's preload
+// script runs before the page loads, so window.controllerAPI is already defined.
+// Do NOT lazy-load this module or the check may fail.
+const Router = isElectron() ? HashRouter : BrowserRouter
 
 const RouteRestorer = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const hasRestoredRef = useRef(false)
 
+  // Restore route on reload
   useEffect(() => {
     if (hasRestoredRef.current) return
     const navEntry =
@@ -33,12 +41,29 @@ const RouteRestorer = () => {
     hasRestoredRef.current = true
   }, [location.pathname, navigate])
 
+  // Handle deep link navigation from Electron main process
+  useEffect(() => {
+    return onNavigate((route) => {
+      navigate(route, { replace: true })
+    })
+  }, [navigate])
+
+  // Update session state for crash recovery (Electron only)
+  useEffect(() => {
+    if (location.pathname !== '/') {
+      // Extract roomId from path if present
+      const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
+      const roomId = match?.[1] ?? undefined
+      void updateSessionState({ lastPath: location.pathname, lastRoomId: roomId })
+    }
+  }, [location.pathname])
+
   return null
 }
 
 export const AppRouter = () => {
   return (
-    <BrowserRouter>
+    <Router>
       <RouteRestorer />
       <Routes>
         <Route element={<AppShell />}>
@@ -65,6 +90,6 @@ export const AppRouter = () => {
           <Route path="/companion/trust" element={<CompanionTrustHelper />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </Router>
   )
 }

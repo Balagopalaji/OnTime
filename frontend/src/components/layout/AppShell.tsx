@@ -5,6 +5,16 @@ import { useAppMode, type AppMode } from '../../context/AppModeContext'
 import { useCompanionConnection } from '../../context/CompanionConnectionContext'
 import { useDataContext } from '../../context/DataProvider'
 import { CompanionDownloadPrompt } from '../core/CompanionDownloadPrompt'
+import {
+  isElectron,
+  onCrashRecovery,
+  ackCrashRecovery,
+  onUpdateStateChanged,
+  downloadUpdate,
+  installUpdate,
+  type CrashRecoveryData,
+  type UpdateState,
+} from '../../lib/electron'
 
 export const AppShell = () => {
   const { user, status, login, logout } = useAuth()
@@ -21,6 +31,9 @@ export const AppShell = () => {
   const [showCompanionWizard, setShowCompanionWizard] = useState(false)
   const [showTrustStep, setShowTrustStep] = useState(false)
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
+  const [crashRecovery, setCrashRecovery] = useState<CrashRecoveryData | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
 
   const openTrustPage = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -57,6 +70,45 @@ export const AppShell = () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
+  }, [])
+
+  // Listen for crash recovery events from Electron main process
+  useEffect(() => {
+    if (!isElectron()) return
+    return onCrashRecovery((data) => {
+      if (data.lastPath) {
+        setCrashRecovery(data)
+      }
+    })
+  }, [])
+
+  const handleDismissCrashRecovery = useCallback(() => {
+    setCrashRecovery(null)
+    void ackCrashRecovery()
+  }, [])
+
+  // Listen for update state changes from Electron main process
+  useEffect(() => {
+    if (!isElectron()) return
+    return onUpdateStateChanged((state) => {
+      setUpdateState(state)
+      // Reset dismissed state when a new version becomes available
+      if (state.available && !updateState?.available) {
+        setUpdateDismissed(false)
+      }
+    })
+  }, [updateState?.available])
+
+  const handleDownloadUpdate = useCallback(() => {
+    void downloadUpdate()
+  }, [])
+
+  const handleInstallUpdate = useCallback(() => {
+    void installUpdate()
+  }, [])
+
+  const handleDismissUpdate = useCallback(() => {
+    setUpdateDismissed(true)
   }, [])
 
   const queueWarning = useMemo(() => {
@@ -201,6 +253,82 @@ export const AppShell = () => {
             </div>
           </div>
         </header>
+      )}
+      {/* Crash recovery banner (Electron only) */}
+      {crashRecovery && (
+        <div className="border-b border-emerald-800/50 bg-emerald-950/80 px-4 py-3">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-emerald-400">✓</span>
+              <p className="text-sm text-emerald-200">
+                <strong>Recovered session</strong> — Your previous session has been restored.
+                {crashRecovery.lastRoomId && (
+                  <span className="ml-1 text-emerald-300/80">
+                    (Room: {crashRecovery.lastRoomId})
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleDismissCrashRecovery}
+              className="rounded-md border border-emerald-700 bg-emerald-900/50 px-2.5 py-1 text-xs font-medium text-emerald-200 transition hover:bg-emerald-800/50"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Update available/downloaded banner (Electron only) */}
+      {updateState && !updateDismissed && (updateState.available || updateState.downloaded) && (
+        <div className="border-b border-blue-800/50 bg-blue-950/80 px-4 py-3">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-blue-400">↑</span>
+              <p className="text-sm text-blue-200">
+                {updateState.downloaded ? (
+                  <>
+                    <strong>Update ready</strong> — Version {updateState.version} is ready to install.
+                  </>
+                ) : updateState.downloading ? (
+                  <>
+                    <strong>Downloading update</strong> — {Math.round(updateState.progress)}%
+                  </>
+                ) : (
+                  <>
+                    <strong>Update available</strong> — Version {updateState.version} is available.
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {updateState.downloaded ? (
+                <button
+                  type="button"
+                  onClick={handleInstallUpdate}
+                  className="rounded-md border border-blue-600 bg-blue-700/50 px-2.5 py-1 text-xs font-medium text-blue-100 transition hover:bg-blue-600/50"
+                >
+                  Restart & Update
+                </button>
+              ) : !updateState.downloading ? (
+                <button
+                  type="button"
+                  onClick={handleDownloadUpdate}
+                  className="rounded-md border border-blue-600 bg-blue-700/50 px-2.5 py-1 text-xs font-medium text-blue-100 transition hover:bg-blue-600/50"
+                >
+                  Download
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleDismissUpdate}
+                className="rounded-md border border-blue-800 bg-blue-900/50 px-2.5 py-1 text-xs font-medium text-blue-300 transition hover:bg-blue-800/50"
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Degraded banner removed for a cleaner, less noisy UI; status is still visible in the header badge. */}
       <main
