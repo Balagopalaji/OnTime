@@ -207,7 +207,7 @@ function getMimeType(filePath: string): string {
 
 async function startStaticServer(): Promise<string> {
   if (staticServer && staticServerPort) {
-    return `http://127.0.0.1:${staticServerPort}`;
+    return `http://localhost:${staticServerPort}`;
   }
 
   const rootDir = path.join(process.resourcesPath, 'frontend');
@@ -255,7 +255,7 @@ async function startStaticServer(): Promise<string> {
     });
   });
 
-  return `http://127.0.0.1:${staticServerPort}`;
+  return `http://localhost:${staticServerPort}`;
 }
 
 async function getFrontendPath(): Promise<string> {
