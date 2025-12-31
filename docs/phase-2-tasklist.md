@@ -42,6 +42,15 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **Feature gating:** Legacy rooms without `features` default to deny Show Control/Production data paths; UI must hide gated features and emit upgrade prompts.
 - **File ops security:** Normalize path, require path within user home or OS app data; reject symlinks pointing outside allowed roots; reject UNC/network paths; bind HTTP to 127.0.0.1; token auth required.
 - **Tokens:** TTL 30 minutes; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
+- **Protocol versioning:** Client includes interface version in JOIN/handshake; if major mismatch, show warning banner and suggest update; if incompatible, fallback to Cloud with clear message.
+
+## Error UX Matrix (Phase 2)
+| Error Code | User Message | Auto-Retry | CTA |
+| --- | --- | --- | --- |
+| CONTROLLER_TAKEN | "This room is controlled elsewhere." | No | Request Control |
+| PERMISSION_DENIED | "You don't have access to control this room." | No | Contact owner |
+| INVALID_TOKEN | "Session expired. Reconnecting..." | Once | Retry if refresh fails |
+| FEATURE_UNAVAILABLE | "Feature unavailable in this Companion mode." | No | Learn more |
 
 ## Deferred to Phase 4 (Not in Phase 2 scope)
 - Undo/redo command system and persistence (see `docs/phase-2-overview.md`).
@@ -53,6 +62,41 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Stop-if-breakage: if a pass causes parallel sync regressions (timer drift, queue replay, authority flapping), stop and report before continuing.
 - Rollback scope: if a pass fails, revert only that pass before proceeding.
 - Split work by surface: list Companion tasks separately from Frontend tasks to reduce cross-surface regressions.
+
+---
+
+## Milestone 0: Electron Controller Wrapper (Phase 2a)
+**Goal:** Controller runs in Electron with stable offline mode; browser is optional.
+
+**Scope Exclusions (Milestone 0)**  
+- No transport hardening or lock/takeover (Milestone 1).  
+- No show-control UI (Milestone 2).  
+
+**Pass A: Electron Shell**
+**Companion**
+- [ ] No Companion changes required.
+**Frontend/Electron**
+- [ ] Create Electron shell; load frontend build output.
+- [ ] Embed mode selector + connection indicator in Electron header.
+- [ ] Ensure local persistence for room cache and settings (survive restarts).
+- [ ] Acceptance: Controller launches, connects to Companion, and runs without a browser.
+
+**Manual Verification (Pass A)**
+- [ ] Launch Electron controller offline; verify room cache loads and UI is usable.
+- [ ] Connect Companion and confirm the app auto-detects and switches to Local when available.
+- [ ] Quit/relaunch and confirm settings persist.
+
+**Pass B: Build & Sign**
+**Companion**
+- [ ] No Companion changes required.
+**Frontend/Electron**
+- [ ] Code signing for macOS + Windows (notarization on macOS).
+- [ ] Auto-update pipeline (electron-updater or equivalent).
+- [ ] Acceptance: Builds install and update cleanly on macOS + Windows.
+
+**Manual Verification (Pass B)**
+- [ ] Install an older build and confirm auto-update to latest.
+- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows.
 
 ---
 
@@ -70,6 +114,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; only one pending handshake at a time.
 - [ ] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
 - [ ] Acceptance: Backoff follows schedule; clear UX on failure/stop; no duplicate sockets after reconnect.
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts` (socket handlers, JOIN/HANDSHAKE)
+- Frontend: `frontend/src/context/CompanionConnectionContext.tsx`
+**Test Expectations**
+- Unit: backoff timing logic
+- Integration: reconnect flow with mocked socket
 
 **Manual Verification (Pass A)**
 - [ ] Simulate Companion stop/start; controller shows reconnect banner and recovers without duplicate sockets.
@@ -83,6 +133,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Request control flow with non-blocking notification, countdown, and force takeover rules.
 - [ ] Handoff flow (current controller selects target device) + reclaim flow.
 - [ ] Acceptance: Only one controller can write; takeover requires explicit action; no silent auto-takeover.
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts` (lock store, heartbeat, permission checks)
+- Frontend: `frontend/src/context/UnifiedDataContext.tsx` (authority/lock integration), `frontend/src/routes/*` (UX)
+**Test Expectations**
+- Unit: lock state transitions
+- Integration: two controllers, one authoritative
 
 **Manual Verification (Pass B)**
 - [ ] Open two controllers; only one can start/stop/nudge timers, other is read-only.
@@ -97,6 +153,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
 - [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
 - [ ] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
+**Codebase Entry Points**
+- Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/context/CompanionConnectionContext.tsx`
+**Test Expectations**
+- Unit: authority selection with equal timestamps
+- Integration: capability change refresh
 
 **Manual Verification (Pass C)**
 - [ ] Toggle tier/capability and confirm UI updates without stale data.
@@ -110,6 +171,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Firestore rules rollout for tiered subcollections; emulator dry-run → staging deploy → simulated requests per tier → prod with canary; rollback command ready.
 - [ ] Ensure `reorderRoom.mock.test.tsx` passes and is not skipped.
 - [ ] Acceptance: Rules block Show Control subcollections for rooms without features; Basic UI hides gated elements; test suite passes.
+**Codebase Entry Points**
+- Firebase rules: `firebase/firestore.rules`
+- Frontend tests: `frontend/src/__tests__`
+**Test Expectations**
+- Full: `npm run test` + `npm run lint`
 
 **Manual Verification (Pass D)**
 - [ ] With Basic tier room, verify Show Control subcollections are denied.
@@ -138,6 +204,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
   - Cost note: each cue change = 1 write + N reads (viewers). For high-frequency shows (>1 cue/sec), batch or use reference-only mode with `activeLiveCueId`.
 - [ ] Unified merge: merge Companion reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
 - [ ] Phase 2 explicitly excludes scheduled cues, cue timelines, and manual cue acknowledgment (Phase 3).
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts` (LIVE_CUE/PRESENTATION)
+- Frontend: `frontend/src/context/UnifiedDataContext.tsx`
+**Test Expectations**
+- Integration: liveCues flow from Companion to local viewer
 
 **Manual Verification (Pass A)**
 - [ ] With Companion running, verify live cue updates reach local viewer quickly.
@@ -150,6 +221,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Frontend**
 - [ ] Dual header (Main Timer + PiP) gated by tier + capability; tech viewer status panel; upgrade prompts on gated actions.
 - [ ] Latency harness: manual stopwatch script to compare controller vs. local viewer vs. cloud viewer; record results in QA doc.
+**Codebase Entry Points**
+- Frontend: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/ViewerPage.tsx`, `frontend/src/components/*`
+**Test Expectations**
+- Manual: stopwatch harness (record results)
 
 **Manual Verification (Pass B)**
 - [ ] Confirm PiP/status panel only appears for Show Control tier rooms.
@@ -172,7 +247,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Scope Exclusions (Milestone 3)**  
 - No scheduled cues or Show Planner authoring (Phase 3).  
 
-**Pass A: Companion/Backend**
+**Pass A-Win: PPT Detection + File Ops (Windows)**
 **Companion**
 - [ ] Implement `/api/open`, `/api/file/exists`, `/api/file/metadata`; all require `Authorization: Bearer <token>`; return `FEATURE_UNAVAILABLE` when mode lacks capability.
 - [ ] Path validation: normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside after resolving symlinks; reject UNC/remote paths; disallow traversal segments; bind HTTP to 127.0.0.1.
@@ -180,6 +255,19 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] ffprobe bundle: use bundled LGPL-only ffprobe; if missing, return `{ warning: "FFPROBE_MISSING", metadata: { sizeBytes, mimeGuess } }` and continue (no crash on non-UTF8 filenames).
 - [ ] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background >10s.
   - instanceId: PowerPoint process PID or window handle for tracking multiple PPT instances.
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts` (HTTP + PPT detection)
+**Test Expectations**
+- Manual: `/api/file/exists` + `/api/open` safety checks
+
+**Pass A-Mac: PPT Slide Tracking (macOS)**
+**Companion**
+- [ ] Implement slide-only tracking via AppleScript; no video timing; emit `PRESENTATION_*` with slide counts only.
+- [ ] Emit "video timing unavailable on macOS" marker for UI.
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts` (macOS PPT hooks)
+**Test Expectations**
+- Manual: slide number updates in UI
 
 **Manual Verification (Pass A)**
 - [ ] Attempt `/api/open` with a path outside allowed roots; verify rejection.
@@ -190,6 +278,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Frontend**
 - [ ] Notification "Presentation detected"; manual import; map videos to cues; handle duplicates by filename+slide; allow dismiss.
 - [ ] Error UX: token expiry prompts, FEATURE_UNAVAILABLE copy for Minimal mode, safe failure on missing ffprobe.
+**Codebase Entry Points**
+- Frontend: `frontend/src/components/*`, `frontend/src/context/UnifiedDataContext.tsx`
+**Test Expectations**
+- Manual: detection banner + error prompts
 
 **Manual Verification (Pass B)**
 - [ ] Presentation detected banner appears and can be dismissed.
@@ -219,6 +311,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Minimal mode gating UX: when capability missing, show inline tooltip/banner "Feature unavailable in Minimal Mode — upgrade/restart Companion."
 - [ ] Simple Mode skin: light controller variant for Basic tier; gated buttons hidden/disabled with upgrade badges.
 - [ ] Messaging copy: clear banners for reconnects, authority conflicts, feature gating; avoid technical jargon.
+**Codebase Entry Points**
+- Frontend: `frontend/src/routes/*`, `frontend/src/components/*`, `frontend/src/index.css`
+**Test Expectations**
+- Manual: multi-device layout check
 
 **Manual Verification (Pass A)**
 - [ ] View on phone and desktop; confirm no layout clipping.
@@ -230,6 +326,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Companion tray + minimal window for mode selection/status; reflects capabilities in `HANDSHAKE_ACK`.
 - [ ] RAM measurements: Minimal with GUI <50 MB, Show Control ≤100 MB, Production ≤150 MB (3-sample average after 60s idle, macOS+Windows); if cross-platform measurement proves heavy, split into a follow-up pass focused solely on measurement/validation.
 - [ ] Ensure GUI does not break headless flow; mode selection persists between launches.
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts`
+**Test Expectations**
+- Manual: RAM sampling + persistence check
 
 **Manual Verification (Pass B)**
 - [ ] Switch modes and confirm GUI reflects new capabilities and persists after restart.
@@ -255,6 +355,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Live cue latency: record local vs. cloud viewer deltas; keep within targets.
 - [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path.
 - [ ] Viewer during controller sync: verify Firebase fallback when `authority.status === 'syncing'`.
+- [ ] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate across tabs.
+- [ ] Error UX matrix: validate user messaging and CTA for CONTROLLER_TAKEN, PERMISSION_DENIED, INVALID_TOKEN.
 
 ---
 
