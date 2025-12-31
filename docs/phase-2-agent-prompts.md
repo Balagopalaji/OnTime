@@ -43,6 +43,11 @@ Scope: Electron shell only (no transport changes).
 Targets: Electron shell, contextBridge IPC, load frontend build output, deep link handler, crash recovery banner, local cache persistence.
 Do not modify `UnifiedDataContext` or socket logic.
 Acceptance: Electron launches controller, connects to Companion, local cache persists, crash recovery banner appears.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass B: Build & Sign
@@ -52,6 +57,11 @@ Implement Milestone 0 Pass B.
 Add code signing + auto-update pipeline (electron-builder/electron-updater).
 Test canary update path. No UI changes.
 Acceptance: Builds install and update cleanly on macOS + Windows.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ---
@@ -66,6 +76,11 @@ Companion: enforce single pending handshake.
 Frontend: reconnection state machine + backoff + Retry CTA.
 Files: `companion/src/main.ts`, `frontend/src/context/CompanionConnectionContext.tsx`.
 Add unit test for backoff timing if feasible.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass B: Controller Lock & Takeover
@@ -78,6 +93,11 @@ Frontend: request flow, handover, reclaim UI.
 Reject non-authoritative writes at BOTH Companion socket layer and Firebase write-through.
 Types: add `ControllerLock` to `frontend/src/types/index.ts`.
 Reference: `docs/phase-2-overview.md` Phase 2b Flow Diagrams.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass C: Authority & Caching
@@ -88,6 +108,11 @@ On capability/tier change: drop cached preview, refetch room config/state, recom
 Conflict rule: prefer freshest `lastUpdate`, tie-break to controller-originated change.
 Cross-tab sync: mode changes, takeover banners, token refresh propagate via BroadcastChannel/localStorage.
 Files: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/context/CompanionConnectionContext.tsx`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass D: Rules & Tests
@@ -96,6 +121,11 @@ Prompt:
 Implement Milestone 1 Pass D.
 Firestore rules rollout for tiered subcollections; ensure `reorderRoom.mock.test.tsx` passes.
 Run `npm run test` + `npm run lint` and report results.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ---
@@ -112,6 +142,11 @@ heartbeat, yields on reconnect; skip write-through when cue rate > 1/sec.
 Types: extend RoomState with `activeLiveCueId: string | null` in `frontend/src/types/index.ts`.
 Files: `companion/src/main.ts`, `frontend/src/context/UnifiedDataContext.tsx`.
 Scope exclusions: no scheduled cues, no cue timeline, no manual acknowledgment.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass B: UI & Latency Validation
@@ -121,6 +156,11 @@ Implement Milestone 2 Pass B.
 Dual header + tech viewer status panel gated by tier/capability.
 Add latency harness instructions; record local vs cloud deltas.
 Files: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/ViewerPage.tsx`, `frontend/src/components/*`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ---
@@ -134,6 +174,11 @@ Implement Milestone 3 Pass A-Win in Companion.
 Add /api/open, /api/file/exists, /api/file/metadata with strict path validation.
 PPT detection via COM API; debounce 1.5s; foreground-only; emit PRESENTATION_CLEAR on close/idle.
 Files: `companion/src/main.ts`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass A-Mac: PPT Slide Tracking (macOS)
@@ -142,6 +187,11 @@ Prompt:
 Implement Milestone 3 Pass A-Mac in Companion.
 Slide tracking via AppleScript; no video timing; emit "video timing unavailable on macOS".
 Files: `companion/src/main.ts`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass B: Frontend Workflow
@@ -150,6 +200,11 @@ Prompt:
 Implement Milestone 3 Pass B.
 Presentation detected notification, manual import flow, error UX for token expiry and ffprobe missing.
 Files: `frontend/src/components/*`, `frontend/src/context/UnifiedDataContext.tsx`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ---
@@ -162,6 +217,11 @@ Prompt:
 Implement Milestone 4 Pass A.
 Typography scaling fixes, wake-lock fallback banner, Minimal mode gating UX, basic tier skin, banner copy cleanup.
 Files: `frontend/src/routes/*`, `frontend/src/components/*`, `frontend/src/index.css`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
 
 ### Pass B: Companion GUI & Resource Checks
@@ -170,4 +230,9 @@ Prompt:
 Implement Milestone 4 Pass B.
 Companion tray + minimal window; persistent mode selection; RAM measurement targets.
 Files: `companion/src/main.ts`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```
