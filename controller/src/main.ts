@@ -4,6 +4,10 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import os from 'node:os';
+import http from 'node:http';
+
+let staticServer: http.Server | null = null;
+let staticServerPort: number | null = null;
 
 const APP_LABEL = 'OnTime Controller';
 const PROTOCOL_SCHEME = 'ontime';
@@ -174,13 +178,92 @@ function saveSessionStateSync(state: Partial<SessionState>): void {
   }
 }
 
-function getFrontendPath(): string {
+function getMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.html':
+      return 'text/html';
+    case '.js':
+      return 'text/javascript';
+    case '.css':
+      return 'text/css';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.json':
+      return 'application/json';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.woff':
+      return 'font/woff';
+    case '.woff2':
+      return 'font/woff2';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+async function startStaticServer(): Promise<string> {
+  if (staticServer && staticServerPort) {
+    return `http://127.0.0.1:${staticServerPort}`;
+  }
+
+  const rootDir = path.join(process.resourcesPath, 'frontend');
+  staticServer = http.createServer(async (req, res) => {
+    try {
+      const url = req.url ? decodeURIComponent(req.url.split('?')[0]) : '/';
+      const safePath = url === '/' ? '/index.html' : url;
+      const filePath = path.join(rootDir, safePath);
+      const resolved = path.resolve(filePath);
+      if (!resolved.startsWith(rootDir)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+
+      let toServe = resolved;
+      try {
+        const stat = await fs.stat(toServe);
+        if (stat.isDirectory()) {
+          toServe = path.join(toServe, 'index.html');
+        }
+      } catch {
+        // Fallback to index.html for SPA routes
+        toServe = path.join(rootDir, 'index.html');
+      }
+
+      const data = await fs.readFile(toServe);
+      res.writeHead(200, { 'Content-Type': getMimeType(toServe) });
+      res.end(data);
+    } catch (err) {
+      console.error('[controller] Static server error', err);
+      res.writeHead(500);
+      res.end('Server error');
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    staticServer?.once('error', reject);
+    staticServer?.listen(0, '127.0.0.1', () => {
+      const address = staticServer?.address();
+      if (address && typeof address === 'object') {
+        staticServerPort = address.port;
+      }
+      resolve();
+    });
+  });
+
+  return `http://127.0.0.1:${staticServerPort}`;
+}
+
+async function getFrontendPath(): Promise<string> {
   if (isDev) {
     // In dev mode, load from the frontend dev server
     return 'http://localhost:5173';
   }
-  // In production, load from bundled frontend
-  return path.join(process.resourcesPath, 'frontend', 'index.html');
+  return startStaticServer();
 }
 
 function parseDeepLink(url: string): { roomId: string | null; action: string | null } {
@@ -242,13 +325,13 @@ async function createWindow(): Promise<BrowserWindow> {
   }
 
   // Load the frontend
-  const frontendPath = getFrontendPath();
+  const frontendPath = await getFrontendPath();
   if (isDev) {
     await mainWindow.loadURL(frontendPath);
     // Open devtools in dev mode
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    await mainWindow.loadFile(frontendPath);
+    await mainWindow.loadURL(frontendPath);
   }
 
   // Handle crash recovery after page loads
