@@ -20,13 +20,15 @@ Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a singl
 - Do not expand scope without approval.
 - Follow the Error UX Matrix in `docs/phase-2-tasklist.md`.
 - Include protocol versioning in JOIN/HANDSHAKE when touching that flow.
+- Do not modify timer math, elapsed calculations, or `useTimerEngine` unless the pass explicitly requires it.
+- Run relevant tests before marking the pass complete; if frontend touched, run `npm run lint && npm run test`.
 
 ---
 
 ## 0) Pre-flight (Context Sync)
 Prompt:
 ```
-Read `docs/phase-2-tasklist.md`. Summarize the next pass you will implement and list the files you will touch. Do not change code.
+Read `docs/phase-2-tasklist.md`. Summarize the next pass you will implement, list the files you will touch, and confirm the scope exclusions for this milestone. Do not change code.
 ```
 
 ---
@@ -73,6 +75,7 @@ Implement Milestone 1 Pass B.
 Companion: lock + heartbeat + socket events (HEARTBEAT, CONTROLLER_LOCK_STATE, REQUEST_CONTROL,
 CONTROL_REQUEST_RECEIVED, FORCE_TAKEOVER).
 Frontend: request flow, handover, reclaim UI.
+Reject non-authoritative writes at BOTH Companion socket layer and Firebase write-through.
 Types: add `ControllerLock` to `frontend/src/types/index.ts`.
 Reference: `docs/phase-2-overview.md` Phase 2b Flow Diagrams.
 ```
@@ -106,6 +109,7 @@ Implement Milestone 2 Pass A.
 Companion emits LIVE_CUE/PRESENTATION events; frontend merges; `activeLiveCueId` in RoomState.
 Write-through policy: controller writes liveCues to Firestore; Companion writes only after 5s stale
 heartbeat, yields on reconnect; skip write-through when cue rate > 1/sec.
+Types: extend RoomState with `activeLiveCueId: string | null` in `frontend/src/types/index.ts`.
 Files: `companion/src/main.ts`, `frontend/src/context/UnifiedDataContext.tsx`.
 Scope exclusions: no scheduled cues, no cue timeline, no manual acknowledgment.
 ```
