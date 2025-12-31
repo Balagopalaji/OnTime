@@ -41,6 +41,7 @@ Prompt:
 Implement Milestone 0 Pass A from `docs/phase-2-tasklist.md`.
 Scope: Electron shell only (no transport changes).
 Targets: Electron shell, contextBridge IPC, load frontend build output, deep link handler, crash recovery banner, local cache persistence.
+Keep Companion socket ownership in the renderer; do not move sockets into the main process.
 Do not modify `UnifiedDataContext` or socket logic.
 Acceptance: Electron launches controller, connects to Companion, local cache persists, crash recovery banner appears.
 
