@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2025-12-31
 Scope: Phase 2 task list and prerequisites.
 ---
 
@@ -76,15 +76,19 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Companion**
 - [ ] No Companion changes required.
 **Frontend/Electron**
-- [ ] Create Electron shell; load frontend build output.
+- [ ] Use `electron-builder` (target Electron 28+ for ESM support); load frontend build output.
+- [ ] IPC bridge: main process owns Companion connectivity; renderer uses `contextBridge` API only.
 - [ ] Embed mode selector + connection indicator in Electron header.
 - [ ] Ensure local persistence for room cache and settings (survive restarts).
+- [ ] Deep link handler: register `ontime://room/:roomId` to open a room in the controller.
+- [ ] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
 - [ ] Acceptance: Controller launches, connects to Companion, and runs without a browser.
 
 **Manual Verification (Pass A)**
 - [ ] Launch Electron controller offline; verify room cache loads and UI is usable.
 - [ ] Connect Companion and confirm the app auto-detects and switches to Local when available.
 - [ ] Quit/relaunch and confirm settings persist.
+- [ ] Force-quit and relaunch; confirm "Recovered session" banner appears and state is restored.
 
 **Pass B: Build & Sign**
 **Companion**
@@ -92,11 +96,15 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Frontend/Electron**
 - [ ] Code signing for macOS + Windows (notarization on macOS).
 - [ ] Auto-update pipeline (electron-updater or equivalent).
+- [ ] Test update from canary channel before production release.
 - [ ] Acceptance: Builds install and update cleanly on macOS + Windows.
 
 **Manual Verification (Pass B)**
 - [ ] Install an older build and confirm auto-update to latest.
 - [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows.
+
+**Definition of Done (Milestone 0)**
+- [ ] Electron controller runs without browser, persists local cache, and updates cleanly.
 
 ---
 
@@ -129,10 +137,19 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Pass B: Controller Lock & Takeover**
 **Companion**
 - [ ] Implement controller lock + heartbeat; mark authoritative controller; reject non-authoritative writes at socket layer.
+**Companion Socket Events**
+- [ ] `HEARTBEAT` (client → server, every 30s)
+- [ ] `CONTROLLER_LOCK_STATE` (server → all clients on change)
+- [ ] `REQUEST_CONTROL` (client → server)
+- [ ] `CONTROL_REQUEST_RECEIVED` (server → current controller)
+- [ ] `FORCE_TAKEOVER` (client → server, requires PIN or timeout)
 **Frontend**
 - [ ] Request control flow with non-blocking notification, countdown, and force takeover rules.
 - [ ] Handoff flow (current controller selects target device) + reclaim flow.
+- [ ] Type scaffolding: add `ControllerLock` to `frontend/src/types/index.ts`.
 - [ ] Acceptance: Only one controller can write; takeover requires explicit action; no silent auto-takeover.
+**Reference**
+- [ ] See `docs/phase-2-overview.md` Phase 2b Flow Diagrams for state models.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (lock store, heartbeat, permission checks)
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx` (authority/lock integration), `frontend/src/routes/*` (UX)
@@ -152,6 +169,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, recompute feature visibility.
 - [ ] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
 - [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
+- [ ] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate via BroadcastChannel or localStorage events.
 - [ ] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
 **Codebase Entry Points**
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/context/CompanionConnectionContext.tsx`
@@ -186,6 +204,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Race: simultaneous reconnect + controller takeover.
 - Rule deployment timing; ensure no window with mismatched client/rules.
 
+**Definition of Done (Milestone 1)**
+- [ ] All passes complete, QA harness green, no regressions in timer sync.
+
 ---
 
 ## Milestone 2: Show Control Core (Presentation Status + Dual Header)
@@ -200,10 +221,14 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Emit `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
 **Frontend/Cloud**
 - [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `source=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
+- [ ] Write-through policy: controller writes `liveCues` to Firestore; Companion only writes when controller heartbeat is stale for 5s, then yields immediately on controller reconnect.
+- [ ] Skip `liveCues` write-through when cue rate exceeds 1/sec; fall back to `activeLiveCueId` only.
 - [ ] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
   - Cost note: each cue change = 1 write + N reads (viewers). For high-frequency shows (>1 cue/sec), batch or use reference-only mode with `activeLiveCueId`.
 - [ ] Unified merge: merge Companion reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
 - [ ] Phase 2 explicitly excludes scheduled cues, cue timelines, and manual cue acknowledgment (Phase 3).
+**Type Scaffolding**
+- [ ] Extend `RoomState` with `activeLiveCueId: string | null`.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (LIVE_CUE/PRESENTATION)
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`
@@ -238,6 +263,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Risks/Unknowns**
 - Jitter when transports update near-simultaneously.
 - Subcollection read cost; keep writes to reference + optional cue doc only.
+
+**Definition of Done (Milestone 2)**
+- [ ] Presentation status works for Show Control tier; Basic remains clean; latency targets met.
 
 ---
 
@@ -297,6 +325,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - PPT COM API variance across Windows builds.
 - ffprobe licensing/packaging on macOS notarization.
 
+**Definition of Done (Milestone 3)**
+- [ ] File ops are safe, PPT detection stable, and UI handles warnings gracefully.
+
 ---
 
 ## Milestone 4: UX Polish & Companion GUI
@@ -343,6 +374,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Risks/Unknowns**
 - Electron tray/window differences on Windows vs. macOS; watch for resource spikes.
+
+**Definition of Done (Milestone 4)**
+- [ ] UI polish complete; RAM budgets met with GUI enabled; gating copy is clear.
 
 ---
 
