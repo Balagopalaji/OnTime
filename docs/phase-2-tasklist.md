@@ -43,38 +43,78 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **File ops security:** Normalize path, require path within user home or OS app data; reject symlinks pointing outside allowed roots; reject UNC/network paths; bind HTTP to 127.0.0.1; token auth required.
 - **Tokens:** TTL 30 minutes; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
 
-## Deferred to Phase 3 (Not in Phase 2 scope)
+## Deferred to Phase 4 (Not in Phase 2 scope)
 - Undo/redo command system and persistence (see `docs/phase-2-overview.md`).
 
 ## Builder Pass Guidance
 - Keep each pass focused (single concern); run lint/tests relevant to touched surfaces.
 - Respect feature flags: default off until QA signoff; prefer canary room for risky changes.
 - After each pass, document acceptance checks (RAM/latency/backoff) and note any deviations.
+- Stop-if-breakage: if a pass causes parallel sync regressions (timer drift, queue replay, authority flapping), stop and report before continuing.
+- Rollback scope: if a pass fails, revert only that pass before proceeding.
+- Split work by surface: list Companion tasks separately from Frontend tasks to reduce cross-surface regressions.
 
 ---
 
 ## Milestone 1: Transport Hardening & Tier Gating
 **Goal:** Reliable Local/Cloud transport with correct gating and clean reconnection UX.
 
-**Pass A: State Machine & Reconnect**
-- [ ] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; reject overlapping JOIN/HANDSHAKE; only one pending handshake at a time.
-- [ ] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
-- [ ] Controller lock/takeover UX: on `CONTROLLER_TAKEN`, prompt; takeover sets `takeOver=true`; on success broadcast takeover notice; no silent auto-takeover.
+**Scope Exclusions (Milestone 1)**  
+- No scheduled cues, cue timelines, or Show Planner features.  
+- No file operations or presentation status features (Milestone 2/3 only).  
 
-**Pass B: Authority & Caching**
+**Pass A: Reconnect State Machine**
+**Companion**
+- [ ] Enforce single pending handshake; reject overlapping JOIN/HANDSHAKE from same clientId.
+**Frontend**
+- [ ] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; only one pending handshake at a time.
+- [ ] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
+- [ ] Acceptance: Backoff follows schedule; clear UX on failure/stop; no duplicate sockets after reconnect.
+
+**Manual Verification (Pass A)**
+- [ ] Simulate Companion stop/start; controller shows reconnect banner and recovers without duplicate sockets.
+- [ ] Confirm backoff timings match spec (2s → 10s → cap 60s) and stop after 20 attempts.
+- [ ] Verify "Retry" CTA works and clears the stopped state.
+
+**Pass B: Controller Lock & Takeover**
+**Companion**
+- [ ] Implement controller lock + heartbeat; mark authoritative controller; reject non-authoritative writes at socket layer.
+**Frontend**
+- [ ] Request control flow with non-blocking notification, countdown, and force takeover rules.
+- [ ] Handoff flow (current controller selects target device) + reclaim flow.
+- [ ] Acceptance: Only one controller can write; takeover requires explicit action; no silent auto-takeover.
+
+**Manual Verification (Pass B)**
+- [ ] Open two controllers; only one can start/stop/nudge timers, other is read-only.
+- [ ] Request control shows attention banner; "Hand Over" transfers immediately; "Force Takeover" follows PIN/timeout rules.
+- [ ] Reclaim control works and logs the takeover event.
+
+**Pass C: Authority & Caching**
+**Companion**
+- [ ] Emit capability changes reliably in `HANDSHAKE_ACK`; ensure capability/tier changes are observable by clients.
+**Frontend**
 - [ ] On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, recompute feature visibility.
 - [ ] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
 - [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
+- [ ] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
 
-**Pass C: Rules & Test**
+**Manual Verification (Pass C)**
+- [ ] Toggle tier/capability and confirm UI updates without stale data.
+- [ ] Induce equal timestamps and confirm controller-originated change wins.
+- [ ] Missing capability shows a visible gating message, not silent failure.
+
+**Pass D: Rules & Tests**
+**Companion**
+- [ ] No Companion changes required unless lock state also persists in cloud (future).
+**Frontend/Cloud**
 - [ ] Firestore rules rollout for tiered subcollections; emulator dry-run → staging deploy → simulated requests per tier → prod with canary; rollback command ready.
+- [ ] Ensure `reorderRoom.mock.test.tsx` passes and is not skipped.
+- [ ] Acceptance: Rules block Show Control subcollections for rooms without features; Basic UI hides gated elements; test suite passes.
 
-**Success Criteria**
-- Backoff follows schedule; clear UX on failure/stop.
-- No stale preview after mode/tier changes; deterministic authority selection.
-- Rules block Show Control subcollections for rooms without features; Basic UI hides gated elements.
-- Test suite passes (context unit tests, staleness check, queue merge, timestamp arbitration).
-- `reorderRoom.mock.test.tsx` passes and is not skipped.
+**Manual Verification (Pass D)**
+- [ ] With Basic tier room, verify Show Control subcollections are denied.
+- [ ] With Show Control tier room, verify access granted as expected.
+- [ ] Run tests and confirm no skips on reorderRoom.mock.test.tsx.
 
 **Risks/Unknowns**
 - Race: simultaneous reconnect + controller takeover.
@@ -82,22 +122,42 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 ---
 
-## Milestone 2: Show Control Core (Live Cues + Dual Header)
-**Goal:** End-to-end live cue visibility for Show Control tier with minimal bandwidth.
+## Milestone 2: Show Control Core (Presentation Status + Dual Header)
+**Goal:** Presentation status visibility for Show Control tier with minimal bandwidth (no scheduled cue system in Phase 2).
+
+**Scope Exclusions (Milestone 2)**  
+- No scheduled cues, cue timelines, or manual cue acknowledgment (Phase 3 only).  
+- No file operations or media import workflows (Milestone 3 only).  
 
 **Pass A: Protocol & Plumbing**
-- [ ] Companion emits `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
+**Companion**
+- [ ] Emit `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
+**Frontend/Cloud**
 - [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `source=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
 - [ ] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
   - Cost note: each cue change = 1 write + N reads (viewers). For high-frequency shows (>1 cue/sec), batch or use reference-only mode with `activeLiveCueId`.
 - [ ] Unified merge: merge Companion reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
+- [ ] Phase 2 explicitly excludes scheduled cues, cue timelines, and manual cue acknowledgment (Phase 3).
+
+**Manual Verification (Pass A)**
+- [ ] With Companion running, verify live cue updates reach local viewer quickly.
+- [ ] With Companion stopped, verify Firebase fallback works without flapping.
+- [ ] Basic tier room does not show live cues or show-control UI.
 
 **Pass B: UI & Latency Validation**
-- [ ] Dual header (Main Timer + PiP) gated by tier + capability; tech viewer overlay; upgrade prompts on gated actions.
+**Companion**
+- [ ] No Companion UI changes required (uses existing events/capabilities).
+**Frontend**
+- [ ] Dual header (Main Timer + PiP) gated by tier + capability; tech viewer status panel; upgrade prompts on gated actions.
 - [ ] Latency harness: manual stopwatch script to compare controller vs. local viewer vs. cloud viewer; record results in QA doc.
 
+**Manual Verification (Pass B)**
+- [ ] Confirm PiP/status panel only appears for Show Control tier rooms.
+- [ ] Record local vs. cloud latency deltas and confirm they meet targets.
+- [ ] Verify gated actions show upgrade prompt copy.
+
 **Success Criteria**
-- PiP within <150 ms local, <700 ms cloud; Basic never shows live cue UI; FEATURE_UNAVAILABLE shown when attempted from Minimal Companion.
+- PiP within <150 ms local, <700 ms cloud; Basic never shows show-control UI; FEATURE_UNAVAILABLE shown when attempted from Minimal Companion.
 - Conflict resolution deterministic; no flapping Companion/Firebase.
 
 **Risks/Unknowns**
@@ -109,7 +169,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ## Milestone 3: Presentation Import & File Operations
 **Goal:** Operators can ingest PPT metadata and open media via Companion safely.
 
+**Scope Exclusions (Milestone 3)**  
+- No scheduled cues or Show Planner authoring (Phase 3).  
+
 **Pass A: Companion/Backend**
+**Companion**
 - [ ] Implement `/api/open`, `/api/file/exists`, `/api/file/metadata`; all require `Authorization: Bearer <token>`; return `FEATURE_UNAVAILABLE` when mode lacks capability.
 - [ ] Path validation: normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside after resolving symlinks; reject UNC/remote paths; disallow traversal segments; bind HTTP to 127.0.0.1.
 - [ ] Token lifecycle: TTL 30m; rotate on Companion restart; frontend refreshes token on 401 once, then surfaces reconnect modal.
@@ -117,9 +181,20 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background >10s.
   - instanceId: PowerPoint process PID or window handle for tracking multiple PPT instances.
 
+**Manual Verification (Pass A)**
+- [ ] Attempt `/api/open` with a path outside allowed roots; verify rejection.
+- [ ] Force token expiry and confirm refresh path works once, then shows reconnect prompt.
+- [ ] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash.
+
 **Pass B: Frontend Workflow**
+**Frontend**
 - [ ] Notification "Presentation detected"; manual import; map videos to cues; handle duplicates by filename+slide; allow dismiss.
 - [ ] Error UX: token expiry prompts, FEATURE_UNAVAILABLE copy for Minimal mode, safe failure on missing ffprobe.
+
+**Manual Verification (Pass B)**
+- [ ] Presentation detected banner appears and can be dismissed.
+- [ ] Missing ffprobe yields warning but no crash; UI still renders.
+- [ ] Minimal mode shows FEATURE_UNAVAILABLE messaging.
 
 **Success Criteria**
 - File ops reject unsafe paths and network shares; no crashes on odd filenames.
@@ -135,16 +210,31 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ## Milestone 4: UX Polish & Companion GUI
 **Goal:** Production-ready operator and viewer experience within resource budgets.
 
+**Scope Exclusions (Milestone 4)**  
+- No new transport features; polish only.  
+
 **Pass A: Viewer/Controller Polish**
+**Frontend**
 - [ ] Viewer typography scaling edge cases; wake-lock fallback banner with actionable copy.
 - [ ] Minimal mode gating UX: when capability missing, show inline tooltip/banner "Feature unavailable in Minimal Mode — upgrade/restart Companion."
 - [ ] Simple Mode skin: light controller variant for Basic tier; gated buttons hidden/disabled with upgrade badges.
 - [ ] Messaging copy: clear banners for reconnects, authority conflicts, feature gating; avoid technical jargon.
 
+**Manual Verification (Pass A)**
+- [ ] View on phone and desktop; confirm no layout clipping.
+- [ ] Trigger wake-lock failure; banner appears and is actionable.
+- [ ] Basic tier hides gated controls and shows upgrade badge text.
+
 **Pass B: Companion GUI & Resource Checks**
+**Companion**
 - [ ] Companion tray + minimal window for mode selection/status; reflects capabilities in `HANDSHAKE_ACK`.
 - [ ] RAM measurements: Minimal with GUI <50 MB, Show Control ≤100 MB, Production ≤150 MB (3-sample average after 60s idle, macOS+Windows); if cross-platform measurement proves heavy, split into a follow-up pass focused solely on measurement/validation.
 - [ ] Ensure GUI does not break headless flow; mode selection persists between launches.
+
+**Manual Verification (Pass B)**
+- [ ] Switch modes and confirm GUI reflects new capabilities and persists after restart.
+- [ ] Measure RAM at 60s idle and record averages for each mode.
+- [ ] Confirm headless flow works with GUI disabled.
 
 **Success Criteria**
 - RAM budgets met in all modes with GUI running.
