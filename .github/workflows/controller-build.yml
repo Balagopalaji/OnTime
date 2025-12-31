@@ -45,7 +45,7 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        run: npm run build
+        run: VITE_APP_BASE=./ npm run build
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v4
