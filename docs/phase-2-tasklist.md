@@ -41,7 +41,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **Companion RAM budgets (steady state after 60s idle, average of 3 samples):** Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB.
 - **Feature gating:** Legacy rooms without `features` default to deny Show Control/Production data paths; UI must hide gated features and emit upgrade prompts.
 - **File ops security:** Normalize path, require path within user home or OS app data; reject symlinks pointing outside allowed roots; reject UNC/network paths; bind HTTP to 127.0.0.1; token auth required.
-- **Tokens:** TTL 30 minutes; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
+- **Tokens:** TTL 4 hours; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
 - **Protocol versioning:** Client includes interface version in JOIN/handshake; if major mismatch, show warning banner and suggest update; if incompatible, fallback to Cloud with clear message.
 
 ## Error UX Matrix (Phase 2)
