@@ -1,5 +1,5 @@
 import { getApps, initializeApp, getApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator } from 'firebase/auth'
+import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 
 const firebaseConfig = {
@@ -24,6 +24,9 @@ let db: ReturnType<typeof getFirestore> | null = null
 if (hasConfig) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig)
   auth = getAuth(app)
+  void setPersistence(auth, browserLocalPersistence).catch((error) => {
+    console.warn('Failed to set auth persistence', error)
+  })
   db = getFirestore(app)
 } else {
   console.warn('[Firebase] No configuration found - running in local/companion mode only')
