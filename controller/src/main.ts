@@ -300,9 +300,41 @@ async function createWindow(): Promise<BrowserWindow> {
     }
   });
 
-  // Handle external links
+  // Handle external links and auth popups
+  const isAuthPopupUrl = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      return (
+        hostname === 'accounts.google.com' ||
+        hostname.endsWith('.firebaseapp.com') ||
+        hostname.endsWith('.web.app')
+      );
+    } catch {
+      return false;
+    }
+  };
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
+      if (isAuthPopupUrl(url)) {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            parent: mainWindow ?? undefined,
+            modal: true,
+            width: 520,
+            height: 640,
+            resizable: true,
+            backgroundColor: '#0f172a',
+            webPreferences: {
+              contextIsolation: true,
+              nodeIntegration: false,
+              sandbox: true,
+            },
+          },
+        };
+      }
       void shell.openExternal(url);
     }
     return { action: 'deny' };
