@@ -3,11 +3,23 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { io, type Socket } from 'socket.io-client'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
+type ReconnectState = 'idle' | 'reconnecting' | 'stopped'
+type ProtocolCompatibility = 'ok' | 'warn' | 'incompatible' | 'unknown'
 
 type CompanionConnectionContextValue = {
   socket: Socket | null
   isConnected: boolean
   handshakeStatus: HandshakeStatus
+  reconnectState: ReconnectState
+  reconnectAttempts: number
+  nextRetryAt?: number
+  reconnectStartedAt?: number
+  lastErrorCode?: string
+  protocolStatus: {
+    clientVersion: string
+    serverVersion: string | null
+    compatibility: ProtocolCompatibility
+  }
   companionMode: string
   capabilities: {
     powerpoint: boolean
@@ -24,6 +36,8 @@ type CompanionConnectionContextValue = {
   lastSeenAt?: number
   fetchToken: () => Promise<string | null>
   clearToken: () => void
+  markHandshakePending: () => void
+  retryConnection: () => void
 }
 
 type HandshakeAck = {
@@ -31,6 +45,7 @@ type HandshakeAck = {
   success: boolean
   companionMode: string
   companionVersion: string
+  interfaceVersion?: string
   capabilities: {
     powerpoint: boolean
     externalVideo: boolean
@@ -42,7 +57,31 @@ type HandshakeAck = {
   }
 }
 
+type HandshakeError = {
+  type: 'HANDSHAKE_ERROR'
+  code?: string
+  message?: string
+}
+
 const TOKEN_KEY = 'ontime:companionToken'
+export const INTERFACE_VERSION = '1.2.0'
+const MAX_RECONNECT_ATTEMPTS = 20
+const BACKOFF_FAST_MS = 2000
+const BACKOFF_SLOW_MS = 10_000
+const BACKOFF_CAP_MS = 60_000
+
+export const getReconnectDelayMs = (attempt: number) => {
+  if (attempt <= 1) return 0
+  if (attempt <= 5) return BACKOFF_FAST_MS
+  return Math.min(BACKOFF_SLOW_MS, BACKOFF_CAP_MS)
+}
+
+const parseMajorVersion = (version: string | null | undefined) => {
+  if (!version) return null
+  const [majorRaw] = version.split('.')
+  const major = Number(majorRaw)
+  return Number.isFinite(major) ? major : null
+}
 
 const CompanionConnectionContext = createContext<CompanionConnectionContextValue | undefined>(undefined)
 
@@ -67,10 +106,21 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       transports,
       upgrade: !securePage,
       autoConnect: false,
+      reconnection: false,
     })
   }, [])
   const [isConnected, setIsConnected] = useState(false)
   const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('idle')
+  const [reconnectState, setReconnectState] = useState<ReconnectState>('idle')
+  const [reconnectAttempts, setReconnectAttempts] = useState(0)
+  const [nextRetryAt, setNextRetryAt] = useState<number | null>(null)
+  const [reconnectStartedAt, setReconnectStartedAt] = useState<number | null>(null)
+  const [lastErrorCode, setLastErrorCode] = useState<string | null>(null)
+  const [protocolStatus, setProtocolStatus] = useState<CompanionConnectionContextValue['protocolStatus']>({
+    clientVersion: INTERFACE_VERSION,
+    serverVersion: null,
+    compatibility: 'unknown',
+  })
   const [companionMode, setCompanionMode] = useState('minimal')
   const [capabilities, setCapabilities] = useState<CompanionConnectionContextValue['capabilities']>({
     powerpoint: false,
@@ -81,8 +131,9 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const [token, setToken] = useState<string | null>(() => readStoredToken())
   const [hasAttemptedDiscovery, setHasAttemptedDiscovery] = useState(false)
   const [lastSeenAt, setLastSeenAt] = useState<number | null>(null)
-  const backoffRef = useRef(10_000)
-  const heartbeatRef = useRef<number | null>(null)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectStateRef = useRef<ReconnectState>('idle')
 
   const clearToken = useCallback(() => {
     setToken(null)
@@ -95,6 +146,18 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       sessionStorage.removeItem(TOKEN_KEY)
     } catch {
       // ignore
+    }
+  }, [])
+
+  const setReconnectStateSafe = useCallback((next: ReconnectState) => {
+    reconnectStateRef.current = next
+    setReconnectState(next)
+  }, [])
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
     }
   }, [])
 
@@ -148,7 +211,9 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
 
     setToken(token)
     setLastSeenAt(Date.now())
-    backoffRef.current = 10_000
+    if (socket && !socket.connected) {
+      socket.connect()
+    }
     try {
       window.localStorage.setItem(TOKEN_KEY, token)
       sessionStorage.setItem(TOKEN_KEY, token)
@@ -156,7 +221,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       // ignore
     }
     return token
-  }, [])
+  }, [socket])
 
   const discoverCompanion = useCallback(async () => {
     setHasAttemptedDiscovery(true)
@@ -164,76 +229,100 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     return next
   }, [fetchToken])
 
-  // If handshake errors while online, assume token may be stale (e.g., Companion restarted with new secret)
-  // and force a refresh once.
-  const attemptedRecoveryRef = useRef(false)
-  useEffect(() => {
-    const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
-    // Only attempt recovery when we are actually connected to the socket and online.
-    if (handshakeStatus !== 'error' || !isConnected || !isOnline) {
-      attemptedRecoveryRef.current = false
-      return
-    }
-    if (attemptedRecoveryRef.current) return
-    attemptedRecoveryRef.current = true
-    void (async () => {
-      clearToken()
-      const next = await fetchToken()
-      if (next && socket && !socket.connected && !socket.active) {
-        socket.connect()
+  const scheduleReconnect = useCallback(
+    function scheduleReconnect(reason?: string) {
+      if (!socket) return
+      if (reconnectStateRef.current === 'stopped') return
+      if (reconnectTimerRef.current) return
+
+      const nextAttempt = reconnectAttemptsRef.current + 1
+      if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+        setReconnectStateSafe('stopped')
+        setNextRetryAt(null)
+        return
       }
-    })()
-  }, [clearToken, fetchToken, handshakeStatus, isConnected, socket])
 
-  useEffect(() => {
-    // Auto-discover on mount if no token
-    if (token) return
-    window.setTimeout(() => {
-      void discoverCompanion()
-    }, 0)
-  }, [discoverCompanion, token])
+      reconnectAttemptsRef.current = nextAttempt
+      setReconnectAttempts(nextAttempt)
+      if (nextAttempt === 1) {
+        setReconnectStartedAt(Date.now())
+      }
+      setReconnectStateSafe('reconnecting')
 
-  // Fetch initial token on mount
-  useEffect(() => {
-    void fetchToken()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount
+      const delay = getReconnectDelayMs(nextAttempt)
+      setNextRetryAt(Date.now() + delay)
+
+      reconnectTimerRef.current = window.setTimeout(async () => {
+        reconnectTimerRef.current = null
+        if (reconnectStateRef.current === 'stopped') return
+        const refreshedToken = await fetchToken()
+        const nextToken = refreshedToken ?? token
+        if (!nextToken) {
+          setLastErrorCode('TOKEN_MISSING')
+          scheduleReconnect('token_missing')
+          return
+        }
+        if (!socket.connected) {
+          if (debugCompanion) {
+            console.info('[companion] reconnect attempt', { attempt: nextAttempt, reason })
+          }
+          socket.connect()
+        }
+      }, delay)
+    },
+    [debugCompanion, fetchToken, setReconnectStateSafe, socket, token],
+  )
+
+  const retryConnection = useCallback(() => {
+    reconnectAttemptsRef.current = 0
+    setReconnectAttempts(0)
+    setLastErrorCode(null)
+    setNextRetryAt(null)
+    setReconnectStartedAt(null)
+    setReconnectStateSafe('idle')
+    clearReconnectTimer()
+    scheduleReconnect('manual')
+  }, [clearReconnectTimer, scheduleReconnect, setReconnectStateSafe])
+
+  const markHandshakePending = useCallback(() => {
+    setHandshakeStatus((prev) => (prev === 'pending' ? prev : 'pending'))
+  }, [])
 
   useEffect(() => {
     if (!socket) return
-    // If we have a token but the socket isn't connected/active (e.g., Companion restarted), kick a connect.
-    if (token && !socket.connected && !socket.active) {
+    const shouldReconnect = !isConnected || handshakeStatus === 'error'
+    if (!shouldReconnect) {
+      clearReconnectTimer()
+      setNextRetryAt(null)
+      return
+    }
+    scheduleReconnect('auto')
+  }, [clearReconnectTimer, handshakeStatus, isConnected, scheduleReconnect, socket])
+
+  useEffect(() => {
+    if (!socket) return
+    if (!token) return
+    if (!socket.connected) {
       socket.connect()
     }
   }, [socket, token])
 
   useEffect(() => {
-    const shouldProbe = !token || !isConnected || handshakeStatus !== 'ack'
-    if (!shouldProbe) {
-      if (heartbeatRef.current) {
-        window.clearTimeout(heartbeatRef.current)
-        heartbeatRef.current = null
-      }
-      return
-    }
+    if (!socket) return
+    if (isConnected) return
     let cancelled = false
-    const tick = async () => {
-      const ok = await discoverCompanion()
-      if (ok) {
-        backoffRef.current = 10_000
-      } else {
-        backoffRef.current = Math.min(backoffRef.current * 2, 60_000)
+    const interval = window.setInterval(async () => {
+      if (cancelled) return
+      const next = await fetchToken()
+      if (next && !socket.connected) {
+        socket.connect()
       }
-      if (!cancelled) {
-        heartbeatRef.current = window.setTimeout(tick, backoffRef.current)
-      }
-    }
-    heartbeatRef.current = window.setTimeout(tick, backoffRef.current)
+    }, 2000)
     return () => {
       cancelled = true
-      if (heartbeatRef.current) window.clearTimeout(heartbeatRef.current)
+      window.clearInterval(interval)
     }
-  }, [discoverCompanion, handshakeStatus, isConnected, token])
+  }, [fetchToken, isConnected, socket])
 
   useEffect(() => {
     if (!socket) return
@@ -242,20 +331,37 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       setIsConnected(true)
       // Stay idle until a room join drives a handshake ACK/ERROR.
       setHandshakeStatus('idle')
+      if (reconnectStateRef.current !== 'idle') {
+        reconnectAttemptsRef.current = 0
+        setReconnectAttempts(0)
+        setReconnectStartedAt(null)
+        setReconnectStateSafe('idle')
+        setNextRetryAt(null)
+        setLastErrorCode(null)
+        clearReconnectTimer()
+      }
     }
     const handleDisconnect = (reason?: string) => {
       if (debugCompanion) console.info('[companion] disconnect', reason)
-      if (reason === 'io server disconnect') {
+      if (reason === 'io server disconnect' || reason === 'server namespace disconnect') {
         clearToken()
         setHandshakeStatus('error')
       }
       setIsConnected(false)
-      setHandshakeStatus('idle')
+      if (reason !== 'io server disconnect') {
+        setHandshakeStatus('idle')
+      }
+      if (reason) {
+        setLastErrorCode(reason)
+      }
+      scheduleReconnect('disconnect')
     }
     const handleConnectError = () => {
       if (debugCompanion) console.warn('[companion] connect_error')
       setIsConnected(false)
       setHandshakeStatus('error')
+      setLastErrorCode('CONNECT_ERROR')
+      scheduleReconnect('connect_error')
     }
     const handleHandshakeAck = (data: HandshakeAck) => {
       if (debugCompanion) console.info('[companion] HANDSHAKE_ACK', data)
@@ -263,11 +369,45 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       setCapabilities(data.capabilities)
       setSystemInfo(data.systemInfo)
       setHandshakeStatus('ack')
+      setLastErrorCode(null)
+      reconnectAttemptsRef.current = 0
+      setReconnectAttempts(0)
+      setReconnectStartedAt(null)
+      setReconnectStateSafe('idle')
+      setNextRetryAt(null)
+      clearReconnectTimer()
+      setProtocolStatus((prev) => {
+        const serverVersion = data.interfaceVersion ?? null
+        const clientMajor = parseMajorVersion(prev.clientVersion)
+        const serverMajor = parseMajorVersion(serverVersion)
+        let compatibility: ProtocolCompatibility = 'unknown'
+        if (clientMajor !== null && serverMajor !== null) {
+          compatibility = clientMajor === serverMajor ? 'ok' : 'incompatible'
+        } else if (serverVersion) {
+          compatibility = 'warn'
+        }
+        return {
+          ...prev,
+          serverVersion,
+          compatibility,
+        }
+      })
     }
-    const handleHandshakeError = () => {
-      if (debugCompanion) console.warn('[companion] HANDSHAKE_ERROR')
-      clearToken()
+    const handleHandshakeError = (error: HandshakeError) => {
+      const code = error?.code ?? 'HANDSHAKE_ERROR'
+      if (debugCompanion) console.warn('[companion] HANDSHAKE_ERROR', code)
+      setLastErrorCode(code)
+      if (code === 'INVALID_TOKEN') {
+        clearToken()
+      }
       setHandshakeStatus('error')
+      if (code === 'CONTROLLER_TAKEN') {
+        setReconnectStateSafe('stopped')
+        setNextRetryAt(null)
+        clearReconnectTimer()
+        return
+      }
+      scheduleReconnect('handshake_error')
     }
 
     socket.on('connect', handleConnect)
@@ -286,15 +426,27 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       socket.io.off('error', handleConnectError)
       socket.off('HANDSHAKE_ACK', handleHandshakeAck)
       socket.off('HANDSHAKE_ERROR', handleHandshakeError)
+      clearReconnectTimer()
       socket.disconnect()
     }
-  }, [clearToken, debugCompanion, socket])
+  }, [clearReconnectTimer, clearToken, debugCompanion, scheduleReconnect, setReconnectStateSafe, socket])
+
+  useEffect(() => {
+    if (!lastErrorCode) return
+    console.warn('[companion] last error code', lastErrorCode)
+  }, [lastErrorCode])
 
   const value = useMemo(
     () => ({
       socket,
       isConnected,
       handshakeStatus,
+      reconnectState,
+      reconnectAttempts,
+      nextRetryAt: nextRetryAt ?? undefined,
+      reconnectStartedAt: reconnectStartedAt ?? undefined,
+      lastErrorCode: lastErrorCode ?? undefined,
+      protocolStatus,
       companionMode,
       capabilities,
       systemInfo,
@@ -304,6 +456,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       lastSeenAt: lastSeenAt ?? undefined,
       fetchToken,
       clearToken,
+      markHandshakePending,
+      retryConnection,
     }),
     [
       capabilities,
@@ -315,6 +469,14 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       handshakeStatus,
       isConnected,
       lastSeenAt,
+      lastErrorCode,
+      markHandshakePending,
+      nextRetryAt,
+      reconnectStartedAt,
+      protocolStatus,
+      reconnectAttempts,
+      reconnectState,
+      retryConnection,
       socket,
       systemInfo,
       token,

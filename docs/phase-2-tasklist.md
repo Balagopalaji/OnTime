@@ -119,22 +119,23 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass A: Reconnect State Machine**
 **Companion**
-- [ ] Enforce single pending handshake; reject overlapping JOIN/HANDSHAKE from same clientId.
+- [x] Enforce single pending handshake; reject overlapping JOIN/HANDSHAKE from same clientId.
 **Frontend**
-- [ ] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; only one pending handshake at a time.
-- [ ] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
-- [ ] Acceptance: Backoff follows schedule; clear UX on failure/stop; no duplicate sockets after reconnect.
+- [x] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; only one pending handshake at a time.
+- [x] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
+- [x] Acceptance: Backoff follows schedule; clear UX on failure/stop; no duplicate sockets after reconnect.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (socket handlers, JOIN/HANDSHAKE)
 - Frontend: `frontend/src/context/CompanionConnectionContext.tsx`
 **Test Expectations**
-- Unit: backoff timing logic
-- Integration: reconnect flow with mocked socket
+- [x] Unit: backoff timing logic
+- [x] Integration: reconnect flow with mocked socket
 
 **Manual Verification (Pass A)**
-- [ ] Simulate Companion stop/start; controller shows reconnect banner and recovers without duplicate sockets.
-- [ ] Confirm backoff timings match spec (2s → 10s → cap 60s) and stop after 20 attempts.
-- [ ] Verify "Retry" CTA works and clears the stopped state.
+- [x] Simulate Companion stop/start; controller shows reconnect banner and recovers without duplicate sockets.
+- [x] Confirm backoff timings match spec (2s → 10s → cap 60s) and stop after 20 attempts.
+- [x] Verify "Retry" CTA works and clears the stopped state.
+- [x] Confirm auto-reconnect resumes within ~2s of Companion availability (token probe).
 
 **Pass B: Controller Lock & Takeover**
 **Companion**

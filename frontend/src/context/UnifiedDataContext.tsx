@@ -12,7 +12,7 @@ import {
 } from '../utils/timer-utils'
 import { FirebaseDataProvider } from './FirebaseDataContext'
 import { useAppMode } from './AppModeContext'
-import { useCompanionConnection } from './CompanionConnectionContext'
+import { INTERFACE_VERSION, useCompanionConnection } from './CompanionConnectionContext'
 
 type RoomAuthority = {
   source: 'cloud' | 'companion' | 'pending'
@@ -380,7 +380,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
   const { effectiveMode, mode } = useAppMode()
-  const { socket, handshakeStatus, token, fetchToken, clearToken } = useCompanionConnection()
+  const { socket, handshakeStatus, token, fetchToken, clearToken, markHandshakePending } = useCompanionConnection()
   const [roomAuthority, setRoomAuthority] = useState<Record<string, RoomAuthority>>({})
   const [companionRooms, setCompanionRooms] = useState<Record<string, CompanionRoomState>>({})
   const [companionTimers, setCompanionTimers] = useState<Record<string, Timer[]>>({})
@@ -407,6 +407,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
+  const joinQueueRef = useRef<Array<{ roomId: string; clientType: 'controller' | 'viewer'; token: string }>>([])
+  const joinPendingRef = useRef(false)
+  const activeJoinRef = useRef<{ roomId: string; clientType: 'controller' | 'viewer'; token: string } | null>(null)
   const firestore = db
   const firestoreWriteThrough = Boolean(firestore)
   const isViewerClient = useCallback(
@@ -416,6 +419,45 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const isCompanionLive = useCallback(
     () => Boolean(socket?.connected && handshakeStatus === 'ack'),
     [handshakeStatus, socket],
+  )
+
+  const processJoinQueue = useCallback(() => {
+    if (!socket) return
+    if (joinPendingRef.current) return
+    const next = joinQueueRef.current.shift()
+    if (!next) return
+    if (!token) {
+      joinQueueRef.current.unshift(next)
+      return
+    }
+    const joinToken = next.token !== token ? token : next.token
+    if (!socket.connected && !socket.active) {
+      joinQueueRef.current.unshift({ ...next, token: joinToken })
+      socket.connect()
+      return
+    }
+    joinPendingRef.current = true
+    activeJoinRef.current = { ...next, token: joinToken }
+    markHandshakePending()
+    if (debugCompanion) {
+      console.info('[companion] JOIN_ROOM', { roomId: next.roomId, clientType: next.clientType, clientId })
+    }
+    socket.emit('JOIN_ROOM', {
+      type: 'JOIN_ROOM',
+      roomId: next.roomId,
+      token: joinToken,
+      clientType: next.clientType,
+      clientId,
+      interfaceVersion: INTERFACE_VERSION,
+    })
+  }, [clientId, debugCompanion, markHandshakePending, socket, token])
+
+  const enqueueJoin = useCallback(
+    (roomId: string, clientType: 'controller' | 'viewer', joinToken: string) => {
+      joinQueueRef.current.push({ roomId, clientType, token: joinToken })
+      processJoinQueue()
+    },
+    [processJoinQueue],
   )
 
   useEffect(() => {
@@ -444,18 +486,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       return prev
     })
 
-    if (socket) {
-      entries.forEach(([roomId, sub]) => {
-        socket.emit('JOIN_ROOM', {
-          type: 'JOIN_ROOM',
-          roomId,
-          token,
-          clientType: sub.clientType,
-          clientId,
-        })
-      })
-    }
-  }, [clientId, socket, token])
+    entries.forEach(([roomId, sub]) => {
+      enqueueJoin(roomId, sub.clientType, token)
+    })
+  }, [enqueueJoin, token])
 
   useEffect(() => {
     companionRoomsRef.current = companionRooms
@@ -540,23 +574,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           addPendingSyncRoom(roomId)
         }
 
-        if (!socket) return
-        if (!socket.connected && !socket.active) {
-          socket.connect()
-        }
-        if (debugCompanion) {
-          console.info('[companion] JOIN_ROOM', { roomId, clientType, clientId })
-        }
-        socket.emit('JOIN_ROOM', {
-          type: 'JOIN_ROOM',
-          roomId,
-          token: joinToken,
-          clientType,
-          clientId,
-        })
+        enqueueJoin(roomId, clientType, joinToken)
       })()
     },
-    [addPendingSyncRoom, clientId, debugCompanion, fetchToken, socket, token],
+    [addPendingSyncRoom, enqueueJoin, fetchToken, token],
   )
 
   useEffect(() => {
@@ -1011,13 +1032,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       const rooms = subscribedRoomsRef.current
       Object.entries(rooms).forEach(([roomId, sub]) => {
-        socket.emit('JOIN_ROOM', {
-          type: 'JOIN_ROOM',
-          roomId,
-          token: joinToken,
-          clientType: sub.clientType,
-          clientId,
-        })
+        enqueueJoin(roomId, sub.clientType, joinToken)
         if (sub.clientType === 'controller') {
           addPendingSyncRoom(roomId)
         }
@@ -1026,6 +1041,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleDisconnect = () => {
       if (debugCompanion) console.info('[companion] disconnect')
+      joinPendingRef.current = false
+      if (activeJoinRef.current) {
+        joinQueueRef.current.unshift(activeJoinRef.current)
+        activeJoinRef.current = null
+      }
       const rooms = subscribedRoomsRef.current
       const usingCompanion = effectiveMode !== 'cloud' && Object.keys(rooms).length > 0
       setRoomAuthority((prev) => {
@@ -1043,11 +1063,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleHandshakeError = (err: HandshakeError) => {
+      joinPendingRef.current = false
+      if (activeJoinRef.current) {
+        joinQueueRef.current.unshift(activeJoinRef.current)
+        activeJoinRef.current = null
+      }
       if (err?.code === 'CONTROLLER_TAKEN') {
-        // TODO: prompt for takeover and emit CONTROLLER_TAKEOVER when protocol is finalized.
+        // TODO: surface the request control flow in the UI when lock/takeover lands.
         return
       }
       if (err?.code !== 'INVALID_TOKEN') return
+      joinQueueRef.current = []
       clearToken()
       if (tokenRefreshInFlightRef.current) return
       tokenRefreshInFlightRef.current = true
@@ -1065,16 +1091,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           return next
         })
         Object.entries(subscribedRoomsRef.current).forEach(([roomId, sub]) => {
-          socket.emit('JOIN_ROOM', {
-            type: 'JOIN_ROOM',
-            roomId,
-            token: nextToken,
-            clientType: sub.clientType,
-            clientId,
-          })
+          enqueueJoin(roomId, sub.clientType, nextToken)
         })
         tokenRefreshInFlightRef.current = false
       })()
+    }
+
+    const handleHandshakeAckQueue = () => {
+      joinPendingRef.current = false
+      activeJoinRef.current = null
+      processJoinQueue()
     }
 
     const handleRoomStateSnapshot = (payload: RoomStateSnapshotPayload) => {
@@ -1298,6 +1324,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     socket.on('connect', handleConnect)
     socket.on('disconnect', handleDisconnect)
     socket.on('HANDSHAKE_ERROR', handleHandshakeError)
+    socket.on('HANDSHAKE_ACK', handleHandshakeAckQueue)
     socket.on('ROOM_STATE_SNAPSHOT', handleRoomStateSnapshot)
     socket.on('ROOM_STATE_DELTA', handleRoomStateDelta)
     socket.on('TIMER_CREATED', handleTimerCreated)
@@ -1310,6 +1337,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       socket.off('connect', handleConnect)
       socket.off('disconnect', handleDisconnect)
       socket.off('HANDSHAKE_ERROR', handleHandshakeError)
+      socket.off('HANDSHAKE_ACK', handleHandshakeAckQueue)
       socket.off('ROOM_STATE_SNAPSHOT', handleRoomStateSnapshot)
       socket.off('ROOM_STATE_DELTA', handleRoomStateDelta)
       socket.off('TIMER_CREATED', handleTimerCreated)
@@ -1325,8 +1353,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     clearToken,
     debugCompanion,
     effectiveMode,
+    enqueueJoin,
     emitSyncRoomState,
     fetchToken,
+    processJoinQueue,
     removePendingSyncRoom,
     replayRoomQueue,
     socket,
@@ -1605,7 +1635,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     },
     [
       clientId,
-      companionTimers,
       emitOrQueue,
       ensureCompanionRoomState,
       firebase,

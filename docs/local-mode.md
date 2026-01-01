@@ -429,6 +429,11 @@ useEffect(() => {
 
 - **Room snapshots:** `ontime:companionRoomCache.v2`
 - **Subscriptions:** `ontime:companionSubs.v2`
+
+### Companion Availability Probing
+- When disconnected, the client probes the Companion token endpoint on a short interval.
+- If a token is retrieved, the socket reconnects immediately (no manual retry needed).
+- This keeps Auto mode responsive without spamming JOIN/HANDSHAKE when Companion is absent.
   - Limited to 20 most recent (LRU eviction)
   - Used for offline resilience and fast page loads
 - **Subscriptions:** `ontime:companionSubs.v2`

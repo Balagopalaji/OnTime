@@ -17,6 +17,7 @@ const APP_LABEL = 'OnTime Companion';
 const MODE_LABEL = 'Minimal Mode';
 const COMPANION_MODE = 'minimal';
 const COMPANION_VERSION = '0.1.0';
+const INTERFACE_VERSION = '1.2.0';
 const TOKEN_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const TOKEN_SERVICE = 'OnTime Companion Token';
 const TOKEN_ACCOUNT = 'default';
@@ -36,6 +37,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ];
 const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
+const PENDING_HANDSHAKE_TTL_MS = 10_000;
 
 type JoinRoomPayload = {
   type: 'JOIN_ROOM';
@@ -44,6 +46,7 @@ type JoinRoomPayload = {
   clientType?: 'controller' | 'viewer';
   clientId?: string;
   takeOver?: boolean;
+  interfaceVersion?: string;
 };
 
 type HandshakeAck = {
@@ -51,6 +54,7 @@ type HandshakeAck = {
   success: true;
   companionMode: typeof COMPANION_MODE;
   companionVersion: string;
+  interfaceVersion: string;
   capabilities: {
     powerpoint: boolean;
     externalVideo: boolean;
@@ -225,6 +229,7 @@ function emitToRoom(roomId: string, event: string, payload: unknown) {
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
 const roomControllerStore: Map<string, { clientId: string; socketId: string; connectedAt: number }> = new Map();
+const pendingHandshakeStore: Map<string, { socketId: string; startedAt: number }> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
@@ -243,6 +248,13 @@ type EncryptedPayload = {
   authTag: string;
   data: string;
 };
+
+function parseMajorVersion(version?: string): number | null {
+  if (!version) return null;
+  const [majorRaw] = version.split('.');
+  const major = Number(majorRaw);
+  return Number.isFinite(major) ? major : null;
+}
 
 async function getMachineId(): Promise<string> {
   try {
@@ -767,6 +779,12 @@ function registerSocketHandlers(server: SocketIOServer) {
       const roomId = socket.data?.roomId as string | undefined;
       const clientType = socket.data?.clientType as string | undefined;
       const clientId = socket.data?.clientId as string | undefined;
+      if (clientId) {
+        const pending = pendingHandshakeStore.get(clientId);
+        if (pending?.socketId === socket.id) {
+          pendingHandshakeStore.delete(clientId);
+        }
+      }
       if (roomId && clientType === 'controller' && clientId) {
         const current = roomControllerStore.get(roomId);
         if (current?.clientId === clientId) {
@@ -1129,6 +1147,24 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     return;
   }
 
+  const clientId = payload.clientId ?? socket.id;
+  const pending = pendingHandshakeStore.get(clientId);
+  if (pending) {
+    const age = Date.now() - pending.startedAt;
+    if (age < PENDING_HANDSHAKE_TTL_MS) {
+      console.warn(`[ws] Duplicate pending handshake for clientId=${clientId}`);
+      const error: HandshakeError = {
+        type: 'HANDSHAKE_ERROR',
+        code: 'INVALID_PAYLOAD',
+        message: 'Handshake already pending.'
+      };
+      socket.emit('HANDSHAKE_ERROR', error);
+      socket.disconnect(true);
+      return;
+    }
+    pendingHandshakeStore.delete(clientId);
+  }
+
   if (!verifyToken(payload.token)) {
     console.warn(
       `[ws] Invalid token from socket=${socket.id}, room=${payload.roomId ?? 'unknown'}`
@@ -1143,7 +1179,15 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     return;
   }
 
-  const clientId = payload.clientId ?? socket.id;
+  const clientMajor = parseMajorVersion(payload.interfaceVersion);
+  const serverMajor = parseMajorVersion(INTERFACE_VERSION);
+  if (clientMajor !== null && serverMajor !== null && clientMajor !== serverMajor) {
+    console.warn(
+      `[ws] Interface version mismatch client=${payload.interfaceVersion ?? 'unknown'} server=${INTERFACE_VERSION}`
+    );
+  }
+
+  pendingHandshakeStore.set(clientId, { socketId: socket.id, startedAt: Date.now() });
   socket.data.clientId = clientId;
   socket.data.clientType = payload.clientType === 'controller' ? 'controller' : 'viewer';
   socket.data.roomId = payload.roomId;
@@ -1159,6 +1203,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     success: true,
     companionMode: COMPANION_MODE,
     companionVersion: COMPANION_VERSION,
+    interfaceVersion: INTERFACE_VERSION,
     capabilities: {
       powerpoint: false,
       externalVideo: false,
@@ -1187,6 +1232,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   };
 
   socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
+  pendingHandshakeStore.delete(clientId);
 }
 
 function isValidJoinRoomPayload(payload: unknown): payload is JoinRoomPayload {

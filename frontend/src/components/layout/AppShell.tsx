@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppMode, type AppMode } from '../../context/AppModeContext'
 import { useCompanionConnection } from '../../context/CompanionConnectionContext'
 import { useDataContext } from '../../context/DataProvider'
@@ -23,7 +23,6 @@ export const AppShell = () => {
   const isViewerRoute = /\/room\/[^/]+\/view$/.test(location.pathname)
   const { mode, effectiveMode, setMode } = useAppMode()
   const data = useDataContext() as ReturnType<typeof useDataContext> & {
-    flushRoomToFirestore?: (roomId: string) => Promise<void>
     queueStatus?: Record<string, { count: number; max: number; percent: number; nearLimit: boolean }>
   }
   const connection = useCompanionConnection()
@@ -34,6 +33,10 @@ export const AppShell = () => {
   const [crashRecovery, setCrashRecovery] = useState<CrashRecoveryData | null>(null)
   const [updateState, setUpdateState] = useState<UpdateState | null>(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [reconnectNow, setReconnectNow] = useState(() => Date.now())
+  const [reconnectBannerDismissed, setReconnectBannerDismissed] = useState(false)
+  const protocolFallbackRef = useRef(false)
+  const [protocolFallbackActive, setProtocolFallbackActive] = useState(false)
 
   const openTrustPage = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -139,28 +142,104 @@ export const AppShell = () => {
     return 'border-amber-400 bg-amber-950/60 text-amber-200' // local
   }, [mode])
 
+  const reconnectBanner = useMemo(() => {
+    const isCompanionReady = connection.isConnected && connection.handshakeStatus === 'ack'
+    const reconnectElapsedMs = connection.reconnectStartedAt
+      ? Math.max(0, reconnectNow - connection.reconnectStartedAt)
+      : 0
+    if (reconnectBannerDismissed) return null
+    if (connection.reconnectState === 'stopped') {
+      return {
+        tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
+        title: 'Companion reconnect paused',
+        detail: 'We stopped after 20 failed attempts. Click retry to try again.',
+        variant: 'stopped',
+      }
+    }
+    if ((connection.reconnectAttempts >= 5 || reconnectElapsedMs >= 8000) && !isCompanionReady) {
+      return {
+        tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
+        title: 'Having trouble reconnecting to Companion',
+        detail: 'We will keep retrying. You can also retry now.',
+        variant: 'retrying',
+      }
+    }
+    return null
+  }, [
+    connection.handshakeStatus,
+    connection.isConnected,
+    connection.reconnectAttempts,
+    connection.reconnectState,
+    connection.reconnectStartedAt,
+    reconnectNow,
+    reconnectBannerDismissed,
+  ])
+
+  useEffect(() => {
+    if (!connection.nextRetryAt || connection.isConnected) return
+    const interval = window.setInterval(() => {
+      setReconnectNow(Date.now())
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [connection.isConnected, connection.nextRetryAt])
+
+  const reconnectCountdown = useMemo(() => {
+    if (!connection.nextRetryAt) return null
+    const delta = Math.max(0, Math.ceil((connection.nextRetryAt - reconnectNow) / 1000))
+    return delta > 0 ? `${delta}s` : null
+  }, [connection.nextRetryAt, reconnectNow])
+
+  useEffect(() => {
+    if (connection.handshakeStatus !== 'ack') return
+    window.setTimeout(() => {
+      setReconnectBannerDismissed(false)
+    }, 0)
+  }, [connection.handshakeStatus])
+
+  const protocolWarning = useMemo(() => {
+    if (connection.protocolStatus.compatibility === 'incompatible') {
+      return {
+        tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
+        title: 'Companion version mismatch',
+        detail: 'Switching to Cloud to avoid sync issues. Update Companion to restore local mode.',
+      }
+    }
+    if (connection.protocolStatus.compatibility === 'warn') {
+      return {
+        tone: 'border-slate-700/50 bg-slate-900/80 text-slate-200',
+        title: 'Companion version unclear',
+        detail: 'If you see sync issues, update Companion.',
+      }
+    }
+    return null
+  }, [connection.protocolStatus.compatibility])
+
+  useEffect(() => {
+    if (connection.protocolStatus.compatibility !== 'incompatible') {
+      protocolFallbackRef.current = false
+      if (protocolFallbackActive && mode !== 'cloud') {
+        window.setTimeout(() => {
+          setProtocolFallbackActive(false)
+        }, 0)
+      }
+      return
+    }
+    if (protocolFallbackRef.current) return
+    protocolFallbackRef.current = true
+    window.setTimeout(() => {
+      setProtocolFallbackActive(true)
+    }, 0)
+    if (mode !== 'cloud') {
+      setMode('cloud')
+    }
+  }, [connection.protocolStatus.compatibility, mode, protocolFallbackActive, setMode])
+
   const handleModeChange = useMemo(() => {
     return async (nextMode: AppMode) => {
-      // If we are currently on Companion provider and switching to Cloud, best-effort flush the active room
-      // so Cloud view doesn't "lose" timers/state.
-      const currentlyCompanion = effectiveMode === 'local'
       const currentlyCloud = effectiveMode === 'cloud'
-      const switchingToCloud = nextMode === 'cloud'
       const switchingToCompanion = nextMode === 'local' || nextMode === 'auto'
       const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
       const roomId = match?.[1]
-
-      if (currentlyCompanion && switchingToCloud && roomId && typeof data.flushRoomToFirestore === 'function') {
-        try {
-          // wait briefly for flush, but don't hang the UI forever
-          await Promise.race([
-            data.flushRoomToFirestore(roomId),
-            new Promise((resolve) => window.setTimeout(resolve, 800)),
-          ])
-        } catch {
-          // ignore
-        }
-      }
 
       // If switching from Cloud to Auto/Local, save the current Cloud state BEFORE switching
       // so CompanionDataProvider can use it for SYNC_ROOM_STATE.
@@ -185,6 +264,10 @@ export const AppShell = () => {
         }
       }
 
+      if (nextMode !== 'cloud') {
+        protocolFallbackRef.current = false
+        setProtocolFallbackActive(false)
+      }
       setMode(nextMode)
     }
   }, [data, effectiveMode, location.pathname, setMode])
@@ -254,6 +337,85 @@ export const AppShell = () => {
           </div>
         </header>
       )}
+      {!isViewerRoute && reconnectBanner && (
+        <div className="px-4 py-2">
+          <div
+            className={`mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 rounded-full border px-3 py-1 text-xs ${reconnectBanner.tone}`}
+          >
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-inherit">!</span>
+              <span className="font-semibold">{reconnectBanner.title}</span>
+              <span className="text-white/70">{reconnectBanner.detail}</span>
+              {connection.lastErrorCode ? (
+                <span className="text-white/50">Last error: {connection.lastErrorCode}</span>
+              ) : null}
+              {reconnectCountdown ? (
+                <span className="text-white/50">Next attempt in {reconnectCountdown}</span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {reconnectBanner.variant !== 'stopped' ? (
+                <button
+                  type="button"
+                  onClick={() => connection.retryConnection()}
+                  className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+                >
+                  Retry
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setReconnectBannerDismissed(true)
+                }}
+                className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {protocolWarning && (
+        <div className={`border-b px-4 py-3 ${protocolWarning.tone}`}>
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-inherit">!</span>
+              <p className="text-sm">
+                <strong>{protocolWarning.title}</strong> — {protocolWarning.detail}
+              </p>
+            </div>
+            {connection.protocolStatus.compatibility === 'incompatible' ? (
+              <button
+                type="button"
+                onClick={() => setMode('cloud')}
+                className="rounded-md border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/20"
+              >
+                Switch to Cloud
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {protocolFallbackActive && connection.protocolStatus.compatibility === 'ok' && mode === 'cloud' ? (
+        <div className="border-b border-emerald-800/50 bg-emerald-950/80 px-4 py-3 text-emerald-200">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-inherit">✓</span>
+              <p className="text-sm">
+                <strong>Companion compatible again</strong> — Switch back to Auto or Local to reconnect.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleModeChange('auto')}
+              className="rounded-md border border-emerald-700 bg-emerald-900/50 px-2.5 py-1 text-xs font-medium text-emerald-100 transition hover:bg-emerald-800/50"
+            >
+              Switch to Auto
+            </button>
+          </div>
+        </div>
+      ) : null}
       {/* Crash recovery banner (Electron only) */}
       {crashRecovery && (
         <div className="border-b border-emerald-800/50 bg-emerald-950/80 px-4 py-3">

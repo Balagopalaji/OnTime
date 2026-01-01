@@ -32,7 +32,7 @@ const readInitialMode = (): AppMode => {
 }
 
 export const AppModeProvider = ({ children }: { children: ReactNode }) => {
-  const { isConnected, socket } = useCompanionConnection()
+  const { isConnected, socket, handshakeStatus } = useCompanionConnection()
   const [mode, setModeState] = useState<AppMode>(() => readInitialMode())
   const [isDegraded, setIsDegraded] = useState(false)
 
@@ -88,6 +88,14 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
       socket.off('HANDSHAKE_ACK', handleHandshakeAck)
     }
   }, [socket, triggerCompanionFallback])
+
+  useEffect(() => {
+    if (!isConnected) return
+    if (handshakeStatus === 'error') return
+    window.setTimeout(() => {
+      setIsDegraded(false)
+    }, 0)
+  }, [handshakeStatus, isConnected])
 
   const clearDegraded = useCallback(() => {
     setIsDegraded(false)
