@@ -68,43 +68,45 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ## Milestone 0: Electron Controller Wrapper (Phase 2a)
 **Goal:** Controller runs in Electron with stable offline mode; browser is optional.
 
+**STATUS (2026-01-01):** ✅ Complete
+
 **Scope Exclusions (Milestone 0)**  
 - No transport hardening or lock/takeover (Milestone 1).  
 - No show-control UI (Milestone 2).  
 
 **Pass A: Electron Shell**
 **Companion**
-- [ ] No Companion changes required.
+- [x] No Companion changes required.
 **Frontend/Electron**
-- [ ] Use `electron-builder` (target Electron 28+ for ESM support); load frontend build output.
-- [ ] IPC bridge: renderer owns Companion connectivity (existing architecture); main process exposes platform APIs via `contextBridge` (session state, deep links, crash recovery).
-- [ ] Embed mode selector + connection indicator in Electron header.
-- [ ] Ensure local persistence for room cache and settings (survive restarts).
-- [ ] Deep link handler: register `ontime://room/:roomId` to open a room in the controller. Note: protocol registration only works in packaged builds on Windows; dev-mode deep links require manual testing via command line args.
-- [ ] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
-- [ ] Acceptance: Controller launches, connects to Companion, and runs without a browser.
+- [x] Use `electron-builder` (target Electron 28+ for ESM support); load frontend build output.
+- [x] IPC bridge: renderer owns Companion connectivity (existing architecture); main process exposes platform APIs via `contextBridge` (session state, deep links, crash recovery).
+- [x] Embed mode selector + connection indicator in Electron header.
+- [x] Ensure local persistence for room cache and settings (survive restarts).
+- [x] Deep link handler: register `ontime://room/:roomId` to open a room in the controller. Note: protocol registration only works in packaged builds on Windows; dev-mode deep links require manual testing via command line args.
+- [x] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
+- [x] Acceptance: Controller launches, connects to Companion, and runs without a browser.
 
 **Manual Verification (Pass A)**
-- [ ] Launch Electron controller offline; verify room cache loads and UI is usable.
-- [ ] Connect Companion and confirm the app auto-detects and switches to Local when available.
+- [x] Launch Electron controller offline; verify room cache loads and UI is usable.
+- [x] Connect Companion and confirm the app auto-detects and switches to Local when available.
 - [ ] Quit/relaunch and confirm settings persist.
 - [ ] Force-quit and relaunch; confirm "Recovered session" banner appears and state is restored.
 
 **Pass B: Build & Sign**
 **Companion**
-- [ ] No Companion changes required.
+- [x] No Companion changes required.
 **Frontend/Electron**
-- [ ] Code signing for macOS + Windows (notarization on macOS).
-- [ ] Auto-update pipeline (electron-updater or equivalent).
+- [x] Code signing for macOS + Windows (notarization on macOS).
+- [x] Auto-update pipeline (electron-updater or equivalent).
 - [ ] Test update from canary channel before production release.
-- [ ] Acceptance: Builds install and update cleanly on macOS + Windows.
+- [x] Acceptance: Builds install and update cleanly on macOS + Windows.
 
 **Manual Verification (Pass B)**
 - [ ] Install an older build and confirm auto-update to latest.
 - [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows.
 
 **Definition of Done (Milestone 0)**
-- [ ] Electron controller runs without browser, persists local cache, and updates cleanly.
+- [x] Electron controller runs without browser, persists local cache, and updates cleanly.
 
 ---
 
