@@ -4,10 +4,23 @@ import { io, type Socket } from 'socket.io-client'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 
+/**
+ * Reconnection state for UI visibility.
+ * - connecting: initial connection attempt
+ * - connected: socket connected
+ * - reconnecting: backoff retry in progress
+ * - failed: max attempts exceeded (show Retry CTA)
+ * - disconnected: intentionally disconnected
+ */
+type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disconnected'
+
 type CompanionConnectionContextValue = {
   socket: Socket | null
   isConnected: boolean
   handshakeStatus: HandshakeStatus
+  connectionState: ConnectionState
+  reconnectAttempt: number
+  maxReconnectAttempts: number
   companionMode: string
   capabilities: {
     powerpoint: boolean
@@ -24,6 +37,8 @@ type CompanionConnectionContextValue = {
   lastSeenAt?: number
   fetchToken: () => Promise<string | null>
   clearToken: () => void
+  /** Manual retry after max attempts exceeded */
+  retryConnection: () => void
 }
 
 type HandshakeAck = {
@@ -43,6 +58,20 @@ type HandshakeAck = {
 }
 
 const TOKEN_KEY = 'ontime:companionToken'
+const MAX_RECONNECT_ATTEMPTS = 20
+
+/**
+ * Calculate backoff delay based on attempt number.
+ * Schedule: attempt 1 immediate, attempts 2-5 at 2s, 6+ at 10s, cap at 60s
+ */
+function getBackoffDelay(attempt: number): number {
+  if (attempt <= 1) return 0 // immediate
+  if (attempt <= 5) return 2000 // 2s for attempts 2-5
+  // For 6+ start at 10s, double each time, cap at 60s
+  const base = 10000
+  const exponentialAttempt = attempt - 5 // starts at 1 for attempt 6
+  return Math.min(base * Math.pow(2, exponentialAttempt - 1), 60000)
+}
 
 const CompanionConnectionContext = createContext<CompanionConnectionContextValue | undefined>(undefined)
 
@@ -81,8 +110,10 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const [token, setToken] = useState<string | null>(() => readStoredToken())
   const [hasAttemptedDiscovery, setHasAttemptedDiscovery] = useState(false)
   const [lastSeenAt, setLastSeenAt] = useState<number | null>(null)
-  const backoffRef = useRef(10_000)
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const heartbeatRef = useRef<number | null>(null)
+  const reconnectTimeoutRef = useRef<number | null>(null)
 
   const clearToken = useCallback(() => {
     setToken(null)
@@ -148,7 +179,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
 
     setToken(token)
     setLastSeenAt(Date.now())
-    backoffRef.current = 10_000
+    setReconnectAttempt(0)
+    setConnectionState('connecting')
     try {
       window.localStorage.setItem(TOKEN_KEY, token)
       sessionStorage.setItem(TOKEN_KEY, token)
@@ -163,6 +195,19 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const next = await fetchToken()
     return next
   }, [fetchToken])
+
+  /** Manual retry after max attempts exceeded */
+  const retryConnection = useCallback(() => {
+    setReconnectAttempt(0)
+    setConnectionState('connecting')
+    // Clear any existing timeout
+    if (reconnectTimeoutRef.current) {
+      window.clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    // Trigger immediate reconnection
+    void discoverCompanion()
+  }, [discoverCompanion])
 
   // If handshake errors while online, assume token may be stale (e.g., Companion restarted with new secret)
   // and force a refresh once.
@@ -207,33 +252,68 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
   }, [socket, token])
 
+  // Reconnection state machine with exponential backoff
   useEffect(() => {
     const shouldProbe = !token || !isConnected || handshakeStatus !== 'ack'
     if (!shouldProbe) {
+      // Connected successfully - clear reconnection state
       if (heartbeatRef.current) {
         window.clearTimeout(heartbeatRef.current)
         heartbeatRef.current = null
       }
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      setConnectionState('connected')
       return
     }
+
+    // Check if we've exceeded max attempts
+    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+      setConnectionState('failed')
+      return
+    }
+
     let cancelled = false
     const tick = async () => {
+      const nextAttempt = reconnectAttempt + 1
+      setReconnectAttempt(nextAttempt)
+      setConnectionState('reconnecting')
+
+      if (debugCompanion) {
+        console.info(`[companion] Reconnect attempt ${nextAttempt}/${MAX_RECONNECT_ATTEMPTS}`)
+      }
+
       const ok = await discoverCompanion()
       if (ok) {
-        backoffRef.current = 10_000
-      } else {
-        backoffRef.current = Math.min(backoffRef.current * 2, 60_000)
-      }
-      if (!cancelled) {
-        heartbeatRef.current = window.setTimeout(tick, backoffRef.current)
+        setReconnectAttempt(0)
+        setConnectionState('connecting')
+      } else if (!cancelled) {
+        // Check if we've exceeded max attempts
+        if (nextAttempt >= MAX_RECONNECT_ATTEMPTS) {
+          setConnectionState('failed')
+          return
+        }
+        // Schedule next attempt with backoff
+        const delay = getBackoffDelay(nextAttempt + 1)
+        if (debugCompanion) {
+          console.info(`[companion] Next reconnect in ${delay}ms`)
+        }
+        reconnectTimeoutRef.current = window.setTimeout(tick, delay)
       }
     }
-    heartbeatRef.current = window.setTimeout(tick, backoffRef.current)
+
+    // Start with initial delay based on current attempt
+    const initialDelay = getBackoffDelay(reconnectAttempt + 1)
+    reconnectTimeoutRef.current = window.setTimeout(tick, initialDelay)
+
     return () => {
       cancelled = true
       if (heartbeatRef.current) window.clearTimeout(heartbeatRef.current)
+      if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current)
     }
-  }, [discoverCompanion, handshakeStatus, isConnected, token])
+  }, [debugCompanion, discoverCompanion, handshakeStatus, isConnected, reconnectAttempt, token])
 
   useEffect(() => {
     if (!socket) return
@@ -295,6 +375,9 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       socket,
       isConnected,
       handshakeStatus,
+      connectionState,
+      reconnectAttempt,
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
       companionMode,
       capabilities,
       systemInfo,
@@ -304,17 +387,21 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       lastSeenAt: lastSeenAt ?? undefined,
       fetchToken,
       clearToken,
+      retryConnection,
     }),
     [
       capabilities,
       clearToken,
       companionMode,
+      connectionState,
       discoverCompanion,
       fetchToken,
       hasAttemptedDiscovery,
       handshakeStatus,
       isConnected,
       lastSeenAt,
+      reconnectAttempt,
+      retryConnection,
       socket,
       systemInfo,
       token,
@@ -331,3 +418,5 @@ export const useCompanionConnection = () => {
   }
   return ctx
 }
+
+export type { ConnectionState }

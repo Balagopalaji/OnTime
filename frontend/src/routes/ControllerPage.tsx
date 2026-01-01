@@ -57,8 +57,33 @@ export const ControllerPage = () => {
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
     subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
   }).subscribeToCompanionRoom
+  const getControllerLock = (ctx as typeof ctx & {
+    getControllerLock?: (roomId: string) => { roomId: string; locked: boolean; lockedBy: string | null; lockedAt: number | null; isController: boolean; hasPin: boolean } | null
+  }).getControllerLock
+  const getIncomingControlRequest = (ctx as typeof ctx & {
+    getIncomingControlRequest?: (roomId: string) => { roomId: string; requestedBy: string; requestedAt: number } | null
+  }).getIncomingControlRequest
+  const clearIncomingControlRequest = (ctx as typeof ctx & {
+    clearIncomingControlRequest?: (roomId: string) => void
+  }).clearIncomingControlRequest
+  const requestControl = (ctx as typeof ctx & {
+    requestControl?: (roomId: string) => void
+  }).requestControl
+  const forceTakeover = (ctx as typeof ctx & {
+    forceTakeover?: (roomId: string, options?: { pin?: string; targetClientId?: string }) => void
+  }).forceTakeover
+  const setRoomPin = (ctx as typeof ctx & {
+    setRoomPin?: (roomId: string, pin: string | null) => void
+  }).setRoomPin
+  const controllerLock = roomId && getControllerLock ? getControllerLock(roomId) : null
+  const incomingRequest = roomId && getIncomingControlRequest ? getIncomingControlRequest(roomId) : null
+  const isLockedOut = controllerLock?.locked && !controllerLock?.isController
+  const isController = Boolean(controllerLock?.isController)
+  const canRequestControl = Boolean(requestControl && roomId)
+  const canForceTakeover = Boolean(forceTakeover && roomId)
   const lastJoinKeyRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
+  const REQUEST_TIMEOUT_MS = 30_000
   const debugCompanion =
     typeof import.meta !== 'undefined' &&
     ((import.meta as unknown as { env?: Record<string, unknown> }).env?.VITE_DEBUG_COMPANION === 'true')
@@ -135,6 +160,31 @@ export const ControllerPage = () => {
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
   const [shortcutScope, setShortcutScope] = useState<'controls' | 'rundown'>('controls')
   const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
+  const [requestSentAt, setRequestSentAt] = useState<number | null>(null)
+  const [forcePin, setForcePin] = useState('')
+  const [roomPin, setRoomPinValue] = useState('')
+  const [showPin, setShowPin] = useState(true)
+  const pinStorageKey = roomId ? `ontime:roomPin:${roomId}` : null
+
+  const handleSetPin = useCallback(() => {
+    if (!roomId || !setRoomPin) return
+    const next = window.prompt('Set room PIN (leave blank to clear).')
+    if (next === null) return
+    const trimmed = next.trim()
+    setRoomPin(roomId, trimmed ? trimmed : null)
+    setRoomPinValue(trimmed)
+    setShowPin(true)
+    if (!pinStorageKey) return
+    try {
+      if (trimmed) {
+        window.localStorage.setItem(pinStorageKey, trimmed)
+      } else {
+        window.localStorage.removeItem(pinStorageKey)
+      }
+    } catch {
+      // ignore
+    }
+  }, [pinStorageKey, roomId, setRoomPin])
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -147,6 +197,17 @@ export const ControllerPage = () => {
     timers.find((timer) => timer.id === effectiveSelectedTimerId) ?? activeTimer
   const timezoneOptions = useMemo(() => getAllTimezones(), [])
   const timezoneListId = room ? `timezone-${room.id}` : 'timezone-global'
+  const requestAgeMs = useMemo(() => {
+    if (!requestSentAt) return null
+    return Math.max(0, placeholderNow - requestSentAt)
+  }, [placeholderNow, requestSentAt])
+  const requestCountdown = useMemo(() => {
+    if (requestAgeMs === null) return null
+    const remainingMs = Math.max(0, REQUEST_TIMEOUT_MS - requestAgeMs)
+    return Math.ceil(remainingMs / 1000)
+  }, [requestAgeMs])
+  const canForceWithoutPin = requestAgeMs !== null && requestAgeMs >= REQUEST_TIMEOUT_MS
+
   const undoPlaceholder = useMemo(() => {
     if (!roomId) return null
     const placeholders = (pendingTimerPlaceholders[roomId] ?? []).filter(
@@ -170,6 +231,22 @@ export const ControllerPage = () => {
       titleInputRef.current.select()
     }
   }, [isTimezoneEditing, isTitleEditing])
+
+  useEffect(() => {
+    if (!pinStorageKey) return
+    try {
+      const storedPin = window.localStorage.getItem(pinStorageKey) ?? ''
+      setRoomPinValue(storedPin)
+    } catch {
+      // ignore
+    }
+  }, [pinStorageKey])
+
+  useEffect(() => {
+    if (!controllerLock?.isController) return
+    setRequestSentAt(null)
+    setForcePin('')
+  }, [controllerLock?.isController])
 
   useEffect(() => {
     const id = window.setInterval(() => setPlaceholderNow(Date.now()), 1000)
@@ -690,6 +767,30 @@ export const ControllerPage = () => {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <ConnectionIndicator status={connectionStatus} />
+              {isController && roomId ? (
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/60 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-200">
+                  <span className="text-[10px] uppercase tracking-[0.25em] text-slate-400">Pin</span>
+                  <span className="font-semibold">
+                    {roomPin ? (showPin ? roomPin : '••••') : 'Not set'}
+                  </span>
+                  {roomPin ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowPin((prev) => !prev)}
+                      className="rounded-full border border-slate-600/60 px-2 py-0.5 text-[10px] font-semibold text-slate-200 transition hover:border-slate-400"
+                    >
+                      {showPin ? 'Hide' : 'Show'}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleSetPin}
+                    className="rounded-full border border-slate-600/60 px-2 py-0.5 text-[10px] font-semibold text-slate-200 transition hover:border-slate-400"
+                  >
+                    {roomPin ? 'Update' : 'Set'}
+                  </button>
+                </div>
+              ) : null}
               {roomAuthority?.status === 'syncing' ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
                   <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
@@ -731,6 +832,82 @@ export const ControllerPage = () => {
             <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
               <AlertTriangle size={16} />
               Mock latency enabled. Actions will delay slightly.
+            </div>
+          )}
+          {incomingRequest && isController && !isLockedOut && roomId && (
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-rose-500/60 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              <div className="flex items-center gap-3">
+                <AlertTriangle size={16} />
+                <div>
+                  <div className="font-semibold">Control request received</div>
+                  <div className="text-xs text-rose-200/80">
+                    {incomingRequest.requestedBy.slice(0, 8)}... wants control.
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => clearIncomingControlRequest?.(roomId)}
+                  className="rounded-lg border border-rose-300/40 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:border-rose-200"
+                >
+                  Ignore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => forceTakeover?.(roomId, { targetClientId: incomingRequest.requestedBy })}
+                  className="rounded-lg border border-rose-400/60 bg-rose-500/30 px-3 py-1.5 text-xs font-semibold text-rose-50 transition hover:bg-rose-500/40"
+                >
+                  Hand Over
+                </button>
+              </div>
+            </div>
+          )}
+          {isLockedOut && roomId && (
+            <div className="mt-4 space-y-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} />
+                <span>
+                  <strong>Room controlled by another device</strong>
+                  {controllerLock?.lockedBy && <span className="text-rose-300/80"> ({controllerLock.lockedBy.slice(0, 8)}...)</span>}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canRequestControl || !requestControl) return
+                    requestControl(roomId)
+                    setRequestSentAt(Date.now())
+                  }}
+                  className="rounded-lg border border-rose-400/60 bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
+                >
+                  Request Control
+                </button>
+                <div className="flex items-center gap-2">
+                  {controllerLock?.hasPin ? (
+                    <input
+                      value={forcePin}
+                      onChange={(event) => setForcePin(event.target.value)}
+                      placeholder="Room PIN"
+                      className="h-8 w-28 rounded-lg border border-rose-400/40 bg-slate-950/70 px-2 text-xs text-rose-100 placeholder:text-rose-300/60"
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!canForceTakeover || !forceTakeover) return
+                      forceTakeover(roomId, forcePin ? { pin: forcePin } : undefined)
+                    }}
+                    className="rounded-lg border border-rose-400/60 bg-rose-500/30 px-3 py-1.5 text-xs font-semibold text-rose-50 transition hover:bg-rose-500/40"
+                  >
+                    Force Takeover
+                  </button>
+                </div>
+                {requestCountdown !== null && !canForceWithoutPin ? (
+                  <span className="text-xs text-rose-200/80">Force without PIN in {requestCountdown}s</span>
+                ) : null}
+              </div>
             </div>
           )}
         </header>

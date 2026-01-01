@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
-import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater';
+import type { UpdateInfo, ProgressInfo } from 'electron-updater';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -19,10 +19,18 @@ let pendingDeepLink: string | null = null;
 // Development mode detection
 const isDev = !app.isPackaged;
 
-// Auto-updater configuration
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.autoRunAppAfterInstall = true;
+// Auto-updater configuration (may be unavailable in dev or if module missing)
+let autoUpdater: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  autoUpdater = require('electron-updater').autoUpdater;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoRunAppAfterInstall = true;
+} catch (err) {
+  console.warn('[updater] electron-updater unavailable:', err);
+  autoUpdater = null;
+}
 
 // Update state
 type UpdateState = {
@@ -465,8 +473,8 @@ function setupIpcHandlers(): void {
   ipcMain.handle('get-update-state', () => updateState);
 
   ipcMain.handle('check-for-updates', async () => {
-    if (isDev) {
-      return { available: false, reason: 'dev-mode' };
+    if (isDev || !autoUpdater) {
+      return { available: false, reason: isDev ? 'dev-mode' : 'updater-unavailable' };
     }
     try {
       const result = await autoUpdater.checkForUpdates();
@@ -478,7 +486,7 @@ function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('download-update', async () => {
-    if (!updateState.available || updateState.downloading) {
+    if (!autoUpdater || !updateState.available || updateState.downloading) {
       return false;
     }
     try {
@@ -491,6 +499,7 @@ function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('install-update', () => {
+    if (!autoUpdater) return false;
     if (updateState.downloaded) {
       autoUpdater.quitAndInstall(false, true);
       return true;
@@ -508,8 +517,8 @@ function sendUpdateState(): void {
 
 // Setup auto-updater event handlers
 function setupAutoUpdater(): void {
-  if (isDev) {
-    console.log('[updater] Skipping auto-updater in dev mode');
+  if (isDev || !autoUpdater) {
+    console.log('[updater] Skipping auto-updater in dev mode or when unavailable');
     return;
   }
 

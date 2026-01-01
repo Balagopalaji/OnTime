@@ -330,7 +330,37 @@ export const AppShell = () => {
           </div>
         </div>
       )}
-      {/* Degraded banner removed for a cleaner, less noisy UI; status is still visible in the header badge. */}
+      {/* Connection failed banner - show retry CTA after max attempts */}
+      {connection.connectionState === 'failed' && (
+        <div className="border-b border-amber-800/50 bg-amber-950/80 px-4 py-3">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400">⚠</span>
+              <p className="text-sm text-amber-200">
+                <strong>Companion unavailable</strong> — Could not connect after {connection.maxReconnectAttempts} attempts.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => connection.retryConnection()}
+              className="rounded-md border border-amber-600 bg-amber-700/50 px-2.5 py-1 text-xs font-medium text-amber-100 transition hover:bg-amber-600/50"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Reconnecting indicator - subtle inline status during backoff */}
+      {connection.connectionState === 'reconnecting' && (
+        <div className="border-b border-slate-800/50 bg-slate-900/80 px-4 py-2">
+          <div className="mx-auto flex max-w-6xl items-center gap-2">
+            <span className="animate-pulse text-cyan-400">●</span>
+            <p className="text-xs text-slate-400">
+              Reconnecting to Companion... (attempt {connection.reconnectAttempt}/{connection.maxReconnectAttempts})
+            </p>
+          </div>
+        </div>
+      )}
       <main
         className={
           isViewerRoute ? 'w-full px-0 py-4 sm:px-4' : 'mx-auto max-w-6xl px-4 py-10'

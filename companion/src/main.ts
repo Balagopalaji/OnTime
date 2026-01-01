@@ -64,7 +64,7 @@ type HandshakeAck = {
 
 type HandshakeError = {
   type: 'HANDSHAKE_ERROR';
-  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN';
+  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN' | 'HANDSHAKE_IN_PROGRESS';
   message: string;
 };
 
@@ -207,6 +207,57 @@ type TimersReordered = {
   timestamp: number;
 };
 
+type ControllerLockState = {
+  type: 'CONTROLLER_LOCK_STATE';
+  roomId: string;
+  locked: boolean;
+  lockedBy?: {
+    clientId: string;
+    lockedAt: number;
+  };
+  isYou: boolean;
+  hasPin: boolean;
+  timestamp: number;
+};
+
+type ControllerHeartbeatPayload = {
+  type: 'HEARTBEAT';
+  roomId: string;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type RequestControlPayload = {
+  type: 'REQUEST_CONTROL';
+  roomId: string;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type ControlRequestReceived = {
+  type: 'CONTROL_REQUEST_RECEIVED';
+  roomId: string;
+  requestedBy: string;
+  requestedAt: number;
+};
+
+type ForceTakeoverPayload = {
+  type: 'FORCE_TAKEOVER';
+  roomId: string;
+  clientId?: string;
+  targetClientId?: string;
+  pin?: string;
+  timestamp?: number;
+};
+
+type SetRoomPinPayload = {
+  type: 'SET_ROOM_PIN';
+  roomId: string;
+  pin?: string | null;
+  clientId?: string;
+  timestamp?: number;
+};
+
 let io: SocketIOServer | null = null;
 let ioSecure: SocketIOServer | null = null;
 let httpServer: HttpServer | null = null;
@@ -224,7 +275,35 @@ function emitToRoom(roomId: string, event: string, payload: unknown) {
 }
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
-const roomControllerStore: Map<string, { clientId: string; socketId: string; connectedAt: number }> = new Map();
+// Controller lock configuration
+const LOCK_TTL_MS = 90_000; // 90 seconds lock TTL (3 missed 30s heartbeats)
+const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds heartbeat interval
+const CONTROL_REQUEST_TIMEOUT_MS = 30_000; // 30 seconds request timeout
+
+type ControllerLock = {
+  clientId: string;
+  socketId: string;
+  lockedAt: number;
+  lastHeartbeat: number;
+};
+
+type RoomPinState = {
+  pinHash: string;
+  updatedAt: number;
+  updatedBy: string;
+};
+
+type ControlRequestState = {
+  requestedBy: string;
+  requestedAt: number;
+};
+
+const roomControllerStore: Map<string, ControllerLock> = new Map();
+const roomPinStore: Map<string, RoomPinState> = new Map();
+const controlRequestStore: Map<string, ControlRequestState> = new Map();
+const roomClientSockets: Map<string, Map<string, string>> = new Map();
+// Track pending handshakes by clientId to prevent duplicate handshake races
+const pendingHandshakes: Map<string, { roomId: string; socketId: string; timestamp: number }> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
@@ -762,16 +841,39 @@ function registerSocketHandlers(server: SocketIOServer) {
     socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
     socket.on('DELETE_TIMER', (payload) => handleDeleteTimer(socket, payload));
     socket.on('REORDER_TIMERS', (payload) => handleReorderTimers(socket, payload));
+    socket.on('HEARTBEAT', (payload) => handleControllerHeartbeat(socket, payload));
+    socket.on('REQUEST_CONTROL', (payload) => handleRequestControl(socket, payload));
+    socket.on('FORCE_TAKEOVER', (payload) => handleForceTakeover(socket, payload));
+    socket.on('SET_ROOM_PIN', (payload) => handleSetRoomPin(socket, payload));
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
       const roomId = socket.data?.roomId as string | undefined;
       const clientType = socket.data?.clientType as string | undefined;
       const clientId = socket.data?.clientId as string | undefined;
+
+      // Clean up any pending handshake for this client
+      if (clientId) {
+        const pending = pendingHandshakes.get(clientId);
+        if (pending?.socketId === socket.id) {
+          pendingHandshakes.delete(clientId);
+        }
+      }
+
+      if (roomId && clientId) {
+        const roomMap = roomClientSockets.get(roomId);
+        if (roomMap) {
+          roomMap.delete(clientId);
+          if (roomMap.size === 0) {
+            roomClientSockets.delete(roomId);
+          }
+        }
+      }
+
       if (roomId && clientType === 'controller' && clientId) {
         const current = roomControllerStore.get(roomId);
         if (current?.clientId === clientId) {
-          roomControllerStore.delete(roomId);
-          console.log(`[ws] controller released room=${roomId} by=${clientId}`);
+          // Keep the lock until TTL expires; controller may reconnect shortly.
+          console.log(`[ws] controller disconnected room=${roomId} by=${clientId}`);
         }
       }
     });
@@ -828,22 +930,109 @@ function startSecureSocketServer(tls: { key: string; cert: string }) {
   });
 }
 
+/**
+ * Check if the current controller lock is still valid (not expired).
+ */
+function isLockValid(lock: ControllerLock): boolean {
+  const now = Date.now();
+  return now - lock.lastHeartbeat < LOCK_TTL_MS;
+}
+
+function hashPin(pin: string): string {
+  return crypto.createHash('sha256').update(pin).digest('hex');
+}
+
+function verifyRoomPin(roomId: string, pin: string | undefined): boolean {
+  if (!pin) return false;
+  const entry = roomPinStore.get(roomId);
+  if (!entry) return false;
+  return entry.pinHash === hashPin(pin);
+}
+
+function setRoomPin(roomId: string, pin: string | null | undefined, clientId: string) {
+  if (!pin) {
+    roomPinStore.delete(roomId);
+    return;
+  }
+  roomPinStore.set(roomId, {
+    pinHash: hashPin(pin),
+    updatedAt: Date.now(),
+    updatedBy: clientId,
+  });
+}
+
+/**
+ * Get the current valid lock for a room, or null if no lock or lock is expired.
+ */
+function getValidLock(roomId: string): ControllerLock | null {
+  const lock = roomControllerStore.get(roomId);
+  if (!lock) return null;
+  if (!isLockValid(lock)) {
+    // Lock expired, clean it up
+    roomControllerStore.delete(roomId);
+    console.log(`[ws] controller lock expired for room=${roomId}, clientId=${lock.clientId}`);
+    return null;
+  }
+  return lock;
+}
+
+/**
+ * Check if the given client is the active controller for this room.
+ */
 function isActiveController(roomId: string, clientId: string | undefined): boolean {
   if (!clientId) return false;
-  const current = roomControllerStore.get(roomId);
-  if (!current) return true; // no controller lock yet; allow first controller to act
-  return current.clientId === clientId;
+  const lock = getValidLock(roomId);
+  if (!lock) return true; // no controller lock yet; allow first controller to act
+  return lock.clientId === clientId;
+}
+
+/**
+ * Send lock status to a specific socket or all sockets in a room.
+ */
+function sendLockStatus(roomId: string, target: Socket | 'room', requestingClientId?: string) {
+  const lock = getValidLock(roomId);
+  const hasPin = roomPinStore.has(roomId);
+  const status: ControllerLockState = {
+    type: 'CONTROLLER_LOCK_STATE',
+    roomId,
+    locked: lock !== null,
+    lockedBy: lock ? { clientId: lock.clientId, lockedAt: lock.lockedAt } : undefined,
+    isYou: lock?.clientId === requestingClientId,
+    hasPin,
+    timestamp: Date.now(),
+  };
+
+  if (target === 'room') {
+    emitToRoom(roomId, 'CONTROLLER_LOCK_STATE', status);
+  } else {
+    target.emit('CONTROLLER_LOCK_STATE', status);
+  }
 }
 
 function enforceControllerAccess(socket: Socket, roomId: string): boolean {
-  // Multi-controller: allow all controllers; viewers are still blocked at call sites where needed.
   const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
+  const clientId = socket.data?.clientId as string | undefined;
+
+  // Block non-controllers
   if (clientType !== 'controller') {
     socket.emit('ERROR', {
       type: 'ERROR',
-      code: 'PERMISSION_DENIED',
-      message: 'Only the controller can perform this action.',
+      code: 'NOT_CONTROLLER',
+      message: 'Only controllers can perform this action.',
     });
+    return false;
+  }
+
+  // Check lock status - enforce single-controller lock
+  if (!isActiveController(roomId, clientId)) {
+    const lock = getValidLock(roomId);
+    socket.emit('ERROR', {
+      type: 'ERROR',
+      code: 'CONTROLLER_TAKEN',
+      message: `Room is controlled by another client${lock ? ` (${lock.clientId})` : ''}.`,
+    });
+    // Also send lock status so client can show takeover UI
+    sendLockStatus(roomId, socket, clientId);
     return false;
   }
   return true;
@@ -1144,15 +1333,67 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   }
 
   const clientId = payload.clientId ?? socket.id;
+
+  // Check for pending handshake race - prevent duplicate handshakes from same client
+  const pendingHandshake = pendingHandshakes.get(clientId);
+  const HANDSHAKE_TIMEOUT_MS = 5000; // 5 seconds stale threshold
+  if (pendingHandshake && pendingHandshake.socketId !== socket.id) {
+    const isStale = Date.now() - pendingHandshake.timestamp > HANDSHAKE_TIMEOUT_MS;
+    if (!isStale) {
+      console.warn(
+        `[ws] Duplicate handshake from clientId=${clientId}, existing socket=${pendingHandshake.socketId}, new socket=${socket.id}`
+      );
+      const error: HandshakeError = {
+        type: 'HANDSHAKE_ERROR',
+        code: 'HANDSHAKE_IN_PROGRESS',
+        message: 'Handshake already in progress from this client.'
+      };
+      socket.emit('HANDSHAKE_ERROR', error);
+      socket.disconnect(true);
+      return;
+    }
+    // Clear stale pending handshake
+    pendingHandshakes.delete(clientId);
+  }
+
+  // Mark this handshake as pending
+  pendingHandshakes.set(clientId, { roomId: payload.roomId, socketId: socket.id, timestamp: Date.now() });
+
   socket.data.clientId = clientId;
   socket.data.clientType = payload.clientType === 'controller' ? 'controller' : 'viewer';
   socket.data.roomId = payload.roomId;
 
   const requestedType = socket.data.clientType as 'controller' | 'viewer';
+  const now = Date.now();
+
   if (requestedType === 'controller') {
-    // Multi-controller allowed: track latest controller but do not reject others.
-    roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
+    // Check if another controller already has the lock
+    const existingLock = getValidLock(payload.roomId);
+    const takeOver = payload.takeOver === true;
+
+    if (existingLock && existingLock.clientId !== clientId && !takeOver) {
+      // Room is locked by another controller - send lock status but still allow join as viewer-like
+      console.log(
+        `[ws] Room ${payload.roomId} is locked by ${existingLock.clientId}, client ${clientId} joining as observer`
+      );
+    } else {
+      // Either no lock, same client, or takeover requested - acquire/refresh lock
+      const lock: ControllerLock = {
+        clientId,
+        socketId: socket.id,
+        lockedAt: existingLock?.clientId === clientId ? existingLock.lockedAt : now,
+        lastHeartbeat: now,
+      };
+      roomControllerStore.set(payload.roomId, lock);
+      console.log(`[ws] Controller lock acquired: room=${payload.roomId}, clientId=${clientId}`);
+
+      // Notify all clients in room about the new lock
+      // (will be sent after socket joins the room)
+    }
   }
+
+  // Clear pending handshake now that it's complete
+  pendingHandshakes.delete(clientId);
 
   const ack: HandshakeAck = {
     type: 'HANDSHAKE_ACK',
@@ -1177,16 +1418,29 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   socket.emit('HANDSHAKE_ACK', ack);
   socket.join(payload.roomId);
 
-  console.log(`[ws] sending ROOM_STATE_SNAPSHOT to socket=${socket.id}, room=${payload.roomId}`);
+  const roomId = payload.roomId;
+  const roomMap = roomClientSockets.get(roomId) ?? new Map<string, string>();
+  roomMap.set(clientId, socket.id);
+  roomClientSockets.set(roomId, roomMap);
+
+  console.log(`[ws] sending ROOM_STATE_SNAPSHOT to socket=${socket.id}, room=${roomId}`);
 
   const snapshot: RoomStateSnapshot = {
     type: 'ROOM_STATE_SNAPSHOT',
-    roomId: payload.roomId,
-    state: getRoomState(payload.roomId),
+    roomId,
+    state: getRoomState(roomId),
     timestamp: Date.now()
   };
 
   socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
+
+  // Send lock status to the joining client
+  sendLockStatus(roomId, socket, clientId);
+
+  // If this client took over the lock, notify all other clients in the room
+  if (requestedType === 'controller' && payload.takeOver) {
+    sendLockStatus(roomId, 'room', clientId);
+  }
 }
 
 function isValidJoinRoomPayload(payload: unknown): payload is JoinRoomPayload {
@@ -1811,6 +2065,196 @@ function handleReorderTimers(socket: Socket, payload: unknown) {
 
   emitToRoom(roomId, 'TIMERS_REORDERED', event);
   console.log(`[ws] TIMERS_REORDERED room=${roomId} by=${clientId ?? socket.id} count=${finalOrder.length}`);
+}
+
+/**
+ * Handle controller heartbeat to refresh lock TTL.
+ */
+function handleControllerHeartbeat(socket: Socket, payload: unknown) {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+
+  const data = payload as Partial<ControllerHeartbeatPayload>;
+  if (data.type !== 'HEARTBEAT' || typeof data.roomId !== 'string') {
+    return;
+  }
+
+  const roomId = data.roomId;
+  const clientId = socket.data?.clientId as string | undefined;
+
+  if (!clientId) {
+    return;
+  }
+
+  // Only the lock holder can send heartbeats
+  const lock = roomControllerStore.get(roomId);
+  if (!lock || lock.clientId !== clientId) {
+    // Not the lock holder, ignore
+    return;
+  }
+
+  // Refresh the heartbeat timestamp
+  lock.lastHeartbeat = Date.now();
+  roomControllerStore.set(roomId, lock);
+
+  // Send updated lock status back to the client
+  sendLockStatus(roomId, socket, clientId);
+}
+
+/**
+ * Handle control request from a non-authoritative controller.
+ */
+function handleRequestControl(socket: Socket, payload: unknown) {
+  if (!payload || typeof payload !== 'object') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'INVALID_PAYLOAD', message: 'Invalid REQUEST_CONTROL payload.' });
+    return;
+  }
+
+  const data = payload as Partial<RequestControlPayload>;
+  if (data.type !== 'REQUEST_CONTROL' || typeof data.roomId !== 'string') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'INVALID_PAYLOAD', message: 'Invalid REQUEST_CONTROL payload.' });
+    return;
+  }
+
+  const roomId = data.roomId;
+  const clientId = socket.data?.clientId as string | undefined;
+  const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
+
+  if (!clientId || clientType !== 'controller') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'NOT_CONTROLLER', message: 'Only controllers can request control.' });
+    return;
+  }
+
+  const existingLock = getValidLock(roomId);
+
+  // If no active lock (or lock expired), grant immediately.
+  if (!existingLock) {
+    const now = Date.now();
+    const newLock: ControllerLock = {
+      clientId,
+      socketId: socket.id,
+      lockedAt: now,
+      lastHeartbeat: now,
+    };
+    roomControllerStore.set(roomId, newLock);
+    sendLockStatus(roomId, 'room', clientId);
+    return;
+  }
+
+  // Already the lock holder.
+  if (existingLock.clientId === clientId) {
+    sendLockStatus(roomId, socket, clientId);
+    return;
+  }
+
+  controlRequestStore.set(roomId, { requestedBy: clientId, requestedAt: Date.now() });
+
+  const lockSocketId = roomClientSockets.get(roomId)?.get(existingLock.clientId);
+  const requestPayload: ControlRequestReceived = {
+    type: 'CONTROL_REQUEST_RECEIVED',
+    roomId,
+    requestedBy: clientId,
+    requestedAt: Date.now(),
+  };
+
+  if (lockSocketId) {
+    const lockSocket = ioServers
+      .map((server) => server.sockets.sockets.get(lockSocketId))
+      .find(Boolean) as Socket | undefined;
+    lockSocket?.emit('CONTROL_REQUEST_RECEIVED', requestPayload);
+  }
+
+  sendLockStatus(roomId, socket, clientId);
+}
+
+/**
+ * Handle force takeover request (immediate with PIN, or after timeout).
+ * Also used for handover when current controller sends targetClientId.
+ */
+function handleForceTakeover(socket: Socket, payload: unknown) {
+  if (!payload || typeof payload !== 'object') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'INVALID_PAYLOAD', message: 'Invalid FORCE_TAKEOVER payload.' });
+    return;
+  }
+
+  const data = payload as Partial<ForceTakeoverPayload>;
+  if (data.type !== 'FORCE_TAKEOVER' || typeof data.roomId !== 'string') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'INVALID_PAYLOAD', message: 'Invalid FORCE_TAKEOVER payload.' });
+    return;
+  }
+
+  const roomId = data.roomId;
+  const clientId = socket.data?.clientId as string | undefined;
+  const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
+
+  if (!clientId || clientType !== 'controller') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'NOT_CONTROLLER', message: 'Only controllers can takeover.' });
+    return;
+  }
+
+  const existingLock = getValidLock(roomId);
+  const now = Date.now();
+  const requestState = controlRequestStore.get(roomId);
+  const requestAge = requestState ? now - requestState.requestedAt : null;
+  const pinOk = verifyRoomPin(roomId, data.pin);
+
+  const isTimeoutEligible = typeof requestAge === 'number' && requestAge >= CONTROL_REQUEST_TIMEOUT_MS;
+  const isForceAllowed = pinOk || isTimeoutEligible || !existingLock;
+
+  if (!isForceAllowed) {
+    socket.emit('ERROR', { type: 'ERROR', code: 'PIN_REQUIRED', message: 'PIN required to force takeover before timeout.' });
+    return;
+  }
+
+  const targetClientId = data.targetClientId ?? clientId;
+  const targetSocketId = roomClientSockets.get(roomId)?.get(targetClientId) ?? socket.id;
+
+  const newLock: ControllerLock = {
+    clientId: targetClientId,
+    socketId: targetSocketId,
+    lockedAt: now,
+    lastHeartbeat: now,
+  };
+  roomControllerStore.set(roomId, newLock);
+  controlRequestStore.delete(roomId);
+
+  console.log(
+    `[ws] Controller takeover: room=${roomId}, new=${targetClientId}, previous=${existingLock?.clientId ?? 'none'}`
+  );
+
+  sendLockStatus(roomId, 'room', targetClientId);
+}
+
+function handleSetRoomPin(socket: Socket, payload: unknown) {
+  if (!payload || typeof payload !== 'object') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'INVALID_PAYLOAD', message: 'Invalid SET_ROOM_PIN payload.' });
+    return;
+  }
+
+  const data = payload as Partial<SetRoomPinPayload>;
+  if (data.type !== 'SET_ROOM_PIN' || typeof data.roomId !== 'string') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'INVALID_PAYLOAD', message: 'Invalid SET_ROOM_PIN payload.' });
+    return;
+  }
+
+  const roomId = data.roomId;
+  const clientId = socket.data?.clientId as string | undefined;
+  const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
+
+  if (!clientId || clientType !== 'controller') {
+    socket.emit('ERROR', { type: 'ERROR', code: 'NOT_CONTROLLER', message: 'Only controllers can set a room PIN.' });
+    return;
+  }
+
+  const existingLock = getValidLock(roomId);
+  if (!existingLock || existingLock.clientId !== clientId) {
+    socket.emit('ERROR', { type: 'ERROR', code: 'CONTROLLER_TAKEN', message: 'Only the active controller can set PIN.' });
+    return;
+  }
+
+  setRoomPin(roomId, data.pin ?? null, clientId);
+  sendLockStatus(roomId, 'room', clientId);
 }
 
 function isValidTimerActionPayload(payload: unknown): payload is TimerActionPayload {

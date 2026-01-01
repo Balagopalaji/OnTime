@@ -77,3 +77,13 @@ export type Room = RoomLegacy & {
 }
 
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting'
+
+export type ControllerLock = {
+  roomId: string
+  locked: boolean
+  lockedBy: string | null
+  lockedAt: number | null
+  isController: boolean
+  hasPin?: boolean
+  timestamp?: number
+}
