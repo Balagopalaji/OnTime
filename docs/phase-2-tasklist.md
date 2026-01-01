@@ -406,3 +406,4 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - PPT COM API variance test matrix (Windows builds).
 - ffprobe packaging/notarization on macOS; confirm code signing impact.
 - LAN exposure (non-loopback) remains deferred; do not open ports beyond 127.0.0.1 without new auth model.
+- Electron auth UX: consider skipping `prompt=select_account` in Electron to avoid repeated account picker.
