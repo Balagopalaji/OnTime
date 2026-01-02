@@ -12,6 +12,7 @@ import {
   QrCode,
 } from 'lucide-react'
 import { useDataContext } from '../context/DataProvider'
+import { useAuth } from '../context/AuthContext'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
 import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
@@ -23,10 +24,13 @@ import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
+import { auth } from '../lib/firebase'
+import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth'
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
+  const { user } = useAuth()
   const { handshakeStatus } = useCompanionConnection()
   const ctx = useDataContext()
   const {
@@ -133,6 +137,7 @@ export const ControllerPage = () => {
   const [dismissedErrorTs, setDismissedErrorTs] = useState<number | null>(null)
   const [controlBarCollapsed, setControlBarCollapsed] = useState(false)
   const [controlBarDismissedAt, setControlBarDismissedAt] = useState(0)
+  const [reauthHintAt, setReauthHintAt] = useState<number | null>(null)
   const [handoverOpen, setHandoverOpen] = useState(false)
   const [handoverTargetId, setHandoverTargetId] = useState<string | null>(null)
   const [viewerOnly, setViewerOnly] = useState(() => {
@@ -185,6 +190,7 @@ export const ControllerPage = () => {
       (!controlBarCollapsed || latestControlEventAt > controlBarDismissedAt),
   )
   const controlBarTone = visibleDisplacement || visibleDenial || visibleError ? 'rose' : 'amber'
+  const reauthHintActive = reauthHintAt !== null && controlNow - reauthHintAt < 12_000
   const controlTitle = visibleDisplacement
     ? 'Control transferred'
     : visibleDenial
@@ -595,7 +601,25 @@ export const ControllerPage = () => {
       ? null
       : Math.ceil((30_000 - pendingRequestAgeMs) / 1000)
 
-  const handleForceTakeover = useCallback(() => {
+  const attemptReauth = useCallback(async (): Promise<boolean> => {
+    if (!auth || !auth.currentUser) {
+      if (user) return true
+      window.alert('Re-auth unavailable. Use the room PIN instead.')
+      return false
+    }
+    try {
+      const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: 'select_account' })
+      await reauthenticateWithPopup(auth.currentUser, provider)
+      return true
+    } catch {
+      setReauthHintAt(Date.now())
+      setControlBarCollapsed(false)
+      return false
+    }
+  }, [user])
+
+  const handleForceTakeover = useCallback(async () => {
     if (!room) return
     if (forceTakeoverReady) {
       const ok = window.confirm('Force takeover now? The current controller will be displaced.')
@@ -603,10 +627,17 @@ export const ControllerPage = () => {
       forceTakeover(room.id)
       return
     }
-    const pin = window.prompt('Enter room PIN to force takeover (4-8 digits).')
-    if (!pin) return
-    forceTakeover(room.id, pin)
-  }, [forceTakeover, forceTakeoverReady, room])
+    const pin = window.prompt('Enter room PIN to force takeover now. Leave blank to re-auth with Google.')
+    if (pin === null) return
+    const trimmed = pin.trim()
+    if (trimmed) {
+      forceTakeover(room.id, { pin: trimmed })
+      return
+    }
+    const ok = await attemptReauth()
+    if (!ok) return
+    forceTakeover(room.id, { reauthenticated: true })
+  }, [attemptReauth, forceTakeover, forceTakeoverReady, room])
 
   const normalizePin = useCallback((value: string) => {
     const digits = value.replace(/\D/g, '')
@@ -1326,6 +1357,14 @@ export const ControllerPage = () => {
                     : 'Waiting for response'}
                 </span>
               ) : null}
+              {!forceTakeoverReady && (
+                <span className="text-[10px] text-slate-200/60">Force now with PIN or re-auth.</span>
+              )}
+              {reauthHintActive ? (
+                <span className="text-[10px] text-slate-200/70">
+                  Re-auth failed. You can close the auth window if it stays open.
+                </span>
+              ) : null}
               {displacement ? (
                 <>
                   <button
@@ -1387,7 +1426,7 @@ export const ControllerPage = () => {
                       forceTakeoverReady
                         ? 'Force takeover now'
                         : canForceNow
-                        ? 'Force takeover with PIN'
+                        ? 'Force takeover with PIN or re-auth'
                         : 'No PIN set; force takeover after timeout'
                     }
                     className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"

@@ -102,6 +102,7 @@ type ForceTakeoverPayload = {
   roomId: string;
   clientId: string;
   pin?: string;
+  reauthenticated?: boolean;
   timestamp: number;
 };
 
@@ -1641,6 +1642,8 @@ function isValidForceTakeoverPayload(payload: unknown): payload is ForceTakeover
     data.type === 'FORCE_TAKEOVER' &&
     typeof data.roomId === 'string' &&
     typeof data.clientId === 'string' &&
+    (data.pin === undefined || typeof data.pin === 'string') &&
+    (data.reauthenticated === undefined || typeof data.reauthenticated === 'boolean') &&
     typeof data.timestamp === 'number' &&
     Number.isFinite(data.timestamp)
   );
@@ -1786,7 +1789,8 @@ function handleForceTakeover(socket: Socket, payload: unknown) {
   const normalizedPin = normalizeRoomPin(payload.pin);
   const storedPin = roomPinStore.get(roomId)?.pin ?? null;
   const allowByPin = Boolean(storedPin && normalizedPin && normalizedPin === storedPin);
-  if (!allowByTimeout && !allowByPin) {
+  const allowByReauth = payload.reauthenticated === true;
+  if (!allowByTimeout && !allowByPin && !allowByReauth) {
     appendControlAudit(roomId, {
       action: 'force',
       actorId: payload.clientId,
@@ -1796,7 +1800,7 @@ function handleForceTakeover(socket: Socket, payload: unknown) {
       deviceName: socket.data?.deviceName,
       status: 'denied',
     });
-    emitError(socket, 'PERMISSION_DENIED', 'Force takeover requires a valid room PIN or timeout.', roomId);
+    emitError(socket, 'PERMISSION_DENIED', 'Force takeover requires a valid room PIN, re-auth, or timeout.', roomId);
     return;
   }
   setControllerLock(

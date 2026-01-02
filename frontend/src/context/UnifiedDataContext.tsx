@@ -746,13 +746,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
 
   const forceTakeover = useCallback(
-    (roomId: string, pin?: string) => {
+    (roomId: string, options?: { pin?: string; reauthenticated?: boolean }) => {
       if (!socket) return
       socket.emit('FORCE_TAKEOVER', {
         type: 'FORCE_TAKEOVER',
         roomId,
         clientId,
-        pin,
+        pin: options?.pin,
+        reauthenticated: options?.reauthenticated,
         timestamp: Date.now(),
       })
     },

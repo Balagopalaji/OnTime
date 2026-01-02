@@ -962,7 +962,10 @@ export const FirebaseDataProvider = ({
   const getRoomPin = useCallback(() => null, [])
   const setRoomPin = useCallback(() => {}, [])
   const requestControl = useCallback(() => {}, [])
-  const forceTakeover = useCallback(() => {}, [])
+  const forceTakeover = useCallback((_roomId: string, _options?: { pin?: string; reauthenticated?: boolean }) => {
+    void _roomId
+    void _options
+  }, [])
   const handOverControl = useCallback(() => {}, [])
   const denyControl = useCallback(() => {}, [])
   const sendHeartbeat = useCallback(() => {}, [])
