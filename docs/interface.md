@@ -193,12 +193,14 @@ Trigger notes:
   "token": "jwt-token",
   "clientType": "controller",
   "clientId": "client-uuid",
+  "ownerId": "owner-uid",
   "takeOver": false
 }
 ```
 Notes:
 - `clientType` defaults to `viewer` unless explicitly set to `controller`.
 - `clientId` defaults to the socket id if not provided.
+- `ownerId` is optional; Companion caches it when it matches `userId` to enforce owner-only PIN edits.
 - `takeOver` is currently ignored; the Companion server allows multiple controllers (no lock enforcement yet).
 - Planned: controller lock + explicit takeover semantics (see `docs/local-offline-lan-plan.md`).
 

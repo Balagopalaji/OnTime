@@ -117,6 +117,9 @@ export const ControllerPage = () => {
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
   const isReadOnly = lockState !== 'authoritative'
   const roomPin = roomId ? getRoomPin(roomId) : null
+  const isOwner = Boolean(room?.ownerId && user?.uid && room.ownerId === user.uid)
+  const canEditPin = Boolean(room && isOwner)
+  const pinPermissionLabel = user ? 'Owner only' : 'Sign in to edit'
   const roomClientList = useMemo(() => {
     if (!roomId) return []
     return roomClients[roomId] ?? []
@@ -1234,7 +1237,7 @@ export const ControllerPage = () => {
                     inputMode="numeric"
                     autoFocus
                   />
-                ) : (
+                ) : canEditPin ? (
                   <button
                     type="button"
                     onClick={handleSetPin}
@@ -1242,8 +1245,10 @@ export const ControllerPage = () => {
                   >
                     {roomPin ? (pinHidden ? '****' : roomPin) : 'Not set'}
                   </button>
+                ) : (
+                  <span className="text-[11px] text-slate-400">{pinPermissionLabel}</span>
                 )}
-                {!pinEditing && roomPin ? (
+                {!pinEditing && roomPin && canEditPin ? (
                   <>
                     <button
                       type="button"

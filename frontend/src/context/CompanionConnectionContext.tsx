@@ -6,7 +6,7 @@ type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 type ReconnectState = 'idle' | 'reconnecting' | 'stopped'
 type ProtocolCompatibility = 'ok' | 'warn' | 'incompatible' | 'unknown'
 
-type CompanionConnectionContextValue = {
+export type CompanionConnectionContextValue = {
   socket: Socket | null
   isConnected: boolean
   handshakeStatus: HandshakeStatus
@@ -486,7 +486,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   return <CompanionConnectionContext.Provider value={value}>{children}</CompanionConnectionContext.Provider>
 }
 
-export const useCompanionConnection = () => {
+export const useCompanionConnection = (): CompanionConnectionContextValue => {
   const ctx = useContext(CompanionConnectionContext)
   if (!ctx) {
     throw new Error('useCompanionConnection must be used within CompanionConnectionProvider')

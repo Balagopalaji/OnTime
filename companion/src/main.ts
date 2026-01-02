@@ -49,6 +49,7 @@ type JoinRoomPayload = {
   deviceName?: string;
   userId?: string;
   userName?: string;
+  ownerId?: string;
   takeOver?: boolean;
   interfaceVersion?: string;
 };
@@ -377,6 +378,12 @@ const roomPinStore: Map<string, {
   setBy?: string;
   setByUserId?: string;
   setByUserName?: string;
+}> = new Map();
+const roomOwnerStore: Map<string, {
+  ownerId: string;
+  ownerName?: string;
+  updatedAt: number;
+  setBy?: string;
 }> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
@@ -1531,6 +1538,21 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   socket.data.userName = typeof payload.userName === 'string' && payload.userName.trim()
     ? payload.userName.trim().slice(0, 120)
     : undefined;
+  const payloadOwnerId = typeof payload.ownerId === 'string' && payload.ownerId.trim()
+    ? payload.ownerId.trim().slice(0, 120)
+    : undefined;
+  if (payloadOwnerId && socket.data.userId && payloadOwnerId === socket.data.userId) {
+    const existingOwner = roomOwnerStore.get(payload.roomId);
+    if (!existingOwner) {
+      roomOwnerStore.set(payload.roomId, {
+        ownerId: payloadOwnerId,
+        ownerName: socket.data.userName,
+        updatedAt: Date.now(),
+        setBy: socket.data?.clientId ?? socket.id,
+      });
+      scheduleRoomCacheWrite();
+    }
+  }
   getRoomClients(payload.roomId).set(clientId, {
     socketId: socket.id,
     deviceName: socket.data.deviceName,
@@ -1907,6 +1929,26 @@ function handleSetRoomPin(socket: Socket, payload: unknown) {
   }
   if (!enforceControllerAccess(socket, payload.roomId)) {
     return;
+  }
+  const owner = roomOwnerStore.get(payload.roomId);
+  const requesterUserId = socket.data?.userId;
+  if (owner) {
+    if (!requesterUserId || requesterUserId !== owner.ownerId) {
+      emitError(socket, 'PERMISSION_DENIED', 'Only the room owner can set the PIN.', payload.roomId);
+      return;
+    }
+  } else {
+    if (!requesterUserId) {
+      emitError(socket, 'PERMISSION_DENIED', 'Sign in to set the room PIN.', payload.roomId);
+      return;
+    }
+    roomOwnerStore.set(payload.roomId, {
+      ownerId: requesterUserId,
+      ownerName: socket.data?.userName,
+      updatedAt: Date.now(),
+      setBy: socket.data?.clientId ?? socket.id,
+    });
+    scheduleRoomCacheWrite();
   }
   const rawPin = typeof payload.pin === 'string' ? payload.pin : null;
   const normalized = normalizeRoomPin(rawPin ?? null);
@@ -2872,6 +2914,12 @@ async function loadRoomCache() {
         setByUserId?: string;
         setByUserName?: string;
       }>;
+      owners?: Record<string, {
+        ownerId: string;
+        ownerName?: string;
+        updatedAt: number;
+        setBy?: string;
+      }>;
     };
     if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
       console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
@@ -2909,6 +2957,18 @@ async function loadRoomCache() {
             setBy: entry.setBy,
             setByUserId: entry.setByUserId,
             setByUserName: entry.setByUserName,
+          });
+        }
+      });
+    }
+    if (parsed.owners) {
+      Object.entries(parsed.owners).forEach(([roomId, entry]) => {
+        if (entry && typeof entry.ownerId === 'string') {
+          roomOwnerStore.set(roomId, {
+            ownerId: entry.ownerId,
+            ownerName: entry.ownerName,
+            updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+            setBy: entry.setBy,
           });
         }
       });
@@ -2991,6 +3051,7 @@ async function writeRoomCache() {
       ),
       controlAudit: Object.fromEntries(roomControlAuditStore.entries()),
       pins: Object.fromEntries(roomPinStore.entries()),
+      owners: Object.fromEntries(roomOwnerStore.entries()),
     };
     await fs.writeFile(cachePath, JSON.stringify(payload, null, 2), 'utf8');
     lastWriteTs = payload.lastWrite;

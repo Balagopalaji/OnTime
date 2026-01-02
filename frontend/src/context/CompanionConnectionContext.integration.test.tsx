@@ -44,10 +44,15 @@ vi.mock('socket.io-client', () => ({
   io: vi.fn(() => socket),
 }))
 
-const ContextProbe = ({ onUpdate }: { onUpdate: (ctx: ReturnType<typeof useCompanionConnection>) => void }) => {
+type ConnectionSnapshot = {
+  isConnected: boolean
+  reconnectState: 'idle' | 'reconnecting' | 'stopped'
+}
+
+const ContextProbe = ({ onUpdate }: { onUpdate: (ctx: ConnectionSnapshot) => void }) => {
   const ctx = useCompanionConnection()
   useEffect(() => {
-    onUpdate(ctx)
+    onUpdate({ isConnected: ctx.isConnected, reconnectState: ctx.reconnectState })
   }, [ctx, onUpdate])
   return null
 }
@@ -73,10 +78,10 @@ describe('CompanionConnectionProvider reconnect flow', () => {
   })
 
   it('reconnects after a disconnect', async () => {
-    let latest: ReturnType<typeof useCompanionConnection> | null = null
+    const snapshots: ConnectionSnapshot[] = []
     const view = render(
       <CompanionConnectionProvider>
-        <ContextProbe onUpdate={(ctx) => (latest = ctx)} />
+        <ContextProbe onUpdate={(ctx) => snapshots.push(ctx)} />
       </CompanionConnectionProvider>,
     )
 
@@ -85,12 +90,14 @@ describe('CompanionConnectionProvider reconnect flow', () => {
     act(() => {
       socket.trigger('connect')
     })
-    expect(latest?.isConnected).toBe(true)
+    const afterConnect = snapshots[snapshots.length - 1]
+    expect(afterConnect?.isConnected).toBe(true)
 
     act(() => {
       socket.trigger('disconnect', 'transport close')
     })
-    expect(latest?.reconnectState).toBe('reconnecting')
+    const afterDisconnect = snapshots[snapshots.length - 1]
+    expect(afterDisconnect?.reconnectState).toBe('reconnecting')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1)

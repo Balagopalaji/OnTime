@@ -65,6 +65,28 @@ type RoomStatePatchPayload = {
   timestamp: number
 }
 
+export const resolveControllerLockState = ({
+  roomId,
+  clientId,
+  controllerLocks,
+  controlDisplacements,
+  pendingControlRequests,
+}: {
+  roomId: string
+  clientId: string
+  controllerLocks: Record<string, ControllerLock | null | undefined>
+  controlDisplacements: Record<string, { takenAt: number } | null | undefined>
+  pendingControlRequests: Record<string, { requesterId: string } | null | undefined>
+}): ControllerLockState => {
+  if (controlDisplacements[roomId]) return 'displaced'
+  const lock = controllerLocks[roomId]
+  if (!lock) return 'authoritative'
+  if (lock.clientId === clientId) return 'authoritative'
+  const pending = pendingControlRequests[roomId]
+  if (pending?.requesterId === clientId) return 'requesting'
+  return 'read-only'
+}
+
 type TimerCreatedPayload = {
   type: 'TIMER_CREATED'
   roomId: string
@@ -566,6 +588,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     if (debugCompanion) {
       console.info('[companion] JOIN_ROOM', { roomId: next.roomId, clientType: next.clientType, clientId })
     }
+    const ownerId = firebase.getRoom(next.roomId)?.ownerId
     socket.emit('JOIN_ROOM', {
       type: 'JOIN_ROOM',
       roomId: next.roomId,
@@ -575,9 +598,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       deviceName,
       userId: user?.uid,
       userName: user?.displayName,
+      ownerId,
       interfaceVersion: INTERFACE_VERSION,
     })
-  }, [clientId, debugCompanion, deviceName, markHandshakePending, socket, token, user?.displayName, user?.uid])
+  }, [clientId, debugCompanion, deviceName, firebase, markHandshakePending, socket, token, user?.displayName, user?.uid])
 
   const enqueueJoin = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', joinToken: string) => {
@@ -684,15 +708,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
 
   const getControllerLockState = useCallback(
-    (roomId: string): ControllerLockState => {
-      if (controlDisplacements[roomId]) return 'displaced'
-      const lock = controllerLocks[roomId]
-      if (!lock) return 'authoritative'
-      if (lock.clientId === clientId) return 'authoritative'
-      const pending = pendingControlRequests[roomId]
-      if (pending?.requesterId === clientId) return 'requesting'
-      return 'read-only'
-    },
+    (roomId: string): ControllerLockState =>
+      resolveControllerLockState({
+        roomId,
+        clientId,
+        controllerLocks,
+        controlDisplacements,
+        pendingControlRequests,
+      }),
     [clientId, controlDisplacements, controllerLocks, pendingControlRequests],
   )
 
@@ -1606,8 +1629,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
       const previousLock = controllerLocksRef.current[payload.roomId]
-      setControllerLocks((prev) => ({ ...prev, [payload.roomId]: payload.lock }))
-      if (payload.lock?.clientId === clientId) {
+      const nextLock = payload.lock
+      setControllerLocks((prev) => ({ ...prev, [payload.roomId]: nextLock }))
+      if (nextLock?.clientId === clientId) {
         setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
         setControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
         setControlDenials((prev) => ({ ...prev, [payload.roomId]: null }))
@@ -1617,15 +1641,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         setRoomPins((prev) => ({ ...prev, [payload.roomId]: null }))
         setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
       }
-      if (previousLock?.clientId === clientId && payload.lock?.clientId && payload.lock.clientId !== clientId) {
+      if (previousLock?.clientId === clientId && nextLock && nextLock.clientId !== clientId) {
         setControlDisplacements((prev) => ({
           ...prev,
           [payload.roomId]: {
             takenAt: payload.timestamp,
-            takenById: payload.lock.clientId,
-            takenByName: payload.lock.deviceName,
-            takenByUserId: payload.lock.userId,
-            takenByUserName: payload.lock.userName,
+            takenById: nextLock.clientId,
+            takenByName: nextLock.deviceName,
+            takenByUserId: nextLock.userId,
+            takenByUserName: nextLock.userName,
           },
         }))
       }
@@ -1669,12 +1693,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleSocketError = (payload: ErrorPayload) => {
       if (!payload?.code || !payload.message) return
-      if (!payload.roomId) return
+      const roomId = payload.roomId
+      if (!roomId) return
+      const message = payload.message ?? 'Unknown error'
       setControlErrors((prev) => ({
         ...prev,
-        [payload.roomId]: {
+        [roomId]: {
           code: payload.code ?? 'ERROR',
-          message: payload.message,
+          message,
           receivedAt: Date.now(),
         },
       }))
@@ -1930,7 +1956,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       emitOrQueue(roomId, patch)
 
-      if (canWriteThrough(roomId)) {
+      if (firestore && canWriteThrough(roomId)) {
         await firebase.setActiveTimer(roomId, timerId)
       }
     },
@@ -1941,6 +1967,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       emitOrQueue,
       ensureCompanionRoomState,
       firebase,
+      firestore,
       isLockedOut,
       getRoom,
       isViewerClient,
@@ -2007,7 +2034,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
 
         // Write to Firebase
-        if (canWriteThrough(roomId)) {
+        if (firestore && canWriteThrough(roomId)) {
           const timerRef = doc(firestore, 'rooms', roomId, 'timers', activeTimerId)
           await setDoc(timerRef, { ...changes, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(() => undefined)
         }
@@ -2081,7 +2108,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (canWriteThrough(roomId)) {
+      if (firestore && canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
@@ -2191,7 +2218,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (canWriteThrough(roomId)) {
+      if (firestore && canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
@@ -2266,7 +2293,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (canWriteThrough(roomId)) {
+      if (firestore && canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await deleteDoc(timerRef).catch(() => undefined)
       }
@@ -2312,7 +2339,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (canWriteThrough(roomId)) {
+      if (firestore && canWriteThrough(roomId)) {
         const batch = writeBatch(firestore)
         next.forEach((timer) => {
           batch.set(doc(firestore, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
@@ -2370,7 +2397,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       emitOrQueue(roomId, payload)
 
-      if (canWriteThrough(roomId)) {
+      if (firestore && canWriteThrough(roomId)) {
         const stateRefV2 = doc(firestore, 'rooms', roomId, 'state', 'current')
         const legacyRef = doc(firestore, 'rooms', roomId)
 
@@ -2461,7 +2488,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           persistRoomCache(cachedSnapshotsRef.current)
         }
         // Write through to Firebase
-        if (canWriteThrough(roomId)) {
+        if (firestore && canWriteThrough(roomId)) {
           const stateRef = doc(firestore, 'rooms', roomId, 'state', 'current')
           void setDoc(stateRef, { progress: { [oldTimerId]: oldElapsed } }, { merge: true }).catch(() => undefined)
         }
@@ -2611,7 +2638,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           clientId,
         })
         // Write to Firebase
-        if (canWriteThrough(roomId)) {
+        if (firestore && canWriteThrough(roomId)) {
           const timerRef = doc(firestore, 'rooms', roomId, 'timers', targetId)
           await setDoc(timerRef, { duration: restoredDuration, updatedAt: now } as Record<string, unknown>, { merge: true }).catch(() => undefined)
           // Clear originalDuration in Firebase
