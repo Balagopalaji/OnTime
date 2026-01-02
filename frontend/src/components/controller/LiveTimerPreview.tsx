@@ -17,6 +17,7 @@ export const LiveTimerPreview = ({
   message,
   timezone,
   clockMode = '24h',
+  readOnly = false,
 }: {
   timer: Timer | undefined
   showClock: boolean
@@ -30,6 +31,7 @@ export const LiveTimerPreview = ({
   message: { text: string; color: MessageColor; visible: boolean }
   timezone: string
   clockMode?: '24h' | 'ampm'
+  readOnly?: boolean
 }) => {
   const clockTime = useClock(timezone, clockMode)
   const [clockBody, clockSuffix] = clockTime.split(' ')
@@ -90,6 +92,7 @@ export const LiveTimerPreview = ({
           onToggleClock={onToggleClock}
           showClock={showClock}
           disableActions={showClock}
+          readOnly={readOnly}
         />
       </div>
       <div

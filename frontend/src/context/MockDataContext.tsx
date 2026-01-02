@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
-import type { Room, Timer, MessageColor, ConnectionStatus } from '../types'
+import type { Room, Timer, MessageColor, ConnectionStatus, ControllerClient } from '../types'
 import {
   clearStack,
   loadStack,
@@ -1520,6 +1520,24 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [updateRoom],
   )
 
+  const controllerLocks = useMemo<Record<string, null>>(() => ({}), [])
+  const roomPins = useMemo<Record<string, null>>(() => ({}), [])
+  const roomClients = useMemo<Record<string, ControllerClient[]>>(() => ({}), [])
+  const controlRequests = useMemo<Record<string, null>>(() => ({}), [])
+  const pendingControlRequests = useMemo<Record<string, null>>(() => ({}), [])
+  const controlDenials = useMemo<Record<string, null>>(() => ({}), [])
+  const controlDisplacements = useMemo<Record<string, null>>(() => ({}), [])
+  const controlErrors = useMemo<Record<string, null>>(() => ({}), [])
+  const getControllerLock = useCallback(() => null, [])
+  const getControllerLockState = useCallback(() => 'authoritative', [])
+  const getRoomPin = useCallback(() => null, [])
+  const setRoomPin = useCallback(() => {}, [])
+  const requestControl = useCallback(() => {}, [])
+  const forceTakeover = useCallback(() => {}, [])
+  const handOverControl = useCallback(() => {}, [])
+  const denyControl = useCallback(() => {}, [])
+  const sendHeartbeat = useCallback(() => {}, [])
+
   const value = useMemo<DataContextValue>(
     () => ({
       rooms: visibleRooms,
@@ -1556,6 +1574,23 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       setClockMode,
       setClockFormat,
       updateMessage,
+      controllerLocks,
+      roomPins,
+      roomClients,
+      controlRequests,
+      pendingControlRequests,
+      controlDenials,
+      controlDisplacements,
+      controlErrors,
+      getControllerLock,
+      getControllerLockState,
+      getRoomPin,
+      setRoomPin,
+      requestControl,
+      forceTakeover,
+      handOverControl,
+      denyControl,
+      sendHeartbeat,
       migrateRoomToV2: async () => {},
       rollbackRoomMigration: async () => {},
     }),
@@ -1594,6 +1629,23 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       setClockMode,
       setClockFormat,
       updateMessage,
+      controllerLocks,
+      roomPins,
+      roomClients,
+      controlRequests,
+      pendingControlRequests,
+      controlDenials,
+      controlDisplacements,
+      controlErrors,
+      getControllerLock,
+      getControllerLockState,
+      getRoomPin,
+      setRoomPin,
+      requestControl,
+      forceTakeover,
+      handOverControl,
+      denyControl,
+      sendHeartbeat,
     ],
   )
 

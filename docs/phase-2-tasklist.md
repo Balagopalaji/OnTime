@@ -165,6 +165,34 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Request control shows attention banner; "Hand Over" transfers immediately; "Force Takeover" follows PIN/timeout rules.
 - [ ] Reclaim control works and logs the takeover event.
 
+**Pass B.2: Control Handoff UX + PIN (Phase 2b polish)**
+**Companion**
+- [ ] Validate room PIN for immediate force takeover; keep timeout fallback with confirmation.
+- [ ] Log takeover attempts in Companion cache (audit trail).
+- [ ] Include lock state metadata (device/user identity, last heartbeat, active controller id).
+- [ ] Emit request denial to requester ("Denied by controller") with reason.
+**Frontend**
+- [ ] PIN display (authoritative only): show PIN with hide toggle (default visible), copy button, and "Not set" link.
+- [ ] Room PIN set flow (owner-only) with local validation and persistence.
+- [ ] Room-in-use guard: only show when active controller heartbeat <90s; otherwise show "Room appears inactive" messaging.
+- [ ] Request control UX: waiting state with countdown, immediate "Force Takeover Now" with PIN or re-auth, timeout confirmation with no PIN.
+- [ ] Attention banner styling: red/amber pulse + optional chime (default on, setting to disable).
+- [ ] Handoff flow: select target device; confirm copy varies for same user vs. different user.
+- [ ] Post-takeover notice for displaced controller with "Reclaim Control" action.
+- [ ] Viewer-only mode toggle (optional) to hide takeover controls for observers.
+**Codebase Entry Points**
+- Companion: `companion/src/main.ts` (PIN validation, audit, deny event)
+- Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/DashboardPage.tsx`
+**Test Expectations**
+- Unit: PIN validation, denial flow, lock state metadata
+- Integration: request/deny/force path including timeout fallback
+
+**Manual Verification (Pass B.2)**
+- [ ] Force takeover works immediately with PIN; timeout path works with confirmation.
+- [ ] Deny returns requester message and clears pending state.
+- [ ] Room-in-use guard respects stale heartbeat and shows inactive copy.
+- [ ] Post-takeover notice shows reclaim flow and works.
+
 **Pass C: Authority & Caching**
 **Companion**
 - [ ] Emit capability changes reliably in `HANDSHAKE_ACK`; ensure capability/tier changes are observable by clients.

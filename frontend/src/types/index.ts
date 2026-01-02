@@ -77,3 +77,23 @@ export type Room = RoomLegacy & {
 }
 
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting'
+
+export type ControllerLock = {
+  clientId: string
+  deviceName?: string
+  userId?: string
+  userName?: string
+  lockedAt: number
+  lastHeartbeat: number
+  roomId: string
+}
+
+export type ControllerLockState = 'authoritative' | 'read-only' | 'requesting' | 'displaced'
+
+export type ControllerClient = {
+  clientId: string
+  deviceName?: string
+  userId?: string
+  userName?: string
+  clientType: 'controller' | 'viewer'
+}

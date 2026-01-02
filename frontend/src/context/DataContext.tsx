@@ -1,7 +1,15 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext } from 'react'
 import type { ReactNode } from 'react'
-import type { ConnectionStatus, Room, Timer, MessageColor } from '../types'
+import type {
+  ConnectionStatus,
+  Room,
+  Timer,
+  MessageColor,
+  ControllerLock,
+  ControllerLockState,
+  ControllerClient,
+} from '../types'
 
 type CreateRoomInput = {
   title: string
@@ -20,6 +28,37 @@ type QueueStatus = {
   max: number
   percent: number
   nearLimit: boolean
+}
+
+type ControlRequest = {
+  requesterId: string
+  requesterName?: string
+  requesterUserId?: string
+  requesterUserName?: string
+  requestedAt: number
+}
+
+type ControlDenial = {
+  requesterId: string
+  reason?: string
+  deniedByName?: string
+  deniedByUserId?: string
+  deniedByUserName?: string
+  deniedAt: number
+}
+
+type ControlDisplacement = {
+  takenAt: number
+  takenById: string
+  takenByName?: string
+  takenByUserId?: string
+  takenByUserName?: string
+}
+
+type ControlError = {
+  code: string
+  message: string
+  receivedAt: number
 }
 
 export type DataContextValue = {
@@ -83,6 +122,23 @@ export type DataContextValue = {
     roomId: string,
     message: Partial<{ text: string; color: MessageColor; visible: boolean }>,
   ) => Promise<void>
+  controllerLocks: Record<string, ControllerLock | null>
+  roomPins: Record<string, string | null>
+  roomClients: Record<string, ControllerClient[]>
+  controlRequests: Record<string, ControlRequest | null>
+  pendingControlRequests: Record<string, ControlRequest | null>
+  controlDenials: Record<string, ControlDenial | null>
+  controlDisplacements: Record<string, ControlDisplacement | null>
+  controlErrors: Record<string, ControlError | null>
+  getControllerLock: (roomId: string) => ControllerLock | null
+  getControllerLockState: (roomId: string) => ControllerLockState
+  getRoomPin: (roomId: string) => string | null
+  setRoomPin: (roomId: string, pin: string | null) => void
+  requestControl: (roomId: string, deviceName?: string) => void
+  forceTakeover: (roomId: string, pin?: string) => void
+  handOverControl: (roomId: string, targetClientId: string) => void
+  denyControl: (roomId: string, requesterId: string) => void
+  sendHeartbeat: (roomId: string) => void
   migrateRoomToV2?: (roomId: string) => Promise<void>
   rollbackRoomMigration?: (roomId: string) => Promise<void>
 }

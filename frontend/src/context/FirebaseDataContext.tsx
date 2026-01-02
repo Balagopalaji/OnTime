@@ -18,7 +18,7 @@ import {
   type FirestoreError,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { MessageColor, Room, Timer } from '../types'
+import type { MessageColor, Room, Timer, ControllerClient } from '../types'
 import { DataProviderBoundary, type DataContextValue } from './DataContext'
 import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
@@ -949,6 +949,24 @@ export const FirebaseDataProvider = ({
     [firestore, user],
   )
 
+  const controllerLocks = useMemo<Record<string, null>>(() => ({}), [])
+  const roomPins = useMemo<Record<string, null>>(() => ({}), [])
+  const roomClients = useMemo<Record<string, ControllerClient[]>>(() => ({}), [])
+  const controlRequests = useMemo<Record<string, null>>(() => ({}), [])
+  const pendingControlRequests = useMemo<Record<string, null>>(() => ({}), [])
+  const controlDenials = useMemo<Record<string, null>>(() => ({}), [])
+  const controlDisplacements = useMemo<Record<string, null>>(() => ({}), [])
+  const controlErrors = useMemo<Record<string, null>>(() => ({}), [])
+  const getControllerLock = useCallback(() => null, [])
+  const getControllerLockState = useCallback(() => 'authoritative', [])
+  const getRoomPin = useCallback(() => null, [])
+  const setRoomPin = useCallback(() => {}, [])
+  const requestControl = useCallback(() => {}, [])
+  const forceTakeover = useCallback(() => {}, [])
+  const handOverControl = useCallback(() => {}, [])
+  const denyControl = useCallback(() => {}, [])
+  const sendHeartbeat = useCallback(() => {}, [])
+
   const value = useMemo<DataContextValue>(
     () => ({
       rooms: visibleRooms,
@@ -987,6 +1005,23 @@ export const FirebaseDataProvider = ({
       setClockMode,
       setClockFormat,
       updateMessage,
+      controllerLocks,
+      roomPins,
+      roomClients,
+      controlRequests,
+      pendingControlRequests,
+      controlDenials,
+      controlDisplacements,
+      controlErrors,
+      getControllerLock,
+      getControllerLockState,
+      getRoomPin,
+      setRoomPin,
+      requestControl,
+      forceTakeover,
+      handOverControl,
+      denyControl,
+      sendHeartbeat,
       migrateRoomToV2,
       rollbackRoomMigration,
     }),
@@ -1026,6 +1061,23 @@ export const FirebaseDataProvider = ({
       setClockMode,
       setClockFormat,
       updateMessage,
+      controllerLocks,
+      roomPins,
+      roomClients,
+      controlRequests,
+      pendingControlRequests,
+      controlDenials,
+      controlDisplacements,
+      controlErrors,
+      getControllerLock,
+      getControllerLockState,
+      getRoomPin,
+      setRoomPin,
+      requestControl,
+      forceTakeover,
+      handOverControl,
+      denyControl,
+      sendHeartbeat,
       migrateRoomToV2,
       rollbackRoomMigration,
     ],

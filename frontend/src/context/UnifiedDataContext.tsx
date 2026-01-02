@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { deleteDoc, deleteField, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
-import type { Room, Timer } from '../types'
+import type { Room, Timer, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { db } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
 import {
@@ -12,6 +12,7 @@ import {
 } from '../utils/timer-utils'
 import { FirebaseDataProvider } from './FirebaseDataContext'
 import { useAppMode } from './AppModeContext'
+import { useAuth } from './AuthContext'
 import { INTERFACE_VERSION, useCompanionConnection } from './CompanionConnectionContext'
 
 type RoomAuthority = {
@@ -115,6 +116,72 @@ type HandshakeError = {
   type: 'HANDSHAKE_ERROR'
   code?: string
   message?: string
+}
+
+type ControllerLockStatePayload = {
+  type: 'CONTROLLER_LOCK_STATE'
+  roomId: string
+  lock: ControllerLock | null
+  timestamp: number
+}
+
+type ControlRequestReceivedPayload = {
+  type: 'CONTROL_REQUEST_RECEIVED'
+  roomId: string
+  requesterId: string
+  requesterName?: string
+  requesterUserId?: string
+  requesterUserName?: string
+  timestamp: number
+}
+
+type ControlRequestDeniedPayload = {
+  type: 'CONTROL_REQUEST_DENIED'
+  roomId: string
+  requesterId: string
+  timestamp: number
+  reason?: string
+  deniedByName?: string
+  deniedByUserId?: string
+  deniedByUserName?: string
+}
+
+type RoomPinStatePayload = {
+  type: 'ROOM_PIN_STATE'
+  roomId: string
+  pin: string | null
+  updatedAt: number
+}
+
+type RoomClientsStatePayload = {
+  type: 'ROOM_CLIENTS_STATE'
+  roomId: string
+  clients: ControllerClient[]
+  timestamp: number
+}
+
+type ErrorPayload = {
+  type: 'ERROR'
+  code?: string
+  message?: string
+  roomId?: string
+}
+
+type ControlRequest = {
+  requesterId: string
+  requesterName?: string
+  requesterUserId?: string
+  requesterUserName?: string
+  requestedAt: number
+}
+
+type ControlDenial = {
+  requesterId: string
+  reason?: string
+  deniedByName?: string
+  deniedByUserId?: string
+  deniedByUserName?: string
+  deniedAt: number
 }
 
 type QueuedEvent =
@@ -379,11 +446,23 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
 const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
+  const { user } = useAuth()
   const { effectiveMode, mode } = useAppMode()
   const { socket, handshakeStatus, token, fetchToken, clearToken, markHandshakePending } = useCompanionConnection()
   const [roomAuthority, setRoomAuthority] = useState<Record<string, RoomAuthority>>({})
   const [companionRooms, setCompanionRooms] = useState<Record<string, CompanionRoomState>>({})
   const [companionTimers, setCompanionTimers] = useState<Record<string, Timer[]>>({})
+  const [controllerLocks, setControllerLocks] = useState<Record<string, ControllerLock | null>>({})
+  const [roomPins, setRoomPins] = useState<Record<string, string | null>>({})
+  const [roomClients, setRoomClients] = useState<Record<string, ControllerClient[]>>({})
+  const [controlRequests, setControlRequests] = useState<Record<string, ControlRequest | null>>({})
+  const [pendingControlRequests, setPendingControlRequests] = useState<Record<string, ControlRequest | null>>({})
+  const [controlDenials, setControlDenials] = useState<Record<string, ControlDenial | null>>({})
+  const [controlDisplacements, setControlDisplacements] = useState<Record<
+    string,
+    { takenAt: number; takenById: string; takenByName?: string; takenByUserId?: string; takenByUserName?: string } | null
+  >>({})
+  const [controlErrors, setControlErrors] = useState<Record<string, { code: string; message: string; receivedAt: number } | null>>({})
   const [subscribedRooms, setSubscribedRooms] = useState<
     Record<string, { clientType: 'controller' | 'viewer'; token: string }>
   >({})
@@ -404,6 +483,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const pendingSyncRoomsRef = useRef<Set<string>>(new Set())
   const companionRoomsRef = useRef(companionRooms)
   const companionTimersRef = useRef(companionTimers)
+  const controllerLocksRef = useRef(controllerLocks)
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
@@ -420,6 +500,50 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     () => Boolean(socket?.connected && handshakeStatus === 'ack'),
     [handshakeStatus, socket],
   )
+  const isLockedOut = useCallback(
+    (roomId: string) => {
+      const lock = controllerLocksRef.current[roomId]
+      return Boolean(lock && lock.clientId !== clientId)
+    },
+    [clientId],
+  )
+  const canWriteThrough = useCallback(
+    (roomId: string) => Boolean(firestoreWriteThrough && firestore && !isLockedOut(roomId)),
+    [firestore, firestoreWriteThrough, isLockedOut],
+  )
+  const deviceName = useMemo(() => {
+    if (typeof window === 'undefined') return undefined
+    const rawPlatform =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- browser support check
+      (navigator as any).userAgentData?.platform ??
+      navigator.platform ??
+      ''
+    const trimmed = rawPlatform.trim()
+    const platformLabel = (() => {
+      if (/^mac/i.test(trimmed) || trimmed === 'MacIntel') return 'macOS'
+      if (/^win/i.test(trimmed)) return 'Windows'
+      if (/^linux/i.test(trimmed)) return 'Linux'
+      return trimmed || 'Browser'
+    })()
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+    const isElectron = /Electron/i.test(ua)
+    const browserLabel = (() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- browser support check
+      const brands = (navigator as any).userAgentData?.brands as Array<{ brand: string }> | undefined
+      const brand = brands?.find((entry) =>
+        /Chrome|Chromium|Edge|Brave|Opera|Firefox|Safari/i.test(entry.brand),
+      )?.brand
+      if (brand) return brand.replace('Chromium', 'Chrome')
+      if (/Edg\//i.test(ua)) return 'Edge'
+      if (/OPR\//i.test(ua)) return 'Opera'
+      if (/Firefox\//i.test(ua)) return 'Firefox'
+      if (/Chrome\//i.test(ua)) return 'Chrome'
+      if (/Safari\//i.test(ua)) return 'Safari'
+      return 'Browser'
+    })()
+    const appLabel = isElectron ? 'Electron' : browserLabel
+    return `${appLabel} on ${platformLabel}`.slice(0, 120)
+  }, [])
 
   const processJoinQueue = useCallback(() => {
     if (!socket) return
@@ -448,9 +572,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       token: joinToken,
       clientType: next.clientType,
       clientId,
+      deviceName,
+      userId: user?.uid,
+      userName: user?.displayName,
       interfaceVersion: INTERFACE_VERSION,
     })
-  }, [clientId, debugCompanion, markHandshakePending, socket, token])
+  }, [clientId, debugCompanion, deviceName, markHandshakePending, socket, token, user?.displayName, user?.uid])
 
   const enqueueJoin = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', joinToken: string) => {
@@ -499,6 +626,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     companionTimersRef.current = companionTimers
   }, [companionTimers])
 
+  useEffect(() => {
+    controllerLocksRef.current = controllerLocks
+  }, [controllerLocks])
+
+
   const addPendingSyncRoom = useCallback((roomId: string) => {
     const current = pendingSyncRoomsRef.current
     if (current.has(roomId)) return
@@ -545,6 +677,126 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       },
     }))
   }, [])
+
+  const getControllerLock = useCallback(
+    (roomId: string) => controllerLocks[roomId] ?? null,
+    [controllerLocks],
+  )
+
+  const getControllerLockState = useCallback(
+    (roomId: string): ControllerLockState => {
+      if (controlDisplacements[roomId]) return 'displaced'
+      const lock = controllerLocks[roomId]
+      if (!lock) return 'authoritative'
+      if (lock.clientId === clientId) return 'authoritative'
+      const pending = pendingControlRequests[roomId]
+      if (pending?.requesterId === clientId) return 'requesting'
+      return 'read-only'
+    },
+    [clientId, controlDisplacements, controllerLocks, pendingControlRequests],
+  )
+
+  const getRoomPin = useCallback(
+    (roomId: string) => roomPins[roomId] ?? null,
+    [roomPins],
+  )
+
+  const setRoomPin = useCallback(
+    (roomId: string, pin: string | null) => {
+      if (!socket) return
+      const lock = controllerLocksRef.current[roomId]
+      if (lock && lock.clientId !== clientId) return
+      socket.emit('SET_ROOM_PIN', {
+        type: 'SET_ROOM_PIN',
+        roomId,
+        pin,
+        timestamp: Date.now(),
+      })
+    },
+    [clientId, socket],
+  )
+
+  const requestControl = useCallback(
+    (roomId: string, overrideName?: string) => {
+      if (!socket) return
+      const payload = {
+        type: 'REQUEST_CONTROL' as const,
+        roomId,
+        clientId,
+        deviceName: overrideName ?? deviceName,
+        userId: user?.uid,
+        userName: user?.displayName,
+        timestamp: Date.now(),
+      }
+      setPendingControlRequests((prev) => ({
+        ...prev,
+        [roomId]: {
+          requesterId: clientId,
+          requesterName: payload.deviceName,
+          requesterUserId: payload.userId,
+          requesterUserName: payload.userName,
+          requestedAt: payload.timestamp,
+        },
+      }))
+      setControlDenials((prev) => ({ ...prev, [roomId]: null }))
+      setControlErrors((prev) => ({ ...prev, [roomId]: null }))
+      socket.emit('REQUEST_CONTROL', payload)
+    },
+    [clientId, deviceName, socket, user?.displayName, user?.uid],
+  )
+
+  const forceTakeover = useCallback(
+    (roomId: string, pin?: string) => {
+      if (!socket) return
+      socket.emit('FORCE_TAKEOVER', {
+        type: 'FORCE_TAKEOVER',
+        roomId,
+        clientId,
+        pin,
+        timestamp: Date.now(),
+      })
+    },
+    [clientId, socket],
+  )
+
+  const handOverControl = useCallback(
+    (roomId: string, targetClientId: string) => {
+      if (!socket) return
+      socket.emit('HAND_OVER', {
+        type: 'HAND_OVER',
+        roomId,
+        targetClientId,
+        timestamp: Date.now(),
+      })
+    },
+    [socket],
+  )
+
+  const denyControl = useCallback(
+    (roomId: string, requesterId: string) => {
+      if (!socket) return
+      socket.emit('DENY_CONTROL', {
+        type: 'DENY_CONTROL',
+        roomId,
+        requesterId,
+        timestamp: Date.now(),
+      })
+    },
+    [socket],
+  )
+
+  const sendHeartbeat = useCallback(
+    (roomId: string) => {
+      if (!socket) return
+      socket.emit('HEARTBEAT', {
+        type: 'HEARTBEAT',
+        roomId,
+        clientId,
+        timestamp: Date.now(),
+      })
+    },
+    [clientId, socket],
+  )
 
   const subscribeToCompanionRoom = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', tokenOverride?: string) => {
@@ -633,6 +885,30 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       return next
     })()
+    setControllerLocks((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
+    setControlRequests((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
+    setPendingControlRequests((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
+    setControlDenials((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
     removePendingSyncRoom(roomId)
     setRoomAuthority((prev) => ({
       ...prev,
@@ -961,6 +1237,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const emitOrQueue = useCallback(
     (roomId: string, event: QueuedEvent) => {
+      const lock = controllerLocksRef.current[roomId]
+      if (lock && lock.clientId !== clientId) {
+        return
+      }
       const canEmit =
         socket?.connected && handshakeStatus === 'ack' && !isReplayingRef.current
 
@@ -970,12 +1250,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         enqueueAction(roomId, event)
       }
     },
-    [enqueueAction, handshakeStatus, socket],
+    [clientId, enqueueAction, handshakeStatus, socket],
   )
 
   const emitSyncRoomState = useCallback(
     (roomId: string) => {
       if (!socket?.connected) return
+      const lock = controllerLocksRef.current[roomId]
+      if (lock && lock.clientId !== clientId) return
       const room = firebase.getRoom(roomId)
       if (!room) return
       const timers = firebase.getTimers(roomId)
@@ -1321,6 +1603,82 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       console.warn('[UnifiedDataContext] TIMER_ERROR', payload)
     }
 
+    const handleControllerLockState = (payload: ControllerLockStatePayload) => {
+      const previousLock = controllerLocksRef.current[payload.roomId]
+      setControllerLocks((prev) => ({ ...prev, [payload.roomId]: payload.lock }))
+      if (payload.lock?.clientId === clientId) {
+        setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
+        setControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
+        setControlDenials((prev) => ({ ...prev, [payload.roomId]: null }))
+        setControlDisplacements((prev) => ({ ...prev, [payload.roomId]: null }))
+        setControlErrors((prev) => ({ ...prev, [payload.roomId]: null }))
+      } else {
+        setRoomPins((prev) => ({ ...prev, [payload.roomId]: null }))
+        setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
+      }
+      if (previousLock?.clientId === clientId && payload.lock?.clientId && payload.lock.clientId !== clientId) {
+        setControlDisplacements((prev) => ({
+          ...prev,
+          [payload.roomId]: {
+            takenAt: payload.timestamp,
+            takenById: payload.lock.clientId,
+            takenByName: payload.lock.deviceName,
+            takenByUserId: payload.lock.userId,
+            takenByUserName: payload.lock.userName,
+          },
+        }))
+      }
+    }
+
+    const handleControlRequestReceived = (payload: ControlRequestReceivedPayload) => {
+      setControlRequests((prev) => ({
+        ...prev,
+        [payload.roomId]: {
+          requesterId: payload.requesterId,
+          requesterName: payload.requesterName,
+          requesterUserId: payload.requesterUserId,
+          requesterUserName: payload.requesterUserName,
+          requestedAt: payload.timestamp,
+        },
+      }))
+    }
+
+    const handleControlRequestDenied = (payload: ControlRequestDeniedPayload) => {
+      setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
+      setControlDenials((prev) => ({
+        ...prev,
+        [payload.roomId]: {
+          requesterId: payload.requesterId,
+          reason: payload.reason,
+          deniedByName: payload.deniedByName,
+          deniedByUserId: payload.deniedByUserId,
+          deniedByUserName: payload.deniedByUserName,
+          deniedAt: payload.timestamp,
+        },
+      }))
+    }
+
+    const handleRoomPinState = (payload: RoomPinStatePayload) => {
+      setRoomPins((prev) => ({ ...prev, [payload.roomId]: payload.pin }))
+    }
+
+    const handleRoomClientsState = (payload: RoomClientsStatePayload) => {
+      setRoomClients((prev) => ({ ...prev, [payload.roomId]: payload.clients }))
+    }
+
+    const handleSocketError = (payload: ErrorPayload) => {
+      if (!payload?.code || !payload.message) return
+      if (!payload.roomId) return
+      setControlErrors((prev) => ({
+        ...prev,
+        [payload.roomId]: {
+          code: payload.code ?? 'ERROR',
+          message: payload.message,
+          receivedAt: Date.now(),
+        },
+      }))
+    }
+
     socket.on('connect', handleConnect)
     socket.on('disconnect', handleDisconnect)
     socket.on('HANDSHAKE_ERROR', handleHandshakeError)
@@ -1332,6 +1690,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     socket.on('TIMER_DELETED', handleTimerDeleted)
     socket.on('TIMERS_REORDERED', handleTimersReordered)
     socket.on('TIMER_ERROR', handleTimerError)
+    socket.on('CONTROLLER_LOCK_STATE', handleControllerLockState)
+    socket.on('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
+    socket.on('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
+    socket.on('ROOM_PIN_STATE', handleRoomPinState)
+    socket.on('ROOM_CLIENTS_STATE', handleRoomClientsState)
+    socket.on('ERROR', handleSocketError)
 
     return () => {
       socket.off('connect', handleConnect)
@@ -1345,6 +1709,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       socket.off('TIMER_DELETED', handleTimerDeleted)
       socket.off('TIMERS_REORDERED', handleTimersReordered)
       socket.off('TIMER_ERROR', handleTimerError)
+      socket.off('CONTROLLER_LOCK_STATE', handleControllerLockState)
+      socket.off('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
+      socket.off('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
+      socket.off('ROOM_PIN_STATE', handleRoomPinState)
+      socket.off('ROOM_CLIENTS_STATE', handleRoomClientsState)
+      socket.off('ERROR', handleSocketError)
     }
   }, [
     addPendingSyncRoom,
@@ -1500,6 +1870,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         console.warn('[UnifiedDataContext] viewer cannot set active timer', roomId)
         return
       }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot set active timer', roomId)
+        return
+      }
       if (!shouldUseCompanion(roomId)) {
         return firebase.setActiveTimer(roomId, timerId)
       }
@@ -1555,17 +1929,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       emitOrQueue(roomId, patch)
 
-      if (firestoreWriteThrough) {
+      if (canWriteThrough(roomId)) {
         await firebase.setActiveTimer(roomId, timerId)
       }
     },
     [
+      canWriteThrough,
       clientId,
       computeCompanionElapsed,
       emitOrQueue,
       ensureCompanionRoomState,
       firebase,
-      firestoreWriteThrough,
+      isLockedOut,
       getRoom,
       isViewerClient,
       resolveElapsedForTimer,
@@ -1577,6 +1952,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     async (roomId, deltaMs) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot nudge timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot nudge timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -1627,20 +2006,21 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
 
         // Write to Firebase
-        if (firestoreWriteThrough && firestore) {
+        if (canWriteThrough(roomId)) {
           const timerRef = doc(firestore, 'rooms', roomId, 'timers', activeTimerId)
           await setDoc(timerRef, { ...changes, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(() => undefined)
         }
       }
     },
     [
+      canWriteThrough,
       clientId,
       emitOrQueue,
       ensureCompanionRoomState,
       firebase,
       firestore,
-      firestoreWriteThrough,
       getRoom,
+      isLockedOut,
       isViewerClient,
       shouldUseCompanion,
     ],
@@ -1650,6 +2030,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     async (roomId, input) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot create timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot create timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -1696,7 +2080,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough && firestore) {
+      if (canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...timer, version: 1 } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
@@ -1705,13 +2089,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       return timer
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [canWriteThrough, clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, isLockedOut, isViewerClient, shouldUseCompanion],
   )
 
   const updateTimer = useCallback<DataContextValue['updateTimer']>(
     async (roomId, timerId, patch) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot update timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot update timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -1802,7 +2190,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough && firestore) {
+      if (canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
@@ -1825,13 +2213,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         }
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [canWriteThrough, clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, isLockedOut, isViewerClient, shouldUseCompanion],
   )
 
   const deleteTimer = useCallback<DataContextValue['deleteTimer']>(
     async (roomId, timerId) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot delete timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot delete timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -1873,18 +2265,22 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough && firestore) {
+      if (canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
         await deleteDoc(timerRef).catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [canWriteThrough, clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, isLockedOut, isViewerClient, shouldUseCompanion],
   )
 
   const reorderTimer = useCallback<DataContextValue['reorderTimer']>(
     async (roomId, timerId, targetIndex) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot reorder timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot reorder timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -1915,7 +2311,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         clientId,
       })
 
-      if (firestoreWriteThrough && firestore) {
+      if (canWriteThrough(roomId)) {
         const batch = writeBatch(firestore)
         next.forEach((timer) => {
           batch.set(doc(firestore, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
@@ -1925,13 +2321,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         await batch.commit().catch(() => undefined)
       }
     },
-    [clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [canWriteThrough, clientId, emitOrQueue, ensureCompanionRoomState, firebase, firestore, isLockedOut, isViewerClient, shouldUseCompanion],
   )
 
   const moveTimer = useCallback(
     async (roomId: string, timerId: string, direction: 'up' | 'down') => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot move timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot move timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -1944,13 +2344,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const targetIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1
       return reorderTimer(roomId, timerId, targetIndex)
     },
-    [firebase, isViewerClient, reorderTimer, shouldUseCompanion],
+    [firebase, isLockedOut, isViewerClient, reorderTimer, shouldUseCompanion],
   )
 
   const emitTimerAction = useCallback(
     (roomId: string, timerId: string, action: 'START' | 'PAUSE' | 'RESET', currentTimeMs?: number) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot control timers', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot control timers', roomId)
         return
       }
       const timestamp = Date.now()
@@ -1965,7 +2369,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       emitOrQueue(roomId, payload)
 
-      if (firestoreWriteThrough && firestore) {
+      if (canWriteThrough(roomId)) {
         const stateRefV2 = doc(firestore, 'rooms', roomId, 'state', 'current')
         const legacyRef = doc(firestore, 'rooms', roomId)
 
@@ -2009,13 +2413,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
     },
-    [clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestore, firestoreWriteThrough, isViewerClient],
+    [canWriteThrough, clientId, computeCompanionElapsed, emitOrQueue, ensureCompanionRoomState, firestore, isLockedOut, isViewerClient],
   )
 
   const startTimer = useCallback<DataContextValue['startTimer']>(
     async (roomId, timerId) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot start timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot start timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -2052,7 +2460,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           persistRoomCache(cachedSnapshotsRef.current)
         }
         // Write through to Firebase
-        if (firestoreWriteThrough && firestore) {
+        if (canWriteThrough(roomId)) {
           const stateRef = doc(firestore, 'rooms', roomId, 'state', 'current')
           void setDoc(stateRef, { progress: { [oldTimerId]: oldElapsed } }, { merge: true }).catch(() => undefined)
         }
@@ -2073,13 +2481,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }))
       emitTimerAction(roomId, targetId, 'START', elapsed)
     },
-    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, getRoom, isViewerClient, resolveElapsedForTimer, shouldUseCompanion],
+    [canWriteThrough, computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, firestore, getRoom, isLockedOut, isViewerClient, resolveElapsedForTimer, shouldUseCompanion],
   )
 
   const pauseTimer = useCallback<DataContextValue['pauseTimer']>(
     async (roomId) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot pause timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot pause timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -2122,13 +2534,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       // Pass elapsed time to emitTimerAction to avoid stale state issue
       emitTimerAction(roomId, targetId, 'PAUSE', elapsed)
     },
-    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, isViewerClient, shouldUseCompanion],
+    [computeCompanionElapsed, emitTimerAction, ensureCompanionRoomState, firebase, isLockedOut, isViewerClient, shouldUseCompanion],
   )
 
   const resetTimer = useCallback<DataContextValue['resetTimer']>(
     async (roomId) => {
       if (isViewerClient(roomId)) {
         console.warn('[UnifiedDataContext] viewer cannot reset timer', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot reset timer', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -2194,7 +2610,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           clientId,
         })
         // Write to Firebase
-        if (firestoreWriteThrough && firestore) {
+        if (canWriteThrough(roomId)) {
           const timerRef = doc(firestore, 'rooms', roomId, 'timers', targetId)
           await setDoc(timerRef, { duration: restoredDuration, updatedAt: now } as Record<string, unknown>, { merge: true }).catch(() => undefined)
           // Clear originalDuration in Firebase
@@ -2202,7 +2618,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         }
       }
     },
-    [clientId, emitOrQueue, emitTimerAction, ensureCompanionRoomState, firebase, firestore, firestoreWriteThrough, isViewerClient, shouldUseCompanion],
+    [canWriteThrough, clientId, emitOrQueue, emitTimerAction, ensureCompanionRoomState, firebase, firestore, isLockedOut, isViewerClient, shouldUseCompanion],
   )
 
   const value = useMemo<UnifiedDataContextValue>(
@@ -2234,28 +2650,62 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         getRoomAuthority,
         forceCloudAuthority,
         forceCompanionAuthority,
+        controllerLocks,
+        roomPins,
+        roomClients,
+        controlRequests,
+        pendingControlRequests,
+        controlDenials,
+        controlDisplacements,
+        controlErrors,
+        getControllerLock,
+        getControllerLockState,
+        getRoomPin,
+        setRoomPin,
+        requestControl,
+        forceTakeover,
+        handOverControl,
+        denyControl,
+        sendHeartbeat,
         subscribeToCompanionRoom,
         unsubscribeFromCompanionRoom,
       }
     },
     [
       cachedSnapshots,
+      controllerLocks,
+      roomPins,
+      roomClients,
+      controlRequests,
+      pendingControlRequests,
+      controlDenials,
+      controlDisplacements,
+      controlErrors,
       createTimer,
       deleteTimer,
       firebase,
       forceCloudAuthority,
       forceCompanionAuthority,
+      forceTakeover,
       getRoom,
       getRoomAuthority,
+      getControllerLock,
+      getControllerLockState,
+      getRoomPin,
       getTimers,
+      denyControl,
+      handOverControl,
       moveTimer,
       nudgeTimer,
       pauseTimer,
       queueStatus,
       reorderTimer,
       resetTimer,
+      requestControl,
       roomAuthority,
+      sendHeartbeat,
       setActiveTimer,
+      setRoomPin,
       startTimer,
       subscribeToCompanionRoom,
       unsubscribeFromCompanionRoom,

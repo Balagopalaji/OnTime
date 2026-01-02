@@ -54,9 +54,13 @@ export const DashboardPage = () => {
     rooms,
     createRoom,
     deleteRoom,
+    createTimer,
     updateRoomMeta,
     getRoom,
     getTimers,
+    getControllerLock,
+    getControllerLockState,
+    requestControl,
     pendingRooms,
     pendingRoomPlaceholders,
     undoRoomDelete,
@@ -173,6 +177,7 @@ export const DashboardPage = () => {
   const [qrModalId, setQrModalId] = useState<string | null>(null)
   const qrButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const [qrAnchors, setQrAnchors] = useState<Record<string, DOMRect | null>>({})
+  const [roomInUseId, setRoomInUseId] = useState<string | null>(null)
   const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
   const [dismissedPlaceholders, setDismissedPlaceholders] = useState<Set<string>>(new Set())
   const isCustomSort = sortBy === 'custom'
@@ -217,11 +222,90 @@ export const DashboardPage = () => {
     [effectiveMode, ensureCompanionToken, navigate, showToast],
   )
 
+  const openControllerGuarded = useCallback(
+    async (roomId: string) => {
+      const lockState = getControllerLockState ? getControllerLockState(roomId) : 'authoritative'
+      const lock = getControllerLock ? getControllerLock(roomId) : null
+      if ((!lock || lockState === 'authoritative') && dataContext.subscribeToCompanionRoom) {
+        dataContext.subscribeToCompanionRoom(roomId, 'viewer')
+        await new Promise((resolve) => window.setTimeout(resolve, 180))
+      }
+      const refreshedLockState = getControllerLockState ? getControllerLockState(roomId) : lockState
+      const refreshedLock = getControllerLock ? getControllerLock(roomId) : lock
+      const lockForStale = refreshedLock ?? lock
+      const isLockStale = lockForStale ? Date.now() - lockForStale.lastHeartbeat > 90_000 : false
+      if ((refreshedLockState === 'read-only' || refreshedLockState === 'requesting' || refreshedLockState === 'displaced') && !isLockStale) {
+        setRoomInUseId(roomId)
+        return
+      }
+      if (isLockStale) {
+        showToast('Room appears inactive. Opening controller.')
+      }
+      await openControllerWithCurrentMode(roomId)
+    },
+    [dataContext, getControllerLock, getControllerLockState, openControllerWithCurrentMode, showToast],
+  )
+
+  const handleStartNewRoom = useCallback(
+    async (sourceRoomId: string) => {
+      if (!user?.uid) return
+      const sourceRoom = getRoom(sourceRoomId)
+      if (!sourceRoom) return
+      const created = await createRoom({
+        title: 'New Room',
+        timezone: sourceRoom.timezone,
+        ownerId: user.uid,
+      })
+      setRoomInUseId(null)
+      await openControllerWithCurrentMode(created.id)
+    },
+    [createRoom, getRoom, openControllerWithCurrentMode, user?.uid],
+  )
+
+  const handleViewOnlyRoom = useCallback(
+    async (sourceRoomId: string) => {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('ontime:viewerOnly', 'true')
+      }
+      setRoomInUseId(null)
+      await openControllerWithCurrentMode(sourceRoomId)
+    },
+    [openControllerWithCurrentMode],
+  )
+
+  const handleCopyRoom = useCallback(
+    async (sourceRoomId: string) => {
+      if (!user?.uid) return
+      const sourceRoom = getRoom(sourceRoomId)
+      if (!sourceRoom) return
+      const suggestedTitle = `Copy of ${sourceRoom.title}`
+      const nextTitle = window.prompt('Name your room', suggestedTitle)?.trim()
+      if (!nextTitle) return
+      const created = await createRoom({
+        title: nextTitle,
+        timezone: sourceRoom.timezone,
+        ownerId: user.uid,
+      })
+      const timers = getTimers(sourceRoomId).sort((a, b) => a.order - b.order)
+      for (const timer of timers) {
+        await createTimer(created.id, {
+          title: timer.title,
+          duration: timer.duration,
+          speaker: timer.speaker,
+        })
+      }
+      setRoomInUseId(null)
+      await openControllerWithCurrentMode(created.id)
+    },
+    [createRoom, createTimer, getRoom, getTimers, openControllerWithCurrentMode, user?.uid],
+  )
+
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setQrOpenId(null)
         setQrModalId(null)
+        setRoomInUseId(null)
       }
     }
     window.addEventListener('keydown', handleEscape)
@@ -753,7 +837,7 @@ export const DashboardPage = () => {
           <Tooltip content="Open controller">
             <button
               type="button"
-              onClick={() => void openControllerWithCurrentMode(room.id)}
+              onClick={() => void openControllerGuarded(room.id)}
               className={`flex w-full max-w-sm cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${(() => {
                 const timers = getTimers(room.id)
                 const active = timers.find((timer) => timer.id === room.state.activeTimerId)
@@ -1142,6 +1226,18 @@ export const DashboardPage = () => {
     return `${isNegative ? '-' : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
   }
 
+  const roomInUseRoom = roomInUseId ? displayedRooms.find((room) => room.id === roomInUseId) : null
+  const roomInUseLock = roomInUseId ? getControllerLock(roomInUseId) : null
+  const roomInUseLastActive = roomInUseLock
+    ? Math.max(0, Date.now() - roomInUseLock.lastHeartbeat)
+    : null
+  const roomInUseLastActiveLabel =
+    roomInUseLastActive === null
+      ? 'Unknown'
+      : roomInUseLastActive < 60_000
+        ? 'Just now'
+        : `${Math.floor(roomInUseLastActive / 60_000)}m ago`
+
   const qrOverlay =
     qrOpenId && typeof document !== 'undefined'
       ? createPortal(
@@ -1161,6 +1257,83 @@ export const DashboardPage = () => {
       )
       : null
 
+  const roomInUseModal =
+    roomInUseId && typeof document !== 'undefined' && roomInUseRoom
+      ? createPortal(
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setRoomInUseId(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-950 p-6 text-slate-100 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-rose-300">Room in use</p>
+                <h2 className="mt-2 text-lg font-semibold text-white">{roomInUseRoom.title}</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  Controlled by {roomInUseLock?.userName ?? roomInUseLock?.deviceName ?? 'another device'}. Last active{' '}
+                  {roomInUseLastActiveLabel}.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 p-2 text-slate-400 transition hover:border-slate-500 hover:text-white"
+                onClick={() => setRoomInUseId(null)}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => roomInUseRoom && void handleStartNewRoom(roomInUseRoom.id)}
+                disabled={!canManageRooms}
+                className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-emerald-100 transition hover:border-emerald-400 disabled:opacity-50"
+              >
+                Start new
+              </button>
+              <button
+                type="button"
+                onClick={() => roomInUseRoom && void handleCopyRoom(roomInUseRoom.id)}
+                disabled={!canManageRooms}
+                className="rounded-2xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-sky-100 transition hover:border-sky-400 disabled:opacity-50"
+              >
+                Copy this room
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!roomInUseRoom) return
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem('ontime:viewerOnly', 'false')
+                  }
+                  requestControl(roomInUseRoom.id)
+                  void openControllerWithCurrentMode(roomInUseRoom.id)
+                }}
+                className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-400"
+              >
+                Request control
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!roomInUseRoom) return
+                  void handleViewOnlyRoom(roomInUseRoom.id)
+                }}
+                className="rounded-2xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                View only
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )
+      : null
+
   if (!user) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center text-slate-300">
@@ -1172,6 +1345,7 @@ export const DashboardPage = () => {
   return (
     <div className="space-y-8">
       {qrOverlay}
+      {roomInUseModal}
       {/* Toast notification */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-slate-700 bg-slate-900 px-5 py-3 text-sm text-slate-200 shadow-lg">

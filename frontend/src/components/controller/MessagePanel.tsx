@@ -14,6 +14,8 @@ const MAX_MESSAGE_LENGTH = 150
 export const MessagePanel = ({
   initial,
   onUpdate,
+  disabled = false,
+  onBlocked,
 }: {
   initial: { text: string; color: MessageColor; visible: boolean }
   onUpdate: (message: {
@@ -21,6 +23,8 @@ export const MessagePanel = ({
     color?: MessageColor
     visible?: boolean
   }) => void
+  disabled?: boolean
+  onBlocked?: () => void
 }) => {
   const [text, setText] = useState(initial.text)
   const [color, setColor] = useState<MessageColor>(initial.color)
@@ -62,12 +66,20 @@ export const MessagePanel = ({
   }
 
   const applyChange = (next: Partial<{ text: string; color: MessageColor }>) => {
+    if (disabled) {
+      onBlocked?.()
+      return
+    }
     if (next.text !== undefined) setText(next.text)
     if (next.color !== undefined) setColor(next.color)
     onUpdate({ ...next, visible })
   }
 
   const handleBroadcast = () => {
+    if (disabled) {
+      onBlocked?.()
+      return
+    }
     onUpdate({ text, color, visible: true })
     setLastBroadcast({ text, color })
     setVisible(true)
@@ -76,6 +88,10 @@ export const MessagePanel = ({
   }
 
   const handleToggle = () => {
+    if (disabled) {
+      onBlocked?.()
+      return
+    }
     if (visible) {
       const hasNewContent = text !== lastBroadcast.text || color !== lastBroadcast.color
       if (hasNewContent) {
@@ -97,12 +113,13 @@ export const MessagePanel = ({
           <button
             type="button"
             onClick={visible ? handleToggle : handleBroadcast}
+            aria-disabled={disabled}
             className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide border transition transform active:scale-[0.97] ${visible
                 ? 'border-rose-500/60 bg-rose-500/30 text-white'
                 : 'border-emerald-400/60 text-emerald-200'
               } ${pulse ? 'shadow-[0_0_0_6px_rgba(16,185,129,0.25)] scale-[0.98]' : ''} ${
               visible ? '' : 'hover:shadow-[0_0_0_4px_rgba(16,185,129,0.18)] hover:scale-[0.99]'
-            }`}
+            } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
           >
             Broadcast
           </button>
@@ -115,7 +132,8 @@ export const MessagePanel = ({
             key={preset.label}
             type="button"
             onClick={() => applyChange({ text: preset.text, color: preset.color })}
-            className="rounded-full border border-slate-800 px-3 py-1 text-xs text-slate-200 transition hover:border-white/70"
+            aria-disabled={disabled}
+            className={`rounded-full border border-slate-800 px-3 py-1 text-xs text-slate-200 transition hover:border-white/70 ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
           >
             {preset.label}
           </button>
@@ -131,7 +149,17 @@ export const MessagePanel = ({
               visible,
             )}`}
             value={text}
-            onChange={(event) => setText(event.target.value.slice(0, MAX_MESSAGE_LENGTH))}
+            readOnly={disabled}
+            onFocus={() => {
+              if (disabled) onBlocked?.()
+            }}
+            onChange={(event) => {
+              if (disabled) {
+                onBlocked?.()
+                return
+              }
+              setText(event.target.value.slice(0, MAX_MESSAGE_LENGTH))
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
@@ -154,6 +182,7 @@ export const MessagePanel = ({
                   type="button"
                   key={swatch}
                   onClick={() => applyChange({ color: swatch })}
+                  aria-disabled={disabled}
                   className={`h-8 w-8 rounded-full border-2 ${swatch === 'none'
                       ? 'border-white/40'
                       : swatch === 'white'
@@ -165,7 +194,7 @@ export const MessagePanel = ({
                             : swatch === 'blue'
                               ? 'bg-sky-500 border-transparent'
                               : 'bg-emerald-500 border-transparent'
-                    } ${color === swatch ? 'ring-2 ring-white' : ''}`}
+                    } ${color === swatch ? 'ring-2 ring-white' : ''} ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
                   data-color={swatch}
                 >
                   <span className="sr-only">{swatch}</span>

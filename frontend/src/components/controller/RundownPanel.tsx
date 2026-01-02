@@ -59,6 +59,7 @@ export const RundownPanel = ({
   onReset,
   undoPlaceholder,
   onUndoDelete,
+  readOnly = false,
 }: {
   timers: Timer[]
   activeTimerId: string | null
@@ -78,6 +79,7 @@ export const RundownPanel = ({
   onReset: (timerId: string) => void
   undoPlaceholder?: { index: number; title: string; timerId?: string; expiresAt?: number } | null
   onUndoDelete?: () => void
+  readOnly?: boolean
 }) => {
   const holdIntervalRef = useRef<number | null>(null)
   const holdAccumRef = useRef(0)
@@ -132,6 +134,7 @@ export const RundownPanel = ({
     id: string
     value: string
   } | null>(null)
+  const blockedClass = readOnly ? 'cursor-not-allowed' : ''
   const durationInputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -267,7 +270,7 @@ export const RundownPanel = ({
                               event.stopPropagation()
                               onUndoDelete()
                             }}
-                            className="rounded-full border border-emerald-400/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200"
+                            className={`rounded-full border border-emerald-400/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-200 ${blockedClass}`}
                           >
                             Undo
                           </button>
@@ -279,7 +282,7 @@ export const RundownPanel = ({
                     {...itemProps}
                     dragging={draggingId === timer.id}
                     over={overIndex === index}
-                    className={`relative rounded-2xl border px-4 py-4 text-sm transition cursor-pointer ${isActive && showSelectedState
+                    className={`relative rounded-2xl border px-4 py-4 text-sm transition ${readOnly ? 'cursor-not-allowed' : 'cursor-pointer'} ${isActive && showSelectedState
                         ? 'border-emerald-400/80 bg-rose-500/10 shadow-[0_0_25px_rgba(244,114,182,0.2)]'
                         : isActive
                           ? 'border-rose-400/70 bg-rose-500/10 shadow-[0_0_25px_rgba(244,114,182,0.2)]'
@@ -299,13 +302,13 @@ export const RundownPanel = ({
                         <EditableField
                           value={timer.title}
                           onSave={(next) => onEdit(timer.id, { title: next })}
-                          className="text-left text-base font-semibold text-white hover:text-emerald-300"
+                          className={`text-left text-base font-semibold text-white hover:text-emerald-300 ${blockedClass}`}
                           inputClassName="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-white"
                         />
                         <EditableField
                           value={timer.speaker ?? ''}
                           onSave={(next) => onEdit(timer.id, { speaker: next })}
-                          className="text-left text-xs text-slate-400 hover:text-emerald-200"
+                          className={`text-left text-xs text-slate-400 hover:text-emerald-200 ${blockedClass}`}
                           inputClassName="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-white text-xs"
                           placeholder="No speaker"
                         />
@@ -366,7 +369,8 @@ export const RundownPanel = ({
                             ) : (
                               <button
                                 type="button"
-                                className="text-2xl font-semibold text-white"
+                                aria-disabled={readOnly}
+                                className={`text-2xl font-semibold text-white ${blockedClass}`}
                                 onClick={() =>
                                   setEditingDuration({
                                     id: timer.id,
@@ -383,7 +387,8 @@ export const RundownPanel = ({
                           <button
                             type="button"
                             onClick={() => onStart(timer.id)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/70 text-emerald-200 transition hover:border-emerald-200"
+                            aria-disabled={readOnly}
+                            className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/70 text-emerald-200 transition hover:border-emerald-200 ${blockedClass}`}
                               >
                                 <Play size={16} />
                               </button>
@@ -394,7 +399,8 @@ export const RundownPanel = ({
                                 onClick={() => {
                                   if (isActive) onPauseActive()
                                 }}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
+                            aria-disabled={readOnly}
+                            className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40 ${blockedClass}`}
                             disabled={!isActive || !isRunning}
                           >
                             <Pause size={16} />
@@ -409,7 +415,8 @@ export const RundownPanel = ({
                           }}
                           onPointerUp={stopHoldAdjust}
                           onPointerCancel={stopHoldAdjust}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
+                          aria-disabled={readOnly}
+                          className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 ${blockedClass}`}
                           aria-label="Decrease duration"
                           style={{ touchAction: 'none' }}
                         >
@@ -424,7 +431,8 @@ export const RundownPanel = ({
                           }}
                           onPointerUp={stopHoldAdjust}
                           onPointerCancel={stopHoldAdjust}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
+                          aria-disabled={readOnly}
+                          className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 ${blockedClass}`}
                           aria-label="Increase duration"
                           style={{ touchAction: 'none' }}
                         >
@@ -436,7 +444,8 @@ export const RundownPanel = ({
                             onClick={() => {
                               onReset(timer.id)
                                 }}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70"
+                                aria-disabled={readOnly}
+                                className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 ${blockedClass}`}
                               >
                                 <RotateCcw size={16} />
                               </button>
@@ -445,7 +454,8 @@ export const RundownPanel = ({
                               <button
                                 type="button"
                                 onClick={() => onDelete(timer.id)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-rose-500/50 text-rose-200 transition hover:border-rose-200"
+                                aria-disabled={readOnly}
+                                className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-rose-500/50 text-rose-200 transition hover:border-rose-200 ${blockedClass}`}
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -492,7 +502,8 @@ export const RundownPanel = ({
         <button
           type="button"
           onClick={onAddSegment}
-          className="flex h-12 w-full max-w-sm items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-xl text-slate-200 transition hover:border-slate-500"
+          aria-disabled={readOnly}
+          className={`flex h-12 w-full max-w-sm items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 text-xl text-slate-200 transition hover:border-slate-500 ${blockedClass}`}
         >
           <span className="text-2xl">+</span>
           <span className="sr-only">Add new segment</span>

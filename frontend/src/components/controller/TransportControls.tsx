@@ -11,6 +11,7 @@ export const TransportControls = ({
   onToggleClock,
   showClock,
   disableActions = false,
+  readOnly = false,
 }: {
   isRunning: boolean
   onStart: () => void
@@ -20,6 +21,7 @@ export const TransportControls = ({
   onToggleClock?: () => void
   showClock?: boolean
   disableActions?: boolean
+  readOnly?: boolean
 }) => {
   const holdRef = useRef<number | null>(null)
   const holdDirectionRef = useRef<-1 | 1>(1)
@@ -65,13 +67,16 @@ export const TransportControls = ({
     }
   }, [stopHold])
 
+  const blockedClass = readOnly ? 'cursor-not-allowed' : ''
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Tooltip content="Start Timer">
         <button
           type="button"
           onClick={onStart}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/90 text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40"
+          aria-disabled={readOnly}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/90 text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40 ${blockedClass}`}
           disabled={disableActions || isRunning}
         >
           <Play size={18} />
@@ -81,7 +86,8 @@ export const TransportControls = ({
         <button
           type="button"
           onClick={onPause}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-white transition hover:border-white/70 disabled:opacity-40"
+          aria-disabled={readOnly}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-white transition hover:border-white/70 disabled:opacity-40 ${blockedClass}`}
           disabled={disableActions || !isRunning}
         >
           <Pause size={18} />
@@ -96,7 +102,8 @@ export const TransportControls = ({
             startHold(-1)
           }}
           onPointerUp={stopHold}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
+          aria-disabled={readOnly}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40 ${blockedClass}`}
           disabled={disableActions}
           aria-label="Remove time"
           style={{ touchAction: 'none' }}
@@ -113,7 +120,8 @@ export const TransportControls = ({
             startHold(1)
           }}
           onPointerUp={stopHold}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40"
+          aria-disabled={readOnly}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-white/70 disabled:opacity-40 ${blockedClass}`}
           disabled={disableActions}
           aria-label="Add time"
           style={{ touchAction: 'none' }}
@@ -125,7 +133,8 @@ export const TransportControls = ({
         <button
           type="button"
           onClick={onReset}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-rose-500/50 text-rose-200 transition hover:border-rose-200 disabled:opacity-40"
+          aria-disabled={readOnly}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-rose-500/50 text-rose-200 transition hover:border-rose-200 disabled:opacity-40 ${blockedClass}`}
           disabled={disableActions}
         >
           <RotateCcw size={18} />
@@ -136,10 +145,11 @@ export const TransportControls = ({
           <button
             type="button"
             onClick={onToggleClock}
+            aria-disabled={readOnly}
             className={`inline-flex h-11 w-11 items-center justify-center rounded-full border transition ${showClock
                 ? 'border-rose-400 bg-rose-500/20 text-rose-100'
                 : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/70'
-              }`}
+              } ${blockedClass}`}
             aria-label={showClock ? 'Hide clock' : 'Show clock'}
           >
             <Clock3 size={16} />

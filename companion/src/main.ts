@@ -38,6 +38,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
 const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
+const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 
 type JoinRoomPayload = {
   type: 'JOIN_ROOM';
@@ -45,8 +46,115 @@ type JoinRoomPayload = {
   token: string;
   clientType?: 'controller' | 'viewer';
   clientId?: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
   takeOver?: boolean;
   interfaceVersion?: string;
+};
+
+type ControllerLock = {
+  clientId: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+  lockedAt: number;
+  lastHeartbeat: number;
+  roomId: string;
+};
+
+type HeartbeatPayload = {
+  type: 'HEARTBEAT';
+  roomId: string;
+  clientId: string;
+  timestamp: number;
+};
+
+type ControllerLockState = {
+  type: 'CONTROLLER_LOCK_STATE';
+  roomId: string;
+  lock: ControllerLock | null;
+  timestamp: number;
+};
+
+type RequestControlPayload = {
+  type: 'REQUEST_CONTROL';
+  roomId: string;
+  clientId: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+  timestamp: number;
+};
+
+type ControlRequestReceived = {
+  type: 'CONTROL_REQUEST_RECEIVED';
+  roomId: string;
+  requesterId: string;
+  requesterName?: string;
+  requesterUserId?: string;
+  requesterUserName?: string;
+  timestamp: number;
+};
+
+type ForceTakeoverPayload = {
+  type: 'FORCE_TAKEOVER';
+  roomId: string;
+  clientId: string;
+  pin?: string;
+  timestamp: number;
+};
+
+type HandOverPayload = {
+  type: 'HAND_OVER';
+  roomId: string;
+  targetClientId: string;
+  timestamp: number;
+};
+
+type DenyControlPayload = {
+  type: 'DENY_CONTROL';
+  roomId: string;
+  requesterId: string;
+  timestamp: number;
+};
+
+type ControlRequestDenied = {
+  type: 'CONTROL_REQUEST_DENIED';
+  roomId: string;
+  requesterId: string;
+  timestamp: number;
+  reason?: string;
+  deniedByName?: string;
+  deniedByUserId?: string;
+  deniedByUserName?: string;
+};
+
+type RoomPinState = {
+  type: 'ROOM_PIN_STATE';
+  roomId: string;
+  pin: string | null;
+  updatedAt: number;
+};
+
+type SetRoomPinPayload = {
+  type: 'SET_ROOM_PIN';
+  roomId: string;
+  pin?: string | null;
+  timestamp: number;
+};
+
+type RoomClientsState = {
+  type: 'ROOM_CLIENTS_STATE';
+  roomId: string;
+  clients: Array<{
+    clientId: string;
+    deviceName?: string;
+    userId?: string;
+    userName?: string;
+    clientType: 'controller' | 'viewer';
+  }>;
+  timestamp: number;
 };
 
 type HandshakeAck = {
@@ -228,8 +336,47 @@ function emitToRoom(roomId: string, event: string, payload: unknown) {
 }
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
-const roomControllerStore: Map<string, { clientId: string; socketId: string; connectedAt: number }> = new Map();
+const roomControllerStore: Map<string, {
+  clientId: string;
+  socketId: string;
+  connectedAt: number;
+  lastHeartbeat: number;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+}> = new Map();
+const roomClientStore: Map<string, Map<string, {
+  socketId: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+  clientType: 'controller' | 'viewer';
+}>> = new Map();
 const pendingHandshakeStore: Map<string, { socketId: string; startedAt: number }> = new Map();
+const pendingControlRequests: Map<string, {
+  requesterId: string;
+  requesterName?: string;
+  requesterUserId?: string;
+  requesterUserName?: string;
+  requestedAt: number;
+}> = new Map();
+const roomControlAuditStore: Map<string, Array<{
+  action: 'request' | 'force' | 'handover' | 'deny';
+  actorId: string;
+  actorUserId?: string;
+  actorUserName?: string;
+  targetId?: string;
+  timestamp: number;
+  deviceName?: string;
+  status?: 'accepted' | 'denied';
+}>> = new Map();
+const roomPinStore: Map<string, {
+  pin: string;
+  updatedAt: number;
+  setBy?: string;
+  setByUserId?: string;
+  setByUserName?: string;
+}> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
@@ -237,6 +384,161 @@ let cacheWriteTimer: NodeJS.Timeout | null = null;
 let lastWriteTs = 0;
 let ffprobeMissingWarned = false;
 let ffprobePath: string | null = null;
+
+function getRoomClients(roomId: string): Map<string, {
+  socketId: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+  clientType: 'controller' | 'viewer';
+}> {
+  if (!roomClientStore.has(roomId)) {
+    roomClientStore.set(roomId, new Map());
+  }
+  return roomClientStore.get(roomId)!;
+}
+
+function buildControllerLock(roomId: string, entry: {
+  clientId: string;
+  connectedAt: number;
+  lastHeartbeat: number;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+}): ControllerLock {
+  return {
+    clientId: entry.clientId,
+    deviceName: entry.deviceName,
+    userId: entry.userId,
+    userName: entry.userName,
+    lockedAt: entry.connectedAt,
+    lastHeartbeat: entry.lastHeartbeat,
+    roomId,
+  };
+}
+
+function emitControllerLockState(roomId: string) {
+  const entry = roomControllerStore.get(roomId);
+  const payload: ControllerLockState = {
+    type: 'CONTROLLER_LOCK_STATE',
+    roomId,
+    lock: entry ? buildControllerLock(roomId, entry) : null,
+    timestamp: Date.now(),
+  };
+  emitToRoom(roomId, 'CONTROLLER_LOCK_STATE', payload);
+}
+
+function emitControllerLockStateToSocket(socket: Socket, roomId: string) {
+  const entry = roomControllerStore.get(roomId);
+  const payload: ControllerLockState = {
+    type: 'CONTROLLER_LOCK_STATE',
+    roomId,
+    lock: entry ? buildControllerLock(roomId, entry) : null,
+    timestamp: Date.now(),
+  };
+  socket.emit('CONTROLLER_LOCK_STATE', payload);
+}
+
+function normalizeRoomPin(input?: string | null): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length < 4 || digits.length > 8) return null;
+  return digits;
+}
+
+function emitRoomPinStateToSocket(socket: Socket, roomId: string) {
+  const entry = roomPinStore.get(roomId);
+  const payload: RoomPinState = {
+    type: 'ROOM_PIN_STATE',
+    roomId,
+    pin: entry?.pin ?? null,
+    updatedAt: entry?.updatedAt ?? Date.now(),
+  };
+  socket.emit('ROOM_PIN_STATE', payload);
+}
+
+function emitRoomPinStateToController(roomId: string) {
+  const entry = roomControllerStore.get(roomId);
+  if (!entry) return;
+  ioServers.forEach((server) => {
+    server.to(entry.socketId).emit('ROOM_PIN_STATE', {
+      type: 'ROOM_PIN_STATE',
+      roomId,
+      pin: roomPinStore.get(roomId)?.pin ?? null,
+      updatedAt: roomPinStore.get(roomId)?.updatedAt ?? Date.now(),
+    } satisfies RoomPinState);
+  });
+}
+
+function emitRoomClientsState(roomId: string) {
+  const clients = [...getRoomClients(roomId).entries()].map(([clientId, entry]) => ({
+    clientId,
+    deviceName: entry.deviceName,
+    userId: entry.userId,
+    userName: entry.userName,
+    clientType: entry.clientType,
+  }));
+  const payload: RoomClientsState = {
+    type: 'ROOM_CLIENTS_STATE',
+    roomId,
+    clients,
+    timestamp: Date.now(),
+  };
+  getRoomClients(roomId).forEach((entry) => {
+    if (entry.clientType !== 'controller') return;
+    ioServers.forEach((server) => {
+      server.to(entry.socketId).emit('ROOM_CLIENTS_STATE', payload);
+    });
+  });
+}
+
+function setControllerLock(
+  roomId: string,
+  clientId: string,
+  socketId: string,
+  deviceName?: string,
+  userId?: string,
+  userName?: string,
+  options?: { clearPending?: boolean },
+) {
+  roomControllerStore.set(roomId, {
+    clientId,
+    socketId,
+    connectedAt: Date.now(),
+    lastHeartbeat: Date.now(),
+    deviceName,
+    userId,
+    userName,
+  });
+  if (options?.clearPending !== false) {
+    pendingControlRequests.delete(roomId);
+  }
+  console.log(`[ws] controller lock set room=${roomId} by=${clientId}`);
+  emitControllerLockState(roomId);
+  emitRoomPinStateToController(roomId);
+}
+
+function appendControlAudit(
+  roomId: string,
+  entry: {
+    action: 'request' | 'force' | 'handover' | 'deny';
+    actorId: string;
+    actorUserId?: string;
+    actorUserName?: string;
+    targetId?: string;
+    timestamp: number;
+    deviceName?: string;
+    status?: 'accepted' | 'denied';
+  },
+) {
+  const list = roomControlAuditStore.get(roomId) ?? [];
+  list.push(entry);
+  const trimmed = list.slice(-50);
+  roomControlAuditStore.set(roomId, trimmed);
+  scheduleRoomCacheWrite();
+}
 
 type StoredTokenPayload = {
   token: string;
@@ -774,6 +1076,12 @@ function registerSocketHandlers(server: SocketIOServer) {
     socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
     socket.on('DELETE_TIMER', (payload) => handleDeleteTimer(socket, payload));
     socket.on('REORDER_TIMERS', (payload) => handleReorderTimers(socket, payload));
+    socket.on('HEARTBEAT', (payload) => handleHeartbeat(socket, payload));
+    socket.on('REQUEST_CONTROL', (payload) => handleRequestControl(socket, payload));
+    socket.on('FORCE_TAKEOVER', (payload) => handleForceTakeover(socket, payload));
+    socket.on('HAND_OVER', (payload) => handleHandOver(socket, payload));
+    socket.on('DENY_CONTROL', (payload) => handleDenyControl(socket, payload));
+    socket.on('SET_ROOM_PIN', (payload) => handleSetRoomPin(socket, payload));
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
       const roomId = socket.data?.roomId as string | undefined;
@@ -785,12 +1093,10 @@ function registerSocketHandlers(server: SocketIOServer) {
           pendingHandshakeStore.delete(clientId);
         }
       }
-      if (roomId && clientType === 'controller' && clientId) {
-        const current = roomControllerStore.get(roomId);
-        if (current?.clientId === clientId) {
-          roomControllerStore.delete(roomId);
-          console.log(`[ws] controller released room=${roomId} by=${clientId}`);
-        }
+      if (roomId && clientId) {
+        const clients = roomId ? getRoomClients(roomId) : null;
+        clients?.delete(clientId);
+        emitRoomClientsState(roomId);
       }
     });
 
@@ -846,15 +1152,7 @@ function startSecureSocketServer(tls: { key: string; cert: string }) {
   });
 }
 
-function isActiveController(roomId: string, clientId: string | undefined): boolean {
-  if (!clientId) return false;
-  const current = roomControllerStore.get(roomId);
-  if (!current) return true; // no controller lock yet; allow first controller to act
-  return current.clientId === clientId;
-}
-
 function enforceControllerAccess(socket: Socket, roomId: string): boolean {
-  // Multi-controller: allow all controllers; viewers are still blocked at call sites where needed.
   const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
   if (clientType !== 'controller') {
     socket.emit('ERROR', {
@@ -863,6 +1161,38 @@ function enforceControllerAccess(socket: Socket, roomId: string): boolean {
       message: 'Only the controller can perform this action.',
     });
     return false;
+  }
+  const clientId = socket.data?.clientId as string | undefined;
+  if (!clientId) {
+    socket.emit('ERROR', {
+      type: 'ERROR',
+      code: 'INVALID_PAYLOAD',
+      message: 'Missing client id.',
+    });
+    return false;
+  }
+  const current = roomControllerStore.get(roomId);
+  if (!current) {
+    const deviceName = typeof socket.data?.deviceName === 'string' ? socket.data.deviceName : undefined;
+    const userId = typeof socket.data?.userId === 'string' ? socket.data.userId : undefined;
+    const userName = typeof socket.data?.userName === 'string' ? socket.data.userName : undefined;
+    setControllerLock(roomId, clientId, socket.id, deviceName, userId, userName);
+    return true;
+  }
+  if (current.clientId !== clientId) {
+    emitError(socket, 'PERMISSION_DENIED', 'Room controller is active on another device.', roomId);
+    return false;
+  }
+  if (current.socketId !== socket.id) {
+    setControllerLock(
+      roomId,
+      clientId,
+      socket.id,
+      current.deviceName,
+      current.userId,
+      current.userName,
+      { clearPending: false },
+    );
   }
   return true;
 }
@@ -1191,12 +1521,28 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   socket.data.clientId = clientId;
   socket.data.clientType = payload.clientType === 'controller' ? 'controller' : 'viewer';
   socket.data.roomId = payload.roomId;
+  socket.data.deviceName = typeof payload.deviceName === 'string' && payload.deviceName.trim()
+    ? payload.deviceName.trim().slice(0, 120)
+    : undefined;
+  socket.data.userId = typeof payload.userId === 'string' && payload.userId.trim()
+    ? payload.userId.trim().slice(0, 120)
+    : undefined;
+  socket.data.userName = typeof payload.userName === 'string' && payload.userName.trim()
+    ? payload.userName.trim().slice(0, 120)
+    : undefined;
+  getRoomClients(payload.roomId).set(clientId, {
+    socketId: socket.id,
+    deviceName: socket.data.deviceName,
+    userId: socket.data.userId,
+    userName: socket.data.userName,
+    clientType: socket.data.clientType,
+  });
 
   const requestedType = socket.data.clientType as 'controller' | 'viewer';
-  if (requestedType === 'controller') {
-    // Multi-controller allowed: track latest controller but do not reject others.
-    roomControllerStore.set(payload.roomId, { clientId, socketId: socket.id, connectedAt: Date.now() });
-  }
+  const currentLock = roomControllerStore.get(payload.roomId);
+  const shouldClaimLock =
+    requestedType === 'controller' &&
+    (!currentLock || currentLock.clientId === clientId);
 
   const ack: HandshakeAck = {
     type: 'HANDSHAKE_ACK',
@@ -1222,6 +1568,22 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   socket.emit('HANDSHAKE_ACK', ack);
   socket.join(payload.roomId);
 
+  if (shouldClaimLock) {
+    const clearPending = !currentLock || currentLock.clientId !== clientId;
+    setControllerLock(
+      payload.roomId,
+      clientId,
+      socket.id,
+      socket.data.deviceName,
+      socket.data.userId,
+      socket.data.userName,
+      { clearPending },
+    );
+  } else {
+    emitControllerLockStateToSocket(socket, payload.roomId);
+  }
+  emitRoomClientsState(payload.roomId);
+
   console.log(`[ws] sending ROOM_STATE_SNAPSHOT to socket=${socket.id}, room=${payload.roomId}`);
 
   const snapshot: RoomStateSnapshot = {
@@ -1246,6 +1608,321 @@ function isValidJoinRoomPayload(payload: unknown): payload is JoinRoomPayload {
     typeof data.roomId === 'string' &&
     typeof data.token === 'string'
   );
+}
+
+function isValidHeartbeatPayload(payload: unknown): payload is HeartbeatPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<HeartbeatPayload>;
+  return (
+    data.type === 'HEARTBEAT' &&
+    typeof data.roomId === 'string' &&
+    typeof data.clientId === 'string' &&
+    typeof data.timestamp === 'number' &&
+    Number.isFinite(data.timestamp)
+  );
+}
+
+function isValidRequestControlPayload(payload: unknown): payload is RequestControlPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<RequestControlPayload>;
+  return (
+    data.type === 'REQUEST_CONTROL' &&
+    typeof data.roomId === 'string' &&
+    typeof data.clientId === 'string' &&
+    typeof data.timestamp === 'number' &&
+    Number.isFinite(data.timestamp)
+  );
+}
+
+function isValidForceTakeoverPayload(payload: unknown): payload is ForceTakeoverPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<ForceTakeoverPayload>;
+  return (
+    data.type === 'FORCE_TAKEOVER' &&
+    typeof data.roomId === 'string' &&
+    typeof data.clientId === 'string' &&
+    typeof data.timestamp === 'number' &&
+    Number.isFinite(data.timestamp)
+  );
+}
+
+function isValidHandOverPayload(payload: unknown): payload is HandOverPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<HandOverPayload>;
+  return (
+    data.type === 'HAND_OVER' &&
+    typeof data.roomId === 'string' &&
+    typeof data.targetClientId === 'string' &&
+    typeof data.timestamp === 'number' &&
+    Number.isFinite(data.timestamp)
+  );
+}
+
+function isValidDenyControlPayload(payload: unknown): payload is DenyControlPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<DenyControlPayload>;
+  return (
+    data.type === 'DENY_CONTROL' &&
+    typeof data.roomId === 'string' &&
+    typeof data.requesterId === 'string' &&
+    typeof data.timestamp === 'number' &&
+    Number.isFinite(data.timestamp)
+  );
+}
+
+function isValidSetRoomPinPayload(payload: unknown): payload is SetRoomPinPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<SetRoomPinPayload>;
+  return (
+    data.type === 'SET_ROOM_PIN' &&
+    typeof data.roomId === 'string' &&
+    typeof data.timestamp === 'number' &&
+    Number.isFinite(data.timestamp)
+  );
+}
+
+function handleHeartbeat(socket: Socket, payload: unknown) {
+  if (!isValidHeartbeatPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid HEARTBEAT payload.');
+    return;
+  }
+  const current = roomControllerStore.get(payload.roomId);
+  if (!current || current.clientId !== payload.clientId) return;
+  if (current.socketId !== socket.id) return;
+  current.lastHeartbeat = Date.now();
+}
+
+function handleRequestControl(socket: Socket, payload: unknown) {
+  if (!isValidRequestControlPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid REQUEST_CONTROL payload.');
+    return;
+  }
+  const socketClientId = socket.data?.clientId as string | undefined;
+  if (!socketClientId || socketClientId !== payload.clientId) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Mismatched client id.');
+    return;
+  }
+  const requesterName = typeof payload.deviceName === 'string' && payload.deviceName.trim()
+    ? payload.deviceName.trim().slice(0, 120)
+    : undefined;
+  const requesterUserId = typeof payload.userId === 'string' && payload.userId.trim()
+    ? payload.userId.trim().slice(0, 120)
+    : undefined;
+  const requesterUserName = typeof payload.userName === 'string' && payload.userName.trim()
+    ? payload.userName.trim().slice(0, 120)
+    : undefined;
+  const roomId = payload.roomId;
+  const current = roomControllerStore.get(roomId);
+  if (!current) {
+    setControllerLock(
+      roomId,
+      payload.clientId,
+      socket.id,
+      requesterName,
+      requesterUserId,
+      requesterUserName,
+    );
+    return;
+  }
+  if (current.clientId === payload.clientId) return;
+  pendingControlRequests.set(roomId, {
+    requesterId: payload.clientId,
+    requesterName,
+    requesterUserId,
+    requesterUserName,
+    requestedAt: Date.now(),
+  });
+  appendControlAudit(roomId, {
+    action: 'request',
+    actorId: payload.clientId,
+    actorUserId: requesterUserId,
+    actorUserName: requesterUserName,
+    timestamp: Date.now(),
+    deviceName: requesterName,
+  });
+  const event: ControlRequestReceived = {
+    type: 'CONTROL_REQUEST_RECEIVED',
+    roomId,
+    requesterId: payload.clientId,
+    requesterName,
+    requesterUserId,
+    requesterUserName,
+    timestamp: Date.now(),
+  };
+  const targetSocket = current.socketId;
+  ioServers.forEach((server) => {
+    server.to(targetSocket).emit('CONTROL_REQUEST_RECEIVED', event);
+  });
+}
+
+function handleForceTakeover(socket: Socket, payload: unknown) {
+  if (!isValidForceTakeoverPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid FORCE_TAKEOVER payload.');
+    return;
+  }
+  const socketClientId = socket.data?.clientId as string | undefined;
+  if (!socketClientId || socketClientId !== payload.clientId) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Mismatched client id.');
+    return;
+  }
+  const roomId = payload.roomId;
+  const current = roomControllerStore.get(roomId);
+  if (!current) {
+    setControllerLock(
+      roomId,
+      payload.clientId,
+      socket.id,
+      socket.data?.deviceName,
+      socket.data?.userId,
+      socket.data?.userName,
+    );
+    return;
+  }
+  if (current.clientId === payload.clientId) return;
+  const pending = pendingControlRequests.get(roomId);
+  const now = Date.now();
+  const requestAgeMs = pending ? now - pending.requestedAt : 0;
+  const allowByTimeout = pending?.requesterId === payload.clientId && requestAgeMs >= CONTROL_REQUEST_TIMEOUT_MS;
+  const normalizedPin = normalizeRoomPin(payload.pin);
+  const storedPin = roomPinStore.get(roomId)?.pin ?? null;
+  const allowByPin = Boolean(storedPin && normalizedPin && normalizedPin === storedPin);
+  if (!allowByTimeout && !allowByPin) {
+    appendControlAudit(roomId, {
+      action: 'force',
+      actorId: payload.clientId,
+      actorUserId: socket.data?.userId,
+      actorUserName: socket.data?.userName,
+      timestamp: now,
+      deviceName: socket.data?.deviceName,
+      status: 'denied',
+    });
+    emitError(socket, 'PERMISSION_DENIED', 'Force takeover requires a valid room PIN or timeout.', roomId);
+    return;
+  }
+  setControllerLock(
+    roomId,
+    payload.clientId,
+    socket.id,
+    socket.data?.deviceName,
+    socket.data?.userId,
+    socket.data?.userName,
+  );
+  appendControlAudit(roomId, {
+    action: 'force',
+    actorId: payload.clientId,
+    actorUserId: socket.data?.userId,
+    actorUserName: socket.data?.userName,
+    timestamp: now,
+    deviceName: socket.data?.deviceName,
+    status: 'accepted',
+  });
+}
+
+function handleHandOver(socket: Socket, payload: unknown) {
+  if (!isValidHandOverPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid HAND_OVER payload.');
+    return;
+  }
+  const roomId = payload.roomId;
+  if (!enforceControllerAccess(socket, roomId)) {
+    return;
+  }
+  const targetClientId = payload.targetClientId;
+  const clients = getRoomClients(roomId);
+  const target = clients.get(targetClientId);
+  if (!target) {
+    emitError(socket, 'NOT_FOUND', 'Target controller not connected.');
+    return;
+  }
+  if (target.clientType !== 'controller') {
+    emitError(socket, 'PERMISSION_DENIED', 'Target must be a controller.', roomId);
+    return;
+  }
+  setControllerLock(
+    roomId,
+    targetClientId,
+    target.socketId,
+    target.deviceName,
+    target.userId,
+    target.userName,
+  );
+  appendControlAudit(roomId, {
+    action: 'handover',
+    actorId: socket.data?.clientId ?? socket.id,
+    actorUserId: socket.data?.userId,
+    actorUserName: socket.data?.userName,
+    targetId: targetClientId,
+    timestamp: Date.now(),
+    deviceName: target.deviceName,
+  });
+}
+
+function handleDenyControl(socket: Socket, payload: unknown) {
+  if (!isValidDenyControlPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid DENY_CONTROL payload.');
+    return;
+  }
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+  const roomId = payload.roomId;
+  const pending = pendingControlRequests.get(roomId);
+  if (!pending || pending.requesterId !== payload.requesterId) return;
+  pendingControlRequests.delete(roomId);
+  appendControlAudit(roomId, {
+    action: 'deny',
+    actorId: socket.data?.clientId ?? socket.id,
+    actorUserId: socket.data?.userId,
+    actorUserName: socket.data?.userName,
+    targetId: payload.requesterId,
+    timestamp: Date.now(),
+    status: 'denied',
+  });
+  const clients = getRoomClients(roomId);
+  const target = clients.get(payload.requesterId);
+  if (!target) return;
+  const event: ControlRequestDenied = {
+    type: 'CONTROL_REQUEST_DENIED',
+    roomId,
+    requesterId: payload.requesterId,
+    timestamp: Date.now(),
+    reason: 'denied_by_controller',
+    deniedByName: socket.data?.deviceName,
+    deniedByUserId: socket.data?.userId,
+    deniedByUserName: socket.data?.userName,
+  };
+  ioServers.forEach((server) => {
+    server.to(target.socketId).emit('CONTROL_REQUEST_DENIED', event);
+  });
+}
+
+function handleSetRoomPin(socket: Socket, payload: unknown) {
+  if (!isValidSetRoomPinPayload(payload)) {
+    emitError(socket, 'INVALID_PAYLOAD', 'Invalid SET_ROOM_PIN payload.');
+    return;
+  }
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+  const rawPin = typeof payload.pin === 'string' ? payload.pin : null;
+  const normalized = normalizeRoomPin(rawPin ?? null);
+  if (rawPin && !normalized) {
+    emitError(socket, 'INVALID_PAYLOAD', 'PIN must be 4-8 digits.', payload.roomId);
+    return;
+  }
+  if (!normalized) {
+    roomPinStore.delete(payload.roomId);
+  } else {
+    roomPinStore.set(payload.roomId, {
+      pin: normalized,
+      updatedAt: Date.now(),
+      setBy: socket.data?.clientId ?? socket.id,
+      setByUserId: socket.data?.userId,
+      setByUserName: socket.data?.userName,
+    });
+  }
+  scheduleRoomCacheWrite();
+  emitRoomPinStateToController(payload.roomId);
 }
 
 function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomStatePayload {
@@ -1308,8 +1985,8 @@ function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePat
   return true;
 }
 
-function emitError(socket: Socket, code: string, message: string) {
-  socket.emit('ERROR', { type: 'ERROR', code, message });
+function emitError(socket: Socket, code: string, message: string, roomId?: string) {
+  socket.emit('ERROR', { type: 'ERROR', code, message, roomId });
 }
 
 function handleSyncRoomState(socket: Socket, payload: unknown) {
@@ -2174,6 +2851,23 @@ async function loadRoomCache() {
       lastWrite?: number;
       rooms?: Record<string, RoomState>;
       timers?: Record<string, Timer[]>;
+      controlAudit?: Record<string, Array<{
+        action: 'request' | 'force' | 'handover' | 'deny';
+        actorId: string;
+        actorUserId?: string;
+        actorUserName?: string;
+        targetId?: string;
+        timestamp: number;
+        deviceName?: string;
+        status?: 'accepted' | 'denied';
+      }>>;
+      pins?: Record<string, {
+        pin: string;
+        updatedAt: number;
+        setBy?: string;
+        setByUserId?: string;
+        setByUserName?: string;
+      }>;
     };
     if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
       console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
@@ -2192,6 +2886,26 @@ async function loadRoomCache() {
         });
         if (map.size) {
           roomTimersStore.set(roomId, map);
+        }
+      });
+    }
+    if (parsed.controlAudit) {
+      Object.entries(parsed.controlAudit).forEach(([roomId, entries]) => {
+        if (Array.isArray(entries)) {
+          roomControlAuditStore.set(roomId, entries.slice(-50));
+        }
+      });
+    }
+    if (parsed.pins) {
+      Object.entries(parsed.pins).forEach(([roomId, entry]) => {
+        if (entry && typeof entry.pin === 'string') {
+          roomPinStore.set(roomId, {
+            pin: entry.pin,
+            updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+            setBy: entry.setBy,
+            setByUserId: entry.setByUserId,
+            setByUserName: entry.setByUserName,
+          });
         }
       });
     }
@@ -2271,6 +2985,8 @@ async function writeRoomCache() {
           [...timerMap.values()].sort((a, b) => a.order - b.order),
         ])
       ),
+      controlAudit: Object.fromEntries(roomControlAuditStore.entries()),
+      pins: Object.fromEntries(roomPinStore.entries()),
     };
     await fs.writeFile(cachePath, JSON.stringify(payload, null, 2), 'utf8');
     lastWriteTs = payload.lastWrite;

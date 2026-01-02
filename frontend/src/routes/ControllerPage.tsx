@@ -47,6 +47,21 @@ export const ControllerPage = () => {
     setClockMode,
     setClockFormat,
     updateMessage,
+    roomClients,
+    controlDisplacements,
+    controlErrors,
+    controlRequests,
+    pendingControlRequests,
+    controlDenials,
+    getControllerLock,
+    getControllerLockState,
+    getRoomPin,
+    setRoomPin,
+    requestControl,
+    forceTakeover,
+    handOverControl,
+    denyControl,
+    sendHeartbeat,
     connectionStatus,
     pendingTimerPlaceholders,
     undoTimerDelete,
@@ -94,10 +109,103 @@ export const ControllerPage = () => {
 
   const room = roomId ? getRoom(roomId) : undefined
   const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
+  const controllerLock = roomId ? getControllerLock(roomId) : null
+  const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
+  const isReadOnly = lockState !== 'authoritative'
+  const roomPin = roomId ? getRoomPin(roomId) : null
+  const roomClientList = useMemo(() => {
+    if (!roomId) return []
+    return roomClients[roomId] ?? []
+  }, [roomClients, roomId])
+  const displacement = roomId ? controlDisplacements[roomId] : null
+  const controlError = roomId ? controlErrors[roomId] : null
+  const incomingRequest = roomId ? controlRequests[roomId] : null
+  const pendingRequest = roomId ? pendingControlRequests[roomId] : null
+  const denial = roomId ? controlDenials[roomId] : null
   const timers = useMemo(
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
   )
+  const [controlNow, setControlNow] = useState(() => Date.now())
+  const [ignoredRequestTs, setIgnoredRequestTs] = useState<number | null>(null)
+  const [dismissedDenialTs, setDismissedDenialTs] = useState<number | null>(null)
+  const [dismissedDisplacementTs, setDismissedDisplacementTs] = useState<number | null>(null)
+  const [dismissedErrorTs, setDismissedErrorTs] = useState<number | null>(null)
+  const [controlBarCollapsed, setControlBarCollapsed] = useState(false)
+  const [controlBarDismissedAt, setControlBarDismissedAt] = useState(0)
+  const [handoverOpen, setHandoverOpen] = useState(false)
+  const [handoverTargetId, setHandoverTargetId] = useState<string | null>(null)
+  const [viewerOnly, setViewerOnly] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('ontime:viewerOnly') === 'true'
+  })
+  const [pinHidden, setPinHidden] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('ontime:pinHidden') === 'true'
+  })
+  const [pinEditing, setPinEditing] = useState(false)
+  const [pinDraft, setPinDraft] = useState(roomPin ?? '')
+  const [requestChimeEnabled, setRequestChimeEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true
+    const stored = window.localStorage.getItem('ontime:requestChime')
+    return stored !== 'false'
+  })
+  const lockAgeMs = controllerLock ? Math.max(0, controlNow - controllerLock.lastHeartbeat) : null
+  const isLockStale = lockAgeMs !== null && lockAgeMs > 90_000
+  const lastActiveLabel =
+    lockAgeMs === null
+      ? 'Unknown'
+      : lockAgeMs < 60_000
+        ? 'Just now'
+        : `${Math.floor(lockAgeMs / 60_000)}m ago`
+  const lockOwnerLabel =
+    controllerLock?.userName && controllerLock?.deviceName
+      ? `${controllerLock.userName} · ${controllerLock.deviceName}`
+      : controllerLock?.userName ?? controllerLock?.deviceName ?? 'another device'
+  const availableHandoverTargets = useMemo(
+    () =>
+      roomClientList.filter(
+        (client) => client.clientType === 'controller' && client.clientId !== controllerLock?.clientId,
+      ),
+    [controllerLock?.clientId, roomClientList],
+  )
+  const canForceNow = true
+  const visibleDenial = denial && dismissedDenialTs !== denial.deniedAt ? denial : null
+  const visibleDisplacement = displacement && dismissedDisplacementTs !== displacement.takenAt ? displacement : null
+  const visibleError = controlError && dismissedErrorTs !== controlError.receivedAt ? controlError : null
+  const latestControlEventAt = Math.max(
+    denial?.deniedAt ?? 0,
+    controlError?.receivedAt ?? 0,
+    displacement?.takenAt ?? 0,
+    pendingRequest?.requestedAt ?? 0,
+  )
+  const showControlBar = Boolean(
+    roomId &&
+      lockState !== 'authoritative' &&
+      (!controlBarCollapsed || latestControlEventAt > controlBarDismissedAt),
+  )
+  const controlBarTone = visibleDisplacement || visibleDenial || visibleError ? 'rose' : 'amber'
+  const controlTitle = visibleDisplacement
+    ? 'Control transferred'
+    : visibleDenial
+      ? 'Request denied'
+      : visibleError
+        ? 'Action blocked'
+        : viewerOnly
+          ? 'Viewer-only'
+          : isLockStale
+            ? 'Room inactive'
+            : 'View only'
+  const controlDetail = visibleDisplacement
+    ? `${visibleDisplacement.takenByName ?? visibleDisplacement.takenByUserName ?? 'Another device'} took control at ${formatDate(
+        visibleDisplacement.takenAt,
+        room?.timezone ?? 'UTC',
+      )}.`
+    : visibleDenial
+      ? `Denied by ${visibleDenial.deniedByName ?? visibleDenial.deniedByUserName ?? 'the current controller'}.`
+      : visibleError
+        ? visibleError.message
+        : `Controlled by ${lockOwnerLabel}. Last active ${lastActiveLabel}.`
 
   useEffect(() => {
     lastActivityRef.current = Date.now()
@@ -135,6 +243,7 @@ export const ControllerPage = () => {
   const timezoneInputRef = useRef<HTMLInputElement | null>(null)
   const [shortcutScope, setShortcutScope] = useState<'controls' | 'rundown'>('controls')
   const [placeholderNow, setPlaceholderNow] = useState(() => Date.now())
+  const lastRequestChimeRef = useRef<number | null>(null)
 
   const effectiveSelectedTimerId = useMemo(() => {
     if (selectedTimerId && timers.some((timer) => timer.id === selectedTimerId)) {
@@ -177,12 +286,133 @@ export const ControllerPage = () => {
   }, [setPlaceholderNow])
 
   useEffect(() => {
+    const id = window.setInterval(() => setControlNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('ontime:viewerOnly', viewerOnly ? 'true' : 'false')
+  }, [viewerOnly])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('ontime:pinHidden', pinHidden ? 'true' : 'false')
+  }, [pinHidden])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('ontime:requestChime', requestChimeEnabled ? 'true' : 'false')
+  }, [requestChimeEnabled])
+
+  const playRequestChime = useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (!requestChimeEnabled) return
+    try {
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!AudioContextClass) return
+      const ctx = new AudioContextClass()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.value = 660
+      gain.gain.value = 0.08
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.18)
+      osc.onended = () => {
+        ctx.close().catch(() => undefined)
+      }
+    } catch {
+      // ignore audio failures
+    }
+  }, [requestChimeEnabled])
+
+  useEffect(() => {
+    if (!incomingRequest) return
+    if (ignoredRequestTs === incomingRequest.requestedAt) return
+    if (lastRequestChimeRef.current === incomingRequest.requestedAt) return
+    lastRequestChimeRef.current = incomingRequest.requestedAt
+    playRequestChime()
+  }, [ignoredRequestTs, incomingRequest, playRequestChime])
+
+  useEffect(() => {
+    if (!roomId) return
+    if (lockState !== 'authoritative') return
+    if (!sendHeartbeat) return
+    const beat = () => sendHeartbeat(roomId)
+    beat()
+    const id = window.setInterval(beat, 30_000)
+    return () => window.clearInterval(id)
+  }, [lockState, roomId, sendHeartbeat])
+
+  useEffect(() => {
+    if (!denial) return
+    const id = window.setTimeout(() => {
+      setDismissedDenialTs(denial.deniedAt)
+      setControlBarCollapsed(true)
+      setControlBarDismissedAt(Math.max(latestControlEventAt, Date.now()))
+    }, 10_000)
+    return () => window.clearTimeout(id)
+  }, [denial, latestControlEventAt])
+
+  useEffect(() => {
+    if (!controlError) return
+    const id = window.setTimeout(() => {
+      setDismissedErrorTs(controlError.receivedAt)
+      setControlBarCollapsed(true)
+      setControlBarDismissedAt(Math.max(latestControlEventAt, Date.now()))
+    }, 8_000)
+    return () => window.clearTimeout(id)
+  }, [controlError, latestControlEventAt])
+
+  useEffect(() => {
+    if (!displacement) return
+    const id = window.setTimeout(() => {
+      setDismissedDisplacementTs(displacement.takenAt)
+      setControlBarCollapsed(true)
+      setControlBarDismissedAt(Math.max(latestControlEventAt, Date.now()))
+    }, 12_000)
+    return () => window.clearTimeout(id)
+  }, [displacement, latestControlEventAt])
+
+  useEffect(() => {
+    if (denial && dismissedDenialTs !== denial.deniedAt) {
+      if (denial.deniedAt > controlBarDismissedAt) {
+        setControlBarCollapsed(false)
+      }
+    }
+  }, [controlBarDismissedAt, denial, dismissedDenialTs])
+
+  useEffect(() => {
+    if (controlError && dismissedErrorTs !== controlError.receivedAt) {
+      if (controlError.receivedAt > controlBarDismissedAt) {
+        setControlBarCollapsed(false)
+      }
+    }
+  }, [controlBarDismissedAt, controlError, dismissedErrorTs])
+
+  useEffect(() => {
+    if (displacement && dismissedDisplacementTs !== displacement.takenAt) {
+      if (displacement.takenAt > controlBarDismissedAt) {
+        setControlBarCollapsed(false)
+      }
+    }
+  }, [controlBarDismissedAt, displacement, dismissedDisplacementTs])
+
+  useEffect(() => {
     if (!room) return
     setTitleInput(room.title)
     setTimezoneInput(room.timezone)
     // This effect mirrors incoming room props to local inputs; avoids stale values when switching rooms.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.id, room?.title, room?.timezone])
+
+  useEffect(() => {
+    if (pinEditing) return
+    setPinDraft(roomPin ?? '')
+  }, [pinEditing, roomPin])
 
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {
@@ -192,6 +422,11 @@ export const ControllerPage = () => {
       const key = event.key.toLowerCase()
       const isUndo = key === 'z' && !event.shiftKey
       const isRedo = (key === 'z' && event.shiftKey) || key === 'y'
+      if (!isUndo && !isRedo) return
+      if (isReadOnly) {
+        setControlBarCollapsed(false)
+        return
+      }
       if (isUndo) {
         event.preventDefault()
         void undoRoomDelete()
@@ -202,7 +437,7 @@ export const ControllerPage = () => {
     }
     window.addEventListener('keydown', handleUndoShortcut)
     return () => window.removeEventListener('keydown', handleUndoShortcut)
-  }, [redoRoomDelete, roomId, undoRoomDelete])
+  }, [isReadOnly, redoRoomDelete, roomId, undoRoomDelete])
 
   const controlTargetTimerId =
     shortcutScope === 'rundown' && selectedTimerId
@@ -210,12 +445,20 @@ export const ControllerPage = () => {
       : room?.state.activeTimerId ?? null
 
   const startControlTimer = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId || !controlTargetTimerId) return
     bumpCompanionOnActivity('play')
     void startTimer(currentRoomId, controlTargetTimerId)
   }
 
   const pauseControlTimer = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId || !controlTargetTimerId) return
     bumpCompanionOnActivity('pause')
     if (controlTargetTimerId !== room.state.activeTimerId) {
@@ -225,6 +468,10 @@ export const ControllerPage = () => {
   }
 
   const resetControlTimer = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId || !controlTargetTimerId) return
     bumpCompanionOnActivity('reset')
     if (controlTargetTimerId === room.state.activeTimerId) {
@@ -235,6 +482,10 @@ export const ControllerPage = () => {
   }
 
   const nudgeActiveTimer = (deltaMs: number) => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId || !room) return
     bumpCompanionOnActivity('nudge')
     if (room.state.isRunning) {
@@ -251,11 +502,19 @@ export const ControllerPage = () => {
     timerId: string,
     patch: { title?: string; speaker?: string; duration?: number },
   ) => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId) return
     void updateTimer(currentRoomId, timerId, patch)
   }
 
   const handleReorderTimer = (sourceId: string, targetIndex: number) => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId) return
     bumpCompanionOnActivity('reorder')
     void reorderTimer(currentRoomId, sourceId, targetIndex)
@@ -280,22 +539,34 @@ export const ControllerPage = () => {
       : null
 
   const handleStartPrevTimer = useCallback(() => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!prevTimer || !room) return
     bumpCompanionOnActivity('set-active')
     setSelectedTimerId(prevTimer.id)
     setShortcutScope('controls')
     void setActiveTimer(room.id, prevTimer.id)
-  }, [prevTimer, room, setActiveTimer, bumpCompanionOnActivity])
+  }, [bumpCompanionOnActivity, isReadOnly, prevTimer, room, setActiveTimer])
 
   const handleStartNextTimer = useCallback(() => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!nextTimer || !room) return
     bumpCompanionOnActivity('set-active')
     setSelectedTimerId(nextTimer.id)
     setShortcutScope('controls')
     void setActiveTimer(room.id, nextTimer.id)
-  }, [nextTimer, room, setActiveTimer, bumpCompanionOnActivity])
+  }, [bumpCompanionOnActivity, isReadOnly, nextTimer, room, setActiveTimer])
 
   const handleToggleClock = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!room) return
     void setClockMode(room.id, !room.state.showClock)
   }
@@ -316,7 +587,102 @@ export const ControllerPage = () => {
     return lookup
   }, [engine, room, timers])
 
+  const pendingRequestAgeMs =
+    pendingRequest ? Math.max(0, controlNow - pendingRequest.requestedAt) : null
+  const forceTakeoverReady = pendingRequestAgeMs !== null && pendingRequestAgeMs >= 30_000
+  const requestCountdown =
+    pendingRequestAgeMs === null || forceTakeoverReady
+      ? null
+      : Math.ceil((30_000 - pendingRequestAgeMs) / 1000)
+
+  const handleForceTakeover = useCallback(() => {
+    if (!room) return
+    if (forceTakeoverReady) {
+      const ok = window.confirm('Force takeover now? The current controller will be displaced.')
+      if (!ok) return
+      forceTakeover(room.id)
+      return
+    }
+    const pin = window.prompt('Enter room PIN to force takeover (4-8 digits).')
+    if (!pin) return
+    forceTakeover(room.id, pin)
+  }, [forceTakeover, forceTakeoverReady, room])
+
+  const normalizePin = useCallback((value: string) => {
+    const digits = value.replace(/\D/g, '')
+    if (digits.length < 4 || digits.length > 8) return null
+    return digits
+  }, [])
+
+  const handleSetPin = useCallback(() => {
+    if (!room) return
+    setPinDraft(roomPin ?? '')
+    setPinEditing(true)
+  }, [room, roomPin])
+
+  const handleSavePin = useCallback(() => {
+    if (!room) return
+    const trimmed = pinDraft.trim()
+    if (!trimmed) {
+      setRoomPin(room.id, null)
+      setPinEditing(false)
+      return
+    }
+    const normalized = normalizePin(trimmed)
+    if (!normalized) {
+      window.alert('PIN must be 4-8 digits.')
+      return
+    }
+    setRoomPin(room.id, normalized)
+    setPinEditing(false)
+  }, [normalizePin, pinDraft, room, setRoomPin])
+
+  const handleCancelPin = useCallback(() => {
+    setPinDraft(roomPin ?? '')
+    setPinEditing(false)
+  }, [roomPin])
+
+  const handleCopyPin = useCallback(async () => {
+    if (!roomPin) return
+    try {
+      await navigator.clipboard.writeText(roomPin)
+      window.alert('PIN copied to clipboard')
+    } catch {
+      window.prompt('Copy PIN', roomPin)
+    }
+  }, [roomPin])
+
+  const handleDismissControlBar = useCallback(() => {
+    if (denial) setDismissedDenialTs(denial.deniedAt)
+    if (controlError) setDismissedErrorTs(controlError.receivedAt)
+    if (displacement) setDismissedDisplacementTs(displacement.takenAt)
+    setControlBarCollapsed(true)
+    setControlBarDismissedAt(Math.max(latestControlEventAt, Date.now()))
+  }, [controlError, denial, displacement, latestControlEventAt])
+
+  const handleConfirmHandover = useCallback(() => {
+    if (!room || !handoverTargetId) return
+    const target = roomClientList.find((client) => client.clientId === handoverTargetId)
+    if (!target) return
+    const targetLabel =
+      target.userName && target.deviceName
+        ? `${target.userName} · ${target.deviceName}`
+        : target.userName ?? target.deviceName ?? 'another device'
+    const prompt =
+      target.userId && controllerLock?.userId && target.userId !== controllerLock.userId
+        ? `Transfer control to ${target.userName ?? targetLabel}? They will have full control.`
+        : `Hand over control to ${targetLabel}?`
+    if (!window.confirm(prompt)) return
+    handOverControl(room.id, target.clientId)
+    setHandoverOpen(false)
+    setHandoverTargetId(null)
+  }, [controllerLock?.userId, handOverControl, handoverTargetId, room, roomClientList])
+
   const handleTimezoneSave = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!room) return
     const next = timezoneInput.trim()
     if (!next) {
@@ -329,6 +695,10 @@ export const ControllerPage = () => {
   }
 
   const handleTitleSave = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!room) return
     const next = titleInput.trim()
     if (!next || next === room.title) {
@@ -359,6 +729,10 @@ export const ControllerPage = () => {
   }
 
   const handleAddSegment = () => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!room) return
     void createTimer(room.id, {
       title: 'New Segment',
@@ -372,11 +746,19 @@ export const ControllerPage = () => {
   }
 
   const handleDeleteTimer = (timerId: string) => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!room) return
     void deleteTimer(room.id, timerId)
   }
 
   const handleResetTimer = (timerId: string) => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!room) return
     bumpCompanionOnActivity('reset')
     if (room.state.activeTimerId === timerId) {
@@ -389,6 +771,11 @@ export const ControllerPage = () => {
   const pendingStagedDelta = useRef(0)
   const stagedFlush = useRef<number | null>(null)
   const flushStaged = useCallback(() => {
+    if (pendingStagedDelta.current === 0) return
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (!currentRoomId || !selectedTimer) return
     const deltaMs = pendingStagedDelta.current
     pendingStagedDelta.current = 0
@@ -400,7 +787,7 @@ export const ControllerPage = () => {
       window.clearTimeout(stagedFlush.current)
       stagedFlush.current = null
     }
-  }, [currentRoomId, selectedTimer, updateTimer])
+  }, [currentRoomId, isReadOnly, selectedTimer, updateTimer])
 
   useEffect(() => {
     if (!currentRoomId) return
@@ -575,6 +962,82 @@ export const ControllerPage = () => {
 
   return (
     <>
+      {handoverOpen ? (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setHandoverOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-950 p-6 text-slate-100 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-rose-300">Hand over control</p>
+                <h2 className="mt-2 text-lg font-semibold text-white">Select target device</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  Transfer control instantly to another controller in this room.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 p-2 text-slate-400 transition hover:border-slate-500 hover:text-white"
+                onClick={() => setHandoverOpen(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="mt-5 grid gap-2">
+              {availableHandoverTargets.length === 0 ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+                  No other controllers connected.
+                </div>
+              ) : (
+                availableHandoverTargets.map((client) => {
+                  const label =
+                    client.userName && client.deviceName
+                      ? `${client.userName} · ${client.deviceName}`
+                      : client.userName ?? client.deviceName ?? 'Controller'
+                  const selected = handoverTargetId === client.clientId
+                  return (
+                    <button
+                      key={client.clientId}
+                      type="button"
+                      onClick={() => setHandoverTargetId(client.clientId)}
+                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition ${
+                        selected
+                          ? 'border-rose-300/70 bg-rose-500/10 text-rose-100'
+                          : 'border-slate-800 bg-slate-900/60 text-slate-200 hover:border-slate-600'
+                      }`}
+                    >
+                      <span className="font-semibold">{label}</span>
+                      {selected ? <span className="text-xs uppercase tracking-[0.2em]">Selected</span> : null}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setHandoverOpen(false)}
+                className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmHandover}
+                disabled={!handoverTargetId}
+                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
+              >
+                Hand over
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <section className="space-y-6">
         <header className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-4 shadow-card sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -605,8 +1068,12 @@ export const ControllerPage = () => {
                 ) : (
                   <button
                     type="button"
-                    className="text-left text-2xl font-semibold text-white hover:text-emerald-200"
+                    className={`text-left text-2xl font-semibold text-white hover:text-emerald-200 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
                     onClick={() => {
+                      if (isReadOnly) {
+                        setControlBarCollapsed(false)
+                        return
+                      }
                       setTitleInput(room.title)
                       setIsTitleEditing(true)
                     }}
@@ -654,8 +1121,12 @@ export const ControllerPage = () => {
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-400/60"
+                      className={`inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 transition hover:border-emerald-400/60 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
                       onClick={() => {
+                        if (isReadOnly) {
+                          setControlBarCollapsed(false)
+                          return
+                        }
                         setTimezoneInput(room.timezone)
                         setIsTimezoneEditing(true)
                       }}
@@ -664,9 +1135,13 @@ export const ControllerPage = () => {
                     </button>
                     <button
                       type="button"
-                      className="inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-emerald-400/60"
+                      className={`inline-flex items-center rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-emerald-400/60 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
                       onClick={(event) => {
                         event.preventDefault()
+                        if (isReadOnly) {
+                          setControlBarCollapsed(false)
+                          return
+                        }
                         if (room) {
                           const next = (room.state.clockMode ?? '24h') === '24h' ? 'ampm' : '24h'
                           void setClockFormat(room.id, next)
@@ -688,19 +1163,89 @@ export const ControllerPage = () => {
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <ConnectionIndicator status={connectionStatus} />
-              {roomAuthority?.status === 'syncing' ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
-                  <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
-                  Sync
+          <div className="flex flex-wrap items-center gap-3">
+            <ConnectionIndicator status={connectionStatus} />
+            {lockState !== 'authoritative' ? (
+              <button
+                type="button"
+                onClick={() => setControlBarCollapsed(false)}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                {viewerOnly ? 'Viewer-only' : 'View-only'}
+              </button>
+            ) : null}
+            {roomAuthority?.status === 'syncing' ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
+                <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
+                Sync
                 </span>
               ) : null}
+            {roomId && lockState === 'authoritative' ? (
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200">
+                <span className="text-[9px] tracking-[0.2em] text-slate-400">PIN</span>
+                {pinEditing ? (
+                  <input
+                    value={pinDraft}
+                    onChange={(event) => setPinDraft(event.target.value)}
+                    onBlur={handleSavePin}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleSavePin()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        handleCancelPin()
+                      }
+                    }}
+                    className="w-20 rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-100"
+                    placeholder="1234"
+                    inputMode="numeric"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSetPin}
+                    className="text-[11px] font-semibold text-slate-100 transition hover:text-white"
+                  >
+                    {roomPin ? (pinHidden ? '****' : roomPin) : 'Not set'}
+                  </button>
+                )}
+                {!pinEditing && roomPin ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setPinHidden((prev) => !prev)}
+                      className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300 transition hover:border-slate-500"
+                    >
+                      {pinHidden ? 'Show' : 'Hide'}
+                    </button>
+                    {!pinHidden ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyPin()}
+                        className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300 transition hover:border-slate-500"
+                      >
+                        Copy
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : null}
               <Tooltip content="Undo timer delete (Cmd/Ctrl+Z)">
                 <button
                   type="button"
-                  onClick={() => roomId && void undoTimerDelete(roomId)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                  onClick={() => {
+                    if (isReadOnly) {
+                      setControlBarCollapsed(false)
+                      return
+                    }
+                    if (roomId) void undoTimerDelete(roomId)
+                  }}
+                  aria-disabled={isReadOnly}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200 ${isReadOnly ? 'cursor-not-allowed opacity-60' : ''}`}
                 >
                   ↺
                 </button>
@@ -708,12 +1253,35 @@ export const ControllerPage = () => {
               <Tooltip content="Redo timer delete (Shift+Cmd/Ctrl+Z)">
                 <button
                   type="button"
-                  onClick={() => roomId && void redoTimerDelete(roomId)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200"
+                  onClick={() => {
+                    if (isReadOnly) {
+                      setControlBarCollapsed(false)
+                      return
+                    }
+                    if (roomId) void redoTimerDelete(roomId)
+                  }}
+                  aria-disabled={isReadOnly}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-slate-100 transition hover:border-emerald-500/60 hover:text-emerald-200 ${isReadOnly ? 'cursor-not-allowed opacity-60' : ''}`}
                 >
                   ↻
                 </button>
               </Tooltip>
+              {roomId && lockState === 'authoritative' && availableHandoverTargets.length > 0 ? (
+                <Tooltip content="Hand over control">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!handoverTargetId && availableHandoverTargets[0]) {
+                        setHandoverTargetId(availableHandoverTargets[0].clientId)
+                      }
+                      setHandoverOpen(true)
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300"
+                  >
+                    Hand over
+                  </button>
+                </Tooltip>
+              ) : null}
               <Tooltip content="Open Viewer in new tab">
                 <a
                   href={`/room/${room.id}/view`}
@@ -724,14 +1292,176 @@ export const ControllerPage = () => {
                   Viewer
                 </a>
               </Tooltip>
-              <ShareLinkButton roomId={room.id} />
+            <ShareLinkButton roomId={room.id} />
+          </div>
+        </div>
+        {showControlBar ? (
+          <div
+            className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border px-4 py-2 text-xs text-slate-100 shadow-sm ${
+              controlBarTone === 'rose'
+                ? 'border-rose-400/40 bg-rose-500/10'
+                : 'border-amber-400/40 bg-amber-500/10'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-2 w-2 rounded-full ${
+                  controlBarTone === 'rose' ? 'bg-rose-300' : 'bg-amber-300'
+                } ${controlBarTone === 'amber' ? 'animate-pulse' : ''}`}
+              />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-200">
+                  {controlTitle}
+                </p>
+                <p className="text-[11px] text-slate-200/80">{controlDetail}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {lockState === 'requesting' && !viewerOnly && !displacement ? (
+                <span className="text-[11px] text-slate-200/70">
+                  {forceTakeoverReady
+                    ? 'Force takeover available'
+                    : requestCountdown
+                    ? `Force in ${requestCountdown}s`
+                    : 'Waiting for response'}
+                </span>
+              ) : null}
+              {displacement ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (room) requestControl(room.id)
+                      setControlBarCollapsed(false)
+                    }}
+                    disabled={lockState === 'requesting'}
+                    className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
+                  >
+                    {lockState === 'requesting' ? 'Requesting' : 'Reclaim'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleForceTakeover}
+                    disabled={!forceTakeoverReady && !canForceNow}
+                    className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
+                  >
+                    {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDismissControlBar()
+                    }}
+                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              ) : visibleDenial || visibleError ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDismissControlBar()
+                    }}
+                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                  >
+                    Dismiss
+                  </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={lockState === 'requesting'}
+                    onClick={() => room && requestControl(room.id)}
+                    className="rounded-full border border-amber-300/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200 disabled:opacity-60"
+                  >
+                    {lockState === 'requesting' ? 'Requesting' : 'Request'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleForceTakeover}
+                    disabled={!forceTakeoverReady && !canForceNow}
+                    title={
+                      forceTakeoverReady
+                        ? 'Force takeover now'
+                        : canForceNow
+                        ? 'Force takeover with PIN'
+                        : 'No PIN set; force takeover after timeout'
+                    }
+                    className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
+                  >
+                    {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewerOnly((prev) => !prev)}
+                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                  >
+                    {viewerOnly ? 'Enable control' : 'Viewer-only'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDismissControlBar()
+                    }}
+                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              )}
             </div>
           </div>
-          {connectionStatus !== 'online' && (
-            <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              <AlertTriangle size={16} />
-              Mock latency enabled. Actions will delay slightly.
+        ) : null}
+        {roomId && lockState === 'authoritative' && incomingRequest && ignoredRequestTs !== incomingRequest.requestedAt ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border border-rose-500/50 bg-rose-500/10 px-4 py-2 text-xs text-rose-100 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-rose-100">Control request</p>
+                <p className="text-[11px] text-rose-100/90">
+                  {incomingRequest.requesterUserName ?? incomingRequest.requesterName ?? 'Another device'} wants control.
+                </p>
+              </div>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => room && handOverControl(room.id, incomingRequest.requesterId)}
+                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200"
+              >
+                Hand over
+              </button>
+              <button
+                type="button"
+                onClick={() => setRequestChimeEnabled((prev) => !prev)}
+                className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                Chime {requestChimeEnabled ? 'On' : 'Off'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (room) {
+                    denyControl(room.id, incomingRequest.requesterId)
+                  }
+                  setIgnoredRequestTs(incomingRequest.requestedAt)
+                }}
+                className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {connectionStatus !== 'online' && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <AlertTriangle size={16} />
+            Mock latency enabled. Actions will delay slightly.
+          </div>
           )}
         </header>
 
@@ -739,14 +1469,20 @@ export const ControllerPage = () => {
           className={`relative rounded-3xl border bg-slate-950/60 p-4 shadow-card transition ${shortcutScope === 'controls' ? 'border-emerald-400/70 shadow-[0_0_25px_rgba(16,185,129,0.25)]' : 'border-slate-900/60'
             } sm:flex sm:items-center sm:justify-between sm:gap-4`}
           role="group"
-          onClick={() => setShortcutScope('controls')}
+          onClick={() => {
+            if (isReadOnly) {
+              setControlBarCollapsed(false)
+            }
+            setShortcutScope('controls')
+          }}
         >
           <div className="flex flex-wrap items-center gap-2 text-base text-white">
             <Tooltip content="Previous Timer" shortcut="[">
               <button
                 type="button"
                 onClick={handleStartPrevTimer}
-                className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30"
+                aria-disabled={isReadOnly}
+                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
                 disabled={!prevTimer}
                 aria-label="Previous timer (BracketLeft)"
               >
@@ -759,10 +1495,12 @@ export const ControllerPage = () => {
                 onClick={() => {
                   startControlTimer()
                 }}
-                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl font-semibold shadow-sm transition ${room.state.isRunning
+                aria-disabled={isReadOnly}
+                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl font-semibold shadow-sm transition disabled:opacity-40 ${room.state.isRunning
                   ? 'bg-rose-500/85 text-white shadow-[0_4px_16px_rgba(248,113,113,0.35)]'
                   : 'bg-emerald-500/95 text-slate-950 hover:bg-emerald-400 shadow-[0_4px_16px_rgba(16,185,129,0.35)]'
-                  }`}
+                  } ${isReadOnly ? 'cursor-not-allowed' : ''}`}
+                disabled={!controlTargetTimerId}
                 aria-label="Play"
               >
                 <Play size={20} />
@@ -774,10 +1512,11 @@ export const ControllerPage = () => {
                 onClick={() => {
                   pauseControlTimer()
                 }}
-                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border font-semibold transition ${room.state.isRunning
+                aria-disabled={isReadOnly}
+                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border font-semibold transition disabled:opacity-40 ${room.state.isRunning
                   ? 'border-rose-400/80 bg-rose-500/15 text-rose-100 hover:border-rose-200'
                   : 'border-indigo-300/70 bg-slate-900/90 text-indigo-100 hover:border-indigo-200'
-                  }`}
+                  } ${isReadOnly ? 'cursor-not-allowed' : ''}`}
                 disabled={!room.state.isRunning}
                 aria-label="Pause"
               >
@@ -788,7 +1527,8 @@ export const ControllerPage = () => {
               <button
                 type="button"
                 onClick={handleStartNextTimer}
-                className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30"
+                aria-disabled={isReadOnly}
+                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/80 text-white transition hover:border-emerald-200/70 disabled:opacity-30 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
                 disabled={!nextTimer}
                 aria-label="Next timer (BracketRight)"
               >
@@ -801,7 +1541,9 @@ export const ControllerPage = () => {
                 onClick={() => {
                   resetControlTimer()
                 }}
-                className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/70 bg-slate-900/80 text-amber-100 transition hover:border-amber-200"
+                aria-disabled={isReadOnly}
+                className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-300/70 bg-slate-900/80 text-amber-100 transition hover:border-amber-200 disabled:opacity-40 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
+                disabled={!controlTargetTimerId}
                 aria-label="Reset timer"
               >
                 <RotateCcw size={20} />
@@ -821,10 +1563,12 @@ export const ControllerPage = () => {
               <button
                 type="button"
                 onClick={handleToggleClock}
+                aria-disabled={isReadOnly}
                 className={`inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2.5 text-sm font-semibold transition ${room.state.showClock
                   ? 'border-rose-400 bg-rose-500/20 text-rose-100'
                   : 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-white/50'
-                  }`}
+                  } disabled:opacity-50 ${isReadOnly ? 'cursor-not-allowed' : ''}`}
+                disabled={false}
                 aria-label={room.state.showClock ? 'Hide clock' : 'Show clock'}
               >
                 <Clock3 size={18} />
@@ -835,7 +1579,10 @@ export const ControllerPage = () => {
               <Tooltip content="Share Viewer Link">
                 <button
                   type="button"
-                  onClick={handleShare}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void handleShare()
+                  }}
                   className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-white/50"
                   aria-label="Share"
                 >
@@ -845,7 +1592,8 @@ export const ControllerPage = () => {
               <Tooltip content="Show QR Code">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation()
                     setQrError(false)
                     setQrOpen((prev) => !prev)
                   }}
@@ -862,7 +1610,8 @@ export const ControllerPage = () => {
                 <>
                   <div
                     className="fixed inset-0 z-20 bg-transparent"
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation()
                       setQrOpen(false)
                       setQrModalOpen(false)
                     }}
@@ -926,6 +1675,7 @@ export const ControllerPage = () => {
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
           <RundownPanel
+            readOnly={isReadOnly}
             timers={timers}
             activeTimerId={room.state.activeTimerId}
             isRunning={isRunning}
@@ -934,10 +1684,17 @@ export const ControllerPage = () => {
             selectedTimerId={selectedTimerId}
             showSelection={shortcutScope === 'rundown'}
             onSelect={(timerId) => {
+              if (isReadOnly) {
+                setControlBarCollapsed(false)
+              }
               setSelectedTimerId(timerId)
               setShortcutScope('rundown')
             }}
             onStart={(timerId) => {
+              if (isReadOnly) {
+                setControlBarCollapsed(false)
+                return
+              }
               setSelectedTimerId(timerId)
               setShortcutScope('rundown')
               bumpCompanionOnActivity('start')
@@ -962,12 +1719,19 @@ export const ControllerPage = () => {
             <MessagePanel
               key={messageKey}
               initial={room.state.message}
+              disabled={isReadOnly}
+              onBlocked={() => setControlBarCollapsed(false)}
               onUpdate={(payload) => {
+                if (isReadOnly) {
+                  setControlBarCollapsed(false)
+                  return
+                }
                 void updateMessage(room.id, payload)
               }}
             />
             <LiveTimerPreview
               timer={activeTimer}
+              readOnly={isReadOnly}
               showClock={room.state.showClock}
               engine={engine}
               isRunning={isRunning}
