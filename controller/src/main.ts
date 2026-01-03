@@ -244,16 +244,31 @@ async function startStaticServer(): Promise<string> {
     }
   });
 
-  await new Promise<void>((resolve, reject) => {
-    staticServer?.once('error', reject);
-    staticServer?.listen(0, '127.0.0.1', () => {
-      const address = staticServer?.address();
-      if (address && typeof address === 'object') {
-        staticServerPort = address.port;
-      }
-      resolve();
+  const preferredPort = Number(process.env.ONTIME_CONTROLLER_PORT ?? 5174);
+  const bindServer = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        staticServer?.off('error', onError);
+        reject(err);
+      };
+      staticServer?.once('error', onError);
+      staticServer?.listen(port, '127.0.0.1', () => {
+        staticServer?.off('error', onError);
+        const address = staticServer?.address();
+        if (address && typeof address === 'object') {
+          staticServerPort = address.port;
+        }
+        resolve();
+      });
     });
-  });
+
+  try {
+    await bindServer(preferredPort);
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    console.warn(`[controller] Port ${preferredPort} unavailable (${err.code}); falling back to random port.`);
+    await bindServer(0);
+  }
 
   return `http://localhost:${staticServerPort}`;
 }

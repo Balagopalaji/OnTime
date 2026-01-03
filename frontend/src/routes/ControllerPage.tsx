@@ -22,6 +22,7 @@ import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
+import { getCloudViewerUrl } from '../lib/viewer-links'
 import { useAppMode } from '../context/AppModeContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { auth } from '../lib/firebase'
@@ -141,6 +142,10 @@ export const ControllerPage = () => {
   const [controlBarCollapsed, setControlBarCollapsed] = useState(false)
   const [controlBarDismissedAt, setControlBarDismissedAt] = useState(0)
   const [reauthHintAt, setReauthHintAt] = useState<number | null>(null)
+  const [forcePromptOpen, setForcePromptOpen] = useState(false)
+  const [forcePromptMode, setForcePromptMode] = useState<'pin' | 'confirm'>('pin')
+  const [forcePinDraft, setForcePinDraft] = useState('')
+  const forcePinInputRef = useRef<HTMLInputElement | null>(null)
   const [handoverOpen, setHandoverOpen] = useState(false)
   const [handoverTargetId, setHandoverTargetId] = useState<string | null>(null)
   const [viewerOnly, setViewerOnly] = useState(() => {
@@ -622,31 +627,48 @@ export const ControllerPage = () => {
     }
   }, [user])
 
-  const handleForceTakeover = useCallback(async () => {
-    if (!room) return
-    if (forceTakeoverReady) {
-      const ok = window.confirm('Force takeover now? The current controller will be displaced.')
-      if (!ok) return
-      forceTakeover(room.id)
-      return
-    }
-    const pin = window.prompt('Enter room PIN to force takeover now. Leave blank to re-auth with Google.')
-    if (pin === null) return
-    const trimmed = pin.trim()
-    if (trimmed) {
-      forceTakeover(room.id, { pin: trimmed })
-      return
-    }
-    const ok = await attemptReauth()
-    if (!ok) return
-    forceTakeover(room.id, { reauthenticated: true })
-  }, [attemptReauth, forceTakeover, forceTakeoverReady, room])
-
   const normalizePin = useCallback((value: string) => {
     const digits = value.replace(/\D/g, '')
     if (digits.length < 4 || digits.length > 8) return null
     return digits
   }, [])
+
+  const handleForceTakeover = useCallback(() => {
+    if (!room) return
+    setForcePromptMode(forceTakeoverReady ? 'confirm' : 'pin')
+    setForcePinDraft('')
+    setForcePromptOpen(true)
+  }, [forceTakeoverReady, room])
+
+  useEffect(() => {
+    if (!forcePromptOpen || forcePromptMode !== 'pin') return
+    const id = window.setTimeout(() => forcePinInputRef.current?.focus(), 0)
+    return () => window.clearTimeout(id)
+  }, [forcePromptOpen, forcePromptMode])
+
+  const submitForceTakeover = useCallback(async () => {
+    if (!room) return
+    if (forcePromptMode === 'confirm') {
+      forceTakeover(room.id)
+      setForcePromptOpen(false)
+      return
+    }
+    const trimmed = forcePinDraft.trim()
+    if (trimmed) {
+      const normalized = normalizePin(trimmed)
+      if (!normalized) {
+        window.alert('PIN must be 4-8 digits.')
+        return
+      }
+      forceTakeover(room.id, { pin: normalized })
+      setForcePromptOpen(false)
+      return
+    }
+    const ok = await attemptReauth()
+    if (!ok) return
+    forceTakeover(room.id, { reauthenticated: true })
+    setForcePromptOpen(false)
+  }, [attemptReauth, forcePinDraft, forcePromptMode, forceTakeover, normalizePin, room])
 
   const handleSetPin = useCallback(() => {
     if (!room) return
@@ -987,15 +1009,80 @@ export const ControllerPage = () => {
     )
   }
 
-  const viewerUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/room/${room.id}/view`
-      : ''
+  const viewerUrl = getCloudViewerUrl(room.id)
 
   const messageKey = `${room.state.message.text}::${room.state.message.color}::${room.state.message.visible}`
 
   return (
     <>
+      {forcePromptOpen ? (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setForcePromptOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-950 p-6 text-slate-100 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-rose-300">Force takeover</p>
+                <h2 className="mt-2 text-lg font-semibold text-white">
+                  {forcePromptMode === 'confirm' ? 'Confirm takeover' : 'Enter room PIN'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  {forcePromptMode === 'confirm'
+                    ? 'This will displace the current controller.'
+                    : 'Use the room PIN or leave blank to re-auth with Google.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-slate-700 p-2 text-slate-400 transition hover:border-slate-500 hover:text-white"
+                onClick={() => setForcePromptOpen(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            {forcePromptMode === 'pin' ? (
+              <div className="mt-5">
+                <input
+                  ref={forcePinInputRef}
+                  type="password"
+                  inputMode="numeric"
+                  value={forcePinDraft}
+                  onChange={(event) => setForcePinDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void submitForceTakeover()
+                    }
+                  }}
+                  placeholder="PIN (4-8 digits)"
+                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-rose-300/70"
+                />
+              </div>
+            ) : null}
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setForcePromptOpen(false)}
+                className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitForceTakeover()}
+                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200"
+              >
+                Force takeover
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {handoverOpen ? (
         <div
           className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 px-4"

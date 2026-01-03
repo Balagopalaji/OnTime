@@ -139,20 +139,20 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass B: Controller Lock & Takeover**
 **Companion**
-- [ ] Implement controller lock + heartbeat; mark authoritative controller; reject non-authoritative writes at socket layer.
+- [x] Implement controller lock + heartbeat; mark authoritative controller; reject non-authoritative writes at socket layer.
 **Companion Socket Events**
-- [ ] `HEARTBEAT` (client → server, every 30s)
-- [ ] `CONTROLLER_LOCK_STATE` (server → all clients on change)
-- [ ] `REQUEST_CONTROL` (client → server)
-- [ ] `CONTROL_REQUEST_RECEIVED` (server → current controller)
-- [ ] `FORCE_TAKEOVER` (client → server, requires PIN or timeout)
+- [x] `HEARTBEAT` (client → server, every 30s)
+- [x] `CONTROLLER_LOCK_STATE` (server → all clients on change)
+- [x] `REQUEST_CONTROL` (client → server)
+- [x] `CONTROL_REQUEST_RECEIVED` (server → current controller)
+- [x] `FORCE_TAKEOVER` (client → server, requires PIN or timeout)
 **Frontend**
-- [ ] Request control flow with non-blocking notification, countdown, and force takeover rules.
-- [ ] Handoff flow (current controller selects target device) + reclaim flow.
-- [ ] Type scaffolding: add `ControllerLock` to `frontend/src/types/index.ts`.
-- [ ] Acceptance: Only one controller can write; takeover requires explicit action; no silent auto-takeover.
+- [x] Request control flow with non-blocking notification, countdown, and force takeover rules.
+- [x] Handoff flow (current controller selects target device) + reclaim flow.
+- [x] Type scaffolding: add `ControllerLock` to `frontend/src/types/index.ts`.
+- [x] Acceptance: Only one controller can write; takeover requires explicit action; no silent auto-takeover.
 **Reference**
-- [ ] See `docs/phase-2-overview.md` Phase 2b Flow Diagrams for state models.
+- [x] See `docs/phase-2-overview.md` Phase 2b Flow Diagrams for state models.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (lock store, heartbeat, permission checks)
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx` (authority/lock integration), `frontend/src/routes/*` (UX)
@@ -161,26 +161,26 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: two controllers, one authoritative
 
 **Manual Verification (Pass B)**
-- [ ] Open two controllers; only one can start/stop/nudge timers, other is read-only.
-- [ ] Request control shows attention banner; "Hand Over" transfers immediately; "Force Takeover" follows PIN/timeout rules.
-- [ ] Reclaim control works and logs the takeover event.
+- [x] Open two controllers; only one can start/stop/nudge timers, other is read-only.
+- [x] Request control shows attention banner; "Hand Over" transfers immediately; "Force Takeover" follows PIN/timeout rules.
+- [x] Reclaim control works and logs the takeover event.
 
 **Pass B.2: Control Handoff UX + PIN (Phase 2b polish)**
 **Companion**
-- [ ] Validate room PIN for immediate force takeover; keep timeout fallback with confirmation.
-- [ ] Log takeover attempts in Companion cache (audit trail).
-- [ ] Include lock state metadata (device/user identity, last heartbeat, active controller id).
-- [ ] Emit request denial to requester ("Denied by controller") with reason.
+- [x] Validate room PIN for immediate force takeover; keep timeout fallback with confirmation.
+- [x] Log takeover attempts in Companion cache (audit trail).
+- [x] Include lock state metadata (device/user identity, last heartbeat, active controller id).
+- [x] Emit request denial to requester ("Denied by controller") with reason.
 **Frontend**
-- [ ] PIN display (authoritative only): show PIN with hide toggle (default visible), copy button, and "Not set" link.
-- [ ] Room PIN set flow (owner-only) with local validation and persistence.
-- [ ] Room-in-use guard: only show when active controller heartbeat <90s; otherwise show "Room appears inactive" messaging.
-- [ ] Request control UX: waiting state with countdown, immediate "Force Takeover Now" with PIN or re-auth, timeout confirmation with no PIN.
-- [ ] Attention banner styling: red/amber pulse + optional chime (default on, setting to disable).
-- [ ] Handoff flow: select target device; confirm copy varies for same user vs. different user.
-- [ ] Post-takeover notice for displaced controller with "Reclaim Control" action.
-- [ ] Viewer-only mode toggle (optional) to hide takeover controls for observers.
-- [ ] Viewer share links + QR always target the cloud web app (`https://<web-app>/view/:roomId`).
+- [x] PIN display (authoritative only): show PIN with hide toggle (default visible), copy button, and "Not set" link.
+- [x] Room PIN set flow (owner-only) with local validation and persistence.
+- [x] Room-in-use guard: only show when active controller heartbeat <90s; otherwise show "Room appears inactive" messaging.
+- [x] Request control UX: waiting state with countdown, immediate "Force Takeover Now" with PIN or re-auth, timeout confirmation with no PIN.
+- [x] Attention banner styling: red/amber pulse + optional chime (default on, setting to disable).
+- [x] Handoff flow: select target device; confirm copy varies for same user vs. different user.
+- [x] Post-takeover notice for displaced controller with "Reclaim Control" action.
+- [x] Viewer-only mode toggle (optional) to hide takeover controls for observers.
+- [x] Viewer share links + QR always target the cloud web app (`https://<web-app>/view/:roomId`).
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (PIN validation, audit, deny event)
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/DashboardPage.tsx`
@@ -189,10 +189,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: request/deny/force path including timeout fallback
 
 **Manual Verification (Pass B.2)**
-- [ ] Force takeover works immediately with PIN; timeout path works with confirmation.
-- [ ] Deny returns requester message and clears pending state.
-- [ ] Room-in-use guard respects stale heartbeat and shows inactive copy.
-- [ ] Post-takeover notice shows reclaim flow and works.
+- [x] Force takeover works immediately with PIN; timeout path works with confirmation.
+- [x] Deny returns requester message and clears pending state.
+- [x] Room-in-use guard respects stale heartbeat and shows inactive copy.
+- [x] Post-takeover notice shows reclaim flow and works.
 
 **Pass C: Authority & Caching**
 **Companion**

@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Check, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
 import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
@@ -15,6 +15,7 @@ import { db } from '../lib/firebase'
 import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
+import { getCloudViewerUrl } from '../lib/viewer-links'
 
 const DEBUG_SORTABLE = false
 
@@ -965,12 +966,14 @@ export const DashboardPage = () => {
 
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Tooltip content="Open viewer">
-              <Link
-                to={`/room/${room.id}/view`}
+              <a
+                href={getCloudViewerUrl(room.id)}
+                target="_blank"
+                rel="noreferrer"
                 className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-2 text-sm text-white transition hover:border-white/70"
               >
                 Viewer
-              </Link>
+              </a>
             </Tooltip>
             <div className="flex items-center gap-2">
               <Tooltip content="Share viewer link">
@@ -978,11 +981,7 @@ export const DashboardPage = () => {
                   type="button"
                   className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-white/50"
                   onClick={() => {
-                    const origin =
-                      typeof window !== 'undefined' && window.location.origin
-                        ? window.location.origin
-                        : 'https://stagetime.app'
-                    const viewerUrl = `${origin}/room/${room.id}/view`
+                    const viewerUrl = getCloudViewerUrl(room.id)
                     if (navigator.share) {
                       void navigator.share({ title: room.title, url: viewerUrl }).catch(() => { })
                     } else {
@@ -1061,7 +1060,7 @@ export const DashboardPage = () => {
                             ) : (
                               <img
                                 src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                                  `${window.location.origin}/room/${room.id}/view`,
+                                  getCloudViewerUrl(room.id),
                                 )}`}
                                 alt="Viewer QR"
                                 className="h-72 w-72 cursor-pointer object-contain"
@@ -1231,6 +1230,7 @@ export const DashboardPage = () => {
   const roomInUseLastActive = roomInUseLock
     ? Math.max(0, Date.now() - roomInUseLock.lastHeartbeat)
     : null
+  const roomInUseStale = roomInUseLastActive !== null && roomInUseLastActive > 90_000
   const roomInUseLastActiveLabel =
     roomInUseLastActive === null
       ? 'Unknown'
@@ -1270,11 +1270,14 @@ export const DashboardPage = () => {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-rose-300">Room in use</p>
+                <p className="text-xs uppercase tracking-[0.3em] text-rose-300">
+                  {roomInUseStale ? 'Room appears inactive' : 'Room in use'}
+                </p>
                 <h2 className="mt-2 text-lg font-semibold text-white">{roomInUseRoom.title}</h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  Controlled by {roomInUseLock?.userName ?? roomInUseLock?.deviceName ?? 'another device'}. Last active{' '}
-                  {roomInUseLastActiveLabel}.
+                  {roomInUseStale
+                    ? `Last active ${roomInUseLastActiveLabel}. You can open the room or request control.`
+                    : `Controlled by ${roomInUseLock?.userName ?? roomInUseLock?.deviceName ?? 'another device'}. Last active ${roomInUseLastActiveLabel}.`}
                 </p>
               </div>
               <button
@@ -1586,9 +1589,9 @@ export const DashboardPage = () => {
             onClick={(event) => event.stopPropagation()}
           >
             <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                `${window.location.origin}/room/${qrModalId}/view`,
-              )}`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                    getCloudViewerUrl(qrModalId),
+                  )}`}
               alt="Viewer QR"
               className="h-80 w-80 object-contain"
             />

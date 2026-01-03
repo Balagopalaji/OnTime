@@ -75,6 +75,7 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
   - Prompt tone varies by last-active time (active vs. stale).
 - **Room PIN (optional):** per-room code for fast authorized takeover; set by room owner.
   - Backup controllers should sign in once while online so Companion can cache ownership for offline use.
+  - Electron controller should persist auth locally across restarts (stable origin) so offline recovery does not force re-login.
 - **PIN display (authoritative controller only):**
   - Show compact “PIN: 4821” in header by default.
   - Provide a hide toggle (default OFF) for operators who prefer to mask it.
