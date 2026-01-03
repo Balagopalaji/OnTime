@@ -13,6 +13,7 @@ Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a singl
 
 ## Global Guidance (include in every prompt)
 - Read `docs/phase-2-tasklist.md` and the relevant pass before coding.
+- Also read: `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/local-mode.md`, `docs/edge-cases.md`, `docs/interface.md`.
 - Respect scope exclusions for the milestone.
 - Avoid touching parallel sync logic unless the pass explicitly requires it.
 - Keep changes isolated to the stated files.
@@ -21,6 +22,9 @@ Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a singl
 - Follow the Error UX Matrix in `docs/phase-2-tasklist.md`.
 - Include protocol versioning in JOIN/HANDSHAKE when touching that flow.
 - Do not modify timer math, elapsed calculations, or `useTimerEngine` unless the pass explicitly requires it.
+- Respect preview cache TTL (10s or on `HANDSHAKE_ACK` capability change).
+- Feature gating: missing capabilities must show visible UI messaging; no silent failures.
+- Stop and report immediately if parallel sync regresses (timer drift, queue replay, authority flapping).
 - Run relevant tests before marking the pass complete; if frontend touched, run `npm run lint && npm run test`.
 
 ---
@@ -38,7 +42,9 @@ Read `docs/phase-2-tasklist.md`. Summarize the next pass you will implement, lis
 ### Pass A: Electron Shell
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 0 Pass A from `docs/phase-2-tasklist.md`.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Scope: Electron shell only (no transport changes).
 Targets: Electron shell, contextBridge IPC, load frontend build output, deep link handler, crash recovery banner, local cache persistence.
 Keep Companion socket ownership in the renderer; do not move sockets into the main process.
@@ -54,7 +60,9 @@ Before writing code:
 ### Pass B: Build & Sign
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 0 Pass B.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Add code signing + auto-update pipeline (electron-builder/electron-updater).
 Test canary update path. No UI changes.
 Acceptance: Builds install and update cleanly on macOS + Windows.
@@ -72,7 +80,9 @@ Before writing code:
 ### Pass A: Reconnect State Machine
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 1 Pass A.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Companion: enforce single pending handshake.
 Frontend: reconnection state machine + backoff + Retry CTA.
 Files: `companion/src/main.ts`, `frontend/src/context/CompanionConnectionContext.tsx`.
@@ -87,13 +97,16 @@ Before writing code:
 ### Pass B: Controller Lock & Takeover
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 1 Pass B.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Companion: lock + heartbeat + socket events (HEARTBEAT, CONTROLLER_LOCK_STATE, REQUEST_CONTROL,
 CONTROL_REQUEST_RECEIVED, FORCE_TAKEOVER).
 Frontend: request flow, handover, reclaim UI.
 Reject non-authoritative writes at BOTH Companion socket layer and Firebase write-through.
 Types: add `ControllerLock` to `frontend/src/types/index.ts`.
 Reference: `docs/phase-2-overview.md` Phase 2b Flow Diagrams.
+Also consult `docs/client-prd.md` + `docs/local-server-prd.md` for control handoff, PIN, and room-in-use details.
 
 Before writing code:
 1. List the files you will create/modify
@@ -104,10 +117,15 @@ Before writing code:
 ### Pass C: Authority & Caching
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 1 Pass C.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 On capability/tier change: drop cached preview, refetch room config/state, recompute feature visibility.
 Conflict rule: prefer freshest `lastUpdate`, tie-break to controller-originated change.
+Authority confidence window: 2s base, expand to 4s on reconnect churn (per `docs/local-mode.md`).
+Viewer sync guard: avoid applying local writes when viewer-only / non-authoritative.
 Cross-tab sync: mode changes, takeover banners, token refresh propagate via BroadcastChannel/localStorage.
+Drop cached preview on `HANDSHAKE_ACK` capability/tier change and respect the 10s TTL.
 Files: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/context/CompanionConnectionContext.tsx`.
 
 Before writing code:
@@ -119,7 +137,9 @@ Before writing code:
 ### Pass D: Rules & Tests
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 1 Pass D.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Firestore rules rollout for tiered subcollections; ensure `reorderRoom.mock.test.tsx` passes.
 Run `npm run test` + `npm run lint` and report results.
 
@@ -136,7 +156,9 @@ Before writing code:
 ### Pass A: Protocol & Plumbing
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 2 Pass A.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Companion emits LIVE_CUE/PRESENTATION events; frontend merges; `activeLiveCueId` in RoomState.
 Write-through policy: controller writes liveCues to Firestore; Companion writes only after 5s stale
 heartbeat, yields on reconnect; skip write-through when cue rate > 1/sec.
@@ -153,7 +175,9 @@ Before writing code:
 ### Pass B: UI & Latency Validation
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 2 Pass B.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Dual header + tech viewer status panel gated by tier/capability.
 Add latency harness instructions; record local vs cloud deltas.
 Files: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/ViewerPage.tsx`, `frontend/src/components/*`.
@@ -171,7 +195,9 @@ Before writing code:
 ### Pass A-Win: PPT Detection + File Ops (Windows)
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 3 Pass A-Win in Companion.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Add /api/open, /api/file/exists, /api/file/metadata with strict path validation.
 PPT detection via COM API; debounce 1.5s; foreground-only; emit PRESENTATION_CLEAR on close/idle.
 Files: `companion/src/main.ts`.
@@ -185,7 +211,9 @@ Before writing code:
 ### Pass A-Mac: PPT Slide Tracking (macOS)
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 3 Pass A-Mac in Companion.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Slide tracking via AppleScript; no video timing; emit "video timing unavailable on macOS".
 Files: `companion/src/main.ts`.
 
@@ -198,7 +226,9 @@ Before writing code:
 ### Pass B: Frontend Workflow
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 3 Pass B.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Presentation detected notification, manual import flow, error UX for token expiry and ffprobe missing.
 Files: `frontend/src/components/*`, `frontend/src/context/UnifiedDataContext.tsx`.
 
@@ -215,7 +245,9 @@ Before writing code:
 ### Pass A: Viewer/Controller Polish
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 4 Pass A.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Typography scaling fixes, wake-lock fallback banner, Minimal mode gating UX, basic tier skin, banner copy cleanup.
 Files: `frontend/src/routes/*`, `frontend/src/components/*`, `frontend/src/index.css`.
 
@@ -228,7 +260,9 @@ Before writing code:
 ### Pass B: Companion GUI & Resource Checks
 Prompt:
 ```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
 Implement Milestone 4 Pass B.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 Companion tray + minimal window; persistent mode selection; RAM measurement targets.
 Files: `companion/src/main.ts`.
 
