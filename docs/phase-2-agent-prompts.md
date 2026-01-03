@@ -162,6 +162,7 @@ Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list a
 Companion emits LIVE_CUE/PRESENTATION events; frontend merges; `activeLiveCueId` in RoomState.
 Write-through policy: controller writes liveCues to Firestore; Companion writes only after 5s stale
 heartbeat, yields on reconnect; skip write-through when cue rate > 1/sec.
+Write metadata uses `updatedAt` + `writeSource: 'companion' | 'controller'` (distinct from cue `source`).
 Types: extend RoomState with `activeLiveCueId: string | null` in `frontend/src/types/index.ts`.
 Files: `companion/src/main.ts`, `frontend/src/context/UnifiedDataContext.tsx`.
 Scope exclusions: no scheduled cues, no cue timeline, no manual acknowledgment.

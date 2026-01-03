@@ -217,6 +217,51 @@ type RoomState = {
   lastUpdate: number;
   elapsedOffset?: number;
   progress?: Record<string, number>;
+  activeLiveCueId?: string;
+};
+
+type LiveCueConfig = {
+  warningSec?: number;
+  criticalSec?: number;
+};
+
+type LiveCueMetadata = {
+  slideNumber?: number;
+  totalSlides?: number;
+  slideNotes?: string;
+  filename?: string;
+  player?: string;
+  parentTimerId?: string;
+  autoAdvanceNext?: boolean;
+  videoPlaying?: boolean;
+  videoDuration?: number;
+  videoElapsed?: number;
+  videoRemaining?: number;
+};
+
+type LiveCue = {
+  id: string;
+  source: 'powerpoint' | 'external_video' | 'pdf';
+  title: string;
+  duration?: number;
+  startedAt?: number;
+  status?: 'playing' | 'paused' | 'ended';
+  config?: LiveCueConfig;
+  metadata?: LiveCueMetadata;
+};
+
+type LiveCueEventPayload = {
+  type: 'LIVE_CUE_CREATED' | 'LIVE_CUE_UPDATED' | 'LIVE_CUE_ENDED';
+  roomId: string;
+  cue: LiveCue;
+  timestamp: number;
+};
+
+type PresentationEventPayload = {
+  type: 'PRESENTATION_LOADED' | 'PRESENTATION_UPDATE';
+  roomId: string;
+  cue: LiveCue;
+  timestamp: number;
 };
 
 type TimerActionPayload = {
@@ -366,6 +411,110 @@ function emitToRoom(roomId: string, event: string, payload: unknown) {
 }
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
+const liveCuesStore: Map<string, Map<string, { cue: LiveCue; updatedAt: number }>> = new Map();
+
+function getRoomLiveCues(roomId: string): Map<string, { cue: LiveCue; updatedAt: number }> {
+  if (liveCuesStore.has(roomId)) return liveCuesStore.get(roomId)!;
+  const initial = new Map<string, { cue: LiveCue; updatedAt: number }>();
+  liveCuesStore.set(roomId, initial);
+  return initial;
+}
+
+function updateRoomActiveLiveCueId(roomId: string, activeLiveCueId: string | null) {
+  const state = getRoomState(roomId);
+  if (state.activeLiveCueId === activeLiveCueId) return;
+  const now = Date.now();
+  const nextState: RoomState = { ...state, activeLiveCueId: activeLiveCueId ?? undefined };
+  roomStateStore.set(roomId, nextState);
+  scheduleRoomCacheWrite();
+
+  const delta: RoomStateDelta = {
+    type: 'ROOM_STATE_DELTA',
+    roomId,
+    changes: { activeLiveCueId },
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'ROOM_STATE_DELTA', delta);
+}
+
+function emitLiveCueCreated(roomId: string, cue: LiveCue) {
+  const now = Date.now();
+  const roomCues = getRoomLiveCues(roomId);
+  roomCues.set(cue.id, { cue, updatedAt: now });
+  updateRoomActiveLiveCueId(roomId, cue.id);
+  const payload: LiveCueEventPayload = {
+    type: 'LIVE_CUE_CREATED',
+    roomId,
+    cue,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'LIVE_CUE_CREATED', payload);
+}
+
+function emitLiveCueUpdated(roomId: string, cue: LiveCue) {
+  const now = Date.now();
+  const roomCues = getRoomLiveCues(roomId);
+  roomCues.set(cue.id, { cue, updatedAt: now });
+  if (cue.status !== 'ended') {
+    updateRoomActiveLiveCueId(roomId, cue.id);
+  }
+  const payload: LiveCueEventPayload = {
+    type: 'LIVE_CUE_UPDATED',
+    roomId,
+    cue,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'LIVE_CUE_UPDATED', payload);
+}
+
+function emitLiveCueEnded(roomId: string, cue: LiveCue) {
+  const now = Date.now();
+  const roomCues = getRoomLiveCues(roomId);
+  roomCues.delete(cue.id);
+  const activeId = getRoomState(roomId).activeLiveCueId;
+  if (activeId === cue.id) {
+    updateRoomActiveLiveCueId(roomId, null);
+  }
+  const payload: LiveCueEventPayload = {
+    type: 'LIVE_CUE_ENDED',
+    roomId,
+    cue,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'LIVE_CUE_ENDED', payload);
+}
+
+function emitPresentationLoaded(roomId: string, cue: LiveCue) {
+  const now = Date.now();
+  const payload: PresentationEventPayload = {
+    type: 'PRESENTATION_LOADED',
+    roomId,
+    cue,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'PRESENTATION_LOADED', payload);
+}
+
+function emitPresentationUpdate(roomId: string, cue: LiveCue) {
+  const now = Date.now();
+  const payload: PresentationEventPayload = {
+    type: 'PRESENTATION_UPDATE',
+    roomId,
+    cue,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'PRESENTATION_UPDATE', payload);
+}
+
+const liveCueEmitters = {
+  emitLiveCueCreated,
+  emitLiveCueUpdated,
+  emitLiveCueEnded,
+  emitPresentationLoaded,
+  emitPresentationUpdate,
+};
+void liveCueEmitters;
+
 const roomControllerStore: Map<string, {
   clientId: string;
   socketId: string;
@@ -2635,7 +2784,8 @@ function getRoomState(roomId: string): RoomState {
     activeTimerId: null,
     isRunning: false,
     currentTime: 0,
-    lastUpdate: Date.now()
+    lastUpdate: Date.now(),
+    activeLiveCueId: null,
   };
 
   roomStateStore.set(roomId, initial);

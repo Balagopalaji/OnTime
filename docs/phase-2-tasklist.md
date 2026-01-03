@@ -269,8 +269,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Companion**
 - [ ] Emit `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
 **Frontend/Cloud**
-- [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `source=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
+- [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `writeSource=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
 - [ ] Write-through policy: controller writes `liveCues` to Firestore; Companion only writes when controller heartbeat is stale for 5s, then yields immediately on controller reconnect.
+  - Write metadata uses `updatedAt` + `writeSource: 'companion' | 'controller'` (distinct from cue `source`).
 - [ ] Skip `liveCues` write-through when cue rate exceeds 1/sec; fall back to `activeLiveCueId` only.
 - [ ] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
   - Cost note: each cue change = 1 write + N reads (viewers). For high-frequency shows (>1 cue/sec), batch or use reference-only mode with `activeLiveCueId`.

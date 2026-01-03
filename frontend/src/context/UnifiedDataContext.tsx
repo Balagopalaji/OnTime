@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { deleteDoc, deleteField, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
-import type { Room, Timer, ControllerLock, ControllerLockState, ControllerClient } from '../types'
+import type { Room, Timer, LiveCue, LiveCueRecord, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { db } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
 import {
@@ -63,6 +63,20 @@ type RoomStatePatchPayload = {
   changes: Partial<CompanionRoomState>
   clientId: string
   timestamp: number
+}
+
+type LiveCueEventPayload = {
+  type: 'LIVE_CUE_CREATED' | 'LIVE_CUE_UPDATED' | 'LIVE_CUE_ENDED'
+  roomId: string
+  cue: LiveCue
+  timestamp?: number
+}
+
+type PresentationEventPayload = {
+  type: 'PRESENTATION_LOADED' | 'PRESENTATION_UPDATE'
+  roomId: string
+  cue: LiveCue
+  timestamp?: number
 }
 
 export const resolveControllerLockState = ({
@@ -551,6 +565,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [roomAuthority, setRoomAuthority] = useState<Record<string, RoomAuthority>>({})
   const [companionRooms, setCompanionRooms] = useState<Record<string, CompanionRoomState>>({})
   const [companionTimers, setCompanionTimers] = useState<Record<string, Timer[]>>({})
+  const [companionLiveCues, setCompanionLiveCues] = useState<Record<string, Record<string, LiveCueRecord>>>({})
   const [controllerLocks, setControllerLocks] = useState<Record<string, ControllerLock | null>>({})
   const [roomPins, setRoomPins] = useState<Record<string, string | null>>({})
   const [roomClients, setRoomClients] = useState<Record<string, ControllerClient[]>>({})
@@ -583,6 +598,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const companionRoomsRef = useRef(companionRooms)
   const companionTimersRef = useRef(companionTimers)
   const controllerLocksRef = useRef(controllerLocks)
+  const liveCueRateRef = useRef<Record<string, number>>({})
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
@@ -1103,6 +1119,112 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       return Boolean(subscribedRooms[roomId])
     },
     [subscribedRooms],
+  )
+
+  const canUseLiveCues = useCallback(
+    (roomId: string) => {
+      const room = firebase.getRoom(roomId)
+      const tier = room?.tier
+      const features = room?.features
+      return Boolean(features?.showControl || tier === 'show_control' || tier === 'production')
+    },
+    [firebase],
+  )
+
+  const recordLiveCueRate = useCallback((roomId: string, now: number) => {
+    const last = liveCueRateRef.current[roomId] ?? 0
+    liveCueRateRef.current[roomId] = now
+    return now - last < 1000
+  }, [])
+
+  const resolveLiveCueWriteSource = useCallback(
+    (roomId: string): LiveCueRecord['source'] | null => {
+      if (!firestoreWriteThrough || !firestore) return null
+      if (isViewerClient(roomId)) return null
+      const lock = controllerLocksRef.current[roomId]
+      const isBridgeController = subscribedRoomsRef.current[roomId]?.clientType === 'controller'
+      if (isBridgeController && (!lock || lock.clientId === clientId)) {
+        return 'controller'
+      }
+      if (!lock) return 'companion'
+      return Date.now() - lock.lastHeartbeat > 5000 ? 'companion' : null
+    },
+    [clientId, firestore, firestoreWriteThrough, isViewerClient],
+  )
+
+  const upsertCompanionLiveCue = useCallback((roomId: string, record: LiveCueRecord) => {
+    setCompanionLiveCues((prev) => {
+      const roomRecords = { ...(prev[roomId] ?? {}) }
+      roomRecords[record.cue.id] = record
+      return {
+        ...prev,
+        [roomId]: roomRecords,
+      }
+    })
+  }, [])
+
+  const removeCompanionLiveCue = useCallback((roomId: string, cueId: string) => {
+    setCompanionLiveCues((prev) => {
+      const roomRecords = prev[roomId]
+      if (!roomRecords || !roomRecords[cueId]) return prev
+      const nextRoom = { ...roomRecords }
+      delete nextRoom[cueId]
+      return {
+        ...prev,
+        [roomId]: nextRoom,
+      }
+    })
+  }, [])
+
+  const setCompanionActiveLiveCueId = useCallback((roomId: string, cueId: string | null) => {
+    setCompanionRooms((prev) => {
+      const current = prev[roomId]
+      if (!current || current.activeLiveCueId === cueId) return prev
+      return {
+        ...prev,
+        [roomId]: {
+          ...current,
+          activeLiveCueId: cueId ?? undefined,
+        },
+      }
+    })
+  }, [])
+
+  const writeActiveLiveCueId = useCallback(
+    async (roomId: string, cueId: string | null) => {
+      if (!firestoreWriteThrough || !firestore) return
+      const room = firebase.getRoom(roomId)
+      const payload = room?._version === 2
+        ? { activeLiveCueId: cueId }
+        : { 'state.activeLiveCueId': cueId }
+      const ref = room?._version === 2
+        ? doc(firestore, 'rooms', roomId, 'state', 'current')
+        : doc(firestore, 'rooms', roomId)
+      await updateDoc(ref, payload as Record<string, unknown>).catch(() => undefined)
+    },
+    [firebase, firestore, firestoreWriteThrough],
+  )
+
+  const writeLiveCueToFirestore = useCallback(
+    async (roomId: string, record: LiveCueRecord) => {
+      if (!firestoreWriteThrough || !firestore) return
+      const liveCueRef = doc(firestore, 'rooms', roomId, 'liveCues', record.cue.id)
+      const payload = {
+        ...record.cue,
+        updatedAt: record.updatedAt,
+        writeSource: record.source,
+      } as Record<string, unknown>
+      await setDoc(liveCueRef, payload, { merge: true }).catch(() => undefined)
+    },
+    [firestore, firestoreWriteThrough],
+  )
+
+  const deleteLiveCueFromFirestore = useCallback(
+    async (roomId: string, cueId: string) => {
+      if (!firestoreWriteThrough || !firestore) return
+      await deleteDoc(doc(firestore, 'rooms', roomId, 'liveCues', cueId)).catch(() => undefined)
+    },
+    [firestore, firestoreWriteThrough],
   )
 
   useEffect(() => {
@@ -1910,6 +2032,77 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       console.warn('[UnifiedDataContext] TIMER_ERROR', payload)
     }
 
+    const writeLiveCueThrough = async (
+      roomId: string,
+      record: LiveCueRecord,
+      activeCueId?: string | null,
+      action: 'upsert' | 'delete' = 'upsert',
+    ) => {
+      const writeSource = resolveLiveCueWriteSource(roomId)
+      if (!writeSource) return
+      const rateLimited = recordLiveCueRate(roomId, record.updatedAt)
+      if (activeCueId !== undefined) {
+        void writeActiveLiveCueId(roomId, activeCueId)
+      }
+      if (rateLimited) return
+      const recordForWrite = { ...record, source: writeSource }
+      if (action === 'delete') {
+        void deleteLiveCueFromFirestore(roomId, recordForWrite.cue.id)
+        return
+      }
+      void writeLiveCueToFirestore(roomId, recordForWrite)
+    }
+
+    const handleLiveCueUpsert = (payload: LiveCueEventPayload) => {
+      if (!canUseLiveCues(payload.roomId)) return
+      const updatedAt = payload.timestamp ?? Date.now()
+      const record: LiveCueRecord = {
+        cue: payload.cue,
+        updatedAt,
+        source: 'companion',
+      }
+      upsertCompanionLiveCue(payload.roomId, record)
+      setCompanionActiveLiveCueId(payload.roomId, payload.cue.id)
+      void writeLiveCueThrough(payload.roomId, record, payload.cue.id, 'upsert')
+    }
+
+    const handleLiveCueEnded = (payload: LiveCueEventPayload) => {
+      if (!canUseLiveCues(payload.roomId)) return
+      const updatedAt = payload.timestamp ?? Date.now()
+      const record: LiveCueRecord = {
+        cue: payload.cue,
+        updatedAt,
+        source: 'companion',
+      }
+      removeCompanionLiveCue(payload.roomId, payload.cue.id)
+      const activeId = companionRoomsRef.current[payload.roomId]?.activeLiveCueId
+      const nextActiveId = activeId === payload.cue.id ? null : undefined
+      if (activeId === payload.cue.id) {
+        setCompanionActiveLiveCueId(payload.roomId, null)
+      }
+      void writeLiveCueThrough(payload.roomId, record, nextActiveId, 'delete')
+    }
+
+    const handleLiveCueCreated = (payload: LiveCueEventPayload) => {
+      handleLiveCueUpsert(payload)
+    }
+
+    const handleLiveCueUpdated = (payload: LiveCueEventPayload) => {
+      if (payload.cue.status === 'ended') {
+        handleLiveCueEnded(payload)
+        return
+      }
+      handleLiveCueUpsert(payload)
+    }
+
+    const handlePresentationLoaded = (payload: PresentationEventPayload) => {
+      handleLiveCueUpdated({ type: 'LIVE_CUE_UPDATED', roomId: payload.roomId, cue: payload.cue, timestamp: payload.timestamp })
+    }
+
+    const handlePresentationUpdate = (payload: PresentationEventPayload) => {
+      handleLiveCueUpdated({ type: 'LIVE_CUE_UPDATED', roomId: payload.roomId, cue: payload.cue, timestamp: payload.timestamp })
+    }
+
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
       applyControlPayload(payload, { broadcast: true })
     }
@@ -1945,6 +2138,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     socket.on('TIMER_DELETED', handleTimerDeleted)
     socket.on('TIMERS_REORDERED', handleTimersReordered)
     socket.on('TIMER_ERROR', handleTimerError)
+    socket.on('LIVE_CUE_CREATED', handleLiveCueCreated)
+    socket.on('LIVE_CUE_UPDATED', handleLiveCueUpdated)
+    socket.on('LIVE_CUE_ENDED', handleLiveCueEnded)
+    socket.on('PRESENTATION_LOADED', handlePresentationLoaded)
+    socket.on('PRESENTATION_UPDATE', handlePresentationUpdate)
     socket.on('CONTROLLER_LOCK_STATE', handleControllerLockState)
     socket.on('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
     socket.on('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
@@ -1964,6 +2162,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       socket.off('TIMER_DELETED', handleTimerDeleted)
       socket.off('TIMERS_REORDERED', handleTimersReordered)
       socket.off('TIMER_ERROR', handleTimerError)
+      socket.off('LIVE_CUE_CREATED', handleLiveCueCreated)
+      socket.off('LIVE_CUE_UPDATED', handleLiveCueUpdated)
+      socket.off('LIVE_CUE_ENDED', handleLiveCueEnded)
+      socket.off('PRESENTATION_LOADED', handlePresentationLoaded)
+      socket.off('PRESENTATION_UPDATE', handlePresentationUpdate)
       socket.off('CONTROLLER_LOCK_STATE', handleControllerLockState)
       socket.off('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
       socket.off('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
@@ -1974,7 +2177,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [
     addPendingSyncRoom,
     applyControlPayload,
+    canUseLiveCues,
     clientId,
+    deleteLiveCueFromFirestore,
     clearPendingSyncRooms,
     clearToken,
     confidenceWindowMs,
@@ -1984,7 +2189,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     emitSyncRoomState,
     fetchToken,
     processJoinQueue,
+    recordLiveCueRate,
+    removeCompanionLiveCue,
     removePendingSyncRoom,
+    resolveLiveCueWriteSource,
+    setCompanionActiveLiveCueId,
+    upsertCompanionLiveCue,
+    writeActiveLiveCueId,
+    writeLiveCueToFirestore,
     replayRoomQueue,
     socket,
     firebase,
@@ -2118,6 +2330,45 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       return cached
     },
     [companionTimers, firebase, shouldUseCompanion],
+  )
+
+  const getLiveCueRecords = useCallback(
+    (roomId: string) => {
+      if (!canUseLiveCues(roomId)) return []
+      const firebaseRecords = firebase.getLiveCueRecords(roomId)
+      const companionRecords = Object.values(companionLiveCues[roomId] ?? {})
+      if (!isCompanionLive() || !shouldUseCompanion(roomId)) {
+        return firebaseRecords
+      }
+
+      const merged = new Map<string, LiveCueRecord>()
+      firebaseRecords.forEach((record) => {
+        merged.set(record.cue.id, record)
+      })
+      companionRecords.forEach((record) => {
+        const existing = merged.get(record.cue.id)
+        if (!existing) {
+          merged.set(record.cue.id, record)
+          return
+        }
+        if (record.updatedAt > existing.updatedAt) {
+          merged.set(record.cue.id, record)
+          return
+        }
+        if (record.updatedAt < existing.updatedAt) return
+        if (existing.source === 'companion' && record.source === 'controller') {
+          merged.set(record.cue.id, record)
+        }
+      })
+
+      return [...merged.values()]
+    },
+    [canUseLiveCues, companionLiveCues, firebase, isCompanionLive, shouldUseCompanion],
+  )
+
+  const getLiveCues = useCallback(
+    (roomId: string) => getLiveCueRecords(roomId).map((record) => record.cue),
+    [getLiveCueRecords],
   )
 
   const setActiveTimer = useCallback<DataContextValue['setActiveTimer']>(
@@ -2917,6 +3168,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         queueStatus,
         getRoom,
         getTimers,
+        getLiveCues,
+        getLiveCueRecords,
         createTimer,
         updateTimer,
         deleteTimer,
@@ -2974,6 +3227,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       getControllerLockState,
       getRoomPin,
       getTimers,
+      getLiveCues,
+      getLiveCueRecords,
       denyControl,
       handOverControl,
       moveTimer,

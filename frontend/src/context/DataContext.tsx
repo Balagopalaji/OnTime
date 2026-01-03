@@ -5,6 +5,8 @@ import type {
   ConnectionStatus,
   Room,
   Timer,
+  LiveCue,
+  LiveCueRecord,
   MessageColor,
   ControllerLock,
   ControllerLockState,
@@ -88,6 +90,8 @@ export type DataContextValue = {
   clearUndoStacks: () => Promise<void>
   getRoom: (roomId: string) => Room | undefined
   getTimers: (roomId: string) => Timer[]
+  getLiveCues: (roomId: string) => LiveCue[]
+  getLiveCueRecords: (roomId: string) => LiveCueRecord[]
   createRoom: (input: CreateRoomInput) => Promise<Room>
   deleteRoom: (roomId: string) => Promise<void>
   createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer | undefined>

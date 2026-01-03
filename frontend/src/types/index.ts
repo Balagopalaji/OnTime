@@ -68,6 +68,38 @@ export type RoomState = RoomStateLegacy & {
   activeLiveCueId?: string
 }
 
+export type LiveCue = {
+  id: string
+  source: 'powerpoint' | 'external_video' | 'pdf'
+  title: string
+  duration?: number
+  startedAt?: number
+  status?: 'playing' | 'paused' | 'ended'
+  config?: {
+    warningSec?: number
+    criticalSec?: number
+  }
+  metadata?: {
+    slideNumber?: number
+    totalSlides?: number
+    slideNotes?: string
+    filename?: string
+    player?: string
+    parentTimerId?: string
+    autoAdvanceNext?: boolean
+    videoPlaying?: boolean
+    videoDuration?: number
+    videoElapsed?: number
+    videoRemaining?: number
+  }
+}
+
+export type LiveCueRecord = {
+  cue: LiveCue
+  updatedAt: number
+  source: 'companion' | 'controller'
+}
+
 // Transitional Room type that preserves legacy fields while adding tier/features.
 export type Room = RoomLegacy & {
   tier?: Tier

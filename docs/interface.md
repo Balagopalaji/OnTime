@@ -121,6 +121,8 @@ Notes:
 - `config?: { warningSec?: number; criticalSec?: number }`
 - `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
   - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
+- `updatedAt?: number` (write-through timestamp)
+- `writeSource?: 'companion' | 'controller'` (write-through origin; distinct from cue `source`)
 
 **`rooms/{roomId}/cues/{cueId}`** (Phase 3: manual rundown cues, Show Planner)
 - **Purpose:** Manually authored cues in the Show Planner rundown. Operators create these for coordinating lighting, sound, video, stage management, etc.

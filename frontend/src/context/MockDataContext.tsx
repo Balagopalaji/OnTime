@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
-import type { Room, Timer, MessageColor, ConnectionStatus, ControllerClient } from '../types'
+import type { Room, Timer, LiveCue, LiveCueRecord, MessageColor, ConnectionStatus, ControllerClient } from '../types'
 import {
   clearStack,
   loadStack,
@@ -563,6 +563,13 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         .sort((a, b) => a.order - b.order)
     },
     [pendingTimers, state.timers],
+  )
+
+  const getLiveCueRecords = useCallback((): LiveCueRecord[] => [], [])
+
+  const getLiveCues = useCallback(
+    (roomId: string): LiveCue[] => getLiveCueRecords(roomId).map((record) => record.cue),
+    [getLiveCueRecords],
   )
 
   const updateTimers = useCallback(
@@ -1557,6 +1564,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       clearUndoStacks,
       getRoom,
       getTimers,
+      getLiveCues,
+      getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
@@ -1612,6 +1621,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       clearUndoStacks,
       getRoom,
       getTimers,
+      getLiveCues,
+      getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,

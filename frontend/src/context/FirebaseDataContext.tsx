@@ -18,7 +18,7 @@ import {
   type FirestoreError,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { MessageColor, Room, Timer, ControllerClient } from '../types'
+import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, ControllerClient } from '../types'
 import { DataProviderBoundary, type DataContextValue } from './DataContext'
 import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
@@ -64,6 +64,7 @@ type RoomDoc = {
       visible?: boolean
       color?: MessageColor
     }
+    activeLiveCueId?: string
   }
 }
 
@@ -140,6 +141,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
         visible: data.state?.message?.visible ?? false,
         color: data.state?.message?.color ?? 'green',
       },
+      activeLiveCueId: data.state?.activeLiveCueId,
     },
   }
 }
@@ -163,6 +165,62 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
   type: (data.type as Timer['type']) ?? 'countdown',
   order: data.order ?? 0,
 })
+
+type LiveCueDoc = {
+  source?: string
+  title?: string
+  duration?: number
+  startedAt?: number
+  status?: string
+  config?: {
+    warningSec?: number
+    criticalSec?: number
+  }
+  metadata?: Record<string, unknown>
+  updatedAt?: number
+  writeSource?: 'companion' | 'controller'
+}
+
+const mapLiveCue = (id: string, data: LiveCueDoc): LiveCue => {
+  const source =
+    data.source === 'powerpoint' || data.source === 'external_video' || data.source === 'pdf'
+      ? data.source
+      : 'powerpoint'
+  const status = data.status === 'playing' || data.status === 'paused' || data.status === 'ended'
+    ? data.status
+    : undefined
+  const metadata = data.metadata && typeof data.metadata === 'object'
+    ? {
+        slideNumber: typeof data.metadata.slideNumber === 'number' ? data.metadata.slideNumber : undefined,
+        totalSlides: typeof data.metadata.totalSlides === 'number' ? data.metadata.totalSlides : undefined,
+        slideNotes: typeof data.metadata.slideNotes === 'string' ? data.metadata.slideNotes : undefined,
+        filename: typeof data.metadata.filename === 'string' ? data.metadata.filename : undefined,
+        player: typeof data.metadata.player === 'string' ? data.metadata.player : undefined,
+        parentTimerId: typeof data.metadata.parentTimerId === 'string' ? data.metadata.parentTimerId : undefined,
+        autoAdvanceNext: typeof data.metadata.autoAdvanceNext === 'boolean' ? data.metadata.autoAdvanceNext : undefined,
+        videoPlaying: typeof data.metadata.videoPlaying === 'boolean' ? data.metadata.videoPlaying : undefined,
+        videoDuration: typeof data.metadata.videoDuration === 'number' ? data.metadata.videoDuration : undefined,
+        videoElapsed: typeof data.metadata.videoElapsed === 'number' ? data.metadata.videoElapsed : undefined,
+        videoRemaining: typeof data.metadata.videoRemaining === 'number' ? data.metadata.videoRemaining : undefined,
+      }
+    : undefined
+
+  return {
+    id,
+    source,
+    title: typeof data.title === 'string' ? data.title : '',
+    duration: typeof data.duration === 'number' ? data.duration : undefined,
+    startedAt: typeof data.startedAt === 'number' ? data.startedAt : undefined,
+    status,
+    config: data.config
+      ? {
+          warningSec: typeof data.config.warningSec === 'number' ? data.config.warningSec : undefined,
+          criticalSec: typeof data.config.criticalSec === 'number' ? data.config.criticalSec : undefined,
+        }
+      : undefined,
+    metadata,
+  }
+}
 
 const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
 
@@ -190,6 +248,7 @@ export const FirebaseDataProvider = ({
 }) => {
   const [rooms, setRooms] = useState<Room[]>([])
   const [timers, setTimers] = useState<Record<string, Timer[]>>({})
+  const [liveCueRecords, setLiveCueRecords] = useState<Record<string, LiveCueRecord[]>>({})
   const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(() =>
     typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
   )
@@ -301,6 +360,10 @@ export const FirebaseDataProvider = ({
                 typeof statePayload?.currentTime === 'number' ? statePayload.currentTime : room.state.currentTime,
               lastUpdate:
                 typeof statePayload?.lastUpdate === 'number' ? statePayload.lastUpdate : room.state.lastUpdate,
+              activeLiveCueId:
+                typeof statePayload?.activeLiveCueId === 'string'
+                  ? statePayload.activeLiveCueId
+                  : room.state.activeLiveCueId,
             },
           }))
           // Clear any optimistic nudge accumulator once Firestore has acknowledged a state update.
@@ -330,9 +393,36 @@ export const FirebaseDataProvider = ({
           setConnectionStatus('offline')
         },
       )
+
+      const liveCuesRef = collection(firestore, 'rooms', room.id, 'liveCues')
+      const liveCuesUnsub = onSnapshot(
+        liveCuesRef,
+        (snapshot) => {
+          const records: LiveCueRecord[] = []
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as LiveCueDoc
+            const cue = mapLiveCue(docSnap.id, data)
+            const updatedAt = typeof data.updatedAt === 'number'
+              ? data.updatedAt
+              : (typeof cue.startedAt === 'number' ? cue.startedAt : 0)
+            const source = data.writeSource === 'companion' ? 'companion' : 'controller'
+            records.push({ cue, updatedAt, source })
+          })
+          setLiveCueRecords((prev) => ({
+            ...prev,
+            [room.id]: records,
+          }))
+          setConnectionStatus('online')
+        },
+        (error: FirestoreError) => {
+          console.error('live cues snapshot error', error)
+          setConnectionStatus('offline')
+        },
+      )
       return () => {
         stateUnsub()
         timersUnsub()
+        liveCuesUnsub()
       }
     })
     return () => {
@@ -371,6 +461,16 @@ export const FirebaseDataProvider = ({
         .sort((a, b) => a.order - b.order)
     },
     [pendingTimers, timers],
+  )
+
+  const getLiveCueRecords = useCallback(
+    (roomId: string) => [...(liveCueRecords[roomId] ?? [])],
+    [liveCueRecords],
+  )
+
+  const getLiveCues = useCallback(
+    (roomId: string) => getLiveCueRecords(roomId).map((record) => record.cue),
+    [getLiveCueRecords],
   )
 
   // Ensure a room with timers always has an active timer id
@@ -988,6 +1088,8 @@ export const FirebaseDataProvider = ({
       clearUndoStacks,
       getRoom,
       getTimers,
+      getLiveCues,
+      getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
@@ -1044,6 +1146,8 @@ export const FirebaseDataProvider = ({
       clearUndoStacks,
       getRoom,
       getTimers,
+      getLiveCues,
+      getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
