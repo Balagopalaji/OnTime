@@ -32,12 +32,13 @@ export const AppShell = () => {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false)
   const [showCompanionWizard, setShowCompanionWizard] = useState(false)
   const [showTrustStep, setShowTrustStep] = useState(false)
-  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
   const [crashRecovery, setCrashRecovery] = useState<CrashRecoveryData | null>(null)
   const [updateState, setUpdateState] = useState<UpdateState | null>(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const [reconnectNow, setReconnectNow] = useState(() => Date.now())
   const [reconnectBannerDismissed, setReconnectBannerDismissed] = useState(false)
+  const [cloudBannerDismissed, setCloudBannerDismissed] = useState(false)
+  const [capabilityBannerDismissed, setCapabilityBannerDismissed] = useState(false)
   const protocolFallbackRef = useRef(false)
   const [protocolFallbackActive, setProtocolFallbackActive] = useState(false)
   const [portPreference, setPortPreference] = useState<ControllerPortPreference | null>(null)
@@ -72,17 +73,6 @@ export const AppShell = () => {
       window.localStorage.setItem('stagetime.lastPath', location.pathname)
     }
   }, [location.pathname])
-
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true)
-    const handleOffline = () => setIsOnline(false)
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [])
 
   // Listen for crash recovery events from Electron main process
   useEffect(() => {
@@ -191,6 +181,16 @@ export const AppShell = () => {
     return status
   }, [data.queueStatus, location.pathname])
 
+  const activeRoomId = useMemo(() => {
+    const match = location.pathname.match(/^\/room\/([^/]+)\/(control|view)$/)
+    return match?.[1] ?? null
+  }, [location.pathname])
+
+  const activeRoom = useMemo(() => {
+    if (!activeRoomId || typeof data.getRoom !== 'function') return null
+    return data.getRoom(activeRoomId)
+  }, [activeRoomId, data])
+
   const companionTone = useMemo(() => {
     // Amber for companion (distinct from mode colors), red when offline
     if (connection.isConnected) {
@@ -202,12 +202,76 @@ export const AppShell = () => {
     return 'border-slate-700 bg-slate-900/40 text-slate-400'
   }, [connection.handshakeStatus, connection.isConnected])
 
+  const cloudTone = useMemo(() => {
+    if (data.connectionStatus === 'online') {
+      return 'border-emerald-400/60 bg-emerald-950/40 text-emerald-200'
+    }
+    if (data.connectionStatus === 'reconnecting') {
+      return 'border-amber-400/60 bg-amber-950/40 text-amber-200'
+    }
+    return 'border-rose-400/60 bg-rose-950/40 text-rose-200'
+  }, [data.connectionStatus])
+
+  const cloudLabel = useMemo(() => {
+    if (data.connectionStatus === 'online') return 'Cloud Online'
+    if (data.connectionStatus === 'reconnecting') return 'Cloud Reconnecting'
+    return 'Cloud Offline'
+  }, [data.connectionStatus])
+
   const modeTone = useMemo(() => {
     // Color-code modes: cloud=blue, auto=emerald, local=amber
     if (mode === 'cloud') return 'border-blue-400 bg-blue-950/60 text-blue-200'
     if (mode === 'auto') return 'border-emerald-400 bg-emerald-950/60 text-emerald-200'
     return 'border-amber-400 bg-amber-950/60 text-amber-200' // local
   }, [mode])
+
+  const cloudBanner = useMemo(() => {
+    if (cloudBannerDismissed) return null
+    if (data.connectionStatus === 'offline') {
+      return {
+        tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
+        title: 'Cloud connection offline',
+        detail: 'Cloud sync is unavailable. Local Companion changes continue if connected.',
+      }
+    }
+    if (data.connectionStatus === 'reconnecting') {
+      return {
+        tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
+        title: 'Reconnecting to Cloud',
+        detail: 'We will resync cloud state as soon as the connection returns.',
+      }
+    }
+    return null
+  }, [cloudBannerDismissed, data.connectionStatus])
+
+  const capabilityBanner = useMemo(() => {
+    if (capabilityBannerDismissed) return null
+    if (!activeRoom || !connection.isConnected || connection.handshakeStatus !== 'ack') return null
+    const missing: string[] = []
+    if (activeRoom.features?.powerpoint && !connection.capabilities.powerpoint) {
+      missing.push('PowerPoint')
+    }
+    if (activeRoom.features?.externalVideo && !connection.capabilities.externalVideo) {
+      missing.push('External video')
+    }
+    if (!connection.capabilities.fileOperations) {
+      missing.push('File operations')
+    }
+    if (!missing.length) return null
+    return {
+      tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
+      title: 'Companion capability unavailable',
+      detail: `Missing: ${missing.join(', ')}`,
+    }
+  }, [
+    activeRoom,
+    capabilityBannerDismissed,
+    connection.capabilities.externalVideo,
+    connection.capabilities.fileOperations,
+    connection.capabilities.powerpoint,
+    connection.handshakeStatus,
+    connection.isConnected,
+  ])
 
   const reconnectBanner = useMemo(() => {
     const isCompanionReady = connection.isConnected && connection.handshakeStatus === 'ack'
@@ -262,6 +326,31 @@ export const AppShell = () => {
       setReconnectBannerDismissed(false)
     }, 0)
   }, [connection.handshakeStatus])
+
+  useEffect(() => {
+    if (data.connectionStatus === 'online') {
+      window.setTimeout(() => {
+        setCloudBannerDismissed(false)
+      }, 0)
+    }
+  }, [data.connectionStatus])
+
+  const capabilitySignature = useMemo(
+    () =>
+      JSON.stringify({
+        roomId: activeRoom?.id ?? null,
+        features: activeRoom?.features ?? null,
+        capabilities: connection.capabilities,
+        handshake: connection.handshakeStatus,
+      }),
+    [activeRoom?.features, activeRoom?.id, connection.capabilities, connection.handshakeStatus],
+  )
+
+  useEffect(() => {
+    window.setTimeout(() => {
+      setCapabilityBannerDismissed(false)
+    }, 0)
+  }, [capabilitySignature])
 
   const protocolWarning = useMemo(() => {
     if (connection.protocolStatus.compatibility === 'incompatible') {
@@ -366,13 +455,8 @@ export const AppShell = () => {
               </div>
 
               <div className="hidden items-center gap-2 md:flex">
-                <div
-                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${isOnline
-                    ? 'border-emerald-400/60 bg-emerald-950/40 text-emerald-200'
-                    : 'border-rose-400/60 bg-rose-950/40 text-rose-200'
-                    }`}
-                >
-                  {isOnline ? 'Online' : 'Offline'}
+                <div className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${cloudTone}`}>
+                  {cloudLabel}
                 </div>
                 <button
                   type="button"
@@ -449,6 +533,46 @@ export const AppShell = () => {
                 Dismiss
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {!isViewerRoute && cloudBanner && (
+        <div className="px-4 py-2">
+          <div
+            className={`mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 rounded-full border px-3 py-1 text-xs ${cloudBanner.tone}`}
+          >
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-inherit">Cloud</span>
+              <span className="font-semibold">{cloudBanner.title}</span>
+              <span className="text-white/70">{cloudBanner.detail}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCloudBannerDismissed(true)}
+              className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+      {!isViewerRoute && capabilityBanner && (
+        <div className="px-4 py-2">
+          <div
+            className={`mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 rounded-full border px-3 py-1 text-xs ${capabilityBanner.tone}`}
+          >
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-inherit">!</span>
+              <span className="font-semibold">{capabilityBanner.title}</span>
+              <span className="text-white/70">{capabilityBanner.detail}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCapabilityBannerDismissed(true)}
+              className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+            >
+              Dismiss
+            </button>
           </div>
         </div>
       )}

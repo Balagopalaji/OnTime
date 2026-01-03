@@ -205,17 +205,18 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass C: Authority & Caching**
 **Companion**
-- [ ] Emit capability changes reliably in `HANDSHAKE_ACK`; ensure capability/tier changes are observable by clients.
+- [x] Emit capability changes reliably in `HANDSHAKE_ACK`; ensure capability/tier changes are observable by clients.
 **Frontend/Bridge**
-- [ ] Local authoritative, cloud read-only for non-bridge controllers.
+- [x] Local authoritative, cloud read-only for non-bridge controllers.
 **Frontend**
-- [ ] On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, recompute feature visibility.
-- [ ] Bridge reconnect triggers a fresh snapshot to cloud (`SYNC_ROOM_STATE`).
-- [ ] Authority confidence window expands to 4s on reconnect churn (per `docs/local-mode.md` §3.3).
-- [ ] Viewer sync guard: while authority status is `syncing`, viewers fall back to Firebase until ready.
-- [ ] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
+- [x] On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, recompute feature visibility.
+- [x] Bridge reconnect triggers a fresh snapshot to cloud (`SYNC_ROOM_STATE`).
+- [x] Authority confidence window expands to 4s on reconnect churn (per `docs/local-mode.md` §3.3).
+- [x] Viewer sync guard: while authority status is `syncing`, viewers fall back to Firebase until ready.
+- [x] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
 - [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
-- [ ] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate via BroadcastChannel or localStorage events.
+  - Capability gating currently surfaces via banners; UI disablement will be added alongside feature UI.
+- [x] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate via BroadcastChannel or localStorage events.
 - [ ] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
 **Codebase Entry Points**
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/context/CompanionConnectionContext.tsx`

@@ -39,6 +39,34 @@ const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
+const COMPANION_CAPABILITIES_BY_MODE: Record<
+  string,
+  { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
+> = {
+  minimal: {
+    powerpoint: false,
+    externalVideo: false,
+    fileOperations: true
+  },
+  show_control: {
+    powerpoint: true,
+    externalVideo: false,
+    fileOperations: true
+  },
+  production: {
+    powerpoint: true,
+    externalVideo: true,
+    fileOperations: true
+  }
+};
+
+function getCompanionCapabilities() {
+  return COMPANION_CAPABILITIES_BY_MODE[COMPANION_MODE] ?? {
+    powerpoint: false,
+    externalVideo: false,
+    fileOperations: false
+  };
+}
 
 type JoinRoomPayload = {
   type: 'JOIN_ROOM';
@@ -1583,11 +1611,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     companionMode: COMPANION_MODE,
     companionVersion: COMPANION_VERSION,
     interfaceVersion: INTERFACE_VERSION,
-    capabilities: {
-      powerpoint: false,
-      externalVideo: false,
-      fileOperations: true
-    },
+    capabilities: getCompanionCapabilities(),
     systemInfo: {
       platform: process.platform,
       hostname: os.hostname()

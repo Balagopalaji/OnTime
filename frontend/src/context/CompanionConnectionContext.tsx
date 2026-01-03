@@ -15,6 +15,7 @@ export type CompanionConnectionContextValue = {
   nextRetryAt?: number
   reconnectStartedAt?: number
   lastErrorCode?: string
+  reconnectChurn: boolean
   protocolStatus: {
     clientVersion: string
     serverVersion: string | null
@@ -26,6 +27,8 @@ export type CompanionConnectionContextValue = {
     externalVideo: boolean
     fileOperations: boolean
   }
+  capabilitiesRevision: number
+  capabilitiesUpdatedAt?: number
   systemInfo: {
     platform: string
     hostname: string
@@ -64,11 +67,14 @@ type HandshakeError = {
 }
 
 const TOKEN_KEY = 'ontime:companionToken'
+const TOKEN_CHANNEL_NAME = 'ontime:companionToken:channel'
 export const INTERFACE_VERSION = '1.2.0'
 const MAX_RECONNECT_ATTEMPTS = 20
 const BACKOFF_FAST_MS = 2000
 const BACKOFF_SLOW_MS = 10_000
 const BACKOFF_CAP_MS = 60_000
+const RECONNECT_CHURN_WINDOW_MS = 30_000
+const RECONNECT_CHURN_THRESHOLD = 3
 
 export const getReconnectDelayMs = (attempt: number) => {
   if (attempt <= 1) return 0
@@ -127,6 +133,9 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     externalVideo: false,
     fileOperations: true,
   })
+  const [capabilitiesRevision, setCapabilitiesRevision] = useState(0)
+  const [capabilitiesUpdatedAt, setCapabilitiesUpdatedAt] = useState<number | null>(null)
+  const [reconnectChurn, setReconnectChurn] = useState(false)
   const [systemInfo, setSystemInfo] = useState<CompanionConnectionContextValue['systemInfo']>(null)
   const [token, setToken] = useState<string | null>(() => readStoredToken())
   const [hasAttemptedDiscovery, setHasAttemptedDiscovery] = useState(false)
@@ -134,6 +143,13 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectStateRef = useRef<ReconnectState>('idle')
+  const capabilitiesSignatureRef = useRef(JSON.stringify({
+    powerpoint: false,
+    externalVideo: false,
+    fileOperations: true,
+  }))
+  const reconnectEventsRef = useRef<number[]>([])
+  const churnResetTimerRef = useRef<number | null>(null)
 
   const clearToken = useCallback(() => {
     setToken(null)
@@ -147,7 +163,39 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     } catch {
       // ignore
     }
+    try {
+      const channel = new BroadcastChannel(TOKEN_CHANNEL_NAME)
+      channel.postMessage({ token: null, updatedAt: Date.now() })
+      channel.close()
+    } catch {
+      // ignore
+    }
   }, [])
+
+  const clearChurnTimer = useCallback(() => {
+    if (churnResetTimerRef.current) {
+      window.clearTimeout(churnResetTimerRef.current)
+      churnResetTimerRef.current = null
+    }
+  }, [])
+
+  const recordReconnectEvent = useCallback((reason?: string) => {
+    const now = Date.now()
+    const next = reconnectEventsRef.current.filter((ts) => now - ts < RECONNECT_CHURN_WINDOW_MS)
+    next.push(now)
+    reconnectEventsRef.current = next
+    if (debugCompanion) {
+      console.info('[companion] reconnect churn event', { reason, count: next.length })
+    }
+    setReconnectChurn(next.length >= RECONNECT_CHURN_THRESHOLD)
+    clearChurnTimer()
+    churnResetTimerRef.current = window.setTimeout(() => {
+      const trimmed = reconnectEventsRef.current.filter((ts) => Date.now() - ts < RECONNECT_CHURN_WINDOW_MS)
+      reconnectEventsRef.current = trimmed
+      setReconnectChurn(trimmed.length >= RECONNECT_CHURN_THRESHOLD)
+      churnResetTimerRef.current = null
+    }, RECONNECT_CHURN_WINDOW_MS)
+  }, [clearChurnTimer, debugCompanion])
 
   const setReconnectStateSafe = useCallback((next: ReconnectState) => {
     reconnectStateRef.current = next
@@ -217,6 +265,13 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     try {
       window.localStorage.setItem(TOKEN_KEY, token)
       sessionStorage.setItem(TOKEN_KEY, token)
+    } catch {
+      // ignore
+    }
+    try {
+      const channel = new BroadcastChannel(TOKEN_CHANNEL_NAME)
+      channel.postMessage({ token, updatedAt: Date.now() })
+      channel.close()
     } catch {
       // ignore
     }
@@ -308,6 +363,45 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [socket, token])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const applyTokenUpdate = (nextToken: string | null) => {
+      if (nextToken === token) return
+      setToken(nextToken)
+      setLastSeenAt(Date.now())
+      if (socket && nextToken && !socket.connected) {
+        socket.connect()
+      }
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== TOKEN_KEY) return
+      applyTokenUpdate(event.newValue)
+    }
+
+    let channel: BroadcastChannel | null = null
+    try {
+      channel = new BroadcastChannel(TOKEN_CHANNEL_NAME)
+      channel.onmessage = (event: MessageEvent) => {
+        const nextToken = (event.data as { token?: string | null } | null)?.token
+        if (typeof nextToken === 'undefined') return
+        applyTokenUpdate(nextToken)
+      }
+    } catch {
+      channel = null
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      if (channel) {
+        channel.onmessage = null
+        channel.close()
+      }
+    }
+  }, [socket, token])
+
+  useEffect(() => {
     if (!socket) return
     if (isConnected) return
     let cancelled = false
@@ -329,6 +423,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const handleConnect = () => {
       if (debugCompanion) console.info('[companion] connect')
       setIsConnected(true)
+      setLastSeenAt(Date.now())
       // Stay idle until a room join drives a handshake ACK/ERROR.
       setHandshakeStatus('idle')
       if (reconnectStateRef.current !== 'idle') {
@@ -343,6 +438,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleDisconnect = (reason?: string) => {
       if (debugCompanion) console.info('[companion] disconnect', reason)
+      recordReconnectEvent('disconnect')
       if (reason === 'io server disconnect' || reason === 'server namespace disconnect') {
         clearToken()
         setHandshakeStatus('error')
@@ -358,6 +454,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleConnectError = () => {
       if (debugCompanion) console.warn('[companion] connect_error')
+      recordReconnectEvent('connect_error')
       setIsConnected(false)
       setHandshakeStatus('error')
       setLastErrorCode('CONNECT_ERROR')
@@ -365,11 +462,23 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleHandshakeAck = (data: HandshakeAck) => {
       if (debugCompanion) console.info('[companion] HANDSHAKE_ACK', data)
+      const nextCapabilities = data.capabilities ?? {
+        powerpoint: false,
+        externalVideo: false,
+        fileOperations: true,
+      }
+      const nextCapabilitiesSignature = JSON.stringify(nextCapabilities)
+      if (nextCapabilitiesSignature !== capabilitiesSignatureRef.current) {
+        capabilitiesSignatureRef.current = nextCapabilitiesSignature
+        setCapabilitiesRevision((prev) => prev + 1)
+        setCapabilitiesUpdatedAt(Date.now())
+      }
       setCompanionMode(data.companionMode)
-      setCapabilities(data.capabilities)
+      setCapabilities(nextCapabilities)
       setSystemInfo(data.systemInfo)
       setHandshakeStatus('ack')
       setLastErrorCode(null)
+      setLastSeenAt(Date.now())
       reconnectAttemptsRef.current = 0
       setReconnectAttempts(0)
       setReconnectStartedAt(null)
@@ -396,6 +505,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const handleHandshakeError = (error: HandshakeError) => {
       const code = error?.code ?? 'HANDSHAKE_ERROR'
       if (debugCompanion) console.warn('[companion] HANDSHAKE_ERROR', code)
+      recordReconnectEvent(`handshake_${code}`)
       setLastErrorCode(code)
       if (code === 'INVALID_TOKEN') {
         clearToken()
@@ -429,7 +539,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       clearReconnectTimer()
       socket.disconnect()
     }
-  }, [clearReconnectTimer, clearToken, debugCompanion, scheduleReconnect, setReconnectStateSafe, socket])
+  }, [clearReconnectTimer, clearToken, debugCompanion, recordReconnectEvent, scheduleReconnect, setReconnectStateSafe, socket])
 
   useEffect(() => {
     if (!lastErrorCode) return
@@ -446,9 +556,12 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       nextRetryAt: nextRetryAt ?? undefined,
       reconnectStartedAt: reconnectStartedAt ?? undefined,
       lastErrorCode: lastErrorCode ?? undefined,
+      reconnectChurn,
       protocolStatus,
       companionMode,
       capabilities,
+      capabilitiesRevision,
+      capabilitiesUpdatedAt: capabilitiesUpdatedAt ?? undefined,
       systemInfo,
       token,
       hasAttemptedDiscovery,
@@ -461,6 +574,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }),
     [
       capabilities,
+      capabilitiesRevision,
+      capabilitiesUpdatedAt,
       clearToken,
       companionMode,
       discoverCompanion,
@@ -474,6 +589,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       nextRetryAt,
       reconnectStartedAt,
       protocolStatus,
+      reconnectChurn,
       reconnectAttempts,
       reconnectState,
       retryConnection,
