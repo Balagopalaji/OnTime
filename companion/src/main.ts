@@ -929,6 +929,16 @@ function parseAllowedOrigins(): string[] {
 
 function validateOrigin(origin: string | undefined, allowedOrigins: string[]): boolean {
   if (!origin) return true; // allow CLI tools like curl without Origin
+  try {
+    const parsed = new URL(origin);
+    const protocolOk = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    const hostname = parsed.hostname;
+    if (protocolOk && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
   const normalized = normalizeOrigin(origin);
   return matchesAllowedOrigin(normalized, allowedOrigins);
 }
