@@ -244,7 +244,10 @@ async function startStaticServer(): Promise<string> {
     }
   });
 
-  const preferredPort = Number(process.env.ONTIME_CONTROLLER_PORT ?? 5174);
+  const preferredEnv = Number(process.env.ONTIME_CONTROLLER_PORT);
+  const preferredPorts = Number.isFinite(preferredEnv) && preferredEnv > 0
+    ? [preferredEnv]
+    : [5174, 5175, 5176];
   const bindServer = (port: number) =>
     new Promise<void>((resolve, reject) => {
       const onError = (err: NodeJS.ErrnoException) => {
@@ -262,11 +265,21 @@ async function startStaticServer(): Promise<string> {
       });
     });
 
-  try {
-    await bindServer(preferredPort);
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    console.warn(`[controller] Port ${preferredPort} unavailable (${err.code}); falling back to random port.`);
+  let bound = false;
+  for (const port of preferredPorts) {
+    try {
+      await bindServer(port);
+      bound = true;
+      break;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== 'EADDRINUSE') {
+        console.warn(`[controller] Port ${port} unavailable (${err.code}); skipping.`);
+      }
+    }
+  }
+  if (!bound) {
+    console.warn('[controller] Preferred ports unavailable; falling back to random port.');
     await bindServer(0);
   }
 

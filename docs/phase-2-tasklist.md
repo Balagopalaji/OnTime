@@ -84,13 +84,19 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Ensure local persistence for room cache and settings (survive restarts).
 - [x] Deep link handler: register `ontime://room/:roomId` to open a room in the controller. Note: protocol registration only works in packaged builds on Windows; dev-mode deep links require manual testing via command line args.
 - [x] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
+- [x] Stable origin for Electron controller so auth persists across restarts (ports 5174–5176; fallback to random only if occupied).
+- [ ] Separate build target so a viewer-only Electron app can be added later.
 - [x] Acceptance: Controller launches, connects to Companion, and runs without a browser.
 
 **Manual Verification (Pass A)**
 - [x] Launch Electron controller offline; verify room cache loads and UI is usable.
 - [x] Connect Companion and confirm the app auto-detects and switches to Local when available.
-- [ ] Quit/relaunch and confirm settings persist.
+- [x] Quit/relaunch and confirm settings persist.
 - [ ] Force-quit and relaunch; confirm "Recovered session" banner appears and state is restored.
+- [x] Restart preserves room state; no timer jumps after relaunch.
+- [x] Cloud viewer URLs still work while bridge is online.
+- [x] Auth session persists across restarts in Electron (no forced re-login offline).
+- [ ] No browser trust prompts when running the Electron controller.
 
 **Pass B: Build & Sign**
 **Companion**
@@ -124,6 +130,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; only one pending handshake at a time.
 - [x] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
 - [x] Acceptance: Backoff follows schedule; clear UX on failure/stop; no duplicate sockets after reconnect.
+- [ ] Protocol versioning: on major mismatch, show warning and suggest update; on incompatible, fallback to Cloud.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (socket handlers, JOIN/HANDSHAKE)
 - Frontend: `frontend/src/context/CompanionConnectionContext.tsx`
@@ -140,6 +147,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Pass B: Controller Lock & Takeover**
 **Companion**
 - [x] Implement controller lock + heartbeat; mark authoritative controller; reject non-authoritative writes at socket layer.
+- [x] Non-authoritative controllers receive `PERMISSION_DENIED` on write attempts.
 **Companion Socket Events**
 - [x] `HEARTBEAT` (client → server, every 30s)
 - [x] `CONTROLLER_LOCK_STATE` (server → all clients on change)
@@ -175,6 +183,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] PIN display (authoritative only): show PIN with hide toggle (default visible), copy button, and "Not set" link.
 - [x] Room PIN set flow (owner-only) with local validation and persistence.
 - [x] Room-in-use guard: only show when active controller heartbeat <90s; otherwise show "Room appears inactive" messaging.
+- [x] Room-in-use guard offers Start new / Copy room / Request control / View only actions.
 - [x] Request control UX: waiting state with countdown, immediate "Force Takeover Now" with PIN or re-auth, timeout confirmation with no PIN.
 - [x] Attention banner styling: red/amber pulse + optional chime (default on, setting to disable).
 - [x] Handoff flow: select target device; confirm copy varies for same user vs. different user.
@@ -197,8 +206,13 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Pass C: Authority & Caching**
 **Companion**
 - [ ] Emit capability changes reliably in `HANDSHAKE_ACK`; ensure capability/tier changes are observable by clients.
+**Frontend/Bridge**
+- [ ] Local authoritative, cloud read-only for non-bridge controllers.
 **Frontend**
 - [ ] On `HANDSHAKE_ACK` capability change or tier change, drop cached preview, refetch room config/state, recompute feature visibility.
+- [ ] Bridge reconnect triggers a fresh snapshot to cloud (`SYNC_ROOM_STATE`).
+- [ ] Authority confidence window expands to 4s on reconnect churn (per `docs/local-mode.md` §3.3).
+- [ ] Viewer sync guard: while authority status is `syncing`, viewers fall back to Firebase until ready.
 - [ ] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
 - [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
 - [ ] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate via BroadcastChannel or localStorage events.
@@ -231,6 +245,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] With Basic tier room, verify Show Control subcollections are denied.
 - [ ] With Show Control tier room, verify access granted as expected.
 - [ ] Run tests and confirm no skips on reorderRoom.mock.test.tsx.
+- [ ] Release notes cover gating changes, reconnect behavior, and Minimal mode limits.
 
 **Risks/Unknowns**
 - Race: simultaneous reconnect + controller takeover.

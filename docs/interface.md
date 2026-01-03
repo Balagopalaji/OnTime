@@ -201,8 +201,7 @@ Notes:
 - `clientType` defaults to `viewer` unless explicitly set to `controller`.
 - `clientId` defaults to the socket id if not provided.
 - `ownerId` is optional; Companion caches it when it matches `userId` to enforce owner-only PIN edits.
-- `takeOver` is currently ignored; the Companion server allows multiple controllers (no lock enforcement yet).
-- Planned: controller lock + explicit takeover semantics (see `docs/local-offline-lan-plan.md`).
+- `takeOver` is ignored; lock enforcement uses explicit control events (`REQUEST_CONTROL`, `FORCE_TAKEOVER`, `HAND_OVER`).
 
 **Server → Client: `HANDSHAKE_ACK`**
 ```json
@@ -260,6 +259,137 @@ Notes:
   },
   "clientId": "client-uuid",
   "timestamp": 1234567892
+}
+```
+
+**Client → Server: `HEARTBEAT`**
+```json
+{
+  "type": "HEARTBEAT",
+  "roomId": "abc123",
+  "clientId": "client-uuid",
+  "timestamp": 1234567890
+}
+```
+
+**Server → Client: `CONTROLLER_LOCK_STATE`**
+```json
+{
+  "type": "CONTROLLER_LOCK_STATE",
+  "roomId": "abc123",
+  "lock": {
+    "clientId": "client-uuid",
+    "deviceName": "Chrome on macOS",
+    "userId": "owner-uid",
+    "userName": "Operator",
+    "lockedAt": 1234567890,
+    "lastHeartbeat": 1234567890,
+    "roomId": "abc123"
+  },
+  "timestamp": 1234567890
+}
+```
+Notes:
+- `lock` is `null` when no controller is authoritative.
+
+**Client → Server: `REQUEST_CONTROL`**
+```json
+{
+  "type": "REQUEST_CONTROL",
+  "roomId": "abc123",
+  "clientId": "client-uuid",
+  "deviceName": "Chrome on macOS",
+  "timestamp": 1234567890
+}
+```
+
+**Server → Client: `CONTROL_REQUEST_RECEIVED`**
+```json
+{
+  "type": "CONTROL_REQUEST_RECEIVED",
+  "roomId": "abc123",
+  "requesterId": "client-uuid",
+  "requesterName": "Chrome on macOS",
+  "requesterUserId": "user-uid",
+  "requesterUserName": "Operator",
+  "timestamp": 1234567890
+}
+```
+
+**Client → Server: `DENY_CONTROL`**
+```json
+{
+  "type": "DENY_CONTROL",
+  "roomId": "abc123",
+  "requesterId": "client-uuid",
+  "timestamp": 1234567890
+}
+```
+
+**Server → Client: `CONTROL_REQUEST_DENIED`**
+```json
+{
+  "type": "CONTROL_REQUEST_DENIED",
+  "roomId": "abc123",
+  "requesterId": "client-uuid",
+  "reason": "denied_by_controller",
+  "deniedByName": "Chrome on macOS",
+  "deniedByUserId": "user-uid",
+  "deniedByUserName": "Operator",
+  "timestamp": 1234567890
+}
+```
+
+**Client → Server: `FORCE_TAKEOVER`**
+```json
+{
+  "type": "FORCE_TAKEOVER",
+  "roomId": "abc123",
+  "clientId": "client-uuid",
+  "pin": "4821",
+  "reauthenticated": true,
+  "timestamp": 1234567890
+}
+```
+Notes:
+- Provide either `pin` or `reauthenticated` for immediate takeover.
+
+**Client → Server: `HAND_OVER`**
+```json
+{
+  "type": "HAND_OVER",
+  "roomId": "abc123",
+  "targetClientId": "client-uuid",
+  "timestamp": 1234567890
+}
+```
+
+**Server → Client: `ROOM_PIN_STATE`**
+```json
+{
+  "type": "ROOM_PIN_STATE",
+  "roomId": "abc123",
+  "pin": "4821",
+  "updatedAt": 1234567890
+}
+```
+
+**Server → Client: `ROOM_CLIENTS_STATE`**
+```json
+{
+  "type": "ROOM_CLIENTS_STATE",
+  "roomId": "abc123",
+  "clients": [
+    {
+      "clientId": "client-uuid",
+      "clientType": "controller",
+      "deviceName": "Chrome on macOS",
+      "userId": "user-uid",
+      "userName": "Operator",
+      "connectedAt": 1234567890
+    }
+  ],
+  "timestamp": 1234567890
 }
 ```
 
