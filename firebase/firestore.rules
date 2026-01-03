@@ -9,7 +9,8 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid;
     }
     function hasShowControl(roomId) {
-      return get(/databases/$(database)/documents/rooms/$(roomId)).data.features.showControl == true;
+      return isSignedIn()
+        && get(/databases/$(database)/documents/rooms/$(roomId)).data.features.showControl == true;
     }
 
     match /rooms/{roomId} {
@@ -32,7 +33,7 @@ service cloud.firestore {
       // Live cues (Show Control tier+ only)
       match /liveCues/{cueId} {
         // Keep read authenticated-only for now; cue metadata can include slide notes / paths.
-        allow read: if isSignedIn() && hasShowControl(roomId);
+        allow read: if hasShowControl(roomId);
         allow create, update, delete: if isOwner(roomId) && hasShowControl(roomId);
       }
 

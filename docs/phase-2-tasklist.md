@@ -231,11 +231,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass D: Rules & Tests**
 **Companion**
-- [ ] No Companion changes required unless lock state also persists in cloud (future).
+- [x] No Companion changes required unless lock state also persists in cloud (future).
 **Frontend/Cloud**
-- [ ] Firestore rules rollout for tiered subcollections; emulator dry-run → staging deploy → simulated requests per tier → prod with canary; rollback command ready.
-- [ ] Ensure `reorderRoom.mock.test.tsx` passes and is not skipped.
-- [ ] Acceptance: Rules block Show Control subcollections for rooms without features; Basic UI hides gated elements; test suite passes.
+- [ ] Firestore rules rollout for tiered subcollections; emulator dry-run → staging deploy → simulated requests per tier → prod with canary; rollback command ready. (blocked: no emulator/staging access)
+- [x] Ensure `reorderRoom.mock.test.tsx` passes and is not skipped.
+- [ ] Acceptance: Rules block Show Control subcollections for rooms without features; Basic UI hides gated elements; test suite passes. (blocked: manual rules verification not run)
+- Note: Role-based cue ownership and crew chat permissions are Phase 3; `liveCues` remain controller-auth write and auth-only read in Phase 2.
 **Codebase Entry Points**
 - Firebase rules: `firebase/firestore.rules`
 - Frontend tests: `frontend/src/__tests__`
@@ -243,10 +244,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Full: `npm run test` + `npm run lint`
 
 **Manual Verification (Pass D)**
-- [ ] With Basic tier room, verify Show Control subcollections are denied.
-- [ ] With Show Control tier room, verify access granted as expected.
-- [ ] Run tests and confirm no skips on reorderRoom.mock.test.tsx.
-- [ ] Release notes cover gating changes, reconnect behavior, and Minimal mode limits.
+- [ ] With Basic tier room, verify Show Control subcollections are denied. (blocked: no emulator/staging access)
+- [ ] With Show Control tier room, verify access granted as expected. (blocked: no emulator/staging access)
+- [x] Run tests and confirm no skips on reorderRoom.mock.test.tsx.
+- [ ] Release notes cover gating changes, reconnect behavior, and Minimal mode limits. (blocked: no release notes file)
 
 **Risks/Unknowns**
 - Race: simultaneous reconnect + controller takeover.
