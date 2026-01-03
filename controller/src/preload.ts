@@ -28,6 +28,13 @@ export type UpdateState = {
   error: string | null;
 };
 
+export type ControllerPortPreference = {
+  preferredPort: number | null;
+  activePort: number | null;
+  source: 'env' | 'saved' | 'default' | 'random';
+  envOverride: boolean;
+};
+
 export type ControllerAPI = {
   // Platform detection
   getPlatformInfo: () => Promise<PlatformInfo>;
@@ -51,6 +58,10 @@ export type ControllerAPI = {
   downloadUpdate: () => Promise<boolean>;
   installUpdate: () => Promise<boolean>;
   onUpdateStateChanged: (callback: (state: UpdateState) => void) => () => void;
+
+  // Controller port preference (Enterprise)
+  getControllerPortPreference: () => Promise<ControllerPortPreference>;
+  setControllerPortPreference: (preferredPort: number | null) => Promise<{ preferredPort: number | null }>;
 };
 
 // Create the API object
@@ -114,6 +125,13 @@ const controllerAPI: ControllerAPI = {
       ipcRenderer.removeListener('update-state-changed', handler);
     };
   },
+
+  // Read controller port preference
+  getControllerPortPreference: () => ipcRenderer.invoke('get-controller-port-preference'),
+
+  // Update controller port preference
+  setControllerPortPreference: (preferredPort) =>
+    ipcRenderer.invoke('set-controller-port-preference', preferredPort),
 };
 
 // Expose to renderer via contextBridge

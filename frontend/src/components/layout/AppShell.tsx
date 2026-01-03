@@ -12,8 +12,11 @@ import {
   onUpdateStateChanged,
   downloadUpdate,
   installUpdate,
+  getControllerPortPreference,
+  setControllerPortPreference,
   type CrashRecoveryData,
   type UpdateState,
+  type ControllerPortPreference,
 } from '../../lib/electron'
 
 export const AppShell = () => {
@@ -37,6 +40,12 @@ export const AppShell = () => {
   const [reconnectBannerDismissed, setReconnectBannerDismissed] = useState(false)
   const protocolFallbackRef = useRef(false)
   const [protocolFallbackActive, setProtocolFallbackActive] = useState(false)
+  const [portPreference, setPortPreference] = useState<ControllerPortPreference | null>(null)
+  const [showPortDialog, setShowPortDialog] = useState(false)
+  const [portDraft, setPortDraft] = useState('')
+  const [portError, setPortError] = useState<string | null>(null)
+  const [portSaved, setPortSaved] = useState(false)
+  const portInputRef = useRef<HTMLInputElement | null>(null)
 
   const openTrustPage = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -101,6 +110,64 @@ export const AppShell = () => {
       }
     })
   }, [updateState?.available])
+
+  const loadPortPreference = useCallback(async () => {
+    const next = await getControllerPortPreference()
+    if (next) setPortPreference(next)
+    return next
+  }, [])
+
+  useEffect(() => {
+    if (!isElectron()) return
+    let cancelled = false
+    void getControllerPortPreference().then((next) => {
+      if (!cancelled && next) setPortPreference(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showPortDialog) return
+    portInputRef.current?.focus()
+    portInputRef.current?.select()
+  }, [showPortDialog])
+
+  const handleOpenPortDialog = () => {
+    setPortDraft(portPreference?.preferredPort ? String(portPreference.preferredPort) : '')
+    setPortError(null)
+    setPortSaved(false)
+    setShowPortDialog(true)
+  }
+
+  const handleSavePortPreference = useCallback(async () => {
+    const trimmed = portDraft.trim()
+    if (trimmed.length === 0) {
+      await setControllerPortPreference(null)
+      await loadPortPreference()
+      setPortError(null)
+      setPortSaved(true)
+      return
+    }
+    const nextPort = Number(trimmed)
+    if (!Number.isFinite(nextPort) || nextPort <= 0 || nextPort > 65535) {
+      setPortError('Enter a valid port between 1 and 65535.')
+      return
+    }
+    await setControllerPortPreference(Math.trunc(nextPort))
+    await loadPortPreference()
+    setPortError(null)
+    setPortSaved(true)
+  }, [portDraft, loadPortPreference])
+
+  const handleClearPortPreference = useCallback(async () => {
+    await setControllerPortPreference(null)
+    await loadPortPreference()
+    setPortDraft('')
+    setPortError(null)
+    setPortSaved(true)
+  }, [loadPortPreference])
 
   const handleDownloadUpdate = useCallback(() => {
     void downloadUpdate()
@@ -319,6 +386,15 @@ export const AppShell = () => {
                     Queue {Math.round(queueWarning.percent * 100)}%
                   </div>
                 ) : null}
+                {isElectron() ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenPortDialog}
+                    className="rounded-full border border-slate-800 bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200/80 transition hover:border-slate-600"
+                  >
+                    {portPreference?.activePort ? `Port ${portPreference.activePort}` : 'Port'}
+                  </button>
+                ) : null}
               </div>
 
               <button
@@ -492,6 +568,95 @@ export const AppShell = () => {
           </div>
         </div>
       )}
+      {showPortDialog ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-400">Enterprise</p>
+                <h2 className="text-lg font-semibold text-white">Controller port</h2>
+                <p className="text-sm text-slate-300">
+                  Choose a fixed local port for the Controller app. Changes apply after restart.
+                </p>
+                <p className="mt-2 text-xs text-slate-400">
+                  Switching ports may require re-auth the first time on that new port. Previously used ports remain cached.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPortDialog(false)}
+                className="text-slate-400 transition hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2 text-sm text-slate-300">
+              <div>
+                Active port: <span className="text-white">{portPreference?.activePort ?? '—'}</span>
+              </div>
+              {portPreference?.envOverride ? (
+                <div className="text-xs text-amber-300">
+                  Environment override is active; this preference applies once the env override is removed.
+                </div>
+              ) : null}
+              <label className="text-xs font-semibold uppercase text-slate-400" htmlFor="controller-port-input">
+                Preferred port
+              </label>
+              <input
+                id="controller-port-input"
+                ref={portInputRef}
+                type="number"
+                min={1}
+                max={65535}
+                value={portDraft}
+                onChange={(event) => {
+                  setPortDraft(event.target.value)
+                  setPortSaved(false)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void handleSavePortPreference()
+                  }
+                  if (event.key === 'Escape') {
+                    setShowPortDialog(false)
+                  }
+                }}
+                placeholder="Leave blank for default"
+                className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-slate-600"
+              />
+              {portError ? <div className="text-xs text-rose-300">{portError}</div> : null}
+              {portSaved ? (
+                <div className="text-xs text-emerald-300">
+                  Saved. Restart the Controller app to apply.
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPortDialog(false)}
+                className="rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-semibold uppercase text-slate-300 transition hover:border-slate-600"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleClearPortPreference()}
+                className="rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-semibold uppercase text-slate-300 transition hover:border-slate-600"
+              >
+                Use default
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSavePortPreference()}
+                className="rounded-md border border-emerald-600 bg-emerald-700/40 px-3 py-1.5 text-xs font-semibold uppercase text-emerald-100 transition hover:border-emerald-500"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {/* Degraded banner removed for a cleaner, less noisy UI; status is still visible in the header badge. */}
       <main
         className={

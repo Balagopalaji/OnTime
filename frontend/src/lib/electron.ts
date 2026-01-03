@@ -26,6 +26,13 @@ export type UpdateState = {
   error: string | null;
 };
 
+export type ControllerPortPreference = {
+  preferredPort: number | null;
+  activePort: number | null;
+  source: 'env' | 'saved' | 'default' | 'random';
+  envOverride: boolean;
+};
+
 export type ControllerAPI = {
   getPlatformInfo: () => Promise<PlatformInfo>;
   updateSessionState: (state: { lastPath?: string; lastRoomId?: string }) => Promise<boolean>;
@@ -39,6 +46,9 @@ export type ControllerAPI = {
   downloadUpdate: () => Promise<boolean>;
   installUpdate: () => Promise<boolean>;
   onUpdateStateChanged: (callback: (state: UpdateState) => void) => () => void;
+  // Controller port preference (Enterprise)
+  getControllerPortPreference: () => Promise<ControllerPortPreference>;
+  setControllerPortPreference: (preferredPort: number | null) => Promise<{ preferredPort: number | null }>;
 };
 
 declare global {
@@ -136,6 +146,37 @@ export function onCrashRecovery(callback: (data: CrashRecoveryData) => void): ()
     return api.onCrashRecovery(callback);
   }
   return () => {};
+}
+
+/**
+ * Read controller port preference (Electron only).
+ */
+export async function getControllerPortPreference(): Promise<ControllerPortPreference | null> {
+  const api = getControllerAPI();
+  if (api) {
+    try {
+      return await api.getControllerPortPreference();
+    } catch (err) {
+      console.error('[electron] Failed to get controller port preference:', err);
+    }
+  }
+  return null;
+}
+
+/**
+ * Update controller port preference (Electron only).
+ */
+export async function setControllerPortPreference(preferredPort: number | null): Promise<number | null> {
+  const api = getControllerAPI();
+  if (api) {
+    try {
+      const result = await api.setControllerPortPreference(preferredPort);
+      return result.preferredPort ?? null;
+    } catch (err) {
+      console.error('[electron] Failed to set controller port preference:', err);
+    }
+  }
+  return null;
 }
 
 // ============================================================================

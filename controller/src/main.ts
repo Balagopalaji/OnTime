@@ -8,6 +8,7 @@ import http from 'node:http';
 
 let staticServer: http.Server | null = null;
 let staticServerPort: number | null = null;
+let staticServerPortSource: 'env' | 'saved' | 'default' | 'random' = 'default';
 
 const APP_LABEL = 'OnTime Controller';
 const PROTOCOL_SCHEME = 'ontime';
@@ -119,6 +120,7 @@ type SessionState = {
   lastRoomId: string | null;
   closedCleanly: boolean;
   timestamp: number;
+  preferredPort?: number | null;
 };
 
 async function loadSessionState(): Promise<SessionState | null> {
@@ -140,6 +142,7 @@ async function saveSessionState(state: Partial<SessionState>): Promise<void> {
       lastRoomId: null,
       closedCleanly: false,
       timestamp: Date.now(),
+      preferredPort: null,
     };
     try {
       const data = await fs.readFile(statePath, 'utf-8');
@@ -164,6 +167,7 @@ function saveSessionStateSync(state: Partial<SessionState>): void {
       lastRoomId: null,
       closedCleanly: false,
       timestamp: Date.now(),
+      preferredPort: null,
     };
     try {
       const data = fsSync.readFileSync(statePath, 'utf-8');
@@ -205,6 +209,14 @@ function getMimeType(filePath: string): string {
   }
 }
 
+function normalizePort(value: unknown): number | null {
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) return null;
+  const rounded = Math.trunc(num);
+  if (rounded <= 0 || rounded > 65535) return null;
+  return rounded;
+}
+
 async function startStaticServer(): Promise<string> {
   if (staticServer && staticServerPort) {
     return `http://localhost:${staticServerPort}`;
@@ -244,10 +256,15 @@ async function startStaticServer(): Promise<string> {
     }
   });
 
-  const preferredEnv = Number(process.env.ONTIME_CONTROLLER_PORT);
-  const preferredPorts = Number.isFinite(preferredEnv) && preferredEnv > 0
+  const preferredEnv = normalizePort(process.env.ONTIME_CONTROLLER_PORT);
+  const sessionState = await loadSessionState();
+  const storedPreferred = normalizePort(sessionState?.preferredPort);
+  const preferredPorts = preferredEnv
     ? [preferredEnv]
-    : [5174, 5175, 5176];
+    : storedPreferred
+      ? [storedPreferred]
+      : [5174, 5175, 5176];
+  staticServerPortSource = preferredEnv ? 'env' : storedPreferred ? 'saved' : 'default';
   const bindServer = (port: number) =>
     new Promise<void>((resolve, reject) => {
       const onError = (err: NodeJS.ErrnoException) => {
@@ -281,6 +298,7 @@ async function startStaticServer(): Promise<string> {
   if (!bound) {
     console.warn('[controller] Preferred ports unavailable; falling back to random port.');
     await bindServer(0);
+    staticServerPortSource = 'random';
   }
 
   return `http://localhost:${staticServerPort}`;
@@ -472,6 +490,22 @@ function setupIpcHandlers(): void {
   ipcMain.handle('update-session-state', async (_event, state: { lastPath?: string; lastRoomId?: string }) => {
     await saveSessionState(state);
     return true;
+  });
+
+  ipcMain.handle('get-controller-port-preference', async () => {
+    const sessionState = await loadSessionState();
+    return {
+      preferredPort: normalizePort(sessionState?.preferredPort),
+      activePort: staticServerPort,
+      source: staticServerPortSource,
+      envOverride: normalizePort(process.env.ONTIME_CONTROLLER_PORT) !== null,
+    };
+  });
+
+  ipcMain.handle('set-controller-port-preference', async (_event, preferredPort: number | null) => {
+    const normalized = normalizePort(preferredPort);
+    await saveSessionState({ preferredPort: normalized });
+    return { preferredPort: normalized };
   });
 
   // Acknowledge crash recovery
