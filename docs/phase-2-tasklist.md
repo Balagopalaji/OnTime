@@ -180,6 +180,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Handoff flow: select target device; confirm copy varies for same user vs. different user.
 - [ ] Post-takeover notice for displaced controller with "Reclaim Control" action.
 - [ ] Viewer-only mode toggle (optional) to hide takeover controls for observers.
+- [ ] Viewer share links + QR always target the cloud web app (`https://<web-app>/view/:roomId`).
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (PIN validation, audit, deny event)
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/DashboardPage.tsx`
