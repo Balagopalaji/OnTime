@@ -431,7 +431,7 @@ function updateRoomActiveLiveCueId(roomId: string, activeLiveCueId: string | nul
   const delta: RoomStateDelta = {
     type: 'ROOM_STATE_DELTA',
     roomId,
-    changes: { activeLiveCueId },
+    changes: { activeLiveCueId: activeLiveCueId ?? undefined },
     timestamp: now,
   };
   emitToRoom(roomId, 'ROOM_STATE_DELTA', delta);
@@ -2785,7 +2785,7 @@ function getRoomState(roomId: string): RoomState {
     isRunning: false,
     currentTime: 0,
     lastUpdate: Date.now(),
-    activeLiveCueId: null,
+  activeLiveCueId: undefined,
   };
 
   roomStateStore.set(roomId, initial);
