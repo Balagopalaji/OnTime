@@ -333,11 +333,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass A-Win: PPT Detection + File Ops (Windows)**
 **Companion**
-- [ ] Implement `/api/open`, `/api/file/exists`, `/api/file/metadata`; all require `Authorization: Bearer <token>`; return `FEATURE_UNAVAILABLE` when mode lacks capability.
-- [ ] Path validation: normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside after resolving symlinks; reject UNC/remote paths; disallow traversal segments; bind HTTP to 127.0.0.1.
-- [ ] Token lifecycle: TTL 30m; rotate on Companion restart; frontend refreshes token on 401 once, then surfaces reconnect modal.
-- [ ] ffprobe bundle: use bundled LGPL-only ffprobe; if missing, return `{ warning: "FFPROBE_MISSING", metadata: { sizeBytes, mimeGuess } }` and continue (no crash on non-UTF8 filenames).
-- [ ] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background >10s.
+- [x] Implement `/api/open`, `/api/file/exists`, `/api/file/metadata`; all require `Authorization: Bearer <token>`; return `FEATURE_UNAVAILABLE` when mode lacks capability.
+- [x] Path validation: normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside after resolving symlinks; reject UNC/remote paths; disallow traversal segments; bind HTTP to 127.0.0.1.
+- [x] Token lifecycle: TTL 30m; rotate on Companion restart; frontend refreshes token on 401 once, then surfaces reconnect modal.
+- [x] ffprobe bundle: use bundled LGPL-only ffprobe; if missing, return `{ warning: "FFPROBE_MISSING", metadata: { sizeBytes, mimeGuess } }` and continue (no crash on non-UTF8 filenames).
+- [x] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background >10s.
   - instanceId: PowerPoint process PID or window handle for tracking multiple PPT instances.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (HTTP + PPT detection)
@@ -354,9 +354,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Manual: slide number updates in UI
 
 **Manual Verification (Pass A)**
-- [ ] Attempt `/api/open` with a path outside allowed roots; verify rejection.
-- [ ] Force token expiry and confirm refresh path works once, then shows reconnect prompt.
-- [ ] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash.
+- [ ] Attempt `/api/open` with a path outside allowed roots; verify rejection. (blocked: Windows validation pending)
+- [ ] Force token expiry and confirm refresh path works once, then shows reconnect prompt. (blocked: Windows validation pending)
+- [ ] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash. (blocked: Windows validation pending)
+- [ ] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then background/close it and confirm `PRESENTATION_CLEAR` after 10s idle. (blocked: Windows validation pending)
 
 **Pass B: Frontend Workflow**
 **Frontend**

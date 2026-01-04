@@ -119,7 +119,7 @@ Notes:
 - `startedAt?: number`
 - `status?: 'playing' | 'paused' | 'ended'`
 - `config?: { warningSec?: number; criticalSec?: number }`
-- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
+- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; instanceId?: number; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
   - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
 - `updatedAt?: number` (write-through timestamp)
 - `writeSource?: 'companion' | 'controller'` (write-through origin; distinct from cue `source`)
@@ -477,6 +477,7 @@ Notes:
 **Show Control Events (planned)**
 - `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`
 - `PRESENTATION_LOADED`, `PRESENTATION_UPDATE`
+- `PRESENTATION_CLEAR` (presentation closed or idle/backgrounded; payload includes `cueId` when available)
 
 ### 3.3 Error Codes
 **Generic `ERROR` event codes:** `INVALID_PAYLOAD`, `PERMISSION_DENIED`
@@ -496,7 +497,7 @@ Notes:
 - `GET /api/token` → `{ token, expiresAt }` (JSON), or HTML when using `?return=` for trust flow
 - `POST /api/open` → `{ success: true }` (file open; requires Bearer token)
 - `GET /api/file/metadata?path=...` → `{ size, duration?, resolution?, warning? }` (requires Bearer token)
-- `GET /api/file/exists?path=...` → `{ exists: boolean }` (Phase 2c planned; validates path before open; requires Bearer token)
+- `GET /api/file/exists?path=...` → `{ exists: boolean }` (validates path before open; requires Bearer token)
 
 Phase 2c hardening requirement: file endpoints must enforce path normalization, allowlist roots, and reject symlinks/network paths.
 

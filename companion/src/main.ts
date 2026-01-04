@@ -18,7 +18,7 @@ const MODE_LABEL = 'Minimal Mode';
 const COMPANION_MODE = 'minimal';
 const COMPANION_VERSION = '0.1.0';
 const INTERFACE_VERSION = '1.2.0';
-const TOKEN_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const TOKEN_SERVICE = 'OnTime Companion Token';
 const TOKEN_ACCOUNT = 'default';
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -39,6 +39,9 @@ const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
+const PPT_POLL_INTERVAL_MS = 1000;
+const PPT_DEBOUNCE_MS = 1500;
+const PPT_BACKGROUND_CLEAR_MS = 10_000;
 const COMPANION_CAPABILITIES_BY_MODE: Record<
   string,
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
@@ -237,6 +240,7 @@ type LiveCueMetadata = {
   videoDuration?: number;
   videoElapsed?: number;
   videoRemaining?: number;
+  instanceId?: number;
 };
 
 type LiveCue = {
@@ -262,6 +266,32 @@ type PresentationEventPayload = {
   roomId: string;
   cue: LiveCue;
   timestamp: number;
+};
+
+type PresentationClearPayload = {
+  type: 'PRESENTATION_CLEAR';
+  roomId: string;
+  cueId?: string;
+  timestamp: number;
+};
+
+type PowerPointPollState = 'foreground' | 'background' | 'none';
+
+type PowerPointPollResult = {
+  state: PowerPointPollState;
+  instanceId?: number;
+  slideNumber?: number;
+  totalSlides?: number;
+  title?: string;
+  filename?: string;
+};
+
+type PresentationSnapshot = {
+  instanceId: number;
+  slideNumber?: number;
+  totalSlides?: number;
+  title: string;
+  filename?: string;
 };
 
 type TimerActionPayload = {
@@ -506,12 +536,24 @@ function emitPresentationUpdate(roomId: string, cue: LiveCue) {
   emitToRoom(roomId, 'PRESENTATION_UPDATE', payload);
 }
 
+function emitPresentationClear(roomId: string, cueId?: string) {
+  const now = Date.now();
+  const payload: PresentationClearPayload = {
+    type: 'PRESENTATION_CLEAR',
+    roomId,
+    cueId,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'PRESENTATION_CLEAR', payload);
+}
+
 const liveCueEmitters = {
   emitLiveCueCreated,
   emitLiveCueUpdated,
   emitLiveCueEnded,
   emitPresentationLoaded,
   emitPresentationUpdate,
+  emitPresentationClear,
 };
 void liveCueEmitters;
 
@@ -569,6 +611,13 @@ let cacheWriteTimer: NodeJS.Timeout | null = null;
 let lastWriteTs = 0;
 let ffprobeMissingWarned = false;
 let ffprobePath: string | null = null;
+let pptPollTimer: NodeJS.Timeout | null = null;
+let pptPollInFlight = false;
+let pptAnnouncedSnapshot: PresentationSnapshot | null = null;
+let pptCandidateSnapshot: PresentationSnapshot | null = null;
+let pptCandidateSince = 0;
+let pptBackgroundSince: number | null = null;
+let pptActiveCue: LiveCue | null = null;
 
 function getRoomClients(roomId: string): Map<string, {
   socketId: string;
@@ -1249,6 +1298,7 @@ async function bootstrap() {
   startSecureSocketServer(tls);
   startTokenServer(token, expiresAt);
   startSecureTokenServer(token, expiresAt, tls);
+  startPowerPointDetection();
 }
 
 bootstrap().catch((error) => {
@@ -1464,6 +1514,10 @@ function sendOpenFailed(res: any, origin?: string) {
   sendJson(res, 500, { error: 'open_failed' }, origin);
 }
 
+function sendFeatureUnavailable(res: any, origin?: string) {
+  sendJson(res, 403, { error: 'FEATURE_UNAVAILABLE' }, origin);
+}
+
 function getRedactedPath(filePath: string): string {
   const base = path.basename(filePath);
   const hash = crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 12);
@@ -1547,6 +1601,12 @@ function isSubPath(parentPath: string, childPath: string): boolean {
   return childPath === parentPath || childPath.startsWith(parent);
 }
 
+function isNetworkPath(candidatePath: string): boolean {
+  if (process.platform !== 'win32') return false;
+  const normalized = candidatePath.replace(/\//g, '\\');
+  return normalized.startsWith('\\\\') || normalized.startsWith('\\\\?\\UNC\\');
+}
+
 function isBlockedSystemPath(resolvedPath: string): boolean {
   if (process.platform === 'win32') {
     const normalized = path.win32.normalize(resolvedPath).toLowerCase();
@@ -1560,33 +1620,76 @@ function isBlockedSystemPath(resolvedPath: string): boolean {
   return blocked.some((root) => normalized === root || normalized.startsWith(`${root}/`));
 }
 
-async function validateAndResolveUserPath(inputPath: string): Promise<string | null> {
+async function validateAndResolveUserPath(
+  inputPath: string,
+  options?: { requireFile?: boolean },
+): Promise<string | null> {
   if (!inputPath || typeof inputPath !== 'string') return null;
 
   const home = os.homedir();
   const candidate = path.isAbsolute(inputPath) ? inputPath : path.join(home, inputPath);
 
   try {
-    const resolved = await fs.realpath(candidate);
     const resolvedHome = await fs.realpath(home);
 
-    if (isBlockedSystemPath(resolved)) {
+    if (isNetworkPath(candidate)) {
       return null;
     }
 
-    if (!isSubPath(resolvedHome, resolved)) {
+    const requireFile = options?.requireFile !== false;
+    if (requireFile) {
+      const resolved = await fs.realpath(candidate);
+
+      if (isBlockedSystemPath(resolved)) {
+        return null;
+      }
+
+      if (!isSubPath(resolvedHome, resolved)) {
+        return null;
+      }
+
+      const stat = await fs.stat(resolved);
+      if (!stat.isFile()) {
+        return null;
+      }
+
+      return resolved;
+    }
+
+    const resolvedCandidate = path.resolve(candidate);
+    const resolvedParent = await fs.realpath(path.dirname(resolvedCandidate));
+
+    if (isBlockedSystemPath(resolvedParent) || isBlockedSystemPath(resolvedCandidate)) {
       return null;
     }
 
-    const stat = await fs.stat(resolved);
-    if (!stat.isFile()) {
+    if (!isSubPath(resolvedHome, resolvedParent)) {
       return null;
     }
 
-    return resolved;
+    try {
+      const stat = await fs.stat(resolvedCandidate);
+      if (!stat.isFile()) {
+        return null;
+      }
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') {
+        return null;
+      }
+    }
+
+    return resolvedCandidate;
   } catch {
     return null;
   }
+}
+
+async function validateExistingUserFile(inputPath: string): Promise<string | null> {
+  return validateAndResolveUserPath(inputPath, { requireFile: true });
+}
+
+async function validatePotentialUserFile(inputPath: string): Promise<string | null> {
+  return validateAndResolveUserPath(inputPath, { requireFile: false });
 }
 
 async function openFileInDefaultApp(resolvedPath: string): Promise<void> {
@@ -1677,6 +1780,259 @@ async function runFfprobe(resolvedPath: string): Promise<{ duration?: number; re
       }
     });
   });
+}
+
+function getPresentationRoomIds(): string[] {
+  const rooms = new Set<string>();
+  roomClientStore.forEach((_clients, roomId) => rooms.add(roomId));
+  roomStateStore.forEach((_state, roomId) => rooms.add(roomId));
+  return Array.from(rooms);
+}
+
+function snapshotsEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.instanceId === b.instanceId &&
+    a.slideNumber === b.slideNumber &&
+    a.totalSlides === b.totalSlides &&
+    a.title === b.title &&
+    a.filename === b.filename
+  );
+}
+
+function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
+  return {
+    id: `powerpoint:${snapshot.instanceId}`,
+    source: 'powerpoint',
+    title: snapshot.title,
+    startedAt,
+    status: 'playing',
+    metadata: {
+      slideNumber: snapshot.slideNumber,
+      totalSlides: snapshot.totalSlides,
+      filename: snapshot.filename,
+      player: 'powerpoint',
+      instanceId: snapshot.instanceId,
+    },
+  };
+}
+
+function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
+  const roomIds = getPresentationRoomIds();
+  if (!snapshot) {
+    if (!pptAnnouncedSnapshot) return;
+    const cueId = `powerpoint:${pptAnnouncedSnapshot.instanceId}`;
+    if (pptActiveCue) {
+      const endedCue: LiveCue = { ...pptActiveCue, status: 'ended' };
+      roomIds.forEach((roomId) => {
+        emitLiveCueEnded(roomId, endedCue);
+        emitPresentationClear(roomId, cueId);
+      });
+    } else {
+      roomIds.forEach((roomId) => emitPresentationClear(roomId, cueId));
+    }
+    pptAnnouncedSnapshot = null;
+    pptActiveCue = null;
+    return;
+  }
+
+  const cueId = `powerpoint:${snapshot.instanceId}`;
+  const startedAt = pptActiveCue?.id === cueId ? pptActiveCue.startedAt ?? Date.now() : Date.now();
+  const cue = buildPowerPointCue(snapshot, startedAt);
+
+  if (!pptActiveCue || pptActiveCue.id !== cueId) {
+    if (pptActiveCue && pptActiveCue.id !== cueId) {
+      const endedCue: LiveCue = { ...pptActiveCue, status: 'ended' };
+      roomIds.forEach((roomId) => emitLiveCueEnded(roomId, endedCue));
+    }
+    roomIds.forEach((roomId) => {
+      emitLiveCueCreated(roomId, cue);
+      emitPresentationLoaded(roomId, cue);
+    });
+  } else {
+    roomIds.forEach((roomId) => {
+      emitLiveCueUpdated(roomId, cue);
+      emitPresentationUpdate(roomId, cue);
+    });
+  }
+
+  pptActiveCue = cue;
+  pptAnnouncedSnapshot = snapshot;
+}
+
+function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
+  const now = Date.now();
+  if (!snapshotsEqual(snapshot, pptCandidateSnapshot)) {
+    pptCandidateSnapshot = snapshot;
+    pptCandidateSince = now;
+  }
+
+  if (now - pptCandidateSince < PPT_DEBOUNCE_MS) {
+    return;
+  }
+
+  if (snapshotsEqual(snapshot, pptAnnouncedSnapshot)) {
+    return;
+  }
+
+  commitPresentationSnapshot(snapshot);
+}
+
+async function fetchPowerPointStatus(): Promise<PowerPointPollResult | null> {
+  if (process.platform !== 'win32') {
+    return { state: 'none' };
+  }
+
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+}
+'@
+$hwnd = [Win32]::GetForegroundWindow()
+$pid = 0
+[Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
+$hasPowerpoint = @(Get-Process -Name POWERPNT -ErrorAction SilentlyContinue).Count -gt 0
+$proc = $null
+if ($pid -ne 0) { $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue }
+if (-not $proc -or $proc.ProcessName -ne 'POWERPNT') {
+  if ($hasPowerpoint) {
+    @{ state = 'background' } | ConvertTo-Json -Compress
+  } else {
+    @{ state = 'none' } | ConvertTo-Json -Compress
+  }
+  return
+}
+$ppt = $null
+try { $ppt = [Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application') } catch { $ppt = $null }
+if (-not $ppt) {
+  @{ state = 'foreground'; instanceId = $pid } | ConvertTo-Json -Compress
+  return
+}
+$presentation = $ppt.ActivePresentation
+if (-not $presentation) {
+  @{ state = 'foreground'; instanceId = $pid } | ConvertTo-Json -Compress
+  return
+}
+$slideIndex = $null
+try { $slideIndex = $ppt.ActiveWindow.View.Slide.SlideIndex } catch { $slideIndex = $null }
+$totalSlides = $null
+try { $totalSlides = $presentation.Slides.Count } catch { $totalSlides = $null }
+$title = $presentation.Name
+$filename = $presentation.FullName
+@{
+  state = 'foreground'
+  instanceId = $pid
+  slideNumber = $slideIndex
+  totalSlides = $totalSlides
+  title = $title
+  filename = $filename
+} | ConvertTo-Json -Compress
+`.trim();
+
+  return await new Promise((resolve) => {
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { windowsHide: true }
+    );
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, 4000);
+
+    child.stdout.on('data', (buf) => {
+      stdout += buf.toString('utf8');
+    });
+    child.stderr.on('data', (buf) => {
+      stderr += buf.toString('utf8');
+    });
+    child.on('error', () => {
+      clearTimeout(timeout);
+      resolve(null);
+    });
+    child.on('exit', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        console.warn(`[ppt] PowerShell failed (code=${code}): ${stderr.trim()}`);
+        resolve(null);
+        return;
+      }
+      const raw = stdout.trim();
+      if (!raw) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw) as PowerPointPollResult);
+      } catch (error) {
+        console.warn(`[ppt] Failed to parse PowerShell output: ${String(error)}`);
+        resolve(null);
+      }
+    });
+  });
+}
+
+function handlePowerPointStatus(result: PowerPointPollResult | null) {
+  if (!result) return;
+
+  const now = Date.now();
+  if (result.state === 'foreground') {
+    pptBackgroundSince = null;
+    if (!result.instanceId) {
+      return;
+    }
+    const title = result.title?.trim() || result.filename?.trim() || 'PowerPoint';
+    const snapshot: PresentationSnapshot = {
+      instanceId: result.instanceId,
+      slideNumber: result.slideNumber,
+      totalSlides: result.totalSlides,
+      title,
+      filename: result.filename,
+    };
+    updatePresentationCandidate(snapshot);
+    return;
+  }
+
+  if (result.state === 'background') {
+    if (pptBackgroundSince === null) {
+      pptBackgroundSince = now;
+    }
+    if (pptCandidateSnapshot && !snapshotsEqual(pptCandidateSnapshot, pptAnnouncedSnapshot)) {
+      pptCandidateSnapshot = pptAnnouncedSnapshot;
+      pptCandidateSince = now;
+    }
+    if (pptAnnouncedSnapshot && now - pptBackgroundSince >= PPT_BACKGROUND_CLEAR_MS) {
+      updatePresentationCandidate(null);
+    }
+    return;
+  }
+
+  pptBackgroundSince = null;
+  updatePresentationCandidate(null);
+}
+
+function startPowerPointDetection() {
+  if (pptPollTimer) return;
+  if (process.platform !== 'win32') return;
+  if (!getCompanionCapabilities().powerpoint) return;
+
+  pptPollTimer = setInterval(() => {
+    if (pptPollInFlight) return;
+    pptPollInFlight = true;
+    fetchPowerPointStatus()
+      .then((result) => handlePowerPointStatus(result))
+      .finally(() => {
+        pptPollInFlight = false;
+      });
+  }, PPT_POLL_INTERVAL_MS);
 }
 
 function handleJoinRoom(socket: Socket, payload: unknown) {
@@ -2906,6 +3262,10 @@ function createTokenHandler(token: string, expiresAt: number) {
           sendUnauthorized(res);
           return;
         }
+        if (!getCompanionCapabilities().fileOperations) {
+          sendFeatureUnavailable(res, cors.origin);
+          return;
+        }
         res.writeHead(204, {
           'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -2920,6 +3280,10 @@ function createTokenHandler(token: string, expiresAt: number) {
         const auth = authorizeRequest(req);
         if (!auth.ok) {
           sendUnauthorized(res, auth.origin);
+          return;
+        }
+        if (!getCompanionCapabilities().fileOperations) {
+          sendFeatureUnavailable(res, auth.origin);
           return;
         }
 
@@ -2938,7 +3302,7 @@ function createTokenHandler(token: string, expiresAt: number) {
               return;
             }
 
-            const resolved = await validateAndResolveUserPath(inputPath);
+            const resolved = await validateExistingUserFile(inputPath);
             if (!resolved) {
               sendInvalidPath(res, auth.origin);
               console.warn(
@@ -2962,10 +3326,87 @@ function createTokenHandler(token: string, expiresAt: number) {
         return;
       }
 
+      if (url.pathname === '/api/file/exists' && req.method === 'OPTIONS') {
+        const cors = authorizeCorsOnly(req);
+        if (!cors.ok) {
+          sendUnauthorized(res);
+          return;
+        }
+        if (!getCompanionCapabilities().fileOperations) {
+          sendFeatureUnavailable(res, cors.origin);
+          return;
+        }
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          Vary: 'Origin',
+        });
+        res.end();
+        return;
+      }
+
+      if (url.pathname === '/api/file/exists' && req.method === 'GET') {
+        const auth = authorizeRequest(req);
+        if (!auth.ok) {
+          sendUnauthorized(res, auth.origin);
+          return;
+        }
+        if (!getCompanionCapabilities().fileOperations) {
+          sendFeatureUnavailable(res, auth.origin);
+          return;
+        }
+
+        const inputPath = url.searchParams.get('path');
+        if (!inputPath) {
+          sendInvalidPath(res, auth.origin);
+          return;
+        }
+
+        void (async () => {
+          try {
+            const resolved = await validatePotentialUserFile(inputPath);
+            if (!resolved) {
+              sendInvalidPath(res, auth.origin);
+              console.warn(
+                `[file] exists denied caller=${auth.clientId ?? 'unknown'} file=${getRedactedPath(inputPath)}`
+              );
+              return;
+            }
+
+            let exists = false;
+            try {
+              const stat = await fs.stat(resolved);
+              exists = stat.isFile();
+            } catch (error: any) {
+              if (error?.code !== 'ENOENT') {
+                sendInvalidPath(res, auth.origin);
+                return;
+              }
+            }
+
+            sendJson(res, 200, { exists }, auth.origin);
+            console.log(
+              `[file] exists ok caller=${auth.clientId ?? 'unknown'} file=${getRedactedPath(resolved)} exists=${exists}`
+            );
+          } catch (error) {
+            console.warn(
+              `[file] exists failed caller=${auth.clientId ?? 'unknown'} error=${String(error)}`
+            );
+            sendOpenFailed(res, auth.origin);
+          }
+        })();
+        return;
+      }
+
       if (url.pathname === '/api/file/metadata' && req.method === 'OPTIONS') {
         const cors = authorizeCorsOnly(req);
         if (!cors.ok) {
           sendUnauthorized(res);
+          return;
+        }
+        if (!getCompanionCapabilities().fileOperations) {
+          sendFeatureUnavailable(res, cors.origin);
           return;
         }
         res.writeHead(204, {
@@ -2984,6 +3425,10 @@ function createTokenHandler(token: string, expiresAt: number) {
           sendUnauthorized(res, auth.origin);
           return;
         }
+        if (!getCompanionCapabilities().fileOperations) {
+          sendFeatureUnavailable(res, auth.origin);
+          return;
+        }
 
         const inputPath = url.searchParams.get('path');
         if (!inputPath) {
@@ -3000,7 +3445,7 @@ function createTokenHandler(token: string, expiresAt: number) {
 
         void (async () => {
           try {
-            const resolved = await validateAndResolveUserPath(inputPath);
+            const resolved = await validateExistingUserFile(inputPath);
             if (!resolved) {
               sendInvalidPath(res, auth.origin);
               console.warn(
