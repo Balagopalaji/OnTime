@@ -269,9 +269,11 @@ This section summarizes the show-control architecture at a high level. Canonical
 
 ## Phase 3 (Planned) — LAN Offline Viewers
 - Companion-served static viewer bundle for LAN-only rooms (HTTPS/WSS + trusted cert).
+- LAN Companion bridge so PPT detection runs on the show laptop while operators control from a separate device (local-only today; relay planned).
 - Pairing flow + viewer-only tokens; LAN allowlists + PNA/CORS headers as required.
 - Optional Viewer App for desktop stations (Electron) to avoid browser trust prompts.
 - Optional native mobile viewers (iOS/Android) if LAN demand warrants.
+- Optional cloud relay of PPT/live cue events for hybrid/remote workflows (higher latency/cost; later phase).
 - Manual run-of-show (“Show Planner”): time slots, notes, attachments, cue timeline.
 - Sections (sessions) group segments; optional section-level cues (e.g., "house lights at session start").
 - Crew chat widget (role-targeted messaging with presets and optional audio).

@@ -49,6 +49,7 @@ Scope: Companion local server requirements (Electron/Node).
 - PowerPoint slide tracking:
   - Windows: COM API.
   - macOS: AppleScript (slide tracking only).
+  - Local-only in Phase 2: PPT detection runs on the PowerPoint machine; remote operator control requires a LAN Companion bridge or cloud relay (planned).
 - PowerPoint video timing (elapsed/remaining) is sourced from Companion detection logic (Windows only; COM API + media hooks/polling as needed).
 - Video timing fields are surfaced via live cue metadata (`videoDuration`, `videoElapsed`, optional `videoRemaining` in ms).
 - If media duration is unavailable, the UI should show “Unknown duration” with a neutral state.

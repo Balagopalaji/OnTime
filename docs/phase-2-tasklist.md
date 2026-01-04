@@ -346,8 +346,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass A-Mac: PPT Slide Tracking (macOS)**
 **Companion**
-- [ ] Implement slide-only tracking via AppleScript; no video timing; emit `PRESENTATION_*` with slide counts only.
-- [ ] Emit "video timing unavailable on macOS" marker for UI.
+- [x] Implement slide-only tracking via AppleScript; no video timing; emit `PRESENTATION_*` with slide counts only.
+- [x] Emit "video timing unavailable on macOS" marker for UI.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (macOS PPT hooks)
 **Test Expectations**

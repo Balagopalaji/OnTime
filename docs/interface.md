@@ -119,8 +119,9 @@ Notes:
 - `startedAt?: number`
 - `status?: 'playing' | 'paused' | 'ended'`
 - `config?: { warningSec?: number; criticalSec?: number }`
-- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; instanceId?: number; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number }`
+- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; instanceId?: number; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number; videoTimingUnavailable?: boolean }`
   - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
+  - `videoTimingUnavailable` is set to true when video timing data is not available (macOS PowerPoint).
 - `updatedAt?: number` (write-through timestamp)
 - `writeSource?: 'companion' | 'controller'` (write-through origin; distinct from cue `source`)
 

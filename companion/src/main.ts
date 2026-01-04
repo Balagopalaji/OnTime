@@ -15,7 +15,7 @@ let tray: Tray | null = null;
 
 const APP_LABEL = 'OnTime Companion';
 const MODE_LABEL = 'Minimal Mode';
-const COMPANION_MODE = 'minimal';
+const COMPANION_MODE = 'show_control';
 const COMPANION_VERSION = '0.1.0';
 const INTERFACE_VERSION = '1.2.0';
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -42,6 +42,7 @@ const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 const PPT_POLL_INTERVAL_MS = 1000;
 const PPT_DEBOUNCE_MS = 1500;
 const PPT_BACKGROUND_CLEAR_MS = 10_000;
+const DEBUG_PPT = process.env.COMPANION_DEBUG_PPT === 'true';
 const COMPANION_CAPABILITIES_BY_MODE: Record<
   string,
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
@@ -240,6 +241,7 @@ type LiveCueMetadata = {
   videoDuration?: number;
   videoElapsed?: number;
   videoRemaining?: number;
+  videoTimingUnavailable?: boolean;
   instanceId?: number;
 };
 
@@ -1802,19 +1804,25 @@ function snapshotsEqual(a: PresentationSnapshot | null, b: PresentationSnapshot 
 }
 
 function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
+  const metadata: LiveCueMetadata = {
+    slideNumber: snapshot.slideNumber,
+    totalSlides: snapshot.totalSlides,
+    filename: snapshot.filename,
+    player: 'powerpoint',
+    instanceId: snapshot.instanceId,
+  };
+
+  if (process.platform === 'darwin') {
+    metadata.videoTimingUnavailable = true;
+  }
+
   return {
     id: `powerpoint:${snapshot.instanceId}`,
     source: 'powerpoint',
     title: snapshot.title,
     startedAt,
     status: 'playing',
-    metadata: {
-      slideNumber: snapshot.slideNumber,
-      totalSlides: snapshot.totalSlides,
-      filename: snapshot.filename,
-      player: 'powerpoint',
-      instanceId: snapshot.instanceId,
-    },
+    metadata,
   };
 }
 
@@ -1880,6 +1888,97 @@ function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
 }
 
 async function fetchPowerPointStatus(): Promise<PowerPointPollResult | null> {
+  if (process.platform === 'darwin') {
+    const script = `
+set output to ""
+set pptRunning to false
+set pptFrontmost to false
+set pptPid to 0
+try
+  tell application "System Events"
+    set pptRunning to (count of (application processes whose name is "Microsoft PowerPoint")) > 0
+    if pptRunning then
+      set pptProcess to first application process whose name is "Microsoft PowerPoint"
+      set pptPid to unix id of pptProcess
+      set frontApp to name of first application process whose frontmost is true
+      if frontApp is "Microsoft PowerPoint" then set pptFrontmost to true
+    end if
+  end tell
+end try
+if pptRunning is false then
+  return "{\\"state\\":\\"none\\"}"
+end if
+if pptFrontmost is false then
+  return "{\\"state\\":\\"background\\"}"
+end if
+
+set slideNumberValue to ""
+set totalSlidesValue to ""
+
+try
+  tell application "Microsoft PowerPoint"
+    if (count of presentations) is 0 then
+      set output to "{\\"state\\":\\"foreground\\",\\"instanceId\\":" & pptPid & "}"
+      return output
+    end if
+    set currentPresentation to active presentation
+    try
+      set totalSlidesValue to count of slides of currentPresentation
+    end try
+    try
+      set slideNumberValue to slide number of slide range of selection of document window 1
+    end try
+  end tell
+end try
+
+set output to "{\\"state\\":\\"foreground\\",\\"instanceId\\":" & pptPid
+if slideNumberValue is not "" then set output to output & ",\\"slideNumber\\":" & slideNumberValue
+if totalSlidesValue is not "" then set output to output & ",\\"totalSlides\\":" & totalSlidesValue
+set output to output & "}"
+return output
+`.trim();
+
+    return await new Promise((resolve) => {
+      const child = spawn('osascript', ['-e', script]);
+      let stdout = '';
+      let stderr = '';
+      const timeout = setTimeout(() => {
+        child.kill();
+        resolve(null);
+      }, 4000);
+
+      child.stdout.on('data', (buf) => {
+        stdout += buf.toString('utf8');
+      });
+      child.stderr.on('data', (buf) => {
+        stderr += buf.toString('utf8');
+      });
+      child.on('error', () => {
+        clearTimeout(timeout);
+        resolve(null);
+      });
+      child.on('exit', (code) => {
+        clearTimeout(timeout);
+        if (code !== 0) {
+          console.warn(`[ppt] osascript failed (code=${code}): ${stderr.trim()}`);
+          resolve(null);
+          return;
+        }
+        const raw = stdout.trim();
+        if (!raw) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(raw) as PowerPointPollResult);
+        } catch (error) {
+          console.warn(`[ppt] Failed to parse osascript output: ${String(error)}`);
+          resolve(null);
+        }
+      });
+    });
+  }
+
   if (process.platform !== 'win32') {
     return { state: 'none' };
   }
@@ -1981,7 +2080,16 @@ $filename = $presentation.FullName
 }
 
 function handlePowerPointStatus(result: PowerPointPollResult | null) {
-  if (!result) return;
+  if (!result) {
+    if (DEBUG_PPT) {
+      console.info('[ppt] status: null')
+    }
+    return;
+  }
+
+  if (DEBUG_PPT) {
+    console.info('[ppt] status', result)
+  }
 
   const now = Date.now();
   if (result.state === 'foreground') {
@@ -2021,8 +2129,22 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
 
 function startPowerPointDetection() {
   if (pptPollTimer) return;
-  if (process.platform !== 'win32') return;
-  if (!getCompanionCapabilities().powerpoint) return;
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+    if (DEBUG_PPT) {
+      console.info('[ppt] detection disabled: unsupported platform')
+    }
+    return;
+  }
+  if (!getCompanionCapabilities().powerpoint) {
+    if (DEBUG_PPT) {
+      console.info('[ppt] detection disabled: capability false')
+    }
+    return;
+  }
+
+  if (DEBUG_PPT) {
+    console.info('[ppt] detection started', { platform: process.platform })
+  }
 
   pptPollTimer = setInterval(() => {
     if (pptPollInFlight) return;
@@ -3167,7 +3289,7 @@ function getRoomState(roomId: string): RoomState {
     isRunning: false,
     currentTime: 0,
     lastUpdate: Date.now(),
-  activeLiveCueId: undefined,
+    activeLiveCueId: undefined,
   };
 
   roomStateStore.set(roomId, initial);

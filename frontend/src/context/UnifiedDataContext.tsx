@@ -2104,6 +2104,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       handleLiveCueUpdated({ type: 'LIVE_CUE_UPDATED', roomId: payload.roomId, cue: payload.cue, timestamp: payload.timestamp })
     }
 
+    const handlePresentationClear = () => {}
+
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
       applyControlPayload(payload, { broadcast: true })
     }
@@ -2144,6 +2146,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     socket.on('LIVE_CUE_ENDED', handleLiveCueEnded)
     socket.on('PRESENTATION_LOADED', handlePresentationLoaded)
     socket.on('PRESENTATION_UPDATE', handlePresentationUpdate)
+    socket.on('PRESENTATION_CLEAR', handlePresentationClear)
     socket.on('CONTROLLER_LOCK_STATE', handleControllerLockState)
     socket.on('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
     socket.on('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
@@ -2168,6 +2171,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       socket.off('LIVE_CUE_ENDED', handleLiveCueEnded)
       socket.off('PRESENTATION_LOADED', handlePresentationLoaded)
       socket.off('PRESENTATION_UPDATE', handlePresentationUpdate)
+      socket.off('PRESENTATION_CLEAR', handlePresentationClear)
       socket.off('CONTROLLER_LOCK_STATE', handleControllerLockState)
       socket.off('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
       socket.off('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
