@@ -565,7 +565,10 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [pendingTimers, state.timers],
   )
 
-  const getLiveCueRecords = useCallback((): LiveCueRecord[] => [], [])
+  const getLiveCueRecords = useCallback((_roomId: string): LiveCueRecord[] => {
+    void _roomId
+    return []
+  }, [])
 
   const getLiveCues = useCallback(
     (roomId: string): LiveCue[] => getLiveCueRecords(roomId).map((record) => record.cue),

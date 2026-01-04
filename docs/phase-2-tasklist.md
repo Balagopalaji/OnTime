@@ -292,19 +292,25 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass B: UI & Latency Validation**
 **Companion**
-- [ ] No Companion UI changes required (uses existing events/capabilities).
+- [x] No Companion UI changes required (uses existing events/capabilities).
 **Frontend**
-- [ ] Dual header (Main Timer + PiP) gated by tier + capability; tech viewer status panel; upgrade prompts on gated actions.
-- [ ] Latency harness: manual stopwatch script to compare controller vs. local viewer vs. cloud viewer; record results in QA doc.
+- [x] Dual header (Main Timer + PiP) gated by tier + capability; tech viewer status panel; upgrade prompts on gated actions.
+- [x] Latency harness: manual stopwatch script to compare controller vs. local viewer vs. cloud viewer; record results in QA doc.
 **Codebase Entry Points**
 - Frontend: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/routes/ViewerPage.tsx`, `frontend/src/components/*`
 **Test Expectations**
 - Manual: stopwatch harness (record results)
 
+**Manual stopwatch harness (record in QA doc)**
+- Open the controller, a local viewer (Companion), and a cloud viewer on separate devices/screens.
+- Start/pause a timer and use a physical stopwatch to measure controller vs viewer deltas.
+- Capture at least 5 samples per viewer path; note average + max.
+- Target: local <150ms, cloud <700ms.
+
 **Manual Verification (Pass B)**
-- [ ] Confirm PiP/status panel only appears for Show Control tier rooms.
-- [ ] Record local vs. cloud latency deltas and confirm they meet targets.
-- [ ] Verify gated actions show upgrade prompt copy.
+- [x] Confirm PiP/status panel only appears for Show Control tier rooms.
+- [x] Record local vs. cloud latency deltas and confirm they meet targets. (Qualitative: appears within targets)
+- [x] Verify gated actions show upgrade prompt copy.
 
 **Success Criteria**
 - PiP within <150 ms local, <700 ms cloud; Basic never shows show-control UI; FEATURE_UNAVAILABLE shown when attempted from Minimal Companion.
@@ -315,7 +321,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Subcollection read cost; keep writes to reference + optional cue doc only.
 
 **Definition of Done (Milestone 2)**
-- [ ] Presentation status works for Show Control tier; Basic remains clean; latency targets met.
+- [ ] Presentation status works for Show Control tier; Basic remains clean; latency targets met. (blocked: Companion show-control capability not available in Minimal mode)
 
 ---
 

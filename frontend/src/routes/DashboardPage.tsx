@@ -229,7 +229,17 @@ export const DashboardPage = () => {
       const lock = getControllerLock ? getControllerLock(roomId) : null
       if ((!lock || lockState === 'authoritative') && dataContext.subscribeToCompanionRoom) {
         dataContext.subscribeToCompanionRoom(roomId, 'viewer')
-        await new Promise((resolve) => window.setTimeout(resolve, 180))
+        const start = Date.now()
+        let nextLockState = lockState
+        let nextLock = lock
+        while (
+          Date.now() - start < 1000 &&
+          (!nextLock || nextLockState === 'authoritative')
+        ) {
+          await new Promise((resolve) => window.setTimeout(resolve, 120))
+          nextLockState = getControllerLockState ? getControllerLockState(roomId) : nextLockState
+          nextLock = getControllerLock ? getControllerLock(roomId) : nextLock
+        }
       }
       const refreshedLockState = getControllerLockState ? getControllerLockState(roomId) : lockState
       const refreshedLock = getControllerLock ? getControllerLock(roomId) : lock

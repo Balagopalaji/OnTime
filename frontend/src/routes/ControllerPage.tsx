@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
   Clock3,
@@ -25,6 +25,7 @@ import { getAllTimezones } from '../lib/timezones'
 import { getCloudViewerUrl } from '../lib/viewer-links'
 import { useAppMode } from '../context/AppModeContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
+import { useClock } from '../hooks/useClock'
 import { auth } from '../lib/firebase'
 import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth'
 
@@ -32,7 +33,8 @@ export const ControllerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
   const { user } = useAuth()
-  const { handshakeStatus } = useCompanionConnection()
+  const companion = useCompanionConnection()
+  const { handshakeStatus } = companion
   const ctx = useDataContext()
   const {
     getRoom,
@@ -542,6 +544,7 @@ export const ControllerPage = () => {
     warningSec: room?.config.warningSec ?? 120,
     criticalSec: room?.config.criticalSec ?? 30,
   })
+  const clockTime = useClock(room?.timezone ?? 'UTC', room?.state.clockMode ?? '24h')
 
   const activeIndex = activeTimer
     ? timers.findIndex((timer) => timer.id === activeTimer.id)
@@ -600,6 +603,42 @@ export const ControllerPage = () => {
     })
     return lookup
   }, [engine, room, timers])
+
+  const pipTimer =
+    selectedTimer && selectedTimer.id !== activeTimer?.id
+      ? selectedTimer
+      : nextTimer ?? prevTimer
+  const pipLabel =
+    selectedTimer && selectedTimer.id !== activeTimer?.id
+      ? 'Selected'
+      : nextTimer
+        ? 'Next up'
+        : prevTimer
+          ? 'Previous'
+          : 'Standby'
+  const pipRemaining = pipTimer
+    ? remainingLookup[pipTimer.id] ?? formatDuration(pipTimer.duration * 1000)
+    : '00:00'
+
+  const showControlTier = room?.tier === 'show_control' || room?.tier === 'production'
+  const showControlEnabled = showControlTier && room?.features?.showControl
+  const companionReady = companion.isConnected && companion.handshakeStatus === 'ack'
+  const presentationCapability =
+    companion.capabilities.powerpoint || companion.capabilities.externalVideo
+  const capabilityMissing = companionReady && !presentationCapability
+  const showControlBlocked = showControlTier && (!room?.features?.showControl || capabilityMissing)
+  const showControlUi = showControlEnabled && !capabilityMissing
+
+  const mainDisplay = room?.state.showClock ? clockTime : engine.display
+  const mainStatusLabel = room?.state.showClock
+    ? 'Clock'
+    : engine.status === 'default'
+      ? 'On schedule'
+      : engine.status === 'warning'
+        ? 'Warning'
+        : engine.status === 'critical'
+          ? 'Critical'
+          : 'Overtime'
 
   const pendingRequestAgeMs =
     pendingRequest ? Math.max(0, controlNow - pendingRequest.requestedAt) : null
@@ -1418,6 +1457,49 @@ export const ControllerPage = () => {
             <ShareLinkButton roomId={room.id} />
           </div>
         </div>
+        {showControlTier ? (
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+            {showControlUi ? (
+              <>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Main timer</p>
+                  <p className="text-sm font-semibold text-white">
+                    {activeTimer ? activeTimer.title : 'Standby'}
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-white">{mainDisplay}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
+                    {mainStatusLabel}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                    PiP {pipLabel}
+                  </p>
+                  <p className="text-sm font-semibold text-white">
+                    {pipTimer ? pipTimer.title : 'Standby'}
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{pipRemaining}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {pipTimer?.speaker ? `Speaker: ${pipTimer.speaker}` : 'Ready'}
+                  </p>
+                </div>
+              </>
+            ) : showControlBlocked ? (
+              <div className="rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
+                <p className="font-semibold">Feature unavailable in this Companion mode.</p>
+                <p className="mt-1 text-amber-100/80">
+                  Switch Companion to Show Control mode to enable the dual header.
+                </p>
+                <Link
+                  to="/local"
+                  className="mt-2 inline-flex rounded-full border border-amber-400/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition hover:bg-amber-500/10"
+                >
+                  Learn more
+                </Link>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {showControlBar ? (
           <div
             className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border px-4 py-2 text-xs text-slate-100 shadow-sm ${

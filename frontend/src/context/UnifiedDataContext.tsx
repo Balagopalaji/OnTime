@@ -1670,9 +1670,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (payload.type === 'ERROR') {
         if (!payload?.code || !payload.message) return
         if (!payload.roomId) return
+        const roomId = payload.roomId
         setControlErrors((prev) => ({
           ...prev,
-          [payload.roomId]: {
+          [roomId]: {
             code: payload.code ?? 'ERROR',
             message: payload.message ?? 'Unknown error',
             receivedAt: Date.now(),

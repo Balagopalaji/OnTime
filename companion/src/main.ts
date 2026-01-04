@@ -583,6 +583,25 @@ function getRoomClients(roomId: string): Map<string, {
   return roomClientStore.get(roomId)!;
 }
 
+function isSocketActive(socketId: string): boolean {
+  for (const server of ioServers) {
+    if (server.sockets.sockets.has(socketId)) return true;
+  }
+  return false;
+}
+
+function pruneRoomClients(roomId: string): boolean {
+  const clients = getRoomClients(roomId);
+  let changed = false;
+  clients.forEach((entry, clientId) => {
+    if (!isSocketActive(entry.socketId)) {
+      clients.delete(clientId);
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 function buildControllerLock(roomId: string, entry: {
   clientId: string;
   connectedAt: number;
@@ -658,6 +677,7 @@ function emitRoomPinStateToController(roomId: string) {
 }
 
 function emitRoomClientsState(roomId: string) {
+  pruneRoomClients(roomId);
   const clients = [...getRoomClients(roomId).entries()].map(([clientId, entry]) => ({
     clientId,
     deviceName: entry.deviceName,
@@ -2040,6 +2060,12 @@ function handleHandOver(socket: Socket, payload: unknown) {
   const clients = getRoomClients(roomId);
   const target = clients.get(targetClientId);
   if (!target) {
+    emitError(socket, 'NOT_FOUND', 'Target controller not connected.');
+    return;
+  }
+  if (!isSocketActive(target.socketId)) {
+    clients.delete(targetClientId);
+    emitRoomClientsState(roomId);
     emitError(socket, 'NOT_FOUND', 'Target controller not connected.');
     return;
   }
