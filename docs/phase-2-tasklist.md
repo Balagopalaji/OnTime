@@ -267,18 +267,18 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass A: Protocol & Plumbing**
 **Companion**
-- [ ] Emit `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
+- [x] Emit `LIVE_CUE_*` and `PRESENTATION_*` per `interface.md`; maintain in-memory `liveCues` with timestamps.
 **Frontend/Cloud**
-- [ ] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `writeSource=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
-- [ ] Write-through policy: controller writes `liveCues` to Firestore; Companion only writes when controller heartbeat is stale for 5s, then yields immediately on controller reconnect.
+- [x] Active cue write policy: controller primary writer of `activeLiveCueId`; Companion writes only when controller offline and includes `writeSource=companion` + `updatedAt`. Conflict: pick newest `updatedAt`; tie-break to controller.
+- [x] Write-through policy: controller writes `liveCues` to Firestore; Companion only writes when controller heartbeat is stale for 5s, then yields immediately on controller reconnect.
   - Write metadata uses `updatedAt` + `writeSource: 'companion' | 'controller'` (distinct from cue `source`).
-- [ ] Skip `liveCues` write-through when cue rate exceeds 1/sec; fall back to `activeLiveCueId` only.
-- [ ] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
+- [x] Skip `liveCues` write-through when cue rate exceeds 1/sec; fall back to `activeLiveCueId` only.
+- [x] Add `activeLiveCueId` to RoomState (reference only). Optional `liveCues` subcollection write-through for cloud viewers (tier-gated).
   - Cost note: each cue change = 1 write + N reads (viewers). For high-frequency shows (>1 cue/sec), batch or use reference-only mode with `activeLiveCueId`.
-- [ ] Unified merge: merge Companion reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
-- [ ] Phase 2 explicitly excludes scheduled cues, cue timelines, and manual cue acknowledgment (Phase 3).
+- [x] Unified merge: merge Companion reference with Firebase; fall back to Firebase when Companion absent; never emit live cues in Basic tier.
+- [x] Phase 2 explicitly excludes scheduled cues, cue timelines, and manual cue acknowledgment (Phase 3).
 **Type Scaffolding**
-- [ ] Extend `RoomState` with `activeLiveCueId: string | null`.
+- [x] Extend `RoomState` with `activeLiveCueId: string | null`.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (LIVE_CUE/PRESENTATION)
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`
@@ -286,9 +286,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: liveCues flow from Companion to local viewer
 
 **Manual Verification (Pass A)**
-- [ ] With Companion running, verify live cue updates reach local viewer quickly.
-- [ ] With Companion stopped, verify Firebase fallback works without flapping.
-- [ ] Basic tier room does not show live cues or show-control UI.
+- [ ] With Companion running, verify live cue updates reach local viewer quickly. (blocked: no live-cue UI yet)
+- [ ] With Companion stopped, verify Firebase fallback works without flapping. (blocked: no live-cue UI yet)
+- [ ] Basic tier room does not show live cues or show-control UI. (blocked: no live-cue UI yet)
 
 **Pass B: UI & Latency Validation**
 **Companion**
