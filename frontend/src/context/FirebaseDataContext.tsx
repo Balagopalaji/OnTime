@@ -416,6 +416,9 @@ export const FirebaseDataProvider = ({
         },
         (error: FirestoreError) => {
           console.error('live cues snapshot error', error)
+          if (error.code === 'permission-denied') {
+            return
+          }
           setConnectionStatus('offline')
         },
       )
