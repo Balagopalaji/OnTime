@@ -361,17 +361,17 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass B: Frontend Workflow**
 **Frontend**
-- [ ] Notification "Presentation detected"; manual import; map videos to cues; handle duplicates by filename+slide; allow dismiss.
-- [ ] Error UX: token expiry prompts, FEATURE_UNAVAILABLE copy for Minimal mode, safe failure on missing ffprobe.
+- [x] Notification "Presentation detected"; manual import; map videos to cues; handle duplicates by filename+slide; allow dismiss.
+- [x] Error UX: token expiry prompts, FEATURE_UNAVAILABLE copy for Minimal mode, safe failure on missing ffprobe.
 **Codebase Entry Points**
 - Frontend: `frontend/src/components/*`, `frontend/src/context/UnifiedDataContext.tsx`
 **Test Expectations**
 - Manual: detection banner + error prompts
 
 **Manual Verification (Pass B)**
-- [ ] Presentation detected banner appears and can be dismissed.
-- [ ] Missing ffprobe yields warning but no crash; UI still renders.
-- [ ] Minimal mode shows FEATURE_UNAVAILABLE messaging.
+- [x] Presentation detected banner appears and can be dismissed.
+- [ ] Missing ffprobe yields warning but no crash; UI still renders. (blocked: requires Windows/ffprobe test)
+- [x] Minimal mode shows FEATURE_UNAVAILABLE messaging.
 
 **Success Criteria**
 - File ops reject unsafe paths and network shares; no crashes on odd filenames.

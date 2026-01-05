@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext'
 import { RundownPanel } from '../components/controller/RundownPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
 import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
+import { PresentationStatusPanel } from '../components/controller/PresentationStatusPanel'
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ShareLinkButton } from '../components/core/ShareLinkButton'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
@@ -28,6 +29,20 @@ import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useClock } from '../hooks/useClock'
 import { auth } from '../lib/firebase'
 import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth'
+import type { LiveCueRecord } from '../types'
+
+type PresentationEntry = {
+  key: string
+  record: LiveCueRecord
+  duplicateCount: number
+}
+
+const buildPresentationKey = (record: LiveCueRecord) => {
+  const filename = record.cue.metadata?.filename?.trim()
+  const slideNumber = record.cue.metadata?.slideNumber
+  if (!filename && slideNumber === undefined) return record.cue.id
+  return `${filename ?? 'unknown'}::${slideNumber ?? 'unknown'}`
+}
 
 export const ControllerPage = () => {
   const { roomId } = useParams()
@@ -75,6 +90,8 @@ export const ControllerPage = () => {
     redoTimerDelete,
     undoRoomDelete,
     redoRoomDelete,
+    getLiveCues,
+    getLiveCueRecords,
   } = ctx
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
     subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
@@ -136,6 +153,42 @@ export const ControllerPage = () => {
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
   )
+  const liveCueRecords = roomId ? getLiveCueRecords(roomId) : []
+  const liveCues = roomId ? getLiveCues(roomId) : []
+  const presentationRecords = liveCueRecords.filter(
+    (record) => record.cue.source === 'powerpoint',
+  )
+  const presentationEntries = useMemo<PresentationEntry[]>(() => {
+    if (!presentationRecords.length) return []
+    const recordMap = new Map<string, LiveCueRecord>()
+    const countMap = new Map<string, number>()
+    presentationRecords.forEach((record) => {
+      const key = buildPresentationKey(record)
+      countMap.set(key, (countMap.get(key) ?? 0) + 1)
+      const current = recordMap.get(key)
+      if (!current || record.updatedAt > current.updatedAt) {
+        recordMap.set(key, record)
+      }
+    })
+    return [...recordMap.entries()]
+      .map(([key, record]) => ({
+        key,
+        record,
+        duplicateCount: countMap.get(key) ?? 1,
+      }))
+      .sort((a, b) => b.record.updatedAt - a.record.updatedAt)
+  }, [presentationRecords])
+  const presentationDetectedAt = presentationEntries.length
+    ? Math.max(...presentationEntries.map((entry) => entry.record.updatedAt))
+    : null
+  const presentationCue = presentationEntries[0]?.record.cue ?? null
+  const presentationDuplicatesHidden =
+    presentationRecords.length > 0 ? presentationRecords.length - presentationEntries.length : 0
+  const activeLiveCueId = room?.state.activeLiveCueId ?? null
+  const activeLiveCue =
+    (activeLiveCueId ? liveCues.find((cue) => cue.id === activeLiveCueId) : undefined) ??
+    liveCues[0] ??
+    null
   const [controlNow, setControlNow] = useState(() => Date.now())
   const [ignoredRequestTs, setIgnoredRequestTs] = useState<number | null>(null)
   const [dismissedDenialTs, setDismissedDenialTs] = useState<number | null>(null)
@@ -143,6 +196,13 @@ export const ControllerPage = () => {
   const [dismissedErrorTs, setDismissedErrorTs] = useState<number | null>(null)
   const [controlBarCollapsed, setControlBarCollapsed] = useState(false)
   const [controlBarDismissedAt, setControlBarDismissedAt] = useState(0)
+  const [presentationBannerDismissedAt, setPresentationBannerDismissedAt] = useState<number | null>(
+    null,
+  )
+  const [presentationImportOpen, setPresentationImportOpen] = useState(false)
+  const [presentationMappings, setPresentationMappings] = useState<
+    Record<string, { targetId: string; customLabel: string }>
+  >({})
   const [reauthHintAt, setReauthHintAt] = useState<number | null>(null)
   const [forcePromptOpen, setForcePromptOpen] = useState(false)
   const [forcePromptMode, setForcePromptMode] = useState<'pin' | 'confirm'>('pin')
@@ -320,6 +380,11 @@ export const ControllerPage = () => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem('ontime:requestChime', requestChimeEnabled ? 'true' : 'false')
   }, [requestChimeEnabled])
+
+  useEffect(() => {
+    if (presentationEntries.length > 0) return
+    setPresentationImportOpen(false)
+  }, [presentationEntries.length])
 
   const playRequestChime = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -604,6 +669,15 @@ export const ControllerPage = () => {
     return lookup
   }, [engine, room, timers])
 
+  const presentationMappingOptions = useMemo(
+    () =>
+      timers.map((timer) => ({
+        value: timer.id,
+        label: timer.title || 'Untitled timer',
+      })),
+    [timers],
+  )
+
   const pipTimer =
     selectedTimer && selectedTimer.id !== activeTimer?.id
       ? selectedTimer
@@ -622,12 +696,40 @@ export const ControllerPage = () => {
 
   const showControlTier = room?.tier === 'show_control' || room?.tier === 'production'
   const showControlEnabled = showControlTier && room?.features?.showControl
+  const presentationFeatureEnabled = Boolean(room?.features?.powerpoint)
   const companionReady = companion.isConnected && companion.handshakeStatus === 'ack'
   const presentationCapability =
     companion.capabilities.powerpoint || companion.capabilities.externalVideo
   const capabilityMissing = companionReady && !presentationCapability
+  const powerpointMissing = companionReady && !companion.capabilities.powerpoint
   const showControlBlocked = showControlTier && (!room?.features?.showControl || capabilityMissing)
   const showControlUi = showControlEnabled && !capabilityMissing
+  const showPresentationBanner = Boolean(
+    showControlEnabled &&
+      presentationFeatureEnabled &&
+      presentationDetectedAt &&
+      presentationDetectedAt > (presentationBannerDismissedAt ?? 0),
+  )
+  const isMacPlatform = companionReady && companion.systemInfo?.platform === 'darwin'
+  useEffect(() => {
+    if (showControlEnabled && presentationFeatureEnabled) return
+    setPresentationImportOpen(false)
+  }, [presentationFeatureEnabled, showControlEnabled])
+
+
+  const presentationTimingWarning = useMemo(() => {
+    return presentationEntries.some(({ record }) => {
+      const metadata = record.cue.metadata
+      if (!metadata) return false
+      if (metadata.videoTimingUnavailable) return true
+      const expectsTiming = Boolean(metadata.videoPlaying) || record.cue.source === 'external_video'
+      const missingTiming =
+        metadata.videoDuration === undefined &&
+        metadata.videoElapsed === undefined &&
+        metadata.videoRemaining === undefined
+      return expectsTiming && missingTiming
+    })
+  }, [presentationEntries])
 
   const mainDisplay = room?.state.showClock ? clockTime : engine.display
   const mainStatusLabel = room?.state.showClock
@@ -754,6 +856,27 @@ export const ControllerPage = () => {
     setControlBarCollapsed(true)
     setControlBarDismissedAt(Math.max(latestControlEventAt, Date.now()))
   }, [controlError, denial, displacement, latestControlEventAt])
+
+  const updatePresentationMapping = useCallback(
+    (key: string, patch: Partial<{ targetId: string; customLabel: string }>) => {
+      setPresentationMappings((prev) => ({
+        ...prev,
+        [key]: {
+          targetId: prev[key]?.targetId ?? 'unassigned',
+          customLabel: prev[key]?.customLabel ?? '',
+          ...patch,
+        },
+      }))
+    },
+    [],
+  )
+
+  const handleDismissPresentationBanner = useCallback(() => {
+    if (presentationDetectedAt) {
+      setPresentationBannerDismissedAt(presentationDetectedAt)
+    }
+    setPresentationImportOpen(false)
+  }, [presentationDetectedAt])
 
   const handleConfirmHandover = useCallback(() => {
     if (!room || !handoverTargetId) return
@@ -1461,28 +1584,35 @@ export const ControllerPage = () => {
           <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
             {showControlUi ? (
               <>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
-                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Main timer</p>
-                  <p className="text-sm font-semibold text-white">
-                    {activeTimer ? activeTimer.title : 'Standby'}
-                  </p>
-                  <p className="mt-2 text-3xl font-semibold text-white">{mainDisplay}</p>
-                  <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
-                    {mainStatusLabel}
-                  </p>
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Main timer</p>
+                    <p className="text-sm font-semibold text-white">
+                      {activeTimer ? activeTimer.title : 'Standby'}
+                    </p>
+                    <p className="mt-2 text-3xl font-semibold text-white">{mainDisplay}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
+                      {mainStatusLabel}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                      PiP {pipLabel}
+                    </p>
+                    <p className="text-sm font-semibold text-white">
+                      {pipTimer ? pipTimer.title : 'Standby'}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-white">{pipRemaining}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {pipTimer?.speaker ? `Speaker: ${pipTimer.speaker}` : 'Ready'}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
-                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
-                    PiP {pipLabel}
-                  </p>
-                  <p className="text-sm font-semibold text-white">
-                    {pipTimer ? pipTimer.title : 'Standby'}
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{pipRemaining}</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {pipTimer?.speaker ? `Speaker: ${pipTimer.speaker}` : 'Ready'}
-                  </p>
-                </div>
+                <PresentationStatusPanel
+                  cue={activeLiveCue}
+                  isCapabilityMissing={capabilityMissing}
+                  isMacPlatform={Boolean(isMacPlatform)}
+                />
               </>
             ) : showControlBlocked ? (
               <div className="rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
@@ -1498,6 +1628,193 @@ export const ControllerPage = () => {
                 </Link>
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {showControlEnabled && presentationFeatureEnabled && powerpointMissing && !showControlBlocked ? (
+          <div className="mt-4 rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
+            <p className="font-semibold">Feature unavailable in this Companion mode.</p>
+            <p className="mt-1 text-amber-100/80">
+              Switch Companion to Show Control mode to enable presentation import.
+            </p>
+            <Link
+              to="/local"
+              className="mt-2 inline-flex rounded-full border border-amber-400/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition hover:bg-amber-500/10"
+            >
+              Learn more
+            </Link>
+          </div>
+        ) : null}
+        {showPresentationBanner ? (
+          <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-200">
+                  Presentation detected
+                </p>
+                <p className="text-sm font-semibold text-white">
+                  {presentationCue?.metadata?.filename ?? presentationCue?.title ?? 'PowerPoint presentation'}
+                </p>
+                <p className="text-xs text-emerald-100/80">
+                  {presentationDetectedAt
+                    ? `Detected at ${formatDate(
+                        presentationDetectedAt,
+                        room?.timezone ?? 'UTC',
+                      )}`
+                    : 'Ready to import slides and video cues.'}
+                </p>
+                {presentationDuplicatesHidden > 0 ? (
+                  <p className="mt-1 text-[10px] text-emerald-100/70">
+                    Deduped {presentationDuplicatesHidden} duplicate updates.
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPresentationImportOpen(true)}
+                  className="rounded-full border border-emerald-200/60 bg-emerald-500/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-50 transition hover:border-emerald-100"
+                >
+                  Import
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDismissPresentationBanner}
+                  className="rounded-full border border-emerald-200/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100 transition hover:border-emerald-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {showControlEnabled &&
+        presentationFeatureEnabled &&
+        presentationImportOpen &&
+        presentationEntries.length > 0 ? (
+          <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
+                  Presentation import
+                </p>
+                <p className="text-xs text-slate-300">
+                  Map detected video moments to cues. Changes are stored locally in this session.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPresentationImportOpen(false)}
+                className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+              >
+                Close
+              </button>
+            </div>
+            {isMacPlatform ? (
+              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
+                Video timing is unavailable on macOS. Imports still work without timing metadata.
+              </div>
+            ) : presentationTimingWarning ? (
+              <div className="mt-3 rounded-xl border border-amber-800/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+                Video metadata unavailable (ffprobe missing or unsupported). Continue without timing data.
+              </div>
+            ) : null}
+            <div className="mt-3 space-y-3">
+              {presentationEntries.map((entry) => {
+                const mapping = presentationMappings[entry.key] ?? {
+                  targetId: 'unassigned',
+                  customLabel: '',
+                }
+                const slideLabel = (() => {
+                  const slideNumber = entry.record.cue.metadata?.slideNumber
+                  const totalSlides = entry.record.cue.metadata?.totalSlides
+                  if (slideNumber === undefined && totalSlides === undefined) return 'Slide data unavailable'
+                  return `Slide ${slideNumber ?? '--'} / ${totalSlides ?? '--'}`
+                })()
+                return (
+                  <div
+                    key={entry.key}
+                    className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          {entry.record.cue.metadata?.filename ??
+                            entry.record.cue.title ??
+                            'Presentation'}
+                        </p>
+                        <p className="text-xs text-slate-400">{slideLabel}</p>
+                      </div>
+                      {entry.duplicateCount > 1 ? (
+                        <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
+                          {entry.duplicateCount} updates
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                          Cue mapping
+                        </label>
+                        <select
+                          value={mapping.targetId}
+                          onChange={(event) => {
+                            const nextTarget = event.target.value
+                            updatePresentationMapping(entry.key, {
+                              targetId: nextTarget,
+                              customLabel: nextTarget === 'custom' ? mapping.customLabel : '',
+                            })
+                          }}
+                          className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                        >
+                          <option value="unassigned">Unassigned</option>
+                          <option value="custom">Custom cue label</option>
+                          {presentationMappingOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                          Cue label
+                        </label>
+                        <input
+                          type="text"
+                          value={
+                            mapping.targetId === 'custom'
+                              ? mapping.customLabel
+                              : mapping.targetId === 'unassigned'
+                              ? ''
+                              : presentationMappingOptions.find(
+                                  (option) => option.value === mapping.targetId,
+                                )?.label ?? ''
+                          }
+                          onChange={(event) =>
+                            updatePresentationMapping(entry.key, {
+                              customLabel: event.target.value,
+                              targetId: mapping.targetId === 'custom' ? 'custom' : mapping.targetId,
+                            })
+                          }
+                          placeholder={
+                            mapping.targetId === 'custom'
+                              ? 'Enter cue label'
+                              : mapping.targetId === 'unassigned'
+                              ? 'Not mapped'
+                              : undefined
+                          }
+                          disabled={mapping.targetId !== 'custom'}
+                          className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-2 text-xs text-slate-200 disabled:opacity-50"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="mt-3 text-[10px] text-slate-500">
+              Mapping is local-only for now. No cues are created in this pass.
+            </p>
           </div>
         ) : null}
         {showControlBar ? (

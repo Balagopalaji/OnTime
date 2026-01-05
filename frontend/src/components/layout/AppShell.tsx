@@ -39,6 +39,7 @@ export const AppShell = () => {
   const [reconnectBannerDismissed, setReconnectBannerDismissed] = useState(false)
   const [cloudBannerDismissed, setCloudBannerDismissed] = useState(false)
   const [capabilityBannerDismissed, setCapabilityBannerDismissed] = useState(false)
+  const [tokenBannerDismissed, setTokenBannerDismissed] = useState(false)
   const protocolFallbackRef = useRef(false)
   const [protocolFallbackActive, setProtocolFallbackActive] = useState(false)
   const [portPreference, setPortPreference] = useState<ControllerPortPreference | null>(null)
@@ -273,6 +274,18 @@ export const AppShell = () => {
     connection.isConnected,
   ])
 
+  const tokenBanner = useMemo(() => {
+    if (tokenBannerDismissed) return null
+    const tokenError =
+      connection.lastErrorCode === 'INVALID_TOKEN' || connection.lastErrorCode === 'TOKEN_MISSING'
+    if (!tokenError) return null
+    return {
+      tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
+      title: 'Companion session expired',
+      detail: 'Refresh your Companion token to resume local features.',
+    }
+  }, [connection.lastErrorCode, tokenBannerDismissed])
+
   const reconnectBanner = useMemo(() => {
     const isCompanionReady = connection.isConnected && connection.handshakeStatus === 'ack'
     const reconnectElapsedMs = connection.reconnectStartedAt
@@ -326,6 +339,13 @@ export const AppShell = () => {
       setReconnectBannerDismissed(false)
     }, 0)
   }, [connection.handshakeStatus])
+
+  useEffect(() => {
+    if (!connection.token) return
+    window.setTimeout(() => {
+      setTokenBannerDismissed(false)
+    }, 0)
+  }, [connection.token])
 
   useEffect(() => {
     if (data.connectionStatus === 'online') {
@@ -496,6 +516,35 @@ export const AppShell = () => {
             </div>
           </div>
         </header>
+      )}
+      {!isViewerRoute && tokenBanner && (
+        <div className="px-4 py-2">
+          <div
+            className={`mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 rounded-full border px-3 py-1 text-xs ${tokenBanner.tone}`}
+          >
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-inherit">!</span>
+              <span className="font-semibold">{tokenBanner.title}</span>
+              <span className="text-white/70">{tokenBanner.detail}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => connection.retryConnection()}
+                className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+              >
+                Reconnect
+              </button>
+              <button
+                type="button"
+                onClick={() => setTokenBannerDismissed(true)}
+                className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {!isViewerRoute && reconnectBanner && (
         <div className="px-4 py-2">

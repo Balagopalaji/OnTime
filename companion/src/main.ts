@@ -4,6 +4,7 @@ import { createServer as createHttpsServer, Server as HttpsServer } from 'node:h
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Server as SocketIOServer, Socket } from 'socket.io';
@@ -14,7 +15,7 @@ import selfsigned from 'selfsigned';
 let tray: Tray | null = null;
 
 const APP_LABEL = 'OnTime Companion';
-const MODE_LABEL = 'Minimal Mode';
+const MODE_LABEL = 'Show Control Mode';
 const COMPANION_MODE = 'show_control';
 const COMPANION_VERSION = '0.1.0';
 const INTERFACE_VERSION = '1.2.0';
@@ -42,7 +43,16 @@ const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 const PPT_POLL_INTERVAL_MS = 1000;
 const PPT_DEBOUNCE_MS = 1500;
 const PPT_BACKGROUND_CLEAR_MS = 10_000;
-const DEBUG_PPT = process.env.COMPANION_DEBUG_PPT === 'true';
+const PPT_LOG_FILENAME = 'ppt.log';
+const PPT_STARTUP_LOG_FILENAME = 'ppt.startup.log';
+const PPT_DEBUG_FILENAME = 'ppt.debug';
+const PPT_DEBUG_FALLBACK_DIRS = [
+  path.join(os.homedir(), 'Library', 'Application Support', 'ontime-companion'),
+  path.join(os.homedir(), 'Library', 'Application Support', 'OnTime Companion'),
+  path.join(os.homedir(), 'Library', 'Application Support', 'OnTime'),
+];
+let pptDebugDirs: string[] = [];
+let pptDebugEnabled = false;
 const COMPANION_CAPABILITIES_BY_MODE: Record<
   string,
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
@@ -70,6 +80,73 @@ function getCompanionCapabilities() {
     externalVideo: false,
     fileOperations: false
   };
+}
+
+function resolvePptDebugDirs(): string[] {
+  const dirs = [...PPT_DEBUG_FALLBACK_DIRS];
+  if (app.isReady()) {
+    dirs.unshift(app.getPath('userData'));
+  }
+  return Array.from(new Set(dirs));
+}
+
+function computePptDebugEnabled(dirs: string[]): boolean {
+  if (process.env.COMPANION_DEBUG_PPT === 'true') return true;
+  return dirs.some((dir) => fsSync.existsSync(path.join(dir, PPT_DEBUG_FILENAME)));
+}
+
+async function initializePptDebugLogging(): Promise<void> {
+  pptDebugDirs = resolvePptDebugDirs();
+  pptDebugEnabled = computePptDebugEnabled(pptDebugDirs);
+  if (!pptDebugEnabled) return;
+  const startupLine = `[ppt] startup ${new Date().toISOString()} mode=${COMPANION_MODE} userData=${app.isReady() ? app.getPath('userData') : 'n/a'}`;
+  for (const dir of pptDebugDirs) {
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.appendFile(path.join(dir, PPT_STARTUP_LOG_FILENAME), `${startupLine}\n`, 'utf8');
+      break;
+    } catch {
+      // try next directory
+    }
+  }
+  const desktopPath = path.join(os.homedir(), 'Desktop', 'ontime-companion-startup.log');
+  try {
+    await fs.appendFile(desktopPath, `${startupLine}\n`, 'utf8');
+  } catch {
+    // ignore desktop write failures
+  }
+}
+
+async function appendPptLog(line: string): Promise<void> {
+  const debugEnabled =
+    pptDebugEnabled || computePptDebugEnabled(pptDebugDirs.length ? pptDebugDirs : resolvePptDebugDirs());
+  if (!debugEnabled) return;
+  const dirs = pptDebugDirs.length ? pptDebugDirs : resolvePptDebugDirs();
+  for (const dir of dirs) {
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.appendFile(path.join(dir, PPT_LOG_FILENAME), `${line}\n`, 'utf8');
+      return;
+    } catch {
+      // try next directory
+    }
+  }
+}
+
+async function writePptScript(script: string): Promise<void> {
+  const debugEnabled =
+    pptDebugEnabled || computePptDebugEnabled(pptDebugDirs.length ? pptDebugDirs : resolvePptDebugDirs());
+  if (!debugEnabled) return;
+  const dirs = pptDebugDirs.length ? pptDebugDirs : resolvePptDebugDirs();
+  for (const dir of dirs) {
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, 'ppt.script.applescript'), script, 'utf8');
+      return;
+    } catch {
+      // try next directory
+    }
+  }
 }
 
 type JoinRoomPayload = {
@@ -1272,6 +1349,7 @@ async function bootstrap() {
   });
 
   await app.whenReady();
+  await initializePptDebugLogging();
 
   await loadRoomCache();
 
@@ -1901,7 +1979,7 @@ try
       set pptProcess to first application process whose name is "Microsoft PowerPoint"
       set pptPid to unix id of pptProcess
       set frontApp to name of first application process whose frontmost is true
-      if frontApp is "Microsoft PowerPoint" then set pptFrontmost to true
+      if frontApp contains "PowerPoint" then set pptFrontmost to true
     end if
   end tell
 end try
@@ -1926,7 +2004,11 @@ try
       set totalSlidesValue to count of slides of currentPresentation
     end try
     try
-      set slideNumberValue to slide number of slide range of selection of document window 1
+      if (count of slide show windows) > 0 then
+        set slideNumberValue to current show position of slide show view of slide show window 1
+      else
+        set slideNumberValue to slide number of slide range of selection of document window 1
+      end if
     end try
   end tell
 end try
@@ -1938,6 +2020,7 @@ set output to output & "}"
 return output
 `.trim();
 
+    void writePptScript(script);
     return await new Promise((resolve) => {
       const child = spawn('osascript', ['-e', script]);
       let stdout = '';
@@ -1955,24 +2038,35 @@ return output
       });
       child.on('error', () => {
         clearTimeout(timeout);
+        void appendPptLog('[ppt] osascript error: spawn_failed');
         resolve(null);
       });
       child.on('exit', (code) => {
         clearTimeout(timeout);
         if (code !== 0) {
           console.warn(`[ppt] osascript failed (code=${code}): ${stderr.trim()}`);
+          void appendPptLog(
+            `[ppt] osascript exit code=${code} stderr=${stderr.trim() || 'none'}`
+          );
+          void appendPptLog('[ppt] osascript script saved to ppt.script.applescript');
           resolve(null);
           return;
         }
         const raw = stdout.trim();
         if (!raw) {
+          void appendPptLog('[ppt] osascript exit ok but stdout empty');
           resolve(null);
           return;
         }
         try {
+          if (pptDebugEnabled) {
+            console.info('[ppt] osascript raw', raw);
+          }
+          void appendPptLog(`[ppt] osascript raw ${raw}`);
           resolve(JSON.parse(raw) as PowerPointPollResult);
         } catch (error) {
           console.warn(`[ppt] Failed to parse osascript output: ${String(error)}`);
+          void appendPptLog(`[ppt] parse error: ${String(error)}`);
           resolve(null);
         }
       });
@@ -2081,13 +2175,13 @@ $filename = $presentation.FullName
 
 function handlePowerPointStatus(result: PowerPointPollResult | null) {
   if (!result) {
-    if (DEBUG_PPT) {
-      console.info('[ppt] status: null')
-    }
+  if (pptDebugEnabled) {
+    console.info('[ppt] status: null')
+  }
     return;
   }
 
-  if (DEBUG_PPT) {
+  if (pptDebugEnabled) {
     console.info('[ppt] status', result)
   }
 
@@ -2130,21 +2224,22 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
 function startPowerPointDetection() {
   if (pptPollTimer) return;
   if (process.platform !== 'win32' && process.platform !== 'darwin') {
-    if (DEBUG_PPT) {
+    if (pptDebugEnabled) {
       console.info('[ppt] detection disabled: unsupported platform')
     }
     return;
   }
   if (!getCompanionCapabilities().powerpoint) {
-    if (DEBUG_PPT) {
+    if (pptDebugEnabled) {
       console.info('[ppt] detection disabled: capability false')
     }
     return;
   }
 
-  if (DEBUG_PPT) {
+  if (pptDebugEnabled) {
     console.info('[ppt] detection started', { platform: process.platform })
   }
+  void appendPptLog(`[ppt] detection start mode=${COMPANION_MODE} caps=${JSON.stringify(getCompanionCapabilities())}`);
 
   pptPollTimer = setInterval(() => {
     if (pptPollInFlight) return;

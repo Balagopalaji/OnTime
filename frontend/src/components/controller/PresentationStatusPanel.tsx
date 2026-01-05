@@ -29,6 +29,7 @@ export const PresentationStatusPanel = ({
     videoDurationMs !== undefined && videoElapsedMs !== undefined
       ? videoDurationMs - videoElapsedMs
       : null
+  const timingUnavailable = Boolean(cue?.metadata?.videoTimingUnavailable)
   const videoRemainingMs =
     cue?.metadata?.videoRemaining ?? (derivedRemaining !== null ? derivedRemaining : null)
   const boundedRemainingMs = videoRemainingMs === null ? null : Math.max(0, videoRemainingMs)
@@ -92,6 +93,10 @@ export const PresentationStatusPanel = ({
             <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Video timing</p>
             {isMacPlatform ? (
               <p className="mt-2 text-xs text-slate-300">Video timing unavailable on macOS.</p>
+            ) : timingUnavailable ? (
+              <p className="mt-2 text-xs text-amber-200">
+                Video timing unavailable. Continue without timing metadata.
+              </p>
             ) : boundedRemainingMs === null || videoDurationMs === undefined ? (
               <p className="mt-2 text-xs text-slate-300">Unknown duration.</p>
             ) : (

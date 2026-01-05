@@ -91,6 +91,7 @@ export type LiveCue = {
     videoDuration?: number
     videoElapsed?: number
     videoRemaining?: number
+    videoTimingUnavailable?: boolean
   }
 }
 
