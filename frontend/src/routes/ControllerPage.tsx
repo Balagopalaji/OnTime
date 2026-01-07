@@ -92,6 +92,7 @@ export const ControllerPage = () => {
     redoRoomDelete,
     getLiveCues,
     getLiveCueRecords,
+    getLiveCueDiagnostics,
   } = ctx
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
     subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
@@ -155,6 +156,8 @@ export const ControllerPage = () => {
   )
   const liveCueRecords = roomId ? getLiveCueRecords(roomId) : []
   const liveCues = roomId ? getLiveCues(roomId) : []
+  const liveCueDiagnostics =
+    roomId && getLiveCueDiagnostics ? getLiveCueDiagnostics(roomId) : null
   const presentationRecords = liveCueRecords.filter(
     (record) => record.cue.source === 'powerpoint',
   )
@@ -181,7 +184,10 @@ export const ControllerPage = () => {
   const presentationDetectedAt = presentationEntries.length
     ? Math.max(...presentationEntries.map((entry) => entry.record.updatedAt))
     : null
-  const presentationCue = presentationEntries[0]?.record.cue ?? null
+  const latestPresentationEntry = presentationEntries[0] ?? null
+  const presentationCue = latestPresentationEntry?.record.cue ?? null
+  const [lastPresentationDetectedAt, setLastPresentationDetectedAt] = useState<number | null>(null)
+  const [lastPresentationEntry, setLastPresentationEntry] = useState<PresentationEntry | null>(null)
   const presentationDuplicatesHidden =
     presentationRecords.length > 0 ? presentationRecords.length - presentationEntries.length : 0
   const activeLiveCueId = room?.state.activeLiveCueId ?? null
@@ -707,10 +713,31 @@ export const ControllerPage = () => {
   const showPresentationBanner = Boolean(
     showControlEnabled &&
       presentationFeatureEnabled &&
-      presentationDetectedAt &&
-      presentationDetectedAt > (presentationBannerDismissedAt ?? 0),
+      lastPresentationDetectedAt &&
+      lastPresentationDetectedAt > (presentationBannerDismissedAt ?? 0),
   )
   const isMacPlatform = companionReady && companion.systemInfo?.platform === 'darwin'
+  useEffect(() => {
+    if (!presentationDetectedAt) return
+    setLastPresentationDetectedAt((prev) =>
+      prev === presentationDetectedAt ? prev : presentationDetectedAt,
+    )
+    setLastPresentationEntry((prev) => {
+      if (!latestPresentationEntry) return prev
+      if (!prev) return latestPresentationEntry
+      const nextUpdatedAt = latestPresentationEntry.record.updatedAt
+      const prevUpdatedAt = prev.record.updatedAt
+      if (prev.key === latestPresentationEntry.key && prevUpdatedAt === nextUpdatedAt) {
+        return prev
+      }
+      return latestPresentationEntry
+    })
+  }, [
+    presentationDetectedAt,
+    latestPresentationEntry,
+    latestPresentationEntry?.key,
+    latestPresentationEntry?.record.updatedAt,
+  ])
   useEffect(() => {
     if (showControlEnabled && presentationFeatureEnabled) return
     setPresentationImportOpen(false)
@@ -872,11 +899,11 @@ export const ControllerPage = () => {
   )
 
   const handleDismissPresentationBanner = useCallback(() => {
-    if (presentationDetectedAt) {
-      setPresentationBannerDismissedAt(presentationDetectedAt)
+    if (lastPresentationDetectedAt) {
+      setPresentationBannerDismissedAt(lastPresentationDetectedAt)
     }
     setPresentationImportOpen(false)
-  }, [presentationDetectedAt])
+  }, [lastPresentationDetectedAt])
 
   const handleConfirmHandover = useCallback(() => {
     if (!room || !handoverTargetId) return
@@ -1652,12 +1679,16 @@ export const ControllerPage = () => {
                   Presentation detected
                 </p>
                 <p className="text-sm font-semibold text-white">
-                  {presentationCue?.metadata?.filename ?? presentationCue?.title ?? 'PowerPoint presentation'}
+                  {presentationCue?.metadata?.filename ??
+                    lastPresentationEntry?.record.cue.metadata?.filename ??
+                    presentationCue?.title ??
+                    lastPresentationEntry?.record.cue.title ??
+                    'PowerPoint presentation'}
                 </p>
                 <p className="text-xs text-emerald-100/80">
-                  {presentationDetectedAt
+                  {lastPresentationDetectedAt
                     ? `Detected at ${formatDate(
-                        presentationDetectedAt,
+                        lastPresentationDetectedAt,
                         room?.timezone ?? 'UTC',
                       )}`
                     : 'Ready to import slides and video cues.'}
@@ -1815,6 +1846,38 @@ export const ControllerPage = () => {
             <p className="mt-3 text-[10px] text-slate-500">
               Mapping is local-only for now. No cues are created in this pass.
             </p>
+            {debugCompanion ? (
+              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-[11px] text-slate-300">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
+                  Presentation debug
+                </p>
+                <div className="mt-2 grid gap-1 text-xs text-slate-400">
+                  <span>liveCueRecords: {liveCueRecords.length}</span>
+                  <span>presentationRecords: {presentationRecords.length}</span>
+                  <span>presentationEntries: {presentationEntries.length}</span>
+                  <span>activeLiveCueId: {activeLiveCueId ?? 'none'}</span>
+                  <span>
+                    slide: {presentationCue?.metadata?.slideNumber ?? '—'} /{' '}
+                    {presentationCue?.metadata?.totalSlides ?? '—'}
+                  </span>
+                  <span>companionConnected: {String(companion.isConnected)}</span>
+                  <span>handshakeStatus: {companion.handshakeStatus}</span>
+                  <span>capabilityPowerPoint: {String(presentationCapability)}</span>
+                  <span>featurePowerPoint: {String(presentationFeatureEnabled)}</span>
+                  <span>showControlEnabled: {String(showControlEnabled)}</span>
+                  <span>effectiveMode: {effectiveMode}</span>
+                  {liveCueDiagnostics ? (
+                    <>
+                      <span>canUseLiveCues: {String(liveCueDiagnostics.canUseLiveCues)}</span>
+                      <span>companionLive: {String(liveCueDiagnostics.isCompanionLive)}</span>
+                      <span>companionSubscribed: {String(liveCueDiagnostics.isSubscribed)}</span>
+                      <span>firebaseLiveCues: {liveCueDiagnostics.firebaseCount}</span>
+                      <span>companionLiveCues: {liveCueDiagnostics.companionCount}</span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
         {showControlBar ? (

@@ -2208,8 +2208,11 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
       pptBackgroundSince = now;
     }
     if (pptCandidateSnapshot && !snapshotsEqual(pptCandidateSnapshot, pptAnnouncedSnapshot)) {
-      pptCandidateSnapshot = pptAnnouncedSnapshot;
-      pptCandidateSince = now;
+      if (now - pptCandidateSince >= PPT_DEBOUNCE_MS) {
+        commitPresentationSnapshot(pptCandidateSnapshot);
+        pptCandidateSnapshot = pptAnnouncedSnapshot;
+        pptCandidateSince = now;
+      }
     }
     if (pptAnnouncedSnapshot && now - pptBackgroundSince >= PPT_BACKGROUND_CLEAR_MS) {
       updatePresentationCandidate(null);

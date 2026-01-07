@@ -92,6 +92,13 @@ export type DataContextValue = {
   getTimers: (roomId: string) => Timer[]
   getLiveCues: (roomId: string) => LiveCue[]
   getLiveCueRecords: (roomId: string) => LiveCueRecord[]
+  getLiveCueDiagnostics?: (roomId: string) => {
+    canUseLiveCues: boolean
+    isCompanionLive: boolean
+    isSubscribed: boolean
+    firebaseCount: number
+    companionCount: number
+  }
   createRoom: (input: CreateRoomInput) => Promise<Room>
   deleteRoom: (roomId: string) => Promise<void>
   createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer | undefined>

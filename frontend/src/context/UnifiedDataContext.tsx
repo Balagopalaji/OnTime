@@ -2376,6 +2376,21 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [getLiveCueRecords],
   )
 
+  const getLiveCueDiagnostics = useCallback(
+    (roomId: string) => {
+      const firebaseRecords = firebase.getLiveCueRecords(roomId)
+      const companionRecords = Object.values(companionLiveCues[roomId] ?? {})
+      return {
+        canUseLiveCues: canUseLiveCues(roomId),
+        isCompanionLive: isCompanionLive(),
+        isSubscribed: shouldUseCompanion(roomId),
+        firebaseCount: firebaseRecords.length,
+        companionCount: companionRecords.length,
+      }
+    },
+    [canUseLiveCues, companionLiveCues, firebase, isCompanionLive, shouldUseCompanion],
+  )
+
   const setActiveTimer = useCallback<DataContextValue['setActiveTimer']>(
     async (roomId, timerId) => {
       if (isViewerClient(roomId)) {
@@ -3175,6 +3190,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         getTimers,
         getLiveCues,
         getLiveCueRecords,
+        getLiveCueDiagnostics,
         createTimer,
         updateTimer,
         deleteTimer,
@@ -3233,6 +3249,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       getRoomPin,
       getTimers,
       getLiveCues,
+      getLiveCueDiagnostics,
       getLiveCueRecords,
       denyControl,
       handOverControl,
