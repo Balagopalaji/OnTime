@@ -397,19 +397,19 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass A: Viewer/Controller Polish**
 **Frontend**
-- [ ] Viewer typography scaling edge cases; wake-lock fallback banner with actionable copy.
-- [ ] Minimal mode gating UX: when capability missing, show inline tooltip/banner "Feature unavailable in Minimal Mode — upgrade/restart Companion."
-- [ ] Simple Mode skin: light controller variant for Basic tier; gated buttons hidden/disabled with upgrade badges.
-- [ ] Messaging copy: clear banners for reconnects, authority conflicts, feature gating; avoid technical jargon.
+- [x] Viewer typography scaling edge cases; wake-lock fallback banner with actionable copy.
+- [x] Minimal mode gating UX: when capability missing, show inline tooltip/banner "Feature unavailable in Minimal Mode — upgrade/restart Companion."
+- [x] Simple Mode skin: light controller variant for Basic tier; gated buttons hidden/disabled with upgrade badges.
+- [x] Messaging copy: clear banners for reconnects, authority conflicts, feature gating; avoid technical jargon.
 **Codebase Entry Points**
 - Frontend: `frontend/src/routes/*`, `frontend/src/components/*`, `frontend/src/index.css`
 **Test Expectations**
 - Manual: multi-device layout check
 
 **Manual Verification (Pass A)**
-- [ ] View on phone and desktop; confirm no layout clipping.
-- [ ] Trigger wake-lock failure; banner appears and is actionable.
-- [ ] Basic tier hides gated controls and shows upgrade badge text.
+- [x] View on phone and desktop; confirm no layout clipping.
+- [x] Viewer does not show a wake-lock banner by default.
+- [x] Basic tier hides gated controls and shows upgrade badge text.
 
 **Pass B: Companion GUI & Resource Checks**
 **Companion**

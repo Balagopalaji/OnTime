@@ -7,6 +7,7 @@ import { FitText } from '../components/core/FitText'
 import { useFullscreen } from '../hooks/useFullscreen'
 import { useClock } from '../hooks/useClock'
 import { useWakeLock } from '../hooks/useWakeLock'
+import { Tooltip } from '../components/core/Tooltip'
 import { useDataContext } from '../context/DataProvider'
 import { useAppMode } from '../context/AppModeContext'
 import { useRoom } from '../hooks/useRoom'
@@ -54,6 +55,7 @@ export const ViewerPage = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef as unknown as RefObject<HTMLElement | null>)
   const wakeLockStatus = useWakeLock(true)
+  const [hasTriedFullscreen, setHasTriedFullscreen] = useState(false)
   const [wakeLockDismissed, setWakeLockDismissed] = useState(false)
 
   useEffect(() => {
@@ -63,6 +65,7 @@ export const ViewerPage = () => {
         event.key.toLowerCase() === 'f' && (event.metaKey || event.ctrlKey)
       if (wantsToggle) {
         event.preventDefault()
+        setHasTriedFullscreen(true)
         void toggleFullscreen()
       }
     }
@@ -116,8 +119,10 @@ export const ViewerPage = () => {
   // vwMax ensures text fits horizontally (especially portrait mode)
   // Lower values for longer text strings
   const timerVwMax = displayLength >= 9 ? 14 : displayLength >= 8 ? 16 : displayLength >= 7 ? 18 : 21
-  const showWakeLockBanner = !wakeLockDismissed && Boolean(wakeLockStatus.error)
-  const wakeLockTitle = 'Keep screen awake failed'
+  const showWakeLockBanner =
+    hasTriedFullscreen && Boolean(wakeLockStatus.error) && !wakeLockDismissed
+  const isIphone =
+    typeof navigator !== 'undefined' && /iphone/i.test(navigator.userAgent) && !/ipad/i.test(navigator.userAgent)
 
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
@@ -173,34 +178,50 @@ export const ViewerPage = () => {
                     {roomAuthority.source === 'companion' ? 'Local' : 'Cloud'}
                   </span>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    void toggleFullscreen()
-                  }}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white transition hover:bg-white/20"
-                >
-                  {isFullscreen ? (
-                    <>
-                      <Minimize2 size={14} />
-                      Exit fullscreen
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 size={14} />
-                      Fullscreen
-                    </>
-                  )}
-                </button>
+                {isIphone ? (
+                  <Tooltip content="Fullscreen isn't supported on iPhone Safari." triggerOnClick delay={0}>
+                    <span className="inline-flex">
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/60"
+                      >
+                        <Maximize2 size={14} />
+                        Fullscreen
+                      </button>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasTriedFullscreen(true)
+                      void toggleFullscreen()
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white transition hover:bg-white/20"
+                  >
+                    {isFullscreen ? (
+                      <>
+                        <Minimize2 size={14} />
+                        Exit fullscreen
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 size={14} />
+                        Fullscreen
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
 
             {showWakeLockBanner ? (
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-left text-xs text-amber-100">
                 <div>
-                  <p className="font-semibold text-amber-100">{wakeLockTitle}</p>
+                  <p className="font-semibold text-amber-100">Keep screen awake failed</p>
                   <p className="text-amber-100/80">
-                    Screen may sleep. Disable auto-lock in device settings.
+                    The screen may sleep. You may need to turn off Auto-Lock in your device settings.
                   </p>
                 </div>
                 <button

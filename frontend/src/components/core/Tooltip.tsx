@@ -8,6 +8,8 @@ interface TooltipProps {
     side?: 'top' | 'bottom' | 'left' | 'right'
     delay?: number
     className?: string
+    triggerOnClick?: boolean
+    clickDuration?: number
 }
 
 export const Tooltip = ({
@@ -17,46 +19,50 @@ export const Tooltip = ({
     side = 'top',
     delay = 1500,
     className = '',
+    triggerOnClick = false,
+    clickDuration = 2000,
 }: TooltipProps) => {
     const [isVisible, setIsVisible] = useState(false)
     const [position, setPosition] = useState({ top: 0, left: 0 })
     const triggerRef = useRef<HTMLDivElement>(null)
     const timerRef = useRef<number | null>(null)
+    const hideTimerRef = useRef<number | null>(null)
+
+    const showTooltip = () => {
+        if (!triggerRef.current) return
+        const rect = triggerRef.current.getBoundingClientRect()
+        const scrollX = window.scrollX
+        const scrollY = window.scrollY
+
+        let top = 0
+        let left = 0
+
+        // Basic positioning logic (can be refined)
+        switch (side) {
+            case 'top':
+                top = rect.top + scrollY - 8
+                left = rect.left + scrollX + rect.width / 2
+                break
+            case 'bottom':
+                top = rect.bottom + scrollY + 8
+                left = rect.left + scrollX + rect.width / 2
+                break
+            case 'left':
+                top = rect.top + scrollY + rect.height / 2
+                left = rect.left + scrollX - 8
+                break
+            case 'right':
+                top = rect.top + scrollY + rect.height / 2
+                left = rect.right + scrollX + 8
+                break
+        }
+
+        setPosition({ top, left })
+        setIsVisible(true)
+    }
 
     const handleMouseEnter = () => {
-        timerRef.current = window.setTimeout(() => {
-            if (triggerRef.current) {
-                const rect = triggerRef.current.getBoundingClientRect()
-                const scrollX = window.scrollX
-                const scrollY = window.scrollY
-
-                let top = 0
-                let left = 0
-
-                // Basic positioning logic (can be refined)
-                switch (side) {
-                    case 'top':
-                        top = rect.top + scrollY - 8
-                        left = rect.left + scrollX + rect.width / 2
-                        break
-                    case 'bottom':
-                        top = rect.bottom + scrollY + 8
-                        left = rect.left + scrollX + rect.width / 2
-                        break
-                    case 'left':
-                        top = rect.top + scrollY + rect.height / 2
-                        left = rect.left + scrollX - 8
-                        break
-                    case 'right':
-                        top = rect.top + scrollY + rect.height / 2
-                        left = rect.right + scrollX + 8
-                        break
-                }
-
-                setPosition({ top, left })
-                setIsVisible(true)
-            }
-        }, delay)
+        timerRef.current = window.setTimeout(showTooltip, delay)
     }
 
     const handleMouseLeave = () => {
@@ -67,10 +73,29 @@ export const Tooltip = ({
         setIsVisible(false)
     }
 
+    const handleClick = () => {
+        if (!triggerOnClick) return
+        if (timerRef.current) {
+            clearTimeout(timerRef.current)
+            timerRef.current = null
+        }
+        if (hideTimerRef.current) {
+            clearTimeout(hideTimerRef.current)
+            hideTimerRef.current = null
+        }
+        showTooltip()
+        hideTimerRef.current = window.setTimeout(() => {
+            setIsVisible(false)
+        }, clickDuration)
+    }
+
     useEffect(() => {
         return () => {
             if (timerRef.current) {
                 clearTimeout(timerRef.current)
+            }
+            if (hideTimerRef.current) {
+                clearTimeout(hideTimerRef.current)
             }
         }
     }, [])
@@ -81,6 +106,8 @@ export const Tooltip = ({
                 ref={triggerRef}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
+                onClick={handleClick}
+                onTouchStart={handleClick}
                 className={`inline-flex ${className}`}
             >
                 {children}
