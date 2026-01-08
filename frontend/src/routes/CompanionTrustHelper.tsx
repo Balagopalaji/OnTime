@@ -39,6 +39,9 @@ export const CompanionTrustHelper = () => {
         If nothing opens, your browser may have blocked the popup. You can manually visit https://localhost:4441/api/token,
         click “Advanced” → “Proceed”, then return to the app.
       </p>
+      <p className="mt-2 text-xs text-slate-400">
+        Using Brave or an ad blocker? Allow this site to connect to localhost or temporarily disable Shields.
+      </p>
       <div className="mt-4 flex flex-col items-center gap-2 text-xs text-slate-200">
         <button
           type="button"

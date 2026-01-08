@@ -56,6 +56,83 @@ export const AppShell = () => {
     window.location.href = `/companion/trust?return=${encodeURIComponent(current)}`
   }, [])
 
+  const openCompanionStatusWindowPopup = useCallback(() => {
+    if (typeof window === 'undefined') return false
+    const pathWithSearch = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const current = pathWithSearch === '/' ? '/dashboard' : pathWithSearch
+    const returnTo = `${window.location.origin}${current}`
+    const securePage = window.location.protocol === 'https:'
+    const endpoint = securePage
+      ? `https://localhost:4441/api/status-window?return=${encodeURIComponent(returnTo)}`
+      : `http://localhost:4001/api/status-window?return=${encodeURIComponent(returnTo)}`
+    const popup = window.open(endpoint, '_blank', 'noopener,noreferrer')
+    return Boolean(popup)
+  }, [])
+
+  const openCompanionStatusWindow = useCallback(async () => {
+    if (typeof window === 'undefined') return false
+    const origin = window.location.origin
+    const tryFetch = async (url: string) => {
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          mode: 'cors',
+          cache: 'no-store',
+          credentials: 'omit',
+          headers: { Origin: origin },
+        })
+        return res.ok
+      } catch {
+        return false
+      }
+    }
+
+    const tryFetchOpaque = async (url: string) => {
+      try {
+        await fetch(url, {
+          method: 'GET',
+          mode: 'no-cors',
+          cache: 'no-store',
+          credentials: 'omit',
+        })
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const securePage = window.location.protocol === 'https:'
+    const endpoints = securePage
+      ? [
+          'https://localhost:4441/api/status-window',
+          'https://127.0.0.1:4441/api/status-window',
+          'https://[::1]:4441/api/status-window',
+          'http://localhost:4001/api/status-window',
+          'http://127.0.0.1:4001/api/status-window',
+          'http://[::1]:4001/api/status-window',
+        ]
+      : [
+          'http://localhost:4001/api/status-window',
+          'http://127.0.0.1:4001/api/status-window',
+          'http://[::1]:4001/api/status-window',
+          'https://localhost:4441/api/status-window',
+          'https://127.0.0.1:4441/api/status-window',
+          'https://[::1]:4441/api/status-window',
+        ]
+
+    for (const endpoint of endpoints) {
+      const ok = await tryFetch(endpoint)
+      if (ok) return true
+    }
+
+    for (const endpoint of endpoints) {
+      const ok = await tryFetchOpaque(endpoint)
+      if (ok) return true
+    }
+
+    return openCompanionStatusWindowPopup()
+  }, [openCompanionStatusWindowPopup])
+
   const handleAuthClick = () => {
     if (isAuthed) {
       void logout()
@@ -65,8 +142,14 @@ export const AppShell = () => {
   }
 
   const handleCompanionClick = async () => {
-    if (connection.isConnected) return
-    setShowCompanionWizard(true)
+    const isReady = connection.isConnected && connection.handshakeStatus === 'ack'
+    if (isReady) {
+      await openCompanionStatusWindow()
+      return
+    }
+    if (!connection.isConnected) {
+      setShowCompanionWizard(true)
+    }
   }
 
   useEffect(() => {
@@ -885,6 +968,10 @@ export const AppShell = () => {
                   </p>
                   <p className="text-xs text-slate-400">
                     Arc/Chrome: you’ll see a “Not private” page; click Advanced → Proceed once. Safari/Firefox: approve once if prompted.
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Using Brave or an ad blocker? Disable Shields for this site and allow localhost connections so the Companion can connect.
+                    Then trust the localhost certificate once when prompted (Advanced → “Proceed to localhost (unsafe)”).
                   </p>
                 </div>
                 <div className="mt-3 flex gap-2">

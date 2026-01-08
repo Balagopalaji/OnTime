@@ -434,6 +434,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Risks/Unknowns**
 - Electron tray/window differences on Windows vs. macOS; watch for resource spikes.
+- Reassess RAM budgets using packaged builds; dev/headless exceeded Minimal target.
 
 **Definition of Done (Milestone 4)**
 - [ ] UI polish complete; RAM budgets met with GUI enabled; gating copy is clear.

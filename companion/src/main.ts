@@ -1354,42 +1354,36 @@ function matchesAllowedOrigin(normalizedOrigin: string | null, allowedOrigins: s
 function updateTrayMenu(token: string, expiresAt: number) {
   if (!tray) return;
 
-  const expiryDate = new Date(expiresAt).toLocaleString();
   const clientCount = getConnectedClientsCount();
-  const caps = getCompanionCapabilities();
 
   const contextMenu = Menu.buildFromTemplate([
     { label: `${APP_LABEL} - ${getModeLabel(currentCompanionMode)}`, enabled: false },
     { type: 'separator' },
-    { label: 'Mode:', enabled: false },
     {
-      label: 'Minimal',
-      type: 'radio',
-      checked: currentCompanionMode === 'minimal',
-      click: () => setCompanionMode('minimal', token, expiresAt)
-    },
-    {
-      label: 'Show Control',
-      type: 'radio',
-      checked: currentCompanionMode === 'show_control',
-      click: () => setCompanionMode('show_control', token, expiresAt)
-    },
-    {
-      label: 'Production',
-      type: 'radio',
-      checked: currentCompanionMode === 'production',
-      click: () => setCompanionMode('production', token, expiresAt)
+      label: 'Mode',
+      submenu: [
+        {
+          label: 'Minimal',
+          type: 'radio',
+          checked: currentCompanionMode === 'minimal',
+          click: () => setCompanionMode('minimal', token, expiresAt)
+        },
+        {
+          label: 'Show Control',
+          type: 'radio',
+          checked: currentCompanionMode === 'show_control',
+          click: () => setCompanionMode('show_control', token, expiresAt)
+        },
+        {
+          label: 'Production',
+          type: 'radio',
+          checked: currentCompanionMode === 'production',
+          click: () => setCompanionMode('production', token, expiresAt)
+        }
+      ]
     },
     { type: 'separator' },
-    { label: `Connected: ${clientCount} client${clientCount === 1 ? '' : 's'}`, enabled: false },
-    { label: `Expires: ${expiryDate}`, enabled: false },
-    { type: 'separator' },
-    {
-      label: 'Copy token',
-      click: () => {
-        clipboard.writeText(token);
-      }
-    },
+    { label: 'Show Status Window', click: () => showStatusWindow(token, expiresAt) },
     { label: 'Quit', click: () => app.quit() }
   ]);
 
@@ -1483,14 +1477,14 @@ function generateStatusHtml(token: string, expiresAt: number): string {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #1a1a2e;
       color: #eee;
-      padding: 20px;
+      padding: 16px;
       min-height: 100vh;
     }
-    h1 { font-size: 18px; margin-bottom: 20px; color: #4ade80; }
-    .section { margin-bottom: 16px; }
-    .section-title { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 8px; }
-    .value { font-size: 14px; margin-bottom: 4px; }
-    .value.large { font-size: 20px; font-weight: 600; }
+    h1 { font-size: 16px; margin-bottom: 12px; color: #4ade80; }
+    .section { margin-bottom: 12px; }
+    .section-title { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 6px; }
+    .value { font-size: 13px; margin-bottom: 2px; }
+    .value.large { font-size: 18px; font-weight: 600; }
     .capability { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 4px; font-size: 12px; }
     .capability.enabled { background: #22c55e33; color: #4ade80; }
     .capability.disabled { background: #ef444433; color: #f87171; }
@@ -1513,36 +1507,34 @@ function generateStatusHtml(token: string, expiresAt: number): string {
       font-family: monospace;
       font-size: 11px;
       background: #2a2a3e;
-      padding: 8px;
+      padding: 6px 8px;
       border-radius: 4px;
-      word-break: break-all;
-      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .btn {
-      padding: 8px 16px;
+      padding: 7px 12px;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 13px;
-      margin-top: 8px;
+      font-size: 12px;
     }
     .btn-primary { background: #4ade80; color: #1a1a2e; }
-    .btn-secondary { background: #333; color: #eee; margin-left: 8px; }
+    .btn-secondary { background: #333; color: #eee; }
     .btn-tertiary { background: #1f2937; color: #e5e7eb; }
-    .stats { display: flex; gap: 16px; }
+    .stats { display: flex; gap: 12px; }
     .stat { flex: 1; }
+    .token-row { display: flex; gap: 8px; align-items: center; }
+    .token-row .token-display { flex: 1; }
+    .footer-actions { display: flex; gap: 8px; margin-top: 8px; }
   </style>
 </head>
 <body>
   <h1>OnTime Companion</h1>
 
   <div class="section">
-    <div class="section-title">Current Mode</div>
-    <div class="value large">${getModeLabel(currentCompanionMode)}</div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Change Mode</div>
+    <div class="section-title">Mode</div>
     <button class="mode-btn ${currentCompanionMode === 'minimal' ? 'active' : ''}" onclick="setMode('minimal')">
       Minimal - WebSocket relay only
     </button>
@@ -1555,7 +1547,6 @@ function generateStatusHtml(token: string, expiresAt: number): string {
   </div>
 
   <div class="section">
-    <div class="section-title">Capabilities</div>
     <span class="capability ${caps.powerpoint ? 'enabled' : 'disabled'}">PowerPoint ${caps.powerpoint ? '✓' : '✗'}</span>
     <span class="capability ${caps.externalVideo ? 'enabled' : 'disabled'}">External Video ${caps.externalVideo ? '✓' : '✗'}</span>
     <span class="capability ${caps.fileOperations ? 'enabled' : 'disabled'}">File Ops ${caps.fileOperations ? '✓' : '✗'}</span>
@@ -1577,15 +1568,15 @@ function generateStatusHtml(token: string, expiresAt: number): string {
 
   <div class="section">
     <div class="section-title">Token</div>
-    <div class="token-display">${token.slice(0, 20)}...${token.slice(-10)}</div>
-    <div style="font-size: 12px; color: #888; margin-top: 4px;">Expires: ${expiryDate}</div>
-    <button class="btn btn-primary" onclick="copyToken()">Copy Full Token</button>
-    <button class="btn btn-tertiary" onclick="openTrayMenu()">Open Tray Menu</button>
-  </div>
-
-  <div class="section" style="margin-top: 24px;">
-    <button class="btn btn-secondary" onclick="restart()">Restart Companion</button>
-    <button class="btn btn-secondary" onclick="quit()">Quit</button>
+    <div class="token-row">
+      <div class="token-display">${token.slice(0, 16)}...${token.slice(-8)}</div>
+      <button class="btn btn-primary" onclick="copyToken()">Copy</button>
+    </div>
+    <div style="font-size: 11px; color: #888; margin-top: 4px;">Expires: ${expiryDate}</div>
+    <div class="footer-actions">
+      <button class="btn btn-secondary" onclick="restart()">Restart</button>
+      <button class="btn btn-secondary" onclick="quit()">Quit</button>
+    </div>
   </div>
 
   <script>
@@ -3957,6 +3948,80 @@ function createTokenHandler(token: string, expiresAt: number) {
             'Access-Control-Allow-Private-Network': 'true'
           });
           res.end(JSON.stringify({ token, expiresAt }));
+          return;
+        }
+      }
+
+      if (url.pathname === '/api/status-window') {
+        if (!isLoopback(remoteAddress)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
+
+        if (!validateOrigin(origin, allowedOrigins)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid origin' }));
+          return;
+        }
+
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
+            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+            'Access-Control-Allow-Private-Network': 'true'
+          });
+          res.end();
+          return;
+        }
+
+        if (req.method === 'GET') {
+          if (!isHeadlessMode()) {
+            showStatusWindow(token, expiresAt);
+          }
+          const returnTo = url.searchParams.get('return');
+          const isHttp = (value: string) => value.startsWith('http://') || value.startsWith('https://');
+          const safeReturn = returnTo && isHttp(returnTo) ? returnTo : null;
+          if (safeReturn) {
+            const escapeAttr = (value: string) => value.replace(/\"/g, '&quot;');
+            const redirectTarget = JSON.stringify(safeReturn);
+            const escapedAttr = escapeAttr(safeReturn);
+            const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Companion Status</title>
+  <meta http-equiv="refresh" content="0;url=${escapedAttr}">
+</head>
+<body style="font-family:system-ui;background:#0b1220;color:#e5e7eb;padding:24px;">
+  <h1 style="font-size:18px;margin:0 0 12px;">Companion status window opened</h1>
+  <p style="margin:0 0 8px;">You can return to the app now.</p>
+  <p style="margin:12px 0 16px;">Redirecting you back… If it doesn’t move, <a href="${escapedAttr}" style="color:#a5b4fc;">click here</a>.</p>
+  <script>
+    const target = ${redirectTarget};
+    function go() {
+      try { window.location.replace(target); } catch (err) { window.location.href = target; }
+    }
+    setTimeout(go, 60);
+    setTimeout(() => { try { window.close(); } catch (err) {} }, 1600);
+  </script>
+</body>
+</html>`;
+            res.writeHead(200, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+              'Access-Control-Allow-Private-Network': 'true'
+            });
+            res.end(html);
+            return;
+          }
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
+            'Access-Control-Allow-Private-Network': 'true'
+          });
+          res.end(JSON.stringify({ success: true, headless: isHeadlessMode() }));
           return;
         }
       }
