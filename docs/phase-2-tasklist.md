@@ -375,12 +375,14 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Success Criteria**
 - File ops reject unsafe paths and network shares; no crashes on odd filenames.
-- PPT detection only when active window; emits clear on close/idle.
+- PPT detection only when active window; emits clear when PowerPoint closes (no idle/background clear).
 - Metadata endpoint degrades gracefully without ffprobe; frontend handles warnings.
+- macOS: PowerPoint timing unavailable; external video timing will rely on ffprobe/file ops (separate validation).
 
 **Risks/Unknowns**
 - PPT COM API variance across Windows builds.
 - ffprobe licensing/packaging on macOS notarization.
+- Milestone 3 blocked on Windows ffprobe validation; continue to Milestone 4 while pending.
 
 **Definition of Done (Milestone 3)**
 - [ ] File ops are safe, PPT detection stable, and UI handles warnings gracefully.

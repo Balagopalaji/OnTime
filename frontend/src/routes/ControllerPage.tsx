@@ -739,6 +739,11 @@ export const ControllerPage = () => {
     latestPresentationEntry?.record.updatedAt,
   ])
   useEffect(() => {
+    if (presentationEntries.length > 0) return
+    setLastPresentationDetectedAt(null)
+    setLastPresentationEntry(null)
+  }, [presentationEntries.length])
+  useEffect(() => {
     if (showControlEnabled && presentationFeatureEnabled) return
     setPresentationImportOpen(false)
   }, [presentationFeatureEnabled, showControlEnabled])

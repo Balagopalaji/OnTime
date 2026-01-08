@@ -40,8 +40,8 @@ const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
-const PPT_POLL_INTERVAL_MS = 1000;
-const PPT_DEBOUNCE_MS = 1500;
+const PPT_POLL_INTERVAL_MS = 500;
+const PPT_DEBOUNCE_MS = 600;
 const PPT_BACKGROUND_CLEAR_MS = 10_000;
 const PPT_LOG_FILENAME = 'ppt.log';
 const PPT_STARTUP_LOG_FILENAME = 'ppt.startup.log';
@@ -358,6 +358,7 @@ type PowerPointPollState = 'foreground' | 'background' | 'none';
 
 type PowerPointPollResult = {
   state: PowerPointPollState;
+  inSlideshow?: boolean;
   instanceId?: number;
   slideNumber?: number;
   totalSlides?: number;
@@ -2003,17 +2004,19 @@ try
     try
       set totalSlidesValue to count of slides of currentPresentation
     end try
+    set inSlideshowValue to false
     try
       if (count of slide show windows) > 0 then
+        set inSlideshowValue to true
         set slideNumberValue to current show position of slide show view of slide show window 1
-      else
-        set slideNumberValue to slide number of slide range of selection of document window 1
       end if
     end try
   end tell
 end try
 
 set output to "{\\"state\\":\\"foreground\\",\\"instanceId\\":" & pptPid
+if inSlideshowValue is true then set output to output & ",\\"inSlideshow\\":true"
+if inSlideshowValue is false then set output to output & ",\\"inSlideshow\\":false"
 if slideNumberValue is not "" then set output to output & ",\\"slideNumber\\":" & slideNumberValue
 if totalSlidesValue is not "" then set output to output & ",\\"totalSlides\\":" & totalSlidesValue
 set output to output & "}"
@@ -2113,13 +2116,22 @@ if (-not $presentation) {
   return
 }
 $slideIndex = $null
-try { $slideIndex = $ppt.ActiveWindow.View.Slide.SlideIndex } catch { $slideIndex = $null }
+$inSlideshow = $false
+try {
+  $inSlideshow = $ppt.SlideShowWindows.Count -gt 0
+} catch {
+  $inSlideshow = $false
+}
+if ($inSlideshow) {
+  try { $slideIndex = $ppt.ActiveWindow.View.Slide.SlideIndex } catch { $slideIndex = $null }
+}
 $totalSlides = $null
 try { $totalSlides = $presentation.Slides.Count } catch { $totalSlides = $null }
 $title = $presentation.Name
 $filename = $presentation.FullName
 @{
   state = 'foreground'
+  inSlideshow = $inSlideshow
   instanceId = $pid
   slideNumber = $slideIndex
   totalSlides = $totalSlides
@@ -2191,6 +2203,12 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
     if (!result.instanceId) {
       return;
     }
+    if (result.inSlideshow === false) {
+      if (pptAnnouncedSnapshot) {
+        updatePresentationCandidate(null);
+      }
+      return;
+    }
     const title = result.title?.trim() || result.filename?.trim() || 'PowerPoint';
     const snapshot: PresentationSnapshot = {
       instanceId: result.instanceId,
@@ -2213,9 +2231,6 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
         pptCandidateSnapshot = pptAnnouncedSnapshot;
         pptCandidateSince = now;
       }
-    }
-    if (pptAnnouncedSnapshot && now - pptBackgroundSince >= PPT_BACKGROUND_CLEAR_MS) {
-      updatePresentationCandidate(null);
     }
     return;
   }

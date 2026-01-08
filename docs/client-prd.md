@@ -125,7 +125,8 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 
 **Platform support**
 - Windows: slide tracking + video timing.
-- macOS: slide tracking only; show "video timing unavailable on macOS".
+- macOS: slide tracking only for PowerPoint; show "video timing unavailable on macOS" for PPT.
+- External video timing (non-PPT) will rely on file ops + ffprobe metadata regardless of platform.
 
 **Phase 2c layout (tech viewer)**
 ```

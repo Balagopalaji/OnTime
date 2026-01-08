@@ -42,7 +42,7 @@ Scope: Companion local server requirements (Electron/Node).
   - If no response after timeout, force takeover allowed with confirmation (no PIN).
 - Room PIN edits are **owner-only**; Companion caches `ownerId` (from JOIN_ROOM or first authenticated owner) to enforce offline.
 - Takeover attempts are logged in Companion cache for audit.
- - Controller request notifications are emitted to the active controller (event type TBD in `docs/interface.md`).
+- Controller request notifications are emitted to the active controller (event type TBD in `docs/interface.md`).
 
 ## Phase 2 Show Control Signals
 - Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).
@@ -51,6 +51,20 @@ Scope: Companion local server requirements (Electron/Node).
   - macOS: AppleScript (slide tracking only).
   - Local-only in Phase 2: PPT detection runs on the PowerPoint machine; remote operator control requires a LAN Companion bridge or cloud relay (planned).
 - PowerPoint video timing (elapsed/remaining) is sourced from Companion detection logic (Windows only; COM API + media hooks/polling as needed).
+
+**PowerPoint AppleScript troubleshooting (macOS)**
+- **Automation permissions:** macOS must allow Companion to control **System Events** and **Microsoft PowerPoint** (System Settings → Privacy & Security → Automation).
+- **Frontmost requirement:** slide tracking only updates when PowerPoint is the frontmost app (per Phase 2 spec). Background = no updates.
+- **Idle behavior:** last known slide persists until PowerPoint closes; no idle timeout clears the status card.
+- **String escaping:** the AppleScript is embedded in a JS template literal for `osascript -e`; JSON strings must use escaped quotes (`\"`). Do not remove backslashes or the script will fail to compile.
+- **Known syntax pitfall:** errors like `Expected end of line but found class name (-2741)` usually mean a property name is not valid for the installed PowerPoint dictionary (e.g., `current slide` on some versions). Avoid unrecognized properties.
+- **Supported slide index call (current implementation):** `current show position of slide show view of slide show window 1`.
+- **Debug logs:** create a file named `ppt.debug` in `~/Library/Application Support/ontime-companion` (Companion userData) to enable `ppt.log` and `ppt.script.applescript` output.
+- **Log locations:** `ppt.log` captures osascript stdout/stderr; `ppt.script.applescript` captures the exact script passed to `osascript -e` for syntax debugging.
+- **Discovery in Script Editor (safe validation):**
+  - `tell application "Microsoft PowerPoint" to return properties of slide show view of slide show window 1`
+  - `tell application "Microsoft PowerPoint" to return properties of slide show window 1`
+  - If these fail, the dictionary likely differs; adjust the script to use only supported properties.
 - Video timing fields are surfaced via live cue metadata (`videoDuration`, `videoElapsed`, optional `videoRemaining` in ms).
 - If media duration is unavailable, the UI should show “Unknown duration” with a neutral state.
 
