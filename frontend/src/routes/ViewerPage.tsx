@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useParams } from 'react-router-dom'
 import { Maximize2, Minimize2 } from 'lucide-react'
 import { useTimerEngine } from '../hooks/useTimerEngine'
@@ -12,13 +12,12 @@ import { useAppMode } from '../context/AppModeContext'
 import { useRoom } from '../hooks/useRoom'
 import { useTimers } from '../hooks/useTimers'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
-import { PresentationStatusPanel } from '../components/controller/PresentationStatusPanel'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
   const ctx = useDataContext()
-  const companion = useCompanionConnection()
+  useCompanionConnection() // Keep connection active for viewers
   
   // Direct Firestore access for unauthenticated users
   const { room: publicRoom, connectionStatus: publicRoomStatus } = useRoom(roomId)
@@ -54,7 +53,8 @@ export const ViewerPage = () => {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef as unknown as RefObject<HTMLElement | null>)
-  useWakeLock(true)
+  const wakeLockStatus = useWakeLock(true)
+  const [wakeLockDismissed, setWakeLockDismissed] = useState(false)
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -101,21 +101,6 @@ export const ViewerPage = () => {
     )
   }
 
-  const showControlTier = room.tier === 'show_control' || room.tier === 'production'
-  const showControlEnabled = showControlTier && room.features?.showControl
-  const companionReady = companion.isConnected && companion.handshakeStatus === 'ack'
-  const presentationCapability =
-    companion.capabilities.powerpoint || companion.capabilities.externalVideo
-  const capabilityMissing = companionReady && !presentationCapability
-  const isMacPlatform = companionReady && companion.systemInfo?.platform === 'darwin'
-  const showStatusPanel = Boolean(showControlEnabled)
-  const liveCues = roomId ? ctx.getLiveCues(roomId) : []
-  const activeLiveCueId = room.state.activeLiveCueId ?? null
-  const activeLiveCue =
-    (activeLiveCueId ? liveCues.find((cue) => cue.id === activeLiveCueId) : undefined) ??
-    liveCues[0] ??
-    null
-
   const bgClass =
     engine.status === 'overtime'
       ? 'bg-rose-950'
@@ -127,6 +112,12 @@ export const ViewerPage = () => {
 
   const isOvertime = engine.status === 'overtime'
   const timerLabel = activeTimer ? activeTimer.title : 'Standby'
+  const displayLength = engine.display.length
+  // vwMax ensures text fits horizontally (especially portrait mode)
+  // Lower values for longer text strings
+  const timerVwMax = displayLength >= 9 ? 14 : displayLength >= 8 ? 16 : displayLength >= 7 ? 18 : 21
+  const showWakeLockBanner = !wakeLockDismissed && Boolean(wakeLockStatus.error)
+  const wakeLockTitle = 'Keep screen awake failed'
 
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
@@ -154,14 +145,9 @@ export const ViewerPage = () => {
     <section className="flex min-h-[calc(100vh-80px)] w-full items-center justify-center px-4 py-6 md:py-10">
       <div
         ref={containerRef}
-        className={`relative w-full max-w-[1600px] rounded-[36px] border border-slate-900 px-5 py-6 text-center shadow-card sm:px-12 sm:py-12 ${bgClass}`}
+        className={`relative flex h-full w-full max-w-[1600px] flex-col rounded-[36px] border border-slate-900 px-5 py-6 text-center shadow-card sm:px-12 sm:py-12 ${bgClass}`}
       >
-        <div
-          className={`grid gap-6 ${
-            showStatusPanel ? 'lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]' : ''
-          }`}
-        >
-          <div className="flex flex-col">
+        <div className="flex flex-1 flex-col">
             <div className="flex flex-wrap items-start justify-between gap-3 text-xs text-slate-200">
               <div className="text-left">
                 <p className="text-sm font-semibold uppercase tracking-[0.4em] text-white/80">
@@ -209,14 +195,33 @@ export const ViewerPage = () => {
               </div>
             </div>
 
-            <div className="mt-6 flex flex-1 flex-col items-center justify-center">
+            {showWakeLockBanner ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                <div>
+                  <p className="font-semibold text-amber-100">{wakeLockTitle}</p>
+                  <p className="text-amber-100/80">
+                    Screen may sleep. Disable auto-lock in device settings.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWakeLockDismissed(true)}
+                  className="rounded-full border border-amber-200/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+            <div className="flex flex-1 flex-col items-center justify-center py-2 sm:py-4">
               {room.state.showClock ? (
-                <div className="flex justify-center w-full px-4" style={{ maxHeight: '45vh' }}>
+                <div className="flex justify-center items-center w-full">
                   <FitText
                     className="font-semibold text-white leading-[0.9] font-[inherit]"
-                    max={480}
-                    min={140}
-                    ratio={2.2}
+                    max={600}
+                    min={60}
+                    ratio={2}
+                    vhMax={38}
+                    vwMax={18}
                   >
                     <span className="inline-flex items-baseline gap-3 justify-center text-white leading-none">
                       <span className="text-white">
@@ -231,27 +236,30 @@ export const ViewerPage = () => {
                   </FitText>
                 </div>
               ) : isOvertime ? (
-                <div className="flex w-full flex-col items-center gap-4 text-white">
-                  <div className="flex justify-center w-full">
-                    <FitText className="font-semibold text-white" max={260} min={120} ratio={2.6}>
-                      Time is up!
-                    </FitText>
-                  </div>
-                  <div className="flex justify-center w-full">
-                    <FitText className="font-semibold text-rose-100 leading-[0.95]" max={380} min={220} ratio={2.1}>
-                      {engine.display}
-                    </FitText>
-                  </div>
+                <div className="flex w-full flex-col items-center justify-center gap-1 text-white">
+                  <FitText className="font-semibold text-white" max={320} min={32} ratio={3} vhMax={14} vwMax={9}>
+                    Time is up!
+                  </FitText>
+                  <FitText
+                    className="font-semibold text-rose-100 leading-[0.95]"
+                    max={800}
+                    min={48}
+                    ratio={2}
+                    vhMax={55}
+                    vwMax={timerVwMax}
+                  >
+                    {engine.display}
+                  </FitText>
                 </div>
               ) : (
-                <div className="flex justify-center w-full">
-                  <FitText className="font-semibold text-white" max={480} min={120} ratio={2.2}>
+                <div className="flex justify-center items-center w-full">
+                  <FitText className="font-semibold text-white" max={800} min={60} ratio={2} vhMax={58} vwMax={timerVwMax}>
                     {engine.display}
                   </FitText>
                 </div>
               )}
               {!room.state.showClock && (
-                <div className="mt-10 h-4 w-full max-w-6xl rounded-full bg-white/10">
+                <div className="mt-4 sm:mt-8 h-3 sm:h-4 w-full max-w-6xl rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full transition-all ${progressColor}`}
                     style={{ width: `${progressPercent}%` }}
@@ -282,17 +290,6 @@ export const ViewerPage = () => {
                 </div>
               </div>
             )}
-          </div>
-
-          {showStatusPanel ? (
-            <div className="lg:pt-2">
-              <PresentationStatusPanel
-                cue={activeLiveCue}
-                isCapabilityMissing={capabilityMissing}
-                isMacPlatform={Boolean(isMacPlatform)}
-              />
-            </div>
-          ) : null}
         </div>
       </div>
     </section>

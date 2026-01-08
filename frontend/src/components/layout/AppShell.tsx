@@ -231,15 +231,15 @@ export const AppShell = () => {
     if (data.connectionStatus === 'offline') {
       return {
         tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
-        title: 'Cloud connection offline',
-        detail: 'Cloud sync is unavailable. Local Companion changes continue if connected.',
+        title: 'Cloud offline',
+        detail: 'Cloud sync is down. Local Companion changes still apply if connected.',
       }
     }
     if (data.connectionStatus === 'reconnecting') {
       return {
         tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
-        title: 'Reconnecting to Cloud',
-        detail: 'We will resync cloud state as soon as the connection returns.',
+        title: 'Reconnecting to cloud',
+        detail: 'We will resync as soon as cloud returns.',
       }
     }
     return null
@@ -261,8 +261,8 @@ export const AppShell = () => {
     if (!missing.length) return null
     return {
       tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
-      title: 'Companion capability unavailable',
-      detail: `Missing: ${missing.join(', ')}`,
+      title: 'Some features are unavailable',
+      detail: `Companion is in Minimal Mode. Restart in Show Control mode to enable: ${missing.join(', ')}`,
     }
   }, [
     activeRoom,
@@ -281,8 +281,8 @@ export const AppShell = () => {
     if (!tokenError) return null
     return {
       tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
-      title: 'Companion session expired',
-      detail: 'Refresh your Companion token to resume local features.',
+      title: 'Companion needs a new token',
+      detail: 'Reconnect to refresh the Companion token and restore local features.',
     }
   }, [connection.lastErrorCode, tokenBannerDismissed])
 
@@ -295,16 +295,16 @@ export const AppShell = () => {
     if (connection.reconnectState === 'stopped') {
       return {
         tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
-        title: 'Companion reconnect paused',
-        detail: 'We stopped after 20 failed attempts. Click retry to try again.',
+        title: 'Companion connection paused',
+        detail: 'We stopped after repeated attempts. Click retry to try again.',
         variant: 'stopped',
       }
     }
     if ((connection.reconnectAttempts >= 5 || reconnectElapsedMs >= 8000) && !isCompanionReady) {
       return {
         tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
-        title: 'Having trouble reconnecting to Companion',
-        detail: 'We will keep retrying. You can also retry now.',
+        title: 'Companion reconnecting',
+        detail: 'Still trying to reconnect. You can also retry now.',
         variant: 'retrying',
       }
     }
@@ -376,15 +376,15 @@ export const AppShell = () => {
     if (connection.protocolStatus.compatibility === 'incompatible') {
       return {
         tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
-        title: 'Companion version mismatch',
-        detail: 'Switching to Cloud to avoid sync issues. Update Companion to restore local mode.',
+        title: 'Companion needs an update',
+        detail: 'Switching to Cloud for now. Update Companion to restore local mode.',
       }
     }
     if (connection.protocolStatus.compatibility === 'warn') {
       return {
         tone: 'border-slate-700/50 bg-slate-900/80 text-slate-200',
-        title: 'Companion version unclear',
-        detail: 'If you see sync issues, update Companion.',
+        title: 'Companion version not verified',
+        detail: 'If things look off, update Companion.',
       }
     }
     return null
@@ -556,7 +556,7 @@ export const AppShell = () => {
               <span className="font-semibold">{reconnectBanner.title}</span>
               <span className="text-white/70">{reconnectBanner.detail}</span>
               {connection.lastErrorCode ? (
-                <span className="text-white/50">Last error: {connection.lastErrorCode}</span>
+                <span className="text-white/50">Last issue: {connection.lastErrorCode}</span>
               ) : null}
               {reconnectCountdown ? (
                 <span className="text-white/50">Next attempt in {reconnectCountdown}</span>

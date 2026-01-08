@@ -18,6 +18,9 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - **Viewer**: Read-only access to room state.
 - **Companion**: Local relay server with token-based auth.
 
+**Viewer timer sizing**
+- Viewer timer typography uses `FitText` with `vhMax`/`vwMax` caps to avoid overflow on extreme aspect ratios.
+
 ## 2. Frontend ↔ Cloud (Firestore)
 
 ### 2.1 Collections and Schemas

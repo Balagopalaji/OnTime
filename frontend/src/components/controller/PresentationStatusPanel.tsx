@@ -61,9 +61,11 @@ export const PresentationStatusPanel = ({
       <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Presentation status</p>
       {isCapabilityMissing ? (
         <div className="mt-3 rounded-xl border border-amber-800/50 bg-amber-950/40 px-3 py-3 text-xs text-amber-200">
-          <p className="font-semibold">Feature unavailable in this Companion mode.</p>
+          <p className="font-semibold">
+            Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
+          </p>
           <p className="mt-1 text-amber-100/80">
-            Switch Companion to Show Control mode to enable presentation status.
+            Show Control mode is required for live presentation status.
           </p>
           <Link
             to="/local"

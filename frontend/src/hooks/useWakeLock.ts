@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * Requests the Screen Wake Lock API where available.
@@ -7,21 +7,45 @@ import { useEffect, useRef } from 'react'
 export const useWakeLock = (enabled: boolean) => {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
   const fallbackRef = useRef<number | null>(null)
+  const [isSupported, setIsSupported] = useState(true)
+  const [isActive, setIsActive] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+
     const requestWakeLock = async () => {
       try {
         const nav = navigator as Navigator & { wakeLock?: { request?: (type: 'screen') => Promise<WakeLockSentinel> } }
         if (nav.wakeLock?.request) {
           const sentinel = await nav.wakeLock.request('screen')
           wakeLockRef.current = sentinel
+          if (!cancelled) {
+            setIsSupported(true)
+            setIsActive(true)
+            setError(null)
+          }
           sentinel.addEventListener('release', () => {
             wakeLockRef.current = null
+            if (!cancelled) {
+              setIsActive(false)
+            }
           })
           return
         }
-      } catch (error) {
-        console.warn('Wake lock request failed', error)
+        if (!cancelled) {
+          setIsSupported(false)
+          setIsActive(false)
+          setError(null)
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          const nextError =
+            caught instanceof Error ? caught : new Error('Wake lock request failed')
+          setIsSupported(true)
+          setIsActive(false)
+          setError(nextError)
+        }
       }
 
       // Fallback: keep event loop busy with a small no-op
@@ -34,6 +58,7 @@ export const useWakeLock = (enabled: boolean) => {
     void requestWakeLock()
 
     return () => {
+      cancelled = true
       if (wakeLockRef.current) {
         wakeLockRef.current.release().catch(() => {
           /* ignore */
@@ -46,4 +71,6 @@ export const useWakeLock = (enabled: boolean) => {
       }
     }
   }, [enabled])
+
+  return { isSupported, isActive, error }
 }

@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Check, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
 import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
@@ -525,6 +525,7 @@ export const DashboardPage = () => {
     enableSort: boolean,
   ) => {
     const isLegacyRoom = (room._version ?? 1) !== 2
+    const isBasicTier = room.tier === 'basic'
     const migration = migrationState[room.id] ?? { status: 'idle' as const }
     const canMigrate = canManageCloudRooms && Boolean(migrateRoomToV2) && user?.uid === room.ownerId
     const hasRollbackBackup = recentlyMigrated.has(room.id) || rollbackAvailable[room.id] === true
@@ -581,6 +582,25 @@ export const DashboardPage = () => {
             </Tooltip>
           </div>
         </div>
+
+        {isBasicTier ? (
+          <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">Basic tier</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  Upgrade to unlock Show Control tools, presentation status, and PiP timers.
+                </p>
+              </div>
+              <Link
+                to="/"
+                className="rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+              >
+                Upgrade
+              </Link>
+            </div>
+          </div>
+        ) : null}
 
         {isLegacyRoom ? (
           <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">

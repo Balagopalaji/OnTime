@@ -268,25 +268,25 @@ export const ControllerPage = () => {
   const controlBarTone = visibleDisplacement || visibleDenial || visibleError ? 'rose' : 'amber'
   const reauthHintActive = reauthHintAt !== null && controlNow - reauthHintAt < 12_000
   const controlTitle = visibleDisplacement
-    ? 'Control transferred'
+    ? 'Control moved'
     : visibleDenial
-      ? 'Request denied'
+      ? 'Request declined'
       : visibleError
-        ? 'Action blocked'
+        ? 'Action not completed'
         : viewerOnly
-          ? 'Viewer-only'
+          ? 'Viewer mode'
           : isLockStale
             ? 'Room inactive'
-            : 'View only'
+            : 'Controls locked'
   const controlDetail = visibleDisplacement
-    ? `${visibleDisplacement.takenByName ?? visibleDisplacement.takenByUserName ?? 'Another device'} took control at ${formatDate(
+    ? `Now controlled by ${visibleDisplacement.takenByName ?? visibleDisplacement.takenByUserName ?? 'another device'} at ${formatDate(
         visibleDisplacement.takenAt,
         room?.timezone ?? 'UTC',
       )}.`
     : visibleDenial
-      ? `Denied by ${visibleDenial.deniedByName ?? visibleDenial.deniedByUserName ?? 'the current controller'}.`
+      ? `Request declined by ${visibleDenial.deniedByName ?? visibleDenial.deniedByUserName ?? 'the current controller'}.`
       : visibleError
-        ? visibleError.message
+        ? `We could not complete that action. ${visibleError.message}`
         : `Controlled by ${lockOwnerLabel}. Last active ${lastActiveLabel}.`
 
   useEffect(() => {
@@ -700,6 +700,7 @@ export const ControllerPage = () => {
     ? remainingLookup[pipTimer.id] ?? formatDuration(pipTimer.duration * 1000)
     : '00:00'
 
+  const isBasicTier = room?.tier === 'basic'
   const showControlTier = room?.tier === 'show_control' || room?.tier === 'production'
   const showControlEnabled = showControlTier && room?.features?.showControl
   const presentationFeatureEnabled = Boolean(room?.features?.powerpoint)
@@ -709,6 +710,12 @@ export const ControllerPage = () => {
   const capabilityMissing = companionReady && !presentationCapability
   const powerpointMissing = companionReady && !companion.capabilities.powerpoint
   const showControlBlocked = showControlTier && (!room?.features?.showControl || capabilityMissing)
+  const simpleSurfaceTone = isBasicTier
+    ? 'border-slate-800/70 bg-slate-900/50'
+    : 'border-slate-900/70 bg-slate-950/70'
+  const simplePanelTone = isBasicTier
+    ? 'border-slate-800/60 bg-slate-900/40'
+    : 'border-slate-800 bg-slate-950/70'
   const showControlUi = showControlEnabled && !capabilityMissing
   const showPresentationBanner = Boolean(
     showControlEnabled &&
@@ -1354,7 +1361,7 @@ export const ControllerPage = () => {
         </div>
       ) : null}
       <section className="space-y-6">
-        <header className="rounded-3xl border border-slate-900/70 bg-slate-950/70 p-4 shadow-card sm:p-6">
+        <header className={`rounded-3xl border p-4 shadow-card sm:p-6 ${simpleSurfaceTone}`}>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-4">
               <div>
@@ -1486,7 +1493,7 @@ export const ControllerPage = () => {
                 onClick={() => setControlBarCollapsed(false)}
                 className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
               >
-                {viewerOnly ? 'Viewer-only' : 'View-only'}
+                {viewerOnly ? 'Viewer mode' : 'View only'}
               </button>
             ) : null}
             {roomAuthority?.status === 'syncing' ? (
@@ -1617,7 +1624,7 @@ export const ControllerPage = () => {
             {showControlUi ? (
               <>
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+                  <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
                     <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Main timer</p>
                     <p className="text-sm font-semibold text-white">
                       {activeTimer ? activeTimer.title : 'Standby'}
@@ -1627,7 +1634,7 @@ export const ControllerPage = () => {
                       {mainStatusLabel}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+                  <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
                     <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
                       PiP {pipLabel}
                     </p>
@@ -1648,9 +1655,11 @@ export const ControllerPage = () => {
               </>
             ) : showControlBlocked ? (
               <div className="rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
-                <p className="font-semibold">Feature unavailable in this Companion mode.</p>
+                <p className="font-semibold">
+                  Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
+                </p>
                 <p className="mt-1 text-amber-100/80">
-                  Switch Companion to Show Control mode to enable the dual header.
+                  Show Control mode is required for the dual header.
                 </p>
                 <Link
                   to="/local"
@@ -1661,12 +1670,36 @@ export const ControllerPage = () => {
               </div>
             ) : null}
           </div>
+        ) : isBasicTier ? (
+          <div className="mt-4 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4 text-left">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Simple mode</p>
+                  <span className="rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+                    Upgrade
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-200">
+                  Upgrade to unlock Show Control tools, presentation status, and PiP timers.
+                </p>
+              </div>
+              <Link
+                to="/"
+                className="rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+              >
+                See plans
+              </Link>
+            </div>
+          </div>
         ) : null}
         {showControlEnabled && presentationFeatureEnabled && powerpointMissing && !showControlBlocked ? (
           <div className="mt-4 rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
-            <p className="font-semibold">Feature unavailable in this Companion mode.</p>
+            <p className="font-semibold">
+              Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
+            </p>
             <p className="mt-1 text-amber-100/80">
-              Switch Companion to Show Control mode to enable presentation import.
+              Show Control mode is required for presentation import.
             </p>
             <Link
               to="/local"
@@ -1910,18 +1943,20 @@ export const ControllerPage = () => {
               {lockState === 'requesting' && !viewerOnly && !displacement ? (
                 <span className="text-[11px] text-slate-200/70">
                   {forceTakeoverReady
-                    ? 'Force takeover available'
+                    ? 'Take control now'
                     : requestCountdown
-                    ? `Force in ${requestCountdown}s`
+                    ? `Take control in ${requestCountdown}s`
                     : 'Waiting for response'}
                 </span>
               ) : null}
               {!forceTakeoverReady && (
-                <span className="text-[10px] text-slate-200/60">Force now with PIN or re-auth.</span>
+                <span className="text-[10px] text-slate-200/60">
+                  Use PIN or re-auth to take control now.
+                </span>
               )}
               {reauthHintActive ? (
                 <span className="text-[10px] text-slate-200/70">
-                  Re-auth failed. You can close the auth window if it stays open.
+                  Re-auth failed. Close the pop-up if it stays open.
                 </span>
               ) : null}
               {displacement ? (
@@ -2058,13 +2093,13 @@ export const ControllerPage = () => {
         {connectionStatus !== 'online' && (
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             <AlertTriangle size={16} />
-            Mock latency enabled. Actions will delay slightly.
+            Demo latency enabled. Actions may take a moment.
           </div>
           )}
         </header>
 
         <div
-          className={`relative rounded-3xl border bg-slate-950/60 p-4 shadow-card transition ${shortcutScope === 'controls' ? 'border-emerald-400/70 shadow-[0_0_25px_rgba(16,185,129,0.25)]' : 'border-slate-900/60'
+          className={`relative rounded-3xl border p-4 shadow-card transition ${isBasicTier ? 'bg-slate-900/50' : 'bg-slate-950/60'} ${shortcutScope === 'controls' ? 'border-emerald-400/70 shadow-[0_0_25px_rgba(16,185,129,0.25)]' : isBasicTier ? 'border-slate-800/60' : 'border-slate-900/60'
             } sm:flex sm:items-center sm:justify-between sm:gap-4`}
           role="group"
           onClick={() => {
