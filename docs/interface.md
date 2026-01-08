@@ -238,6 +238,24 @@ Notes:
 ```
 **Handshake error codes (current):** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`.
 
+**Server → Client: `COMPANION_MODE_CHANGED`**
+```json
+{
+  "type": "COMPANION_MODE_CHANGED",
+  "companionMode": "show_control",
+  "capabilities": {
+    "powerpoint": true,
+    "externalVideo": false,
+    "fileOperations": true
+  },
+  "timestamp": 1234567890
+}
+```
+Notes:
+- Emitted to all connected clients when Companion mode changes.
+- Clients should update local capabilities state without reconnecting.
+- The `timestamp` field indicates when the mode change occurred.
+
 **Server → Client: `ROOM_STATE_SNAPSHOT`**
 ```json
 {

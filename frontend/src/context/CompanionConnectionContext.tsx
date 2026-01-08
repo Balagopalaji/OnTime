@@ -66,6 +66,17 @@ type HandshakeError = {
   message?: string
 }
 
+type CompanionModeChanged = {
+  type: 'COMPANION_MODE_CHANGED'
+  companionMode: string
+  capabilities: {
+    powerpoint: boolean
+    externalVideo: boolean
+    fileOperations: boolean
+  }
+  timestamp: number
+}
+
 const TOKEN_KEY = 'ontime:companionToken'
 const TOKEN_CHANNEL_NAME = 'ontime:companionToken:channel'
 export const INTERFACE_VERSION = '1.2.0'
@@ -520,12 +531,30 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       scheduleReconnect('handshake_error')
     }
 
+    const handleCompanionModeChanged = (data: CompanionModeChanged) => {
+      if (debugCompanion) console.info('[companion] COMPANION_MODE_CHANGED', data)
+      const nextCapabilities = data.capabilities ?? {
+        powerpoint: false,
+        externalVideo: false,
+        fileOperations: true,
+      }
+      const nextCapabilitiesSignature = JSON.stringify(nextCapabilities)
+      if (nextCapabilitiesSignature !== capabilitiesSignatureRef.current) {
+        capabilitiesSignatureRef.current = nextCapabilitiesSignature
+        setCapabilitiesRevision((prev) => prev + 1)
+        setCapabilitiesUpdatedAt(Date.now())
+      }
+      setCompanionMode(data.companionMode)
+      setCapabilities(nextCapabilities)
+    }
+
     socket.on('connect', handleConnect)
     socket.on('disconnect', handleDisconnect)
     socket.on('connect_error', handleConnectError)
     socket.io.on('error', handleConnectError)
     socket.on('HANDSHAKE_ACK', handleHandshakeAck)
     socket.on('HANDSHAKE_ERROR', handleHandshakeError)
+    socket.on('COMPANION_MODE_CHANGED', handleCompanionModeChanged)
 
     socket.connect()
 
@@ -536,6 +565,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       socket.io.off('error', handleConnectError)
       socket.off('HANDSHAKE_ACK', handleHandshakeAck)
       socket.off('HANDSHAKE_ERROR', handleHandshakeError)
+      socket.off('COMPANION_MODE_CHANGED', handleCompanionModeChanged)
       clearReconnectTimer()
       socket.disconnect()
     }

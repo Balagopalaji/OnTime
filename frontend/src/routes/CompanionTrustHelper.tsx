@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 export const CompanionTrustHelper = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const [popupBlocked, setPopupBlocked] = useState(false)
-  const [popupOpened, setPopupOpened] = useState(false)
   const searchParams = new URLSearchParams(location.search)
   const stored = typeof window !== 'undefined' ? window.localStorage.getItem('stagetime.lastPath') : null
   const returnTo =
@@ -22,13 +20,7 @@ export const CompanionTrustHelper = () => {
   useEffect(() => {
     // Open trust page in a new tab/window so user can approve, then redirect back here automatically
     const url = `https://localhost:4441/api/token?return=${encodeURIComponent(absoluteReturn)}`
-    const opened = window.open(url, '_blank', 'noopener,noreferrer')
-    if (!opened) {
-      // Popup blocked; keep the helper open so the user can continue manually.
-      setPopupBlocked(true)
-      return
-    }
-    setPopupOpened(true)
+    window.open(url, '_blank', 'noopener,noreferrer')
   }, [absoluteReturn, navigate, returnTo])
 
   const openTrustInTab = () => {
@@ -47,38 +39,22 @@ export const CompanionTrustHelper = () => {
         If nothing opens, your browser may have blocked the popup. You can manually visit https://localhost:4441/api/token,
         click “Advanced” → “Proceed”, then return to the app.
       </p>
-      {popupOpened ? (
-        <div className="mt-4 flex flex-col items-center gap-2 text-xs text-slate-200">
-          <p className="text-slate-300">
-            Complete the trust flow in the new tab, then return here.
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate(returnTo, { replace: true })}
-            className="rounded-full border border-slate-700 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-          >
-            Return to app
-          </button>
-        </div>
-      ) : null}
-      {popupBlocked ? (
-        <div className="mt-4 flex flex-col items-center gap-2 text-xs text-slate-200">
-          <button
-            type="button"
-            onClick={openTrustInTab}
-            className="rounded-full border border-amber-300/60 bg-amber-500/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
-          >
-            Open trust page
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate(returnTo, { replace: true })}
-            className="rounded-full border border-slate-700 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-          >
-            Return without trusting
-          </button>
-        </div>
-      ) : null}
+      <div className="mt-4 flex flex-col items-center gap-2 text-xs text-slate-200">
+        <button
+          type="button"
+          onClick={openTrustInTab}
+          className="rounded-full border border-amber-300/60 bg-amber-500/10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+        >
+          Open trust page
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(returnTo, { replace: true })}
+          className="rounded-full border border-slate-700 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+        >
+          Return to app
+        </button>
+      </div>
     </div>
   )
 }

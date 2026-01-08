@@ -120,9 +120,14 @@ export const ViewerPage = () => {
   // Lower values for longer text strings
   const timerVwMax = displayLength >= 9 ? 14 : displayLength >= 8 ? 16 : displayLength >= 7 ? 18 : 21
   const showWakeLockBanner =
-    hasTriedFullscreen && Boolean(wakeLockStatus.error) && !wakeLockDismissed
+    hasTriedFullscreen && !wakeLockDismissed &&
+    (Boolean(wakeLockStatus.error) || wakeLockStatus.isSupported === false)
   const isIphone =
-    typeof navigator !== 'undefined' && /iphone/i.test(navigator.userAgent) && !/ipad/i.test(navigator.userAgent)
+    typeof navigator !== 'undefined' && /iphone|ipod/i.test(navigator.userAgent) && !/ipad/i.test(navigator.userAgent)
+  const isMobileLandscape =
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(orientation: landscape)').matches &&
+    window.innerWidth < 1024
 
   const messageBg = {
     green: 'bg-emerald-600/90 text-white',
@@ -147,10 +152,16 @@ export const ViewerPage = () => {
       : 'bg-emerald-400'
 
   return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full items-center justify-center px-4 py-6 md:py-10">
+    <section
+      className={`flex min-h-[calc(100vh-80px)] w-full items-center justify-center ${
+        isMobileLandscape ? 'px-2 py-3' : 'px-4 py-6 md:py-10'
+      }`}
+    >
       <div
         ref={containerRef}
-        className={`relative flex h-full w-full max-w-[1600px] flex-col rounded-[36px] border border-slate-900 px-5 py-6 text-center shadow-card sm:px-12 sm:py-12 ${bgClass}`}
+        className={`relative flex h-full w-full max-w-[1600px] flex-col rounded-[36px] border border-slate-900 text-center shadow-card ${
+          isMobileLandscape ? 'px-4 py-4' : 'px-5 py-6 sm:px-12 sm:py-12'
+        } ${bgClass}`}
       >
         <div className="flex flex-1 flex-col">
             <div className="flex flex-wrap items-start justify-between gap-3 text-xs text-slate-200">
@@ -179,8 +190,12 @@ export const ViewerPage = () => {
                   </span>
                 ) : null}
                 {isIphone ? (
-                  <Tooltip content="Fullscreen isn't supported on iPhone Safari." triggerOnClick delay={0}>
-                    <span className="inline-flex">
+                  <Tooltip content="Fullscreen isn't supported on iPhone browsers." triggerOnClick delay={0}>
+                    <span
+                      className="inline-flex"
+                      onClick={() => setHasTriedFullscreen(true)}
+                      onTouchStart={() => setHasTriedFullscreen(true)}
+                    >
                       <button
                         type="button"
                         disabled

@@ -1,4 +1,4 @@
-import { app, Menu, Tray, nativeImage, clipboard, shell, dialog } from 'electron';
+import { app, Menu, Tray, nativeImage, clipboard, shell, dialog, BrowserWindow } from 'electron';
 import { createServer, Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, Server as HttpsServer } from 'node:https';
 import { spawn } from 'node:child_process';
@@ -13,10 +13,13 @@ import { machineId } from 'node-machine-id';
 import selfsigned from 'selfsigned';
 
 let tray: Tray | null = null;
+let trayContextMenu: Menu | null = null;
+let statusWindow: BrowserWindow | null = null;
+
+type CompanionMode = 'minimal' | 'show_control' | 'production';
 
 const APP_LABEL = 'OnTime Companion';
-const MODE_LABEL = 'Show Control Mode';
-const COMPANION_MODE = 'show_control';
+let currentCompanionMode: CompanionMode = 'show_control';
 const COMPANION_VERSION = '0.1.0';
 const INTERFACE_VERSION = '1.2.0';
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -75,11 +78,28 @@ const COMPANION_CAPABILITIES_BY_MODE: Record<
 };
 
 function getCompanionCapabilities() {
-  return COMPANION_CAPABILITIES_BY_MODE[COMPANION_MODE] ?? {
+  return COMPANION_CAPABILITIES_BY_MODE[currentCompanionMode] ?? {
     powerpoint: false,
     externalVideo: false,
     fileOperations: false
   };
+}
+
+function getModeLabel(mode: CompanionMode): string {
+  switch (mode) {
+    case 'minimal': return 'Minimal Mode';
+    case 'show_control': return 'Show Control Mode';
+    case 'production': return 'Production Mode';
+    default: return 'Unknown Mode';
+  }
+}
+
+function getConnectedClientsCount(): number {
+  let count = 0;
+  ioServers.forEach((server) => {
+    count += server.sockets.sockets.size;
+  });
+  return count;
 }
 
 function resolvePptDebugDirs(): string[] {
@@ -99,7 +119,7 @@ async function initializePptDebugLogging(): Promise<void> {
   pptDebugDirs = resolvePptDebugDirs();
   pptDebugEnabled = computePptDebugEnabled(pptDebugDirs);
   if (!pptDebugEnabled) return;
-  const startupLine = `[ppt] startup ${new Date().toISOString()} mode=${COMPANION_MODE} userData=${app.isReady() ? app.getPath('userData') : 'n/a'}`;
+  const startupLine = `[ppt] startup ${new Date().toISOString()} mode=${currentCompanionMode} userData=${app.isReady() ? app.getPath('userData') : 'n/a'}`;
   for (const dir of pptDebugDirs) {
     try {
       await fs.mkdir(dir, { recursive: true });
@@ -271,7 +291,7 @@ type RoomClientsState = {
 type HandshakeAck = {
   type: 'HANDSHAKE_ACK';
   success: true;
-  companionMode: typeof COMPANION_MODE;
+  companionMode: CompanionMode;
   companionVersion: string;
   interfaceVersion: string;
   capabilities: {
@@ -948,6 +968,43 @@ function getCachePath(): string {
   return path.join(getCacheBaseDir(), 'rooms.json');
 }
 
+function getSettingsPath(): string {
+  return path.join(getCacheBaseDir(), 'settings.json');
+}
+
+interface CompanionSettings {
+  mode: CompanionMode;
+  headless?: boolean;
+}
+
+async function loadSettings(): Promise<CompanionSettings> {
+  const settingsPath = getSettingsPath();
+  try {
+    const data = await fs.readFile(settingsPath, 'utf8');
+    const parsed = JSON.parse(data) as Partial<CompanionSettings>;
+    if (parsed.mode && ['minimal', 'show_control', 'production'].includes(parsed.mode)) {
+      return { mode: parsed.mode as CompanionMode, headless: parsed.headless };
+    }
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') {
+      console.warn('[settings] Failed to load settings:', error);
+    }
+  }
+  // Default settings
+  return { mode: 'show_control' };
+}
+
+async function saveSettings(settings: CompanionSettings): Promise<void> {
+  const settingsPath = getSettingsPath();
+  try {
+    await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    console.log(`[settings] Saved settings: mode=${settings.mode}`);
+  } catch (error) {
+    console.error('[settings] Failed to save settings:', error);
+  }
+}
+
 async function ensureDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
@@ -1294,21 +1351,38 @@ function matchesAllowedOrigin(normalizedOrigin: string | null, allowedOrigins: s
   });
 }
 
-function createTray(token: string, expiresAt: number) {
-  const icon = nativeImage.createFromBuffer(getTrayPng());
-  if (process.platform === 'darwin') {
-    icon.setTemplateImage(true);
-  }
-
-  tray = new Tray(icon);
-  tray.setToolTip(`${APP_LABEL} - ${MODE_LABEL}`);
-  if (process.platform === 'darwin') {
-    tray.setTitle('OnTime'); // helps visibility in macOS menu bar
-  }
+function updateTrayMenu(token: string, expiresAt: number) {
+  if (!tray) return;
 
   const expiryDate = new Date(expiresAt).toLocaleString();
+  const clientCount = getConnectedClientsCount();
+  const caps = getCompanionCapabilities();
+
   const contextMenu = Menu.buildFromTemplate([
-    { label: `${APP_LABEL} - ${MODE_LABEL}`, enabled: false },
+    { label: `${APP_LABEL} - ${getModeLabel(currentCompanionMode)}`, enabled: false },
+    { type: 'separator' },
+    { label: 'Mode:', enabled: false },
+    {
+      label: 'Minimal',
+      type: 'radio',
+      checked: currentCompanionMode === 'minimal',
+      click: () => setCompanionMode('minimal', token, expiresAt)
+    },
+    {
+      label: 'Show Control',
+      type: 'radio',
+      checked: currentCompanionMode === 'show_control',
+      click: () => setCompanionMode('show_control', token, expiresAt)
+    },
+    {
+      label: 'Production',
+      type: 'radio',
+      checked: currentCompanionMode === 'production',
+      click: () => setCompanionMode('production', token, expiresAt)
+    },
+    { type: 'separator' },
+    { label: `Connected: ${clientCount} client${clientCount === 1 ? '' : 's'}`, enabled: false },
+    { label: `Expires: ${expiryDate}`, enabled: false },
     { type: 'separator' },
     {
       label: 'Copy token',
@@ -1316,18 +1390,373 @@ function createTray(token: string, expiresAt: number) {
         clipboard.writeText(token);
       }
     },
-    { label: `Expires: ${expiryDate}`, enabled: false },
-    { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ]);
 
-  tray.setContextMenu(contextMenu);
+  trayContextMenu = contextMenu;
+  if (process.platform !== 'darwin') {
+    tray.setContextMenu(contextMenu);
+  }
+  tray.setToolTip(`${APP_LABEL} - ${getModeLabel(currentCompanionMode)} (${clientCount} clients)`);
+}
+
+function openTrayMenu() {
+  if (!tray || !trayContextMenu) return;
+  tray.popUpContextMenu(trayContextMenu);
+}
+
+async function setCompanionMode(mode: CompanionMode, token: string, expiresAt: number) {
+  if (mode === currentCompanionMode) return;
+
+  const oldMode = currentCompanionMode;
+  currentCompanionMode = mode;
+
+  console.log(`[mode] Changed mode from ${oldMode} to ${mode}`);
+
+  // Save to settings
+  await saveSettings({ mode });
+
+  // Update tray menu
+  updateTrayMenu(token, expiresAt);
+
+  // Update status window if open
+  updateStatusWindow(token, expiresAt);
+
+  // Start or stop PowerPoint detection based on capabilities
+  const caps = getCompanionCapabilities();
+  if (caps.powerpoint && !pptPollTimer) {
+    startPowerPointDetection();
+  } else if (!caps.powerpoint && pptPollTimer) {
+    clearInterval(pptPollTimer);
+    pptPollTimer = null;
+    console.log('[ppt] detection stopped (mode change)');
+  }
+
+  // Notify connected clients about capability change (live update, no reconnect required)
+  ioServers.forEach((server) => {
+    server.emit('COMPANION_MODE_CHANGED', {
+      type: 'COMPANION_MODE_CHANGED',
+      companionMode: mode,
+      capabilities: caps,
+      timestamp: Date.now()
+    });
+  });
+}
+
+function createTray(token: string, expiresAt: number) {
+  const icon = nativeImage.createFromBuffer(getTrayPng());
+  if (process.platform === 'darwin') {
+    icon.setTemplateImage(true);
+  }
+
+  tray = new Tray(icon);
+  if (process.platform === 'darwin') {
+    tray.setTitle('OnTime');
+  }
+
+  // Left click opens status window; right click opens the tray menu.
+  tray.on('click', () => showStatusWindow(token, expiresAt));
+  tray.on('right-click', () => openTrayMenu());
+
+  updateTrayMenu(token, expiresAt);
+
+  // Update menu periodically to refresh client count
+  setInterval(() => updateTrayMenu(token, expiresAt), 5000);
+}
+
+function generateStatusHtml(token: string, expiresAt: number): string {
+  const caps = getCompanionCapabilities();
+  const clientCount = getConnectedClientsCount();
+  const expiryDate = new Date(expiresAt).toLocaleString();
+  const memUsage = process.memoryUsage();
+  const heapMB = (memUsage.heapUsed / 1024 / 1024).toFixed(1);
+  const rssMB = (memUsage.rss / 1024 / 1024).toFixed(1);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>OnTime Companion Status</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    h1 { font-size: 18px; margin-bottom: 20px; color: #4ade80; }
+    .section { margin-bottom: 16px; }
+    .section-title { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 8px; }
+    .value { font-size: 14px; margin-bottom: 4px; }
+    .value.large { font-size: 20px; font-weight: 600; }
+    .capability { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 4px; font-size: 12px; }
+    .capability.enabled { background: #22c55e33; color: #4ade80; }
+    .capability.disabled { background: #ef444433; color: #f87171; }
+    .mode-btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 4px 0;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: #2a2a3e;
+      color: #eee;
+      cursor: pointer;
+      font-size: 14px;
+      text-align: left;
+    }
+    .mode-btn:hover { background: #3a3a4e; }
+    .mode-btn.active { background: #4ade8033; border-color: #4ade80; }
+    .token-display {
+      font-family: monospace;
+      font-size: 11px;
+      background: #2a2a3e;
+      padding: 8px;
+      border-radius: 4px;
+      word-break: break-all;
+      margin-top: 4px;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .btn-primary { background: #4ade80; color: #1a1a2e; }
+    .btn-secondary { background: #333; color: #eee; margin-left: 8px; }
+    .btn-tertiary { background: #1f2937; color: #e5e7eb; }
+    .stats { display: flex; gap: 16px; }
+    .stat { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>OnTime Companion</h1>
+
+  <div class="section">
+    <div class="section-title">Current Mode</div>
+    <div class="value large">${getModeLabel(currentCompanionMode)}</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Change Mode</div>
+    <button class="mode-btn ${currentCompanionMode === 'minimal' ? 'active' : ''}" onclick="setMode('minimal')">
+      Minimal - WebSocket relay only
+    </button>
+    <button class="mode-btn ${currentCompanionMode === 'show_control' ? 'active' : ''}" onclick="setMode('show_control')">
+      Show Control - + PowerPoint monitoring
+    </button>
+    <button class="mode-btn ${currentCompanionMode === 'production' ? 'active' : ''}" onclick="setMode('production')">
+      Production - + External video monitoring
+    </button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Capabilities</div>
+    <span class="capability ${caps.powerpoint ? 'enabled' : 'disabled'}">PowerPoint ${caps.powerpoint ? '✓' : '✗'}</span>
+    <span class="capability ${caps.externalVideo ? 'enabled' : 'disabled'}">External Video ${caps.externalVideo ? '✓' : '✗'}</span>
+    <span class="capability ${caps.fileOperations ? 'enabled' : 'disabled'}">File Ops ${caps.fileOperations ? '✓' : '✗'}</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Status</div>
+    <div class="stats">
+      <div class="stat">
+        <div class="value large">${clientCount}</div>
+        <div style="font-size: 12px; color: #888;">Connected Clients</div>
+      </div>
+      <div class="stat">
+        <div class="value">${heapMB} MB heap</div>
+        <div class="value">${rssMB} MB RSS</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Token</div>
+    <div class="token-display">${token.slice(0, 20)}...${token.slice(-10)}</div>
+    <div style="font-size: 12px; color: #888; margin-top: 4px;">Expires: ${expiryDate}</div>
+    <button class="btn btn-primary" onclick="copyToken()">Copy Full Token</button>
+    <button class="btn btn-tertiary" onclick="openTrayMenu()">Open Tray Menu</button>
+  </div>
+
+  <div class="section" style="margin-top: 24px;">
+    <button class="btn btn-secondary" onclick="restart()">Restart Companion</button>
+    <button class="btn btn-secondary" onclick="quit()">Quit</button>
+  </div>
+
+  <script>
+    // Use navigation-based IPC for security (contextIsolation: true)
+    function setMode(mode) {
+      location.href = 'ontime://action/set-mode/' + mode;
+    }
+
+    function copyToken() {
+      location.href = 'ontime://action/copy-token';
+    }
+
+    function openTrayMenu() {
+      location.href = 'ontime://action/open-tray-menu';
+    }
+
+    function restart() {
+      location.href = 'ontime://action/restart';
+    }
+
+    function quit() {
+      location.href = 'ontime://action/quit';
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function showStatusWindow(token: string, expiresAt: number) {
+  if (statusWindow) {
+    statusWindow.focus();
+    return;
+  }
+
+  statusWindow = new BrowserWindow({
+    width: 380,
+    height: 580,
+    title: 'OnTime Companion',
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+
+  statusWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(generateStatusHtml(token, expiresAt))}`);
+
+  statusWindow.once('ready-to-show', () => {
+    statusWindow?.show();
+  });
+
+  statusWindow.on('closed', () => {
+    statusWindow = null;
+  });
+
+  // Handle navigation-based actions (secure alternative to IPC with nodeIntegration)
+  statusWindow.webContents.on('will-navigate', (event, url) => {
+    // Prevent actual navigation
+    event.preventDefault();
+
+    // Parse custom protocol actions
+    if (url.startsWith('ontime://action/')) {
+      const actionPath = url.replace('ontime://action/', '');
+      const [action, ...params] = actionPath.split('/');
+
+      switch (action) {
+        case 'set-mode':
+          const mode = params[0] as CompanionMode;
+          if (['minimal', 'show_control', 'production'].includes(mode)) {
+            void setCompanionMode(mode, token, expiresAt);
+          }
+          break;
+        case 'copy-token':
+          clipboard.writeText(token);
+          break;
+        case 'open-tray-menu':
+          openTrayMenu();
+          break;
+        case 'restart':
+          app.relaunch();
+          app.quit();
+          break;
+        case 'quit':
+          app.quit();
+          break;
+      }
+    }
+  });
+}
+
+function updateStatusWindow(token: string, expiresAt: number) {
+  if (!statusWindow) return;
+  statusWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(generateStatusHtml(token, expiresAt))}`);
+}
+
+function closeStatusWindow() {
+  if (statusWindow) {
+    statusWindow.close();
+    statusWindow = null;
+  }
 }
 
 function getTrayPng(): Buffer {
   const base64 =
     'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAVklEQVR42mNgGAWjgBDsB8RnYEAC/wMTA/4zIGnA/0EMAAWTAbEDkwHZAajB+B+LBDbABsA2QmQG0IFdCcQEqMM6FgP6AgEgKcFFABuKEgADGIDcH5V0p/AAAAAElFTkSuQmCC';
   return Buffer.from(base64, 'base64');
+}
+
+function isHeadlessMode(): boolean {
+  // Check environment variable
+  if (process.env.COMPANION_HEADLESS === 'true') return true;
+  // Check CLI argument
+  if (process.argv.includes('--headless')) return true;
+  return false;
+}
+
+function getEnvMode(): CompanionMode | null {
+  const envMode = process.env.COMPANION_MODE;
+  if (envMode && ['minimal', 'show_control', 'production'].includes(envMode)) {
+    return envMode as CompanionMode;
+  }
+  return null;
+}
+
+// RAM measurement logging
+let ramMeasurementTimer: NodeJS.Timeout | null = null;
+let ramSamples: { heap: number; rss: number }[] = [];
+
+function startRamMeasurement() {
+  // Start measuring after 60 seconds idle
+  setTimeout(() => {
+    console.log('[ram] Starting RAM measurement (3 samples at 10s intervals)');
+    ramSamples = [];
+
+    const takeSample = () => {
+      const mem = process.memoryUsage();
+      const sample = {
+        heap: mem.heapUsed / 1024 / 1024,
+        rss: mem.rss / 1024 / 1024
+      };
+      ramSamples.push(sample);
+      console.log(`[ram] Sample ${ramSamples.length}: heap=${sample.heap.toFixed(1)}MB, rss=${sample.rss.toFixed(1)}MB`);
+
+      if (ramSamples.length >= 3) {
+        const avgHeap = ramSamples.reduce((sum, s) => sum + s.heap, 0) / ramSamples.length;
+        const avgRss = ramSamples.reduce((sum, s) => sum + s.rss, 0) / ramSamples.length;
+        console.log(`[ram] Average after 60s idle: heap=${avgHeap.toFixed(1)}MB, rss=${avgRss.toFixed(1)}MB, mode=${currentCompanionMode}`);
+        
+        // Check against targets
+        const target = currentCompanionMode === 'minimal' ? 50 : currentCompanionMode === 'show_control' ? 100 : 150;
+        if (avgRss <= target) {
+          console.log(`[ram] ✓ Within target (${target}MB)`);
+        } else {
+          console.warn(`[ram] ✗ Exceeds target (${target}MB) by ${(avgRss - target).toFixed(1)}MB`);
+        }
+
+        if (ramMeasurementTimer) {
+          clearInterval(ramMeasurementTimer);
+          ramMeasurementTimer = null;
+        }
+      }
+    };
+
+    // Take first sample immediately, then every 10 seconds
+    takeSample();
+    ramMeasurementTimer = setInterval(takeSample, 10000);
+  }, 60000);
 }
 
 async function bootstrap() {
@@ -1337,8 +1766,16 @@ async function bootstrap() {
     return;
   }
 
+  const headless = isHeadlessMode();
+  if (headless) {
+    console.log('[startup] Running in headless mode');
+  }
+
   app.on('second-instance', () => {
-    // No window to focus yet, placeholder for future UI.
+    // Show status window when a second instance is launched (if not headless)
+    if (!headless && currentToken && currentTokenExpiresAt) {
+      showStatusWindow(currentToken, currentTokenExpiresAt);
+    }
   });
 
   app.on('window-all-closed', () => {
@@ -1346,10 +1783,27 @@ async function bootstrap() {
   });
 
   app.on('activate', () => {
-    // Placeholder for future windows.
+    // Show status window on dock click (macOS)
+    if (!headless && currentToken && currentTokenExpiresAt) {
+      showStatusWindow(currentToken, currentTokenExpiresAt);
+    }
   });
 
   await app.whenReady();
+
+  // Load settings (mode persisted from previous run)
+  const settings = await loadSettings();
+  
+  // Environment variable overrides persisted setting
+  const envMode = getEnvMode();
+  if (envMode) {
+    currentCompanionMode = envMode;
+    console.log(`[startup] Mode set from COMPANION_MODE env: ${envMode}`);
+  } else {
+    currentCompanionMode = settings.mode;
+    console.log(`[startup] Mode loaded from settings: ${currentCompanionMode}`);
+  }
+
   await initializePptDebugLogging();
 
   await loadRoomCache();
@@ -1374,12 +1828,28 @@ async function bootstrap() {
     app.dock.hide();
   }
 
-  createTray(token, expiresAt);
+  // Only create tray if not in headless mode
+  if (!headless) {
+    createTray(token, expiresAt);
+  }
+
   startSocketServer();
   startSecureSocketServer(tls);
   startTokenServer(token, expiresAt);
   startSecureTokenServer(token, expiresAt, tls);
-  startPowerPointDetection();
+
+  // Only start PowerPoint detection if mode supports it
+  const caps = getCompanionCapabilities();
+  if (caps.powerpoint) {
+    startPowerPointDetection();
+  } else {
+    console.log('[ppt] Detection disabled (mode does not support PowerPoint)');
+  }
+
+  // Start RAM measurement for validation
+  startRamMeasurement();
+
+  console.log(`[startup] OnTime Companion started in ${getModeLabel(currentCompanionMode)}${headless ? ' (headless)' : ''}`);
 }
 
 bootstrap().catch((error) => {
@@ -2257,7 +2727,7 @@ function startPowerPointDetection() {
   if (pptDebugEnabled) {
     console.info('[ppt] detection started', { platform: process.platform })
   }
-  void appendPptLog(`[ppt] detection start mode=${COMPANION_MODE} caps=${JSON.stringify(getCompanionCapabilities())}`);
+  void appendPptLog(`[ppt] detection start mode=${currentCompanionMode} caps=${JSON.stringify(getCompanionCapabilities())}`);
 
   pptPollTimer = setInterval(() => {
     if (pptPollInFlight) return;
@@ -2368,7 +2838,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   const ack: HandshakeAck = {
     type: 'HANDSHAKE_ACK',
     success: true,
-    companionMode: COMPANION_MODE,
+    companionMode: currentCompanionMode,
     companionVersion: COMPANION_VERSION,
     interfaceVersion: INTERFACE_VERSION,
     capabilities: getCompanionCapabilities(),
