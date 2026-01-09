@@ -442,16 +442,16 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 ---
 
 ## Cross-Milestone QA & Harness
-- [ ] Multi-tab/controller/viewer: authority lock, takeover prompt, consistent state across tabs.
-- [ ] Companion restart: auto-reconnect, no duplicate controller sessions.
-- [ ] Mode switching mid-show: Cloud ↔ Local without timer jumps; validate `SYNC_ROOM_STATE`.
-- [ ] Offline/Local: queue, replay, last-write-wins with command stack intact.
-- [ ] Tier gating: Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
-- [ ] Live cue latency: record local vs. cloud viewer deltas; keep within targets.
-- [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path.
-- [ ] Viewer during controller sync: verify Firebase fallback when `authority.status === 'syncing'`.
+- [x] Multi-tab/controller/viewer: authority lock, takeover prompt, consistent state across tabs.
+- [x] Companion restart: auto-reconnect, no duplicate controller sessions.
+- [x] Mode switching mid-show: Cloud ↔ Local without timer jumps; validate `SYNC_ROOM_STATE`.
+- [x] Offline/Local: queue, replay, last-write-wins with command stack intact.
+- [x] Tier gating: Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
+- [ ] Live cue latency: record local vs. cloud viewer deltas; keep within targets. (Observed ~250-330ms local/cloud; not measured precisely.)
+- [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path. (Not tested: file ops UI not available; token expiry only tested via Companion stop; ffprobe missing blocked by platform.)
+- [x] Viewer during controller sync: verify Firebase fallback when `authority.status === 'syncing'`. ✅ (No sync issues observed.)
 - [ ] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate across tabs.
-- [ ] Error UX matrix: validate user messaging and CTA for CONTROLLER_TAKEN, PERMISSION_DENIED, INVALID_TOKEN.
+- [ ] Error UX matrix: validate user messaging and CTA for CONTROLLER_TAKEN, PERMISSION_DENIED, INVALID_TOKEN. (INVALID_TOKEN ✅ via Companion stop; others not yet tested.)
 
 ---
 
