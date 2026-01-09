@@ -3980,42 +3980,6 @@ function createTokenHandler(token: string, expiresAt: number) {
           if (!isHeadlessMode()) {
             showStatusWindow(token, expiresAt);
           }
-          const returnTo = url.searchParams.get('return');
-          const isHttp = (value: string) => value.startsWith('http://') || value.startsWith('https://');
-          const safeReturn = returnTo && isHttp(returnTo) ? returnTo : null;
-          if (safeReturn) {
-            const escapeAttr = (value: string) => value.replace(/\"/g, '&quot;');
-            const redirectTarget = JSON.stringify(safeReturn);
-            const escapedAttr = escapeAttr(safeReturn);
-            const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Companion Status</title>
-  <meta http-equiv="refresh" content="0;url=${escapedAttr}">
-</head>
-<body style="font-family:system-ui;background:#0b1220;color:#e5e7eb;padding:24px;">
-  <h1 style="font-size:18px;margin:0 0 12px;">Companion status window opened</h1>
-  <p style="margin:0 0 8px;">You can return to the app now.</p>
-  <p style="margin:12px 0 16px;">Redirecting you back… If it doesn’t move, <a href="${escapedAttr}" style="color:#a5b4fc;">click here</a>.</p>
-  <script>
-    const target = ${redirectTarget};
-    function go() {
-      try { window.location.replace(target); } catch (err) { window.location.href = target; }
-    }
-    setTimeout(go, 60);
-    setTimeout(() => { try { window.close(); } catch (err) {} }, 1600);
-  </script>
-</body>
-</html>`;
-            res.writeHead(200, {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-              'Access-Control-Allow-Private-Network': 'true'
-            });
-            res.end(html);
-            return;
-          }
           res.writeHead(200, {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
