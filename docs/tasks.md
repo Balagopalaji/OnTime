@@ -6,6 +6,11 @@ Last updated: 2025-12-29
 Scope: Active tasks and notes.
 ---
 
+# Tasks
+
+## Bugs / Follow-ups
+- [ ] Multi-tab controller reloads when another tab opens `/` (same browser/origin). Controller tab reloads and lands on dashboard (or restores last path). Console shows Firestore listen errors (`INTERNAL ASSERTION FAILED: Unexpected state (ID: ca9/b815)` and `ERR_BLOCKED_BY_CLIENT`). Tried: ProtectedRoute grace windows, auth debounce, sessionStorage lastPath, Firestore long-polling init—none resolved; reverted changes. Likely root cause is Firestore transport/listen crash causing reload. Investigate Firestore transport fallback (long polling / fetch streams) and/or add app-level handling for listen failures without reload.
+
 # Active Tasks (Phase 2 prep)
 
 - Planning: Define Phase 2 scope and milestones using current PRDs and `phase-2-overview.md`.
