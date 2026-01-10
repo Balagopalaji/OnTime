@@ -1728,7 +1728,7 @@ function startRamMeasurement() {
         const avgHeap = ramSamples.reduce((sum, s) => sum + s.heap, 0) / ramSamples.length;
         const avgRss = ramSamples.reduce((sum, s) => sum + s.rss, 0) / ramSamples.length;
         console.log(`[ram] Average after 60s idle: heap=${avgHeap.toFixed(1)}MB, rss=${avgRss.toFixed(1)}MB, mode=${currentCompanionMode}`);
-        
+
         // Check against targets
         const target = currentCompanionMode === 'minimal' ? 50 : currentCompanionMode === 'show_control' ? 100 : 150;
         if (avgRss <= target) {
@@ -1784,7 +1784,7 @@ async function bootstrap() {
 
   // Load settings (mode persisted from previous run)
   const settings = await loadSettings();
-  
+
   // Environment variable overrides persisted setting
   const envMode = getEnvMode();
   if (envMode) {
@@ -2648,9 +2648,9 @@ $filename = $presentation.FullName
 
 function handlePowerPointStatus(result: PowerPointPollResult | null) {
   if (!result) {
-  if (pptDebugEnabled) {
-    console.info('[ppt] status: null')
-  }
+    if (pptDebugEnabled) {
+      console.info('[ppt] status: null')
+    }
     return;
   }
 

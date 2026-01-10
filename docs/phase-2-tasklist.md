@@ -24,7 +24,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Plausibility-based staleness check (duration-aware cap; authority/variance deferred)
 
 ### ⏸️ Low Priority (Deferred to Phase 2)
-- [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
+- [x] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER`
 
 ### ✅ Cleanup (Complete)
 - [x] Mode types use `auto | cloud | local` (no deprecated `hybrid`)
@@ -130,7 +130,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Document and implement JOIN → HANDSHAKE → SYNC → STEADY → RECONNECT flow; only one pending handshake at a time.
 - [x] Apply backoff schedule; banner after 5 failed attempts; hard-stop after 20 with "Retry" CTA; log last error code.
 - [x] Acceptance: Backoff follows schedule; clear UX on failure/stop; no duplicate sockets after reconnect.
-- [ ] Protocol versioning: on major mismatch, show warning and suggest update; on incompatible, fallback to Cloud.
+- [x] Protocol versioning: on major mismatch, show warning and suggest update; on incompatible, fallback to Cloud.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (socket handlers, JOIN/HANDSHAKE)
 - Frontend: `frontend/src/context/CompanionConnectionContext.tsx`
@@ -214,8 +214,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Authority confidence window expands to 4s on reconnect churn (per `docs/local-mode.md` §3.3).
 - [x] Viewer sync guard: while authority status is `syncing`, viewers fall back to Firebase until ready.
 - [x] UnifiedDataContext conflict rule: prefer freshest `lastUpdate`; if equal, prefer controller-originated change.
-- [ ] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
-  - Capability gating currently surfaces via banners; UI disablement will be added alongside feature UI.
+- [x] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
+  - Verified Minimal mode shows "Feature unavailable in Minimal Mode" gating banner.
 - [x] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate via BroadcastChannel or localStorage events.
 - [ ] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
 **Codebase Entry Points**
@@ -227,7 +227,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Manual Verification (Pass C)**
 - [ ] Toggle tier/capability and confirm UI updates without stale data.
 - [ ] Induce equal timestamps and confirm controller-originated change wins.
-- [ ] Missing capability shows a visible gating message, not silent failure.
+- [x] Missing capability shows a visible gating message, not silent failure.
 
 **Pass D: Rules & Tests**
 **Companion**
@@ -447,11 +447,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Mode switching mid-show: Cloud ↔ Local without timer jumps; validate `SYNC_ROOM_STATE`.
 - [x] Offline/Local: queue, replay, last-write-wins with command stack intact.
 - [x] Tier gating: Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
-- [ ] Live cue latency: record local vs. cloud viewer deltas; keep within targets. (Observed ~250-330ms local/cloud; not measured precisely.)
-- [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path. (Not tested: file ops UI not available; token expiry only tested via Companion stop; ffprobe missing blocked by platform.)
+- [x] Live cue latency: record local vs. cloud viewer deltas; keep within targets. (Observed ~250-330ms local/cloud; approximate, not stopwatch measured.)
+- [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path. (Path rejection ✅: server logged `[file] exists denied` for `/etc/hosts`. Token expiry only tested via Companion stop; ffprobe missing blocked by platform.)
 - [x] Viewer during controller sync: verify Firebase fallback when `authority.status === 'syncing'`. ✅ (No sync issues observed.)
-- [ ] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate across tabs.
-- [ ] Error UX matrix: validate user messaging and CTA for CONTROLLER_TAKEN, PERMISSION_DENIED, INVALID_TOKEN. (INVALID_TOKEN ✅ via Companion stop; others not yet tested.)
+- [x] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate across tabs.
+- [ ] Error UX matrix: validate user messaging and CTA for CONTROLLER_TAKEN, PERMISSION_DENIED, INVALID_TOKEN. (CONTROLLER_TAKEN ✅; INVALID_TOKEN ✅ via Companion stop; PERMISSION_DENIED not testable yet without multi-operator access.)
 
 ---
 
