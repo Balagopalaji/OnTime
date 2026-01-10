@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-01-10
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -46,6 +46,7 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/local-mode.md` (parallel sync architecture)
 - `docs/timer-logic.md` (authoritative timer math)
 - `docs/edge-cases.md`
+- `docs/cloud-lock-design.md` (cloud controller lock design)
 
 ## Tasklists
 - `docs/tasks.md`

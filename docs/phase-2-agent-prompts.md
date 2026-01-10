@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2025-12-31
+Last updated: 2026-01-10
 Scope: RepoPrompt agent prompt list for Phase 2 implementation passes.
 ---
 
@@ -271,4 +271,115 @@ Before writing code:
 1. List the files you will create/modify
 2. Confirm you understand the scope exclusions
 3. Then proceed with implementation
+```
+
+---
+
+## Milestone 5 - Cloud Controller Lock Enforcement
+
+**Design Document:** `docs/cloud-lock-design.md` (read this first!)
+
+### Pass A: Lock Schema & Cloud Functions
+Prompt:
+```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read: `docs/cloud-lock-design.md` (the full design document for this feature).
+Implement Milestone 5 Pass A.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
+
+Scope:
+- Add `rooms/{roomId}/lock` document schema to Firestore.
+- Implement Cloud Functions: `acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`.
+- Use Firestore transactions for atomic lock acquisition.
+- All staleness logic (90s threshold) in Cloud Functions only; no stale checks in rules.
+- Update Firestore security rules: lock holder check by `userId`, service account bypass for liveCues.
+- Ensure public read access unchanged (viewers work without auth).
+
+Key design decisions (from design doc):
+- Rules enforce by `userId` (Firebase Auth UID), not per-tab `clientId`.
+- Cloud Functions validate `clientId` for lock ownership.
+- Lock document managed by Cloud Functions only (rules deny direct writes).
+
+Files: `firebase/firestore.rules`, new Firebase Cloud Functions directory.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions (no shared control, no roles, no audit logging)
+3. Then proceed with implementation
+```
+
+### Pass B: Frontend Integration
+Prompt:
+```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read: `docs/cloud-lock-design.md` (the full design document for this feature).
+Implement Milestone 5 Pass B.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
+
+Scope:
+- Persist `clientId` in `sessionStorage` (survives refresh, not new tabs).
+- Add heartbeat loop (30s interval) for cloud mode controllers only.
+- Subscribe to `rooms/{roomId}/lock` document in `UnifiedDataContext`.
+- Map cloud lock state to existing `resolveControllerLockState()` (authoritative/read-only/requesting/displaced).
+- Implement `visibilitychange` handler: stop heartbeat when tab hidden, resume when visible.
+- Add queue flush validation: check lock before flushing offline writes; discard if lock lost.
+- UI must block writes when `controllerLockState !== 'authoritative'`.
+
+Authority resolution (from design doc):
+- `roomAuthority.source === 'companion'` → use Companion lock (existing Socket.IO)
+- `roomAuthority.source === 'cloud'` → use Firestore lock (new)
+- No mixing; one lock source per room.
+
+Files: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/types/index.ts`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
+```
+
+### Pass C: Request/Force Takeover UX (Cloud)
+Prompt:
+```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read: `docs/cloud-lock-design.md` (the full design document for this feature).
+Implement Milestone 5 Pass C.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
+
+Scope:
+- Request control flow works in cloud mode (calls `forceTakeover` Cloud Function).
+- Force takeover with PIN works in cloud mode.
+- Force takeover after timeout (30s since request) works in cloud mode.
+- Displaced controller notification works in cloud mode.
+- Ensure UX parity with Companion takeover flow.
+
+Reference: `docs/client-prd.md` "Cloud Controller Lock Enforcement" section for UX requirements.
+
+Files: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/components/*`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
+```
+
+### Pass D: Documentation & Cleanup
+Prompt:
+```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Implement Milestone 5 Pass D.
+Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
+
+Scope:
+- Verify all documentation is up to date (interface.md, client-prd.md, local-mode.md, app-prd.md already updated).
+- Remove any TODO comments related to cloud lock.
+- Verify no regressions in Companion lock flow.
+- Run full test suite: `npm run lint && npm run test`.
+
+Files: `docs/*`, any files with cloud lock TODOs.
+
+Before writing code:
+1. List the files you will review/modify
+2. Confirm the documentation matches the implementation
+3. Then proceed with cleanup
 ```

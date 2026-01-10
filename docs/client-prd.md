@@ -97,7 +97,50 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 **Viewer sharing**
 - Default QR and share URL point to `https://<web-app>/view/:roomId` (cloud viewer).
 - LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
-- Phase 3 UI should offer a “Local network viewer” option (only when Companion is connected), with a warning about certificate trust.
+- Phase 3 UI should offer a "Local network viewer" option (only when Companion is connected), with a warning about certificate trust.
+
+## Cloud Controller Lock Enforcement (Milestone 5)
+
+**Overview**
+Controller lock enforcement applies to both Companion (local) and Cloud (Firebase) modes. In cloud mode, lock state is stored in Firestore and managed via Cloud Functions.
+
+**Lock source resolution**
+- `roomAuthority.source === 'companion'` → Use Companion lock (existing Socket.IO flow).
+- `roomAuthority.source === 'cloud'` → Use Firestore lock (`rooms/{roomId}/lock`).
+- No mixing; one lock source per room.
+
+**Cloud lock behavior**
+- On room open: frontend **must** call `acquireLock()` Cloud Function before enabling controls.
+- If no lock exists: first controller to call `acquireLock()` wins (Firestore rules allow writes when no lock document exists, but UI must acquire lock first).
+- If locked by another: UI shows read-only state with request/force options.
+- Heartbeat: frontend sends `updateHeartbeat()` every 30s while authoritative.
+- Stale threshold: 90s without heartbeat allows force takeover without PIN.
+
+**Identity model**
+- `clientId` (per-tab, persisted in sessionStorage): used for lock ownership in Cloud Functions.
+- `userId` (Firebase Auth UID): used in Firestore rules for write enforcement.
+- Same user, multiple tabs: all tabs pass rules, but only one holds the lock (UI shows read-only for non-lock tabs).
+
+**Write prevention**
+- Frontend checks `controllerLockState` before any write; UI disables controls when not authoritative.
+- Cloud Functions reject lock operations if `clientId` doesn't match.
+- Firestore rules reject writes if `userId` doesn't match lock holder.
+
+**Viewer access**
+- Lock enforcement only affects writes; viewers can always read room/timers/lock.
+- Companion service account can write liveCues regardless of cloud lock.
+
+**Release behavior**
+- Tab hidden (`visibilitychange`): stop heartbeat loop to accelerate staleness.
+- Tab close: rely on stale detection (90s) for cleanup.
+- Explicit release: available via settings or on room exit.
+
+**UX parity**
+- Cloud mode uses the same `controllerLockState` values as Companion: `authoritative`, `read-only`, `requesting`, `displaced`.
+- Request/force takeover flow matches Companion semantics.
+- Displaced controller notification with "Reclaim Control" action works in cloud mode.
+
+**Design document:** See `docs/cloud-lock-design.md` for full technical details.
 
 ## Show Control UI (Phase 2c)
 **Tier gating**

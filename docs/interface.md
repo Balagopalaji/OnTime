@@ -6,9 +6,10 @@ Last updated: 2025-12-30
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
-# Interface Specification (v1.2.0)
+# Interface Specification (v1.3.0)
 
 **Changelog**
+- v1.3.0 (2026-01-10): Added cloud controller lock schema and Cloud Functions API (Milestone 5).
 - v1.2.0 (2025-12-30): Added planned show cue + crew chat schemas (Phase 3).
 - v1.1.0 (2025-12-30): Added live cue video timing metadata fields (additive).
 - v1.0.0 (2025-12-30): Initial consolidated interface specification; aligned with current Companion + Firebase behavior.
@@ -179,9 +180,88 @@ Trigger notes:
 - `presetId?: string` (when type is `preset`)
 - `createdAt: number`
 
+**`rooms/{roomId}/lock`** (cloud controller lock; Milestone 5)
+- **Purpose:** Enforce single authoritative controller in cloud mode (parity with Companion lock).
+- `clientId: string` (unique client identifier, per-tab)
+- `userId: string` (Firebase Auth UID, per-account)
+- `deviceName?: string` (human-readable device identifier)
+- `userName?: string` (display name of lock holder)
+- `lockedAt: timestamp` (when lock was first acquired)
+- `lastHeartbeat: timestamp` (updated every 30s)
+- `controlPolicy: 'exclusive'` (default; only value supported in Pass A)
+Notes:
+- Lock document is managed by Cloud Functions only (rules deny direct writes).
+- `clientId` is per-tab (persisted in sessionStorage); `userId` is used in rules for enforcement.
+- Stale threshold: 90s without heartbeat allows force takeover.
+- **Future (Pass B / Enterprise):** `controlPolicy: 'shared_with_pin'` for multi-controller access with PIN authorization.
+- See `docs/cloud-lock-design.md` for full design details.
+
 ### 2.2 Security Rules (Summary)
-- Public read access to rooms/timers for viewers.
-- Owner-only writes for rooms/timers/state.
+- Public read access to rooms/timers/lock for viewers.
+- Authenticated writes for rooms/timers/state:
+  - If no lock exists: any authenticated user can write (first controller wins).
+  - If lock exists: only authenticated user matching lock holder's `userId` can write.
+- Lock document: read allowed, write restricted to Cloud Functions only.
+- liveCues: allow service account (Companion) writes regardless of lock.
+
+### 2.3 Cloud Functions API (Lock Operations; Milestone 5)
+
+All lock operations use Cloud Functions to ensure atomic, server-timestamped operations.
+
+**`acquireLock`** - Attempt to acquire lock for a room
+```json
+// Input
+{
+  "roomId": "abc123",
+  "clientId": "client-uuid",
+  "userId": "firebase-uid",
+  "deviceName": "Chrome on macOS",
+  "userName": "Operator",
+  "forceIfStale": false
+}
+// Output (success)
+{ "success": true, "lock": { ... } }
+// Output (locked by another)
+{ "success": false, "error": "CONTROLLER_TAKEN", "currentLock": { ... } }
+```
+
+**`releaseLock`** - Release a held lock
+```json
+// Input
+{ "roomId": "abc123", "clientId": "client-uuid" }
+// Output
+{ "success": true }
+```
+
+**`forceTakeover`** - Force acquisition with authorization
+```json
+// Input
+{
+  "roomId": "abc123",
+  "clientId": "client-uuid",
+  "userId": "firebase-uid",
+  "deviceName": "Chrome on macOS",
+  "userName": "Operator",
+  "pin": "4821",
+  "reauthenticated": false
+}
+// Output (success)
+{ "success": true, "lock": { ... }, "previousHolder": { ... } }
+// Output (unauthorized)
+{ "success": false, "error": "PERMISSION_DENIED" }
+```
+Notes:
+- Authorization requires one of: valid PIN, `reauthenticated: true`, stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
+
+**`updateHeartbeat`** - Refresh heartbeat timestamp
+```json
+// Input
+{ "roomId": "abc123", "clientId": "client-uuid" }
+// Output
+{ "success": true }
+```
+
+See `docs/cloud-lock-design.md` for full design details.
 
 ## 3. Frontend ↔ Local (Companion)
 

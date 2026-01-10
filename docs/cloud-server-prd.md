@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-29
+Last updated: 2026-01-10
 Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 ---
 
@@ -11,7 +11,7 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 ## Goals / Non-goals
 **Goals**
 - Provide persistent, globally accessible room/timer state.
-- Enforce owner-only writes via security rules while keeping viewer reads public.
+- Enforce lock-holder writes via security rules while keeping viewer reads public (Milestone 5).
 - Support parallel sync with Companion when available.
 
 **Non-goals**
@@ -19,7 +19,8 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 - LAN viewer delivery (see `docs/local-offline-lan-plan.md`).
 
 ## Roles & Permissions
-- **Owner/Controller**: Authenticated write access to room and timers.
+- **Controller (lock holder)**: Authenticated write access to room and timers.
+- **Controller (non-authoritative)**: Read-only access; must request/force takeover.
 - **Viewer**: Public read-only access (no auth required).
 
 ## User Flows
@@ -27,19 +28,21 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 - Cloud state remains available for remote viewers when Companion is offline.
 
 ## Current Behavior (Reality)
-- Firebase is the cloud persistence layer with public reads and owner-only writes.
+- Firebase is the cloud persistence layer with public reads and authenticated writes.
+- Cloud controller lock enforcement is not yet implemented (see Milestone 5).
 - Data model fields are consumed by the frontend and mirrored by Companion.
 - Sync behavior is coordinated with Companion per `docs/local-mode.md`.
 - Timer math rules are defined in `docs/timer-logic.md`.
 
 ## Planned Phases (Roadmap)
+- Milestone 5: Cloud controller lock enforcement (lock document + Cloud Functions + rules).
 - Security rule refinements for new collections (live cues, sections, segments, show planner cues, crew chat).
 - Role-based cue ownership (operators can edit only their role cues; TD/Director override).
 - Cloud-to-Companion sync improvements (see `docs/local-mode.md`).
 
 ## Acceptance Criteria
 - Viewer read access remains public and reliable.
-- Owner-only writes enforced by Firestore rules.
+- Lock-holder writes enforced by Firestore rules (Milestone 5).
 - Data model fields match frontend expectations.
 
 ## Out of Scope

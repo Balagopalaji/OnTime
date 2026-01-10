@@ -441,11 +441,147 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 ---
 
+## Milestone 5: Cloud Controller Lock Enforcement
+**Goal:** Enforce single authoritative controller in cloud/Firebase mode, achieving parity with Companion lock semantics.
+
+**Design Document:** `docs/cloud-lock-design.md`
+
+**Scope Exclusions (Milestone 5)**
+- No shared/multi-controller mode (see "Future: Enterprise Shared Control" below).
+- No role-based permissions or timerDelegate (Phase 3).
+- No audit logging (see "Future: Enterprise Shared Control" below).
+
+**Pass A: Lock Schema & Cloud Functions**
+**Cloud/Firebase**
+- [ ] Add `rooms/{roomId}/lock` document schema to Firestore.
+- [ ] Implement Cloud Functions:
+  - `acquireLock`: Atomic lock acquisition with transaction; handles race conditions.
+  - `releaseLock`: Release held lock (voluntary or cleanup).
+  - `forceTakeover`: Force acquisition with PIN validation or stale check.
+  - `updateHeartbeat`: Refresh `lastHeartbeat` timestamp.
+- [ ] All staleness logic in Cloud Functions only (90s threshold); no stale checks in rules.
+**Firestore Rules**
+- [ ] Update rules to check lock holder by `userId` (not `clientId`).
+- [ ] Lock document: read allowed, write restricted to Cloud Functions only.
+- [ ] State/timers: require authenticated user matching lock holder's `userId`.
+- [ ] liveCues: allow service account (Companion) writes regardless of lock.
+- [ ] Verify public read access unchanged (viewers work without auth).
+**Codebase Entry Points**
+- Firebase: `firebase/firestore.rules`, Firebase Cloud Functions (directory TBD, likely `functions/` or `firebase/functions/`)
+**Test Expectations**
+- Unit: Cloud Function lock logic (acquire, release, force, heartbeat)
+- Integration: simultaneous acquisition race condition
+
+**Manual Verification (Pass A)**
+- [ ] Two users open same room in cloud mode; first acquires lock, second sees read-only.
+- [ ] Force takeover with correct PIN succeeds immediately.
+- [ ] Force takeover with stale lock (>90s) succeeds without PIN.
+- [ ] Companion can still write liveCues when cloud lock is held by another user.
+- [ ] Viewer (unauthenticated) can still read room/timers.
+
+**Pass B: Frontend Integration**
+**Frontend**
+- [ ] Persist `clientId` in `sessionStorage` (survives refresh, not new tabs).
+- [ ] Add heartbeat loop (30s interval) for cloud mode controllers.
+- [ ] Subscribe to `rooms/{roomId}/lock` document in `UnifiedDataContext`.
+- [ ] Map cloud lock state to existing `resolveControllerLockState()` (authoritative/read-only/requesting/displaced).
+- [ ] Implement `visibilitychange` handler: stop heartbeat when tab hidden, resume when visible.
+- [ ] Add queue flush validation: check lock before flushing offline writes; discard if lock lost.
+- [ ] UI blocks writes when `controllerLockState !== 'authoritative'` (frontend enforcement).
+**Authority Resolution**
+- [ ] Use existing `roomAuthority.source` as switch:
+  - `'companion'` → use Companion lock (existing Socket.IO)
+  - `'cloud'` → use Firestore lock (new)
+  - No mixing; one lock source per room.
+**Codebase Entry Points**
+- Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/types/index.ts`
+**Test Expectations**
+- Unit: heartbeat loop timing, lock state resolution
+- Integration: cloud lock subscription, queue flush validation
+
+**Manual Verification (Pass B)**
+- [ ] Refresh tab while holding cloud lock; lock retained (clientId persists).
+- [ ] Open second tab (same user); second tab shows read-only, cannot acquire lock.
+- [ ] Close lock-holding tab; after 90s, second tab can force takeover.
+- [ ] Go offline while holding lock; reconnect within 90s and lock retained.
+- [ ] Go offline, another user takes over; on reconnect, first user sees "displaced" UI and queued writes discarded.
+
+**Pass C: Request/Force Takeover UX (Cloud)**
+**Frontend**
+- [ ] Request control flow works in cloud mode (calls `forceTakeover` function).
+- [ ] Force takeover with PIN works in cloud mode.
+- [ ] Force takeover after timeout (30s since request) works in cloud mode.
+- [ ] Displaced controller notification works in cloud mode.
+- [ ] Ensure UX parity with Companion takeover flow.
+**Codebase Entry Points**
+- Frontend: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/components/*`
+**Test Expectations**
+- Integration: full request/force/handover flow in cloud mode
+
+**Manual Verification (Pass C)**
+- [ ] Request control in cloud mode shows waiting state with countdown.
+- [ ] Force takeover with PIN succeeds; without PIN, must wait for timeout.
+- [ ] Displaced controller sees notification with "Reclaim Control" action.
+- [ ] Reclaim control works in cloud mode.
+
+**Pass D: Documentation & Cleanup**
+**Documentation**
+- [ ] Update `docs/interface.md`: add cloud lock schema and Cloud Functions API.
+- [ ] Update `docs/client-prd.md`: add control lock enforcement section.
+- [ ] Update `docs/local-mode.md`: add cloud mode parity note.
+- [ ] Update `docs/app-prd.md`: clarify lock enforcement across tiers.
+**Cleanup**
+- [ ] Remove any TODO comments related to cloud lock.
+- [ ] Verify no regressions in Companion lock flow.
+
+**Success Criteria**
+- Single controller enforced in cloud mode; no concurrent writes from multiple controllers.
+- Request/force takeover UX matches Companion flow.
+- Viewers unaffected; public read access works.
+- Companion can write liveCues regardless of cloud lock.
+- No timer sync regressions.
+
+**Risks/Unknowns**
+- Cloud Function cold starts may add latency to lock operations.
+- Same user, multiple tabs: all pass rules (by userId), but only one holds lock (by clientId). Frontend enforcement required.
+- `beforeunload` release skipped; relying on 90s stale timeout for cleanup.
+
+**Definition of Done (Milestone 5)**
+- [ ] Cloud lock enforced; request/force takeover works; UX parity with Companion; docs updated.
+
+---
+
+## Future: Enterprise Shared Control (Post-Milestone 5)
+**Goal:** Optional shared control policy for enterprise tier with multiple concurrent controllers.
+
+**Status:** Deferred (not in Phase 2 scope)
+
+**Scope (Future)**
+- [ ] Add `controlPolicy` field to lock document (`'exclusive'` default, `'shared_with_pin'` enterprise).
+- [ ] Room settings UI for control policy selection (enterprise tier only).
+- [ ] Conflict resolution strategy for concurrent edits (last-write-wins or per-timer locking).
+- [ ] Audit log collection (`rooms/{roomId}/controlLog`) for controller actions.
+- [ ] Authority levels: Owner / Operator / Assistant with different capabilities.
+- [ ] PIN management for shared access.
+- [ ] UI for "who's editing what" visibility.
+
+**Dependencies**
+- Requires Milestone 5 (core cloud lock) complete.
+- Requires Phase 3 role-based permissions design.
+
+**Risks/Unknowns**
+- Conflict resolution complexity; dueling edits from multiple operators.
+- Audit log storage costs.
+- Enterprise tier pricing/gating model.
+
+---
+
 ## Cross-Milestone QA & Harness
 - [x] Multi-tab/controller/viewer: authority lock, takeover prompt, consistent state across tabs.
 - [x] Companion restart: auto-reconnect, no duplicate controller sessions.
 - [x] Mode switching mid-show: Cloud ↔ Local without timer jumps; validate `SYNC_ROOM_STATE`.
 - [x] Offline/Local: queue, replay, last-write-wins with command stack intact.
+- [ ] Cloud lock enforcement: single controller in cloud mode; request/force takeover; viewer access unaffected. (Milestone 5)
 - [x] Tier gating: Basic blocks show control; Show Control enables live cues; Production ready for future hooks.
 - [x] Live cue latency: record local vs. cloud viewer deltas; keep within targets. (Observed ~250-330ms local/cloud; approximate, not stopwatch measured.)
 - [ ] File ops safety: path rejection, token expiry, ffprobe missing warning path. (Path rejection ✅: server logged `[file] exists denied` for `/etc/hosts`. Token expiry only tested via Companion stop; ffprobe missing blocked by platform.)

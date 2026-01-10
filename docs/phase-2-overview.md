@@ -267,6 +267,15 @@ This section summarizes the show-control architecture at a high level. Canonical
    - Companion tray/window for mode selection/status reflecting capabilities; stays within RAM budgets.
    - Success: Resource targets met; clear gating/messaging without technical jargon.
 
+5. **Cloud Controller Lock Enforcement**
+   - Enforce single authoritative controller in cloud/Firebase mode (parity with Companion lock).
+   - Firestore lock document (`rooms/{roomId}/lock`) with Cloud Functions for atomic acquire/release/force.
+   - Rules enforce lock holder by `userId`; Cloud Functions validate `clientId` for per-tab enforcement.
+   - Frontend heartbeat loop (30s), stale detection (90s), request/force takeover UX in cloud mode.
+   - Success: Single controller in cloud mode; request/force takeover works; viewers unaffected.
+   - Design document: `docs/cloud-lock-design.md`
+   - **Future (Pass B):** Enterprise shared control policy with authority levels (Owner/Operator/Assistant).
+
 ## Phase 3 (Planned) — LAN Offline Viewers
 - Companion-served static viewer bundle for LAN-only rooms (HTTPS/WSS + trusted cert).
 - LAN Companion bridge so PPT detection runs on the show laptop while operators control from a separate device (local-only today; relay planned).

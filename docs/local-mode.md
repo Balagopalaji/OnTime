@@ -414,6 +414,32 @@ useEffect(() => {
 - Second controller rejected by default (`HANDSHAKE_ERROR: CONTROLLER_TAKEN`)
 - Optional takeover (`JOIN_ROOM.takeOver=true`) disconnects existing controller and claims the lock
 
+### 3.5.2 Cloud Mode Lock Enforcement (Milestone 5)
+
+When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcement uses Firestore instead of Companion's in-memory lock.
+
+**Lock source resolution:**
+- `roomAuthority.source === 'companion'` → Use Companion lock (Socket.IO events, in-memory store)
+- `roomAuthority.source === 'cloud'` → Use Firestore lock (`rooms/{roomId}/lock`)
+- No mixing; one lock source per room based on authority
+
+**Cloud lock storage:**
+- Location: `rooms/{roomId}/lock` document in Firestore
+- Managed by Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`)
+- Rules enforce by `userId`; Cloud Functions validate `clientId` for per-tab enforcement
+
+**Timing constants:**
+- Heartbeat interval: 30s (frontend sends `updateHeartbeat()`)
+- Stale threshold: 90s (allows force takeover without PIN)
+- Force takeover timeout: 30s (after REQUEST_CONTROL, allow force without PIN)
+
+**UX parity:**
+- Cloud mode produces the same `controllerLockState` values: `authoritative`, `read-only`, `requesting`, `displaced`
+- Request/force takeover UI works identically in both modes
+- Frontend subscribes to lock document for real-time state updates
+
+**See:** `docs/cloud-lock-design.md` for full design details.
+
 ### 3.6 State Initialization
 *   **Cache Location (Platform-Specific):**
     *   Windows: `%APPDATA%\OnTime\cache\rooms.json`
@@ -551,11 +577,12 @@ onSnapshot(roomRef, (snap) => {
 - **Staleness detection** - duration-based cap + optional adjustment log; no authority/variance logic
 - **Timer list arbitration** - prefers Firebase timers when available; no timestamp-based arbitration between sources
 
-### ⏸️ Future (Phase 2+)
-- **Room lock + heartbeat not implemented**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx`, `companion/src/main.ts`
-  - Issue: No heartbeat, no takeover prompt in web app
-  - Fix: Add `lock.lastHeartbeat`, heartbeat interval, takeover prompt, `CONTROLLER_TAKEOVER`
+### ⏸️ Future (Milestone 5)
+- **Cloud lock enforcement not implemented**
+  - Location: `frontend/src/context/UnifiedDataContext.tsx`, `firebase/firestore.rules`, new `functions/` directory
+  - Issue: Cloud mode has no lock enforcement; multiple controllers can write concurrently
+  - Fix: Add Firestore lock document, Cloud Functions API, rules update, frontend heartbeat loop
+  - Design: See `docs/cloud-lock-design.md` for full specification
 
 **Alignment checklist**
 - [x] Companion participates in Cloud mode (subscription-based)
@@ -565,4 +592,5 @@ onSnapshot(roomRef, (snap) => {
 - [ ] Staleness detection parity (authority/variance logic)
 - [ ] Timer list arbitration by timestamp
 - [x] Mode types use `auto | cloud | local`
-- [ ] Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER` (Phase 2)
+- [x] Companion lock + takeover UX (Phase 2, Milestone 1) - lock/takeover works, but periodic heartbeat not yet implemented
+- [ ] Cloud lock enforcement (Milestone 5) - see `docs/cloud-lock-design.md`
