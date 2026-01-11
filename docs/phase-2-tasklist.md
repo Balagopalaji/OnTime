@@ -355,8 +355,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Manual: slide number updates in UI
 
 **Manual Verification (Pass A)**
-- [ ] Attempt `/api/open` with a path outside allowed roots; verify rejection. (blocked: Windows validation pending)
-- [ ] Force token expiry and confirm refresh path works once, then shows reconnect prompt. (blocked: Windows validation pending)
+- [x] Attempt `/api/open` with a path outside allowed roots; verify rejection. (Windows test returned `{"error":"invalid_path"}` for `C:\\Windows\\System32\\drivers\\etc\\hosts`.)
+- [x] Force token expiry and confirm refresh path works once, then shows reconnect prompt. (Companion stop triggered reconnect banner.)
 - [ ] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash. (blocked: Windows validation pending)
 - [ ] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then background/close it and confirm `PRESENTATION_CLEAR` after 10s idle. (blocked: Windows validation pending)
 
