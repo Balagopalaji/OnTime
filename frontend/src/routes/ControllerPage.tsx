@@ -50,6 +50,7 @@ export const ControllerPage = () => {
   const { user } = useAuth()
   const companion = useCompanionConnection()
   const { handshakeStatus } = companion
+  const companionReady = companion.isConnected && handshakeStatus === 'ack'
   const ctx = useDataContext()
   const {
     getRoom,
@@ -154,12 +155,24 @@ export const ControllerPage = () => {
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
   )
-  const liveCueRecords = roomId ? getLiveCueRecords(roomId) : []
-  const liveCues = roomId ? getLiveCues(roomId) : []
+  const liveCueRecords = useMemo(
+    () => (roomId ? getLiveCueRecords(roomId) : []),
+    [getLiveCueRecords, roomId],
+  )
+  const liveCues = useMemo(
+    () => (roomId ? getLiveCues(roomId) : []),
+    [getLiveCues, roomId],
+  )
   const liveCueDiagnostics =
     roomId && getLiveCueDiagnostics ? getLiveCueDiagnostics(roomId) : null
-  const presentationRecords = liveCueRecords.filter(
-    (record) => record.cue.source === 'powerpoint',
+  const presentationRecords = useMemo(
+    () =>
+      companionReady
+        ? liveCueRecords.filter(
+            (record) => record.source === 'companion' && record.cue.source === 'powerpoint',
+          )
+        : [],
+    [companionReady, liveCueRecords],
   )
   const presentationEntries = useMemo<PresentationEntry[]>(() => {
     if (!presentationRecords.length) return []
@@ -704,7 +717,6 @@ export const ControllerPage = () => {
   const showControlTier = room?.tier === 'show_control' || room?.tier === 'production'
   const showControlEnabled = showControlTier && room?.features?.showControl
   const presentationFeatureEnabled = Boolean(room?.features?.powerpoint)
-  const companionReady = companion.isConnected && companion.handshakeStatus === 'ack'
   const presentationCapability =
     companion.capabilities.powerpoint || companion.capabilities.externalVideo
   const capabilityMissing = companionReady && !presentationCapability

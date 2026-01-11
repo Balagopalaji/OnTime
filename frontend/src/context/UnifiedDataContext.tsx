@@ -2347,10 +2347,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
 
       const merged = new Map<string, LiveCueRecord>()
-      firebaseRecords.forEach((record) => {
+      companionRecords.forEach((record) => {
         merged.set(record.cue.id, record)
       })
-      companionRecords.forEach((record) => {
+      firebaseRecords.forEach((record) => {
+        if (record.cue.source === 'powerpoint' && !merged.has(record.cue.id)) {
+          return
+        }
         const existing = merged.get(record.cue.id)
         if (!existing) {
           merged.set(record.cue.id, record)
