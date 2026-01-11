@@ -41,3 +41,4 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Timer control delegation | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Show Caller Mode (app as caller) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | LAN viewers (offline) | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |
+| Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |

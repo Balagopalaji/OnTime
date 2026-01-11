@@ -438,7 +438,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Reassess RAM budgets using packaged builds; dev/headless exceeded Minimal target.
 
 **Definition of Done (Milestone 4)**
-- [ ] UI polish complete; RAM budgets met with GUI enabled; gating copy is clear.
+- [ ] UI polish complete; RAM budgets met with GUI enabled; gating copy is clear. (RAM target not met in Minimal mode; defer reassessment.)
 
 ---
 

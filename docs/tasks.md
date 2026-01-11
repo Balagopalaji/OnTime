@@ -22,3 +22,9 @@ Scope: Active tasks and notes.
 - Companion RAM budgets: reassess Minimal/Show Control/Production targets using packaged builds (dev/headless exceeded Minimal target).
 - Migration: Drop v1→v2 migration from the active backlog (no users on v1); treat v2 as baseline. Keep migration notes archived only.
 - Phase 3 backlog: Add an Electron controller option to send the viewer to a second display (fullscreen) for internal screen workflows.
+
+## Phase 2 Actionables (Need Implementation)
+- [ ] Viewer-only Electron build target (distinct app/build config).
+- [ ] Crash recovery banner on force-quit relaunch ("Recovered session").
+- [ ] Auto-update pipeline for Electron controller (canary + stable).
+- [ ] RAM target reduction work for Minimal mode (currently over 50MB).

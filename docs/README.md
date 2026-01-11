@@ -47,6 +47,7 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/timer-logic.md` (authoritative timer math)
 - `docs/edge-cases.md`
 - `docs/cloud-lock-design.md` (cloud controller lock design)
+- `docs/agent-handoff.md` (cross-device agent handoff log)
 
 ## Tasklists
 - `docs/tasks.md`
