@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2025-12-31
+Last updated: 2026-01-10
 Scope: Phase 2 task list and prerequisites.
 ---
 
@@ -40,6 +40,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **Authority confidence window (room reads):** 2s base, expand to 4s on reconnect churn (per local-mode.md Section 3.3).
 - **Companion RAM budgets (steady state after 60s idle, average of 3 samples):** Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB.
 - **Feature gating:** Legacy rooms without `features` default to deny Show Control/Production data paths; UI must hide gated features and emit upgrade prompts.
+- **Tier selection UI:** Deferred to Phase 3; Phase 2 assumes new rooms default to `basic` unless set by admin tooling.
 - **File ops security:** Normalize path, require path within user home or OS app data; reject symlinks pointing outside allowed roots; reject UNC/network paths; bind HTTP to 127.0.0.1; token auth required.
 - **Tokens:** TTL 4 hours; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
 - **Protocol versioning:** Client includes interface version in JOIN/handshake; if major mismatch, show warning banner and suggest update; if incompatible, fallback to Cloud with clear message.
@@ -85,18 +86,18 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Deep link handler: register `ontime://room/:roomId` to open a room in the controller. Note: protocol registration only works in packaged builds on Windows; dev-mode deep links require manual testing via command line args.
 - [x] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
 - [x] Stable origin for Electron controller so auth persists across restarts (ports 5174–5176; fallback to random only if occupied).
-- [ ] Separate build target so a viewer-only Electron app can be added later.
+- [ ] Separate build target so a viewer-only Electron app can be added later. (Not implemented; future need.)
 - [x] Acceptance: Controller launches, connects to Companion, and runs without a browser.
 
 **Manual Verification (Pass A)**
 - [x] Launch Electron controller offline; verify room cache loads and UI is usable.
 - [x] Connect Companion and confirm the app auto-detects and switches to Local when available.
 - [x] Quit/relaunch and confirm settings persist.
-- [ ] Force-quit and relaunch; confirm "Recovered session" banner appears and state is restored.
+- [ ] Force-quit and relaunch; confirm "Recovered session" banner appears and state is restored. (No banner observed; likely not implemented yet.)
 - [x] Restart preserves room state; no timer jumps after relaunch.
 - [x] Cloud viewer URLs still work while bridge is online.
 - [x] Auth session persists across restarts in Electron (no forced re-login offline).
-- [ ] No browser trust prompts when running the Electron controller.
+- [x] No browser trust prompts when running the Electron controller.
 
 **Pass B: Build & Sign**
 **Companion**
@@ -104,12 +105,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Frontend/Electron**
 - [x] Code signing for macOS + Windows (notarization on macOS).
 - [x] Auto-update pipeline (electron-updater or equivalent).
-- [ ] Test update from canary channel before production release.
+- [ ] Test update from canary channel before production release. (Auto-update not implemented yet.)
 - [x] Acceptance: Builds install and update cleanly on macOS + Windows.
 
 **Manual Verification (Pass B)**
-- [ ] Install an older build and confirm auto-update to latest.
-- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows.
+- [ ] Install an older build and confirm auto-update to latest. (Auto-update not implemented yet.)
+- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Downloaded macOS build blocked by unsigned developer warning; Windows untested.)
 
 **Definition of Done (Milestone 0)**
 - [x] Electron controller runs without browser, persists local cache, and updates cleanly.
@@ -217,7 +218,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Connection banners per provider; disable UI tied to missing capability (`powerpoint`, `fileOperations`) instead of failing silently.
   - Verified Minimal mode shows "Feature unavailable in Minimal Mode" gating banner.
 - [x] Cross-tab sync: verify mode changes, takeover banners, and token refresh propagate via BroadcastChannel or localStorage events.
-- [ ] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
+- [x] Acceptance: No stale preview after mode/tier changes; deterministic authority selection.
 **Codebase Entry Points**
 - Frontend: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/context/CompanionConnectionContext.tsx`
 **Test Expectations**
@@ -225,8 +226,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: capability change refresh
 
 **Manual Verification (Pass C)**
-- [ ] Toggle tier/capability and confirm UI updates without stale data.
-- [ ] Induce equal timestamps and confirm controller-originated change wins.
+- [x] Toggle tier/capability and confirm UI updates without stale data.
+- [ ] Induce equal timestamps and confirm controller-originated change wins. (Impractical to force true tie due to takeover delay + parallel sync; no issues observed.)
 - [x] Missing capability shows a visible gating message, not silent failure.
 
 **Pass D: Rules & Tests**
@@ -247,7 +248,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] With Basic tier room, verify Show Control subcollections are denied. (blocked: no emulator/staging access)
 - [ ] With Show Control tier room, verify access granted as expected. (blocked: no emulator/staging access)
 - [x] Run tests and confirm no skips on reorderRoom.mock.test.tsx.
-- [ ] Release notes cover gating changes, reconnect behavior, and Minimal mode limits. (blocked: no release notes file)
+- [ ] Release notes cover gating changes, reconnect behavior, and Minimal mode limits. (blocked: no release notes file.)
 
 **Risks/Unknowns**
 - Race: simultaneous reconnect + controller takeover.

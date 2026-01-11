@@ -21,3 +21,4 @@ Scope: Active tasks and notes.
 - QA checklist: multi-tab/mode switch, Companion restart, dashboard previews stay fresh.
 - Companion RAM budgets: reassess Minimal/Show Control/Production targets using packaged builds (dev/headless exceeded Minimal target).
 - Migration: Drop v1→v2 migration from the active backlog (no users on v1); treat v2 as baseline. Keep migration notes archived only.
+- Phase 3 backlog: Add an Electron controller option to send the viewer to a second display (fullscreen) for internal screen workflows.

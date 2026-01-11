@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-01-10
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -33,6 +33,7 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Viewer is public; controller is owner-only.
 - Timer math and transitions follow `docs/timer-logic.md`.
 - Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
+- Room tier defaults to `basic` on creation; tier selection UI is deferred to Phase 3.
 
 ## Phase 2 UX (Electron Controller + Transport)
 **Mode selector + status**
