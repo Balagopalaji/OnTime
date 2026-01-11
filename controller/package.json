@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "electron ./electron-dev.js",
     "build": "tsc -p tsconfig.json",
-    "build:frontend": "cd ../frontend && VITE_APP_BASE=./ npm run build",
+    "build:frontend": "cd ../frontend && cross-env VITE_APP_BASE=./ npm run build",
     "dist": "npm run build:frontend && npm run build && electron-builder",
     "dist:mac": "npm run build:frontend && npm run build && electron-builder --mac",
     "dist:win": "npm run build:frontend && npm run build && electron-builder --win",
@@ -97,6 +97,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
+    "cross-env": "^10.1.0",
     "electron": "^31.7.4",
     "electron-builder": "^24.13.3",
     "ts-node": "^10.9.2",

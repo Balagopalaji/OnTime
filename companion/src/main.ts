@@ -2066,6 +2066,50 @@ function getRedactedPath(filePath: string): string {
   return `${base}#${hash}`;
 }
 
+function swapUtf16Bytes(buffer: Buffer): Buffer {
+  const length = buffer.length - (buffer.length % 2);
+  const swapped = Buffer.allocUnsafe(length);
+  for (let i = 0; i < length; i += 2) {
+    swapped[i] = buffer[i + 1];
+    swapped[i + 1] = buffer[i];
+  }
+  return swapped;
+}
+
+function decodeJsonBody(buffer: Buffer, contentType?: string): string {
+  if (buffer.length >= 2) {
+    if (buffer[0] === 0xff && buffer[1] === 0xfe) {
+      return buffer.slice(2).toString('utf16le');
+    }
+    if (buffer[0] === 0xfe && buffer[1] === 0xff) {
+      return swapUtf16Bytes(buffer.slice(2)).toString('utf16le');
+    }
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return buffer.slice(3).toString('utf8');
+  }
+  const charsetMatch = contentType?.match(/charset=([^;]+)/i);
+  const charset = charsetMatch?.[1]?.trim().toLowerCase();
+  if (charset === 'utf-16le' || charset === 'utf16le' || charset === 'utf-16') {
+    return buffer.toString('utf16le');
+  }
+  if (charset === 'utf-16be' || charset === 'utf16be') {
+    return swapUtf16Bytes(buffer).toString('utf16le');
+  }
+  if (buffer.length >= 4) {
+    const sampleLength = Math.min(buffer.length, 256);
+    let zeroCount = 0;
+    for (let i = 1; i < sampleLength; i += 2) {
+      if (buffer[i] === 0x00) zeroCount += 1;
+    }
+    const zeroRatio = zeroCount / Math.ceil(sampleLength / 2);
+    if (zeroRatio > 0.4) {
+      return buffer.toString('utf16le');
+    }
+  }
+  return buffer.toString('utf8');
+}
+
 async function readJsonBody(req: any, maxBytes = 1024 * 1024): Promise<unknown> {
   return await new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -2081,7 +2125,7 @@ async function readJsonBody(req: any, maxBytes = 1024 * 1024): Promise<unknown> 
     });
     req.on('end', () => {
       try {
-        const raw = Buffer.concat(chunks).toString('utf8');
+        const raw = decodeJsonBody(Buffer.concat(chunks), req.headers?.['content-type']);
         resolve(raw ? JSON.parse(raw) : {});
       } catch (error) {
         reject(error);
@@ -2274,11 +2318,25 @@ async function runFfprobe(resolvedPath: string): Promise<{ duration?: number; re
     const candidates = [
       process.env.FFPROBE_PATH,
       process.resourcesPath ? path.join(process.resourcesPath, 'bin', exe) : null,
+      path.join(app.getAppPath(), 'bin', exe),
       path.join(__dirname, '..', 'bin', exe),
-      'ffprobe',
+      exe,
     ].filter(Boolean) as string[];
-    ffprobePath = candidates[0] ?? 'ffprobe';
-    console.log(`[file] ffprobe candidate selected: ${ffprobePath}`);
+
+    for (const candidate of candidates) {
+      if (path.isAbsolute(candidate)) {
+        if (fsSync.existsSync(candidate)) {
+          ffprobePath = candidate;
+          break;
+        }
+      } else {
+        ffprobePath = candidate;
+        break;
+      }
+    }
+
+    if (!ffprobePath) ffprobePath = exe;
+    console.log(`[file] ffprobe selected: ${ffprobePath}`);
   }
 
   return await new Promise((resolve, reject) => {
@@ -2552,11 +2610,11 @@ public class Win32 {
 }
 '@
 $hwnd = [Win32]::GetForegroundWindow()
-$pid = 0
-[Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
+$targetPid = 0
+[Win32]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
 $hasPowerpoint = @(Get-Process -Name POWERPNT -ErrorAction SilentlyContinue).Count -gt 0
 $proc = $null
-if ($pid -ne 0) { $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue }
+if ($targetPid -ne 0) { $proc = Get-Process -Id $targetPid -ErrorAction SilentlyContinue }
 if (-not $proc -or $proc.ProcessName -ne 'POWERPNT') {
   if ($hasPowerpoint) {
     @{ state = 'background' } | ConvertTo-Json -Compress
@@ -2568,12 +2626,12 @@ if (-not $proc -or $proc.ProcessName -ne 'POWERPNT') {
 $ppt = $null
 try { $ppt = [Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application') } catch { $ppt = $null }
 if (-not $ppt) {
-  @{ state = 'foreground'; instanceId = $pid } | ConvertTo-Json -Compress
+  @{ state = 'foreground'; instanceId = $targetPid } | ConvertTo-Json -Compress
   return
 }
 $presentation = $ppt.ActivePresentation
 if (-not $presentation) {
-  @{ state = 'foreground'; instanceId = $pid } | ConvertTo-Json -Compress
+  @{ state = 'foreground'; instanceId = $targetPid } | ConvertTo-Json -Compress
   return
 }
 $slideIndex = $null
@@ -2593,7 +2651,7 @@ $filename = $presentation.FullName
 @{
   state = 'foreground'
   inSlideshow = $inSlideshow
-  instanceId = $pid
+  instanceId = $targetPid
   slideNumber = $slideIndex
   totalSlides = $totalSlides
   title = $title

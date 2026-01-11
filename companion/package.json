@@ -31,8 +31,9 @@
       },
       "extraResources": [
         {
-          "from": "bin/ffprobe",
-          "to": "bin/ffprobe"
+          "from": "bin",
+          "to": "bin",
+          "filter": ["ffprobe", "ffprobe.exe"]
         }
       ]
     },
