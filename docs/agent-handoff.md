@@ -56,3 +56,12 @@ Results: Windows entry is still relevant for Phase 2; safe to prune once Phase 2
 Blockers: None.
 Next steps: Prune handoff entries after Phase 2 completion.
 ---
+
+Timestamp (UTC): 2026-01-11T08:20:00Z
+Owner (Windows, WSL)
+Context: Windows PPT slide updates + tray icon visibility.
+Commands: Rebuilt Companion after PPT/UTF decoding fixes; retested slide navigation and tray icon.
+Results: Slide number now updates during slideshow; tray icon visible as black square (placeholder ok for now).
+Blockers: None.
+Next steps: Replace tray icon with branded asset later.
+---
