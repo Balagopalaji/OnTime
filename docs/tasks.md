@@ -22,6 +22,12 @@ Scope: Active tasks and notes.
 - Companion RAM budgets: reassess Minimal/Show Control/Production targets using packaged builds (dev/headless exceeded Minimal target).
 - Migration: Drop v1→v2 migration from the active backlog (no users on v1); treat v2 as baseline. Keep migration notes archived only.
 - Phase 3 backlog: Add an Electron controller option to send the viewer to a second display (fullscreen) for internal screen workflows.
+- Phase 3 backlog: Prefer VLC when opening external videos (fallback to default player if VLC not installed).
+- Phase 3 backlog: Standalone PowerPoint video timer app (lead-in funnel) — see `docs/phase-3-standalone-ppt-timer.md`.
+- PowerPoint video timing (Windows): See `docs/ppt-video-debug.md` for current findings and the STA helper plan.
+- PowerPoint: Consider pre-scanning all slides for embedded media so we can flag video slides before playback.
+- Pre-release cleanup: decide whether to remove or keep `COMPANION_DEBUG_PPT_VERBOSE` diagnostics.
+- PowerPoint: Add multi-video slide handling (prefer currently playing media; fallback to first playable) and test with multiple embedded videos.
 
 ## Phase 2 Actionables (Need Implementation)
 - [ ] Viewer-only Electron build target (distinct app/build config).

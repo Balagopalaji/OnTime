@@ -358,6 +358,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Attempt `/api/open` with a path outside allowed roots; verify rejection. (Windows test returned `{"error":"invalid_path"}` for `C:\\Windows\\System32\\drivers\\etc\\hosts`.)
 - [x] Force token expiry and confirm refresh path works once, then shows reconnect prompt. (Companion stop triggered reconnect banner.)
 - [x] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash. (Windows: use UTF-8 JSON body for `/api/open`/`/api/file/metadata` via `--data-binary` or PowerShell UTF-8 bytes; inline `curl.exe --data-raw` may send legacy encoding.)
+- [ ] PowerPoint: Handle multiple embedded videos on one slide (prefer currently playing media; fallback to first playable) and validate on Windows.
 - [ ] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then background/close it and confirm `PRESENTATION_CLEAR` after 10s idle. (blocked: Windows validation pending)
 
 **Pass B: Frontend Workflow**

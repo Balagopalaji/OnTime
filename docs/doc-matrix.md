@@ -42,3 +42,5 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Show Caller Mode (app as caller) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | LAN viewers (offline) | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |
 | Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |
+| PowerPoint video timing debug notes | `docs/ppt-video-debug.md` | Reference | current | `companion/src/main.ts` |  |  |  |
+| Standalone PowerPoint video timer app | `docs/phase-3-standalone-ppt-timer.md` | Plan | draft | `companion/ppt-probe/Program.cs` |  |  |  |

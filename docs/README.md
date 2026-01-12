@@ -41,6 +41,7 @@ This index lists canonical documentation by type and links to the feature matrix
 ## Plans
 - `docs/local-offline-lan-plan.md` (local/offline + LAN viewers)
 - `docs/phase-2-overview.md`
+- `docs/phase-3-standalone-ppt-timer.md` (standalone PowerPoint video timer draft)
 
 ## References
 - `docs/local-mode.md` (parallel sync architecture)
@@ -48,6 +49,7 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/edge-cases.md`
 - `docs/cloud-lock-design.md` (cloud controller lock design)
 - `docs/agent-handoff.md` (cross-device agent handoff log)
+- `docs/ppt-video-debug.md` (PowerPoint video timing debug notes)
 
 ## Tasklists
 - `docs/tasks.md`

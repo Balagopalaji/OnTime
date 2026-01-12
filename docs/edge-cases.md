@@ -157,3 +157,17 @@ Current state:
 Mitigation:
 - SYNC timeout (5s) forces authority resolution
 - Staleness check rejects implausible snapshots
+
+---
+
+## 9. PowerPoint Embedded Video Timing Unavailable (Windows)
+
+Scenario: PowerPoint slideshow is running with an embedded MP4, but video timing shows as unavailable in the controller.
+
+Current state:
+- Companion prefers the native STA helper (`ppt-probe.exe`) for timing on Windows.
+- PowerShell fallback can see the slideshow but cannot enumerate Shapes in some environments, so timing is unavailable.
+
+Mitigation:
+- The UI displays "Video timing unavailable" and continues without timing metadata.
+- See `docs/ppt-video-debug.md` for the debug trail and helper details.
