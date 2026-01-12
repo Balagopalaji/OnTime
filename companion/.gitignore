@@ -5,3 +5,5 @@ bin
 *.log
 *.dmg
 *.app
+ppt-probe/bin
+ppt-probe/obj

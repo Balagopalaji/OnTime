@@ -33,7 +33,7 @@
         {
           "from": "bin",
           "to": "bin",
-          "filter": ["ffprobe", "ffprobe.exe"]
+          "filter": ["ffprobe", "ffprobe.exe", "ppt-probe.exe"]
         }
       ]
     },

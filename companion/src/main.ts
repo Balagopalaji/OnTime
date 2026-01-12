@@ -1,12 +1,13 @@
 import { app, Menu, Tray, nativeImage, clipboard, shell, dialog, BrowserWindow } from 'electron';
 import { createServer, Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, Server as HttpsServer } from 'node:https';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as readline from 'node:readline';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { machineId } from 'node-machine-id';
@@ -43,12 +44,14 @@ const CACHE_VERSION = 2;
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
-const PPT_POLL_INTERVAL_MS = 500;
+const PPT_POLL_INTERVAL_MS = 1000;
 const PPT_DEBOUNCE_MS = 600;
+const PPT_VIDEO_CLEAR_POLLS = 2;
 const PPT_BACKGROUND_CLEAR_MS = 10_000;
 const PPT_LOG_FILENAME = 'ppt.log';
 const PPT_STARTUP_LOG_FILENAME = 'ppt.startup.log';
 const PPT_DEBUG_FILENAME = 'ppt.debug';
+const PPT_DEBUG_VERBOSE_FILENAME = 'ppt.debug.verbose';
 const PPT_DEBUG_FALLBACK_DIRS = [
   path.join(os.homedir(), 'Library', 'Application Support', 'ontime-companion'),
   path.join(os.homedir(), 'Library', 'Application Support', 'OnTime Companion'),
@@ -56,6 +59,9 @@ const PPT_DEBUG_FALLBACK_DIRS = [
 ];
 let pptDebugDirs: string[] = [];
 let pptDebugEnabled = false;
+let pptDebugVerboseEnabled = false;
+let pptNoVideoKey: string | null = null;
+let pptNoVideoCount = 0;
 const COMPANION_CAPABILITIES_BY_MODE: Record<
   string,
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
@@ -115,9 +121,18 @@ function computePptDebugEnabled(dirs: string[]): boolean {
   return dirs.some((dir) => fsSync.existsSync(path.join(dir, PPT_DEBUG_FILENAME)));
 }
 
+function computePptDebugVerboseEnabled(dirs: string[]): boolean {
+  if (process.env.COMPANION_DEBUG_PPT_VERBOSE === 'true') return true;
+  return dirs.some((dir) => fsSync.existsSync(path.join(dir, PPT_DEBUG_VERBOSE_FILENAME)));
+}
+
 async function initializePptDebugLogging(): Promise<void> {
   pptDebugDirs = resolvePptDebugDirs();
   pptDebugEnabled = computePptDebugEnabled(pptDebugDirs);
+  pptDebugVerboseEnabled = computePptDebugVerboseEnabled(pptDebugDirs);
+  if (pptDebugVerboseEnabled) {
+    pptDebugEnabled = true;
+  }
   if (!pptDebugEnabled) return;
   const startupLine = `[ppt] startup ${new Date().toISOString()} mode=${currentCompanionMode} userData=${app.isReady() ? app.getPath('userData') : 'n/a'}`;
   for (const dir of pptDebugDirs) {
@@ -129,11 +144,23 @@ async function initializePptDebugLogging(): Promise<void> {
       // try next directory
     }
   }
-  const desktopPath = path.join(os.homedir(), 'Desktop', 'ontime-companion-startup.log');
-  try {
-    await fs.appendFile(desktopPath, `${startupLine}\n`, 'utf8');
-  } catch {
-    // ignore desktop write failures
+}
+
+function logPptInfo(message: string, meta?: unknown): void {
+  if (!pptDebugEnabled) return;
+  if (meta === undefined) {
+    console.info(message);
+  } else {
+    console.info(message, meta);
+  }
+}
+
+function logPptVerbose(message: string, meta?: unknown): void {
+  if (!pptDebugVerboseEnabled) return;
+  if (meta === undefined) {
+    console.info(message);
+  } else {
+    console.info(message, meta);
   }
 }
 
@@ -384,6 +411,12 @@ type PowerPointPollResult = {
   totalSlides?: number;
   title?: string;
   filename?: string;
+  videoDetected?: boolean;
+  videoPlaying?: boolean;
+  videoDuration?: number;
+  videoElapsed?: number;
+  videoRemaining?: number;
+  videoTimingUnavailable?: boolean;
 };
 
 type PresentationSnapshot = {
@@ -392,6 +425,11 @@ type PresentationSnapshot = {
   totalSlides?: number;
   title: string;
   filename?: string;
+  videoPlaying?: boolean;
+  videoDuration?: number;
+  videoElapsed?: number;
+  videoRemaining?: number;
+  videoTimingUnavailable?: boolean;
 };
 
 type TimerActionPayload = {
@@ -718,6 +756,13 @@ let pptCandidateSnapshot: PresentationSnapshot | null = null;
 let pptCandidateSince = 0;
 let pptBackgroundSince: number | null = null;
 let pptActiveCue: LiveCue | null = null;
+let pptHelperProcess: ChildProcessWithoutNullStreams | null = null;
+let pptHelperReadline: readline.Interface | null = null;
+let pptHelperPending: Array<{ resolve: (line: string | null) => void }> = [];
+let pptNativeHelperProcess: ChildProcessWithoutNullStreams | null = null;
+let pptNativeReadline: readline.Interface | null = null;
+let pptNativePending: Array<{ resolve: (line: string | null) => void }> = [];
+let pptNativeHelperLogged = false;
 
 function getRoomClients(roomId: string): Map<string, {
   socketId: string;
@@ -1423,7 +1468,9 @@ async function setCompanionMode(mode: CompanionMode, token: string, expiresAt: n
   } else if (!caps.powerpoint && pptPollTimer) {
     clearInterval(pptPollTimer);
     pptPollTimer = null;
-    console.log('[ppt] detection stopped (mode change)');
+    logPptInfo('[ppt] detection stopped (mode change)');
+    stopPowerPointHelper('mode change');
+    stopPptProbeHelper('mode change');
   }
 
   // Notify connected clients about capability change (live update, no reconnect required)
@@ -1685,7 +1732,7 @@ function closeStatusWindow() {
 
 function getTrayPng(): Buffer {
   const base64 =
-    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAVklEQVR42mNgGAWjgBDsB8RnYEAC/wMTA/4zIGnA/0EMAAWTAbEDkwHZAajB+B+LBDbABsA2QmQG0IFdCcQEqMM6FgP6AgEgKcFFABuKEgADGIDcH5V0p/AAAAAElFTkSuQmCC';
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGElEQVR4nGNgYGD4TyEeNWDUgFEDhocBAJvM/wGi6G+mAAAAAElFTkSuQmCC';
   return Buffer.from(base64, 'base64');
 }
 
@@ -1834,7 +1881,7 @@ async function bootstrap() {
   if (caps.powerpoint) {
     startPowerPointDetection();
   } else {
-    console.log('[ppt] Detection disabled (mode does not support PowerPoint)');
+    logPptInfo('[ppt] detection disabled (mode does not support PowerPoint)');
   }
 
   // Start RAM measurement for validation
@@ -1945,6 +1992,8 @@ function startSocketServer() {
     tokenServerTlsV4?.close();
     tokenServerTlsV6?.close();
     void flushRoomCache();
+    stopPowerPointHelper('app quit');
+    stopPptProbeHelper('app quit');
   });
 }
 
@@ -2389,7 +2438,7 @@ function getPresentationRoomIds(): string[] {
   return Array.from(rooms);
 }
 
-function snapshotsEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
+function snapshotsIdentityEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
@@ -2401,13 +2450,34 @@ function snapshotsEqual(a: PresentationSnapshot | null, b: PresentationSnapshot 
   );
 }
 
+function snapshotsTimingEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.videoPlaying === b.videoPlaying &&
+    a.videoDuration === b.videoDuration &&
+    a.videoElapsed === b.videoElapsed &&
+    a.videoRemaining === b.videoRemaining &&
+    a.videoTimingUnavailable === b.videoTimingUnavailable
+  );
+}
+
 function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
+  const derivedRemaining =
+    snapshot.videoDuration !== undefined && snapshot.videoElapsed !== undefined
+      ? snapshot.videoDuration - snapshot.videoElapsed
+      : undefined;
   const metadata: LiveCueMetadata = {
     slideNumber: snapshot.slideNumber,
     totalSlides: snapshot.totalSlides,
     filename: snapshot.filename,
     player: 'powerpoint',
     instanceId: snapshot.instanceId,
+    videoPlaying: snapshot.videoPlaying,
+    videoDuration: snapshot.videoDuration,
+    videoElapsed: snapshot.videoElapsed,
+    videoRemaining: snapshot.videoRemaining ?? derivedRemaining,
+    videoTimingUnavailable: snapshot.videoTimingUnavailable,
   };
 
   if (process.platform === 'darwin') {
@@ -2469,7 +2539,14 @@ function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
 
 function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
   const now = Date.now();
-  if (!snapshotsEqual(snapshot, pptCandidateSnapshot)) {
+  if (pptAnnouncedSnapshot && snapshotsIdentityEqual(snapshot, pptAnnouncedSnapshot)) {
+    if (!snapshotsTimingEqual(snapshot, pptAnnouncedSnapshot)) {
+      commitPresentationSnapshot(snapshot);
+    }
+    return;
+  }
+
+  if (!snapshotsIdentityEqual(snapshot, pptCandidateSnapshot)) {
     pptCandidateSnapshot = snapshot;
     pptCandidateSince = now;
   }
@@ -2478,11 +2555,228 @@ function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
     return;
   }
 
-  if (snapshotsEqual(snapshot, pptAnnouncedSnapshot)) {
+  if (snapshotsIdentityEqual(snapshot, pptAnnouncedSnapshot)) {
     return;
   }
 
   commitPresentationSnapshot(snapshot);
+}
+
+function resolvePptProbePath(): string | null {
+  // Windows-only native helper binary; packaged under resources/bin or local dev bin.
+  const candidates = [
+    path.join(process.resourcesPath ?? '', 'bin', 'ppt-probe.exe'),
+    path.join(__dirname, '..', 'bin', 'ppt-probe.exe')
+  ];
+  for (const candidate of candidates) {
+    if (candidate && fsSync.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function stopPptProbeHelper(reason: string) {
+  // Windows-only helper shutdown to avoid orphaned processes.
+  if (!pptNativeHelperProcess) return;
+  logPptInfo('[ppt] native helper stopped', { reason });
+  try {
+    pptNativeHelperProcess.stdin.write('exit\n');
+  } catch {
+    // ignore write failures during shutdown
+  }
+  pptNativeHelperProcess.kill();
+  pptNativeHelperProcess = null;
+  pptNativeReadline?.close();
+  pptNativeReadline = null;
+  pptNativePending = [];
+}
+
+function ensurePptProbeHelper(): boolean {
+  // Prefer the native STA helper to avoid COM collection issues from short-lived shells.
+  if (pptNativeHelperProcess && pptNativeHelperProcess.exitCode === null) return true;
+  stopPptProbeHelper('restart');
+  const probePath = resolvePptProbePath();
+  if (!probePath) {
+    logPptInfo('[ppt] native helper missing; falling back to PowerShell');
+    return false;
+  }
+  pptNativeHelperProcess = spawn(probePath, [], { windowsHide: true });
+  pptNativeReadline = readline.createInterface({ input: pptNativeHelperProcess.stdout });
+  pptNativeReadline.on('line', (line) => {
+    const pending = pptNativePending.shift();
+    if (pending) {
+      pending.resolve(line);
+    }
+  });
+  pptNativeHelperProcess.stderr.on('data', (buf) => {
+    logPptVerbose('[ppt] native helper stderr', buf.toString('utf8').trim());
+  });
+  pptNativeHelperProcess.on('exit', (code) => {
+    logPptInfo('[ppt] native helper exited', { code });
+    pptNativeHelperProcess = null;
+    pptNativeReadline?.close();
+    pptNativeReadline = null;
+    pptNativePending = [];
+    pptNativeHelperLogged = false;
+  });
+  if (!pptNativeHelperLogged) {
+    logPptInfo('[ppt] native helper started', { path: probePath });
+    pptNativeHelperLogged = true;
+  }
+  return true;
+}
+
+async function pollPowerPointViaNativeHelper(): Promise<PowerPointPollResult | null> {
+  if (process.platform !== 'win32') return null;
+  if (!ensurePptProbeHelper()) return null;
+  const helper = pptNativeHelperProcess;
+  if (!helper || helper.exitCode !== null) return null;
+
+  return await new Promise((resolve) => {
+    const pending = {
+      resolve: (line: string | null) => {
+        clearTimeout(timeout);
+        if (!line) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(line) as PowerPointPollResult);
+        } catch (error) {
+          console.warn(`[ppt] Failed to parse native helper output: ${String(error)}`);
+          resolve(null);
+        }
+      }
+    };
+    const timeout = setTimeout(() => {
+      const index = pptNativePending.indexOf(pending);
+      if (index >= 0) {
+        pptNativePending.splice(index, 1);
+      }
+      resolve(null);
+    }, 8000);
+    pptNativePending.push(pending);
+    try {
+      helper.stdin.write('poll\n');
+    } catch {
+      clearTimeout(timeout);
+      const index = pptNativePending.indexOf(pending);
+      if (index >= 0) {
+        pptNativePending.splice(index, 1);
+      }
+      resolve(null);
+    }
+  });
+}
+
+function buildPowerPointHelperScript(pollScript: string): string {
+  return `
+function Invoke-PptPoll {
+${pollScript}
+}
+while ($true) {
+  $line = [Console]::In.ReadLine()
+  if ($line -eq $null) { break }
+  if ($line -eq 'poll') { Invoke-PptPoll }
+  elseif ($line -eq 'exit') { break }
+}
+`.trim();
+}
+
+function stopPowerPointHelper(reason: string) {
+  if (!pptHelperProcess) return;
+  logPptInfo('[ppt] helper stopped', { reason });
+  try {
+    pptHelperProcess.stdin.write('exit\n');
+  } catch {
+    // ignore write failures during shutdown
+  }
+  pptHelperProcess.kill();
+  pptHelperProcess = null;
+  pptHelperReadline?.close();
+  pptHelperReadline = null;
+  pptHelperPending = [];
+}
+
+function ensurePowerPointHelper(pollScript: string) {
+  if (pptHelperProcess && pptHelperProcess.exitCode === null) return;
+  stopPowerPointHelper('restart');
+  const powershellPath = path.join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe'
+  );
+  const helperScript = buildPowerPointHelperScript(pollScript);
+  pptHelperProcess = spawn(
+    powershellPath,
+    ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', helperScript],
+    { windowsHide: true }
+  );
+  pptHelperReadline = readline.createInterface({ input: pptHelperProcess.stdout });
+  pptHelperReadline.on('line', (line) => {
+    const pending = pptHelperPending.shift();
+    if (pending) {
+      pending.resolve(line);
+    }
+  });
+  pptHelperProcess.stderr.on('data', (buf) => {
+    logPptVerbose('[ppt] helper stderr', buf.toString('utf8').trim());
+  });
+  pptHelperProcess.on('exit', (code) => {
+    logPptInfo('[ppt] helper exited', { code });
+    pptHelperProcess = null;
+    pptHelperReadline?.close();
+    pptHelperReadline = null;
+    pptHelperPending = [];
+  });
+}
+
+async function pollPowerPointViaHelper(
+  pollScript: string
+): Promise<PowerPointPollResult | null> {
+  if (process.platform !== 'win32') return null;
+  ensurePowerPointHelper(pollScript);
+  const helper = pptHelperProcess;
+  if (!helper || helper.exitCode !== null) return null;
+
+  return await new Promise((resolve) => {
+    const pending = {
+      resolve: (line: string | null) => {
+        clearTimeout(timeout);
+        if (!line) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(line) as PowerPointPollResult);
+        } catch (error) {
+          console.warn(`[ppt] Failed to parse PowerShell output: ${String(error)}`);
+          resolve(null);
+        }
+      }
+    };
+    const timeout = setTimeout(() => {
+      const index = pptHelperPending.indexOf(pending);
+      if (index >= 0) {
+        pptHelperPending.splice(index, 1);
+      }
+      resolve(null);
+    }, 8000);
+    pptHelperPending.push(pending);
+    try {
+      helper.stdin.write('poll\n');
+    } catch {
+      clearTimeout(timeout);
+      const index = pptHelperPending.indexOf(pending);
+      if (index >= 0) {
+        pptHelperPending.splice(index, 1);
+      }
+      resolve(null);
+    }
+  });
 }
 
 async function fetchPowerPointStatus(): Promise<PowerPointPollResult | null> {
@@ -2581,9 +2875,7 @@ return output
           return;
         }
         try {
-          if (pptDebugEnabled) {
-            console.info('[ppt] osascript raw', raw);
-          }
+          logPptVerbose('[ppt] osascript raw', raw);
           void appendPptLog(`[ppt] osascript raw ${raw}`);
           resolve(JSON.parse(raw) as PowerPointPollResult);
         } catch (error) {
@@ -2599,9 +2891,16 @@ return output
     return { state: 'none' };
   }
 
+  const nativeResult = await pollPowerPointViaNativeHelper();
+  if (nativeResult) {
+    return nativeResult;
+  }
+
   const script = `
+$debugEnabled = ${pptDebugVerboseEnabled ? '$true' : '$false'}
 $ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @'
+if (-not ("Win32" -as [type])) {
+  Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class Win32 {
@@ -2609,6 +2908,7 @@ public class Win32 {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 }
 '@
+}
 $hwnd = [Win32]::GetForegroundWindow()
 $targetPid = 0
 [Win32]::GetWindowThreadProcessId($hwnd, [ref]$targetPid) | Out-Null
@@ -2629,26 +2929,474 @@ if (-not $ppt) {
   @{ state = 'foreground'; instanceId = $targetPid } | ConvertTo-Json -Compress
   return
 }
+$protectedViewCount = 0
+try { $protectedViewCount = $ppt.ProtectedViewWindows.Count } catch { $protectedViewCount = 0 }
+$slideIndex = $null
+function Try-GetProp($obj, $name) {
+  try { return $obj.$name } catch { return $null }
+}
+
+function Convert-ToMs($value) {
+  if ($value -eq $null) { return $null }
+  $num = [double]$value
+  if (-not [double]::IsFinite($num) -or $num -le 0) { return $null }
+  if ($num -lt 1000) { return [int][math]::Round($num * 1000) }
+  return [int][math]::Round($num)
+}
+$ssWinError = $null
+$ssViewError = $null
+$ssPresentationError = $null
+$slideIndexError = $null
+$targetSlideError = $null
+$slideShapesError = $null
+$viewSlideError = $null
+$viewShapesError = $null
+$editSlideError = $null
+$editShapesError = $null
+$inSlideshow = $false
+$ssWinCount = 0
+$ssWinFound = $false
+$ssViewFound = $false
+$ssShowPositionRaw = $null
+try { $ssWinCount = $ppt.SlideShowWindows.Count } catch { $ssWinCount = 0 }
+$inSlideshow = $ssWinCount -gt 0
+$ssWin = $null
+if ($ssWinCount -gt 0) {
+  try { $ssWin = $ppt.SlideShowWindows.Item(1) } catch { $ssWin = $null; $ssWinError = $_.Exception.Message }
+}
+if ($ssWin) {
+  $ssWinFound = $true
+  try {
+    $ssView = $ssWin.View
+    if ($ssView) {
+      $ssViewFound = $true
+      $ssShowPositionRaw = Try-GetProp $ssView 'CurrentShowPosition'
+    }
+  } catch {
+    $ssViewError = $_.Exception.Message
+  }
+}
 $presentation = $ppt.ActivePresentation
+$activePresentationName = $null
+$activePresentationFullName = $null
+try { $activePresentationName = $presentation.Name } catch { $activePresentationName = $null }
+try { $activePresentationFullName = $presentation.FullName } catch { $activePresentationFullName = $null }
+if ($ssWin) {
+  try { $presentation = $ssWin.Presentation } catch { $presentation = $presentation; $ssPresentationError = $_.Exception.Message }
+}
 if (-not $presentation) {
   @{ state = 'foreground'; instanceId = $targetPid } | ConvertTo-Json -Compress
   return
 }
-$slideIndex = $null
-$inSlideshow = $false
-try {
-  $inSlideshow = $ppt.SlideShowWindows.Count -gt 0
-} catch {
-  $inSlideshow = $false
+$presentationPath = $null
+$presentationSaved = $null
+$presentationReadOnly = $null
+$presentationSlidesCount = $null
+try { $presentationPath = $presentation.Path } catch { $presentationPath = $null }
+try { $presentationSaved = $presentation.Saved } catch { $presentationSaved = $null }
+try { $presentationReadOnly = $presentation.ReadOnly } catch { $presentationReadOnly = $null }
+try { $presentationSlidesCount = $presentation.Slides.Count } catch { $presentationSlidesCount = $null }
+$ssPresentationName = $null
+$ssPresentationFullName = $null
+if ($ssWin) {
+  try { $ssPresentationName = $presentation.Name } catch { $ssPresentationName = $null }
+  try { $ssPresentationFullName = $presentation.FullName } catch { $ssPresentationFullName = $null }
 }
+
+$mediaCandidates = @()
+function Add-MediaCandidate($shape) {
+  try {
+    $mediaCandidates += $shape
+  } catch {
+    $mediaCandidates = $mediaCandidates
+  }
+}
+
+function Collect-MediaShapes($shapes) {
+  if (-not $shapes) { return }
+  for ($i = 1; $i -le $shapes.Count; $i++) {
+    $shape = $shapes.Item($i)
+    $shapeType = Try-GetProp $shape 'Type'
+    $mediaFormat = $null
+    try { $mediaFormat = $shape.MediaFormat } catch { $mediaFormat = $null }
+    $isMedia = $mediaFormat -ne $null
+    if (-not $isMedia -and $shapeType -eq 16) { $isMedia = $true } # msoMedia
+    if (-not $isMedia) {
+      try {
+        $placeholder = $shape.PlaceholderFormat
+        $containedType = Try-GetProp $placeholder 'ContainedType'
+        if ($containedType -eq 16) { $isMedia = $true }
+      } catch {
+        $isMedia = $isMedia
+      }
+    }
+    if ($isMedia) {
+      Add-MediaCandidate $shape
+    }
+    if ($shapeType -eq 6) { # msoGroup
+      try { Collect-MediaShapes $shape.GroupItems } catch { }
+    }
+  }
+}
+
+$videoPlaying = $null
+$videoDurationMs = $null
+$videoElapsedMs = $null
+$videoRemainingMs = $null
+$videoTimingUnavailable = $false
+$playerSource = $null
+$mediaShapeCount = 0
+$mediaLengthRaw = $null
+$slideMediaCount = 0
+$slideMediaLengthRaw = $null
+$slideShapeCount = 0
+$slideShapeDebug = @()
+$viewSlideShapeCount = 0
+$viewSlideMediaCount = 0
+$viewSlideMediaLengthRaw = $null
+$viewSlideShapeDebug = @()
+$candidateCount = 0
+$editSlideShapeCount = 0
+$editSlideMediaCount = 0
+$editSlideMediaLengthRaw = $null
+$editSlideShapeDebug = @()
+$layoutShapeCount = 0
+$layoutMediaCount = 0
+$layoutMediaLengthRaw = $null
+$layoutShapeDebug = @()
+$masterShapeCount = 0
+$masterMediaCount = 0
+$masterMediaLengthRaw = $null
+$masterShapeDebug = @()
+$timelineEffectCount = 0
+$timelineMediaCount = 0
+$timelineMediaLengthRaw = $null
+$timelineShapeDebug = @()
+$activeSlideShapeCount = $null
+$ssPresentationSlideShapeCount = $null
+$ssViewSlideShapeCount = $null
+$activeSlideShapeError = $null
+$ssPresentationSlideShapeError = $null
+$ssViewSlideShapeError = $null
+$ssPresentationSlideShapeDebug = @()
+$apartmentState = $null
+$apartmentStateName = $null
+$runspaceApartment = $null
+$psVersion = $null
+$psHostName = $null
+$pptVersion = $null
+$pptBuild = $null
 if ($inSlideshow) {
+  if ($ssShowPositionRaw -ne $null) {
+    $slideIndex = $ssShowPositionRaw
+  } elseif ($ssWin) {
+    try { $slideIndex = $ssWin.View.CurrentShowPosition } catch { $slideIndex = $null; $slideIndexError = $_.Exception.Message }
+    if ($slideIndex -eq $null) {
+      try { $slideIndex = $ssWin.View.Slide.SlideIndex } catch { $slideIndex = $slideIndex; $slideIndexError = $_.Exception.Message }
+    }
+  }
+  try { $apartmentState = [System.Threading.Thread]::CurrentThread.ApartmentState } catch { $apartmentState = $null }
+  try { $apartmentStateName = [System.Threading.Thread]::CurrentThread.ApartmentState.ToString() } catch { $apartmentStateName = $null }
+  try { $runspaceApartment = $Host.Runspace.ApartmentState.ToString() } catch { $runspaceApartment = $null }
+  try { $psVersion = $PSVersionTable.PSVersion.ToString() } catch { $psVersion = $null }
+  try { $psHostName = $Host.Name } catch { $psHostName = $null }
+  try { $pptVersion = $ppt.Version } catch { $pptVersion = $null }
+  try { $pptBuild = $ppt.Build } catch { $pptBuild = $null }
+  try {
+    $player = $null
+    try { $player = $ppt.SlideShowWindows.Item(1).View.Player; if ($player) { $playerSource = 'SlideShowView.Player' } } catch { $player = $null }
+    if (-not $player) { try { $player = $ppt.SlideShowWindows.Item(1).View.MediaPlayer; if ($player) { $playerSource = 'SlideShowView.MediaPlayer' } } catch { $player = $null } }
+    if (-not $player) { try { $player = $ppt.ActiveWindow.View.Player; if ($player) { $playerSource = 'ActiveWindow.View.Player' } } catch { $player = $null } }
+    if ($player) {
+      $duration = $null
+      $elapsed = $null
+      $state = $null
+      $duration = Try-GetProp $player 'Duration'
+      if ($duration -eq $null) { $duration = Try-GetProp $player 'Length' }
+      if ($duration -eq $null) { $duration = Try-GetProp $player 'TotalTime' }
+      if ($duration -eq $null) { $duration = Try-GetProp $player 'TotalDuration' }
+      $elapsed = Try-GetProp $player 'CurrentPosition'
+      if ($elapsed -eq $null) { $elapsed = Try-GetProp $player 'Position' }
+      if ($elapsed -eq $null) { $elapsed = Try-GetProp $player 'CurrentTime' }
+      if ($elapsed -eq $null) { $elapsed = Try-GetProp $player 'Time' }
+      $state = Try-GetProp $player 'State'
+      if ($state -eq $null) { $state = Try-GetProp $player 'PlayerState' }
+      if ($duration -ne $null) { $duration = [double]$duration }
+      if ($elapsed -ne $null) { $elapsed = [double]$elapsed }
+      $videoDurationMs = Convert-ToMs $duration
+      $videoElapsedMs = Convert-ToMs $elapsed
+      if ($videoDurationMs -ne $null -and $videoElapsedMs -ne $null) {
+        $videoRemainingMs = [int][math]::Max(0, $videoDurationMs - $videoElapsedMs)
+      }
+      if ($state -ne $null) { $videoPlaying = ($state -eq 1) }
+    }
+    try {
+      if ($ssWin) {
+        $shapes = $ssWin.View.Slide.Shapes
+        if ($shapes) {
+          $mediaShapeCount = $shapes.Count
+          Collect-MediaShapes $shapes
+        }
+      }
+    } catch {
+      $mediaShapeCount = $mediaShapeCount
+    }
+    try {
+      if ($slideIndex -ne $null) {
+        $targetSlide = $null
+        if ($ssWin) {
+          try { $targetSlide = $ssWin.Presentation.Slides.Item($ssWin.View.CurrentShowPosition) } catch { $targetSlide = $null; $targetSlideError = $_.Exception.Message }
+        }
+        if (-not $targetSlide) {
+          try { $targetSlide = $presentation.Slides.Item([int]$slideIndex) } catch { $targetSlide = $null; $targetSlideError = $_.Exception.Message }
+        }
+        if ($presentation -and $slideIndex -ne $null) {
+          try { $activeSlideShapeCount = $presentation.Slides.Item([int]$slideIndex).Shapes.Count } catch { $activeSlideShapeCount = $null; $activeSlideShapeError = $_.Exception.Message }
+        }
+        if ($ssWin -and $slideIndex -ne $null) {
+          try {
+            $ssSlide = $ssWin.Presentation.Slides.Item([int]$slideIndex)
+            $ssPresentationSlideShapeCount = $ssSlide.Shapes.Count
+            if ($debugEnabled -and $ssPresentationSlideShapeDebug.Count -lt 6) {
+              for ($i = 1; $i -le $ssSlide.Shapes.Count; $i++) {
+                $shape = $ssSlide.Shapes.Item($i)
+                $shapeType = Try-GetProp $shape 'Type'
+                $mediaType = Try-GetProp $shape 'MediaType'
+                $shapeName = Try-GetProp $shape 'Name'
+                $ssPresentationSlideShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType }
+              }
+            }
+          } catch { $ssPresentationSlideShapeCount = $null; $ssPresentationSlideShapeError = $_.Exception.Message }
+        }
+        $slideShapes = $null
+        try { $slideShapes = $targetSlide.Shapes } catch { $slideShapes = $null; $slideShapesError = $_.Exception.Message }
+        if ($slideShapes) {
+          try { $slideShapeCount = $slideShapes.Count } catch { $slideShapeCount = 0; $slideShapesError = $_.Exception.Message }
+          for ($i = 1; $i -le $slideShapes.Count; $i++) {
+            $shape = $slideShapes.Item($i)
+            $mediaFormat = $null
+            try { $mediaFormat = $shape.MediaFormat } catch { $mediaFormat = $null }
+            if ($debugEnabled -and $slideShapeDebug.Count -lt 6) {
+              $shapeType = Try-GetProp $shape 'Type'
+              $mediaType = Try-GetProp $shape 'MediaType'
+              $hasMedia = $mediaFormat -ne $null
+              $shapeName = Try-GetProp $shape 'Name'
+              $slideShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType; hasMedia = $hasMedia }
+            }
+            if ($mediaFormat) {
+              $slideMediaCount += 1
+              if ($slideMediaLengthRaw -eq $null) {
+                $slideMediaLengthRaw = Try-GetProp $mediaFormat 'Length'
+              }
+            }
+          }
+          Collect-MediaShapes $slideShapes
+        }
+        try {
+          $timeline = $targetSlide.TimeLine
+          if ($timeline) {
+            $sequence = $timeline.MainSequence
+            if ($sequence) {
+              $timelineEffectCount = $sequence.Count
+              for ($i = 1; $i -le $sequence.Count; $i++) {
+                $effect = $sequence.Item($i)
+                $effectShape = $null
+                try { $effectShape = $effect.Shape } catch { $effectShape = $null }
+                if ($effectShape) {
+                  $mediaFormat = $null
+                  try { $mediaFormat = $effectShape.MediaFormat } catch { $mediaFormat = $null }
+                  if ($debugEnabled -and $timelineShapeDebug.Count -lt 6) {
+                    $shapeType = Try-GetProp $effectShape 'Type'
+                    $mediaType = Try-GetProp $effectShape 'MediaType'
+                    $hasMedia = $mediaFormat -ne $null
+                    $shapeName = Try-GetProp $effectShape 'Name'
+                    $timelineShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType; hasMedia = $hasMedia }
+                  }
+                  if ($mediaFormat) {
+                    $timelineMediaCount += 1
+                    if ($timelineMediaLengthRaw -eq $null) {
+                      $timelineMediaLengthRaw = Try-GetProp $mediaFormat 'Length'
+                    }
+                    Add-MediaCandidate $effectShape
+                  }
+                }
+              }
+            }
+          }
+        } catch { }
+        try {
+          $layoutShapes = $targetSlide.CustomLayout.Shapes
+          if ($layoutShapes) {
+            $layoutShapeCount = $layoutShapes.Count
+            for ($i = 1; $i -le $layoutShapes.Count; $i++) {
+              $shape = $layoutShapes.Item($i)
+              $mediaFormat = $null
+              try { $mediaFormat = $shape.MediaFormat } catch { $mediaFormat = $null }
+              if ($debugEnabled -and $layoutShapeDebug.Count -lt 6) {
+                $shapeType = Try-GetProp $shape 'Type'
+                $mediaType = Try-GetProp $shape 'MediaType'
+                $hasMedia = $mediaFormat -ne $null
+                $shapeName = Try-GetProp $shape 'Name'
+                $layoutShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType; hasMedia = $hasMedia }
+              }
+              if ($mediaFormat) {
+                $layoutMediaCount += 1
+                if ($layoutMediaLengthRaw -eq $null) {
+                  $layoutMediaLengthRaw = Try-GetProp $mediaFormat 'Length'
+                }
+              }
+            }
+            Collect-MediaShapes $layoutShapes
+          }
+        } catch { }
+        try {
+          $masterShapes = $targetSlide.Master.Shapes
+          if ($masterShapes) {
+            $masterShapeCount = $masterShapes.Count
+            for ($i = 1; $i -le $masterShapes.Count; $i++) {
+              $shape = $masterShapes.Item($i)
+              $mediaFormat = $null
+              try { $mediaFormat = $shape.MediaFormat } catch { $mediaFormat = $null }
+              if ($debugEnabled -and $masterShapeDebug.Count -lt 6) {
+                $shapeType = Try-GetProp $shape 'Type'
+                $mediaType = Try-GetProp $shape 'MediaType'
+                $hasMedia = $mediaFormat -ne $null
+                $shapeName = Try-GetProp $shape 'Name'
+                $masterShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType; hasMedia = $hasMedia }
+              }
+              if ($mediaFormat) {
+                $masterMediaCount += 1
+                if ($masterMediaLengthRaw -eq $null) {
+                  $masterMediaLengthRaw = Try-GetProp $mediaFormat 'Length'
+                }
+              }
+            }
+            Collect-MediaShapes $masterShapes
+          }
+        } catch { }
+      }
+    } catch {
+      $slideMediaCount = $slideMediaCount
+    }
+    try {
+      $viewSlide = $null
+      try { $viewSlide = $ssWin.View.Slide } catch { $viewSlide = $null; $viewSlideError = $_.Exception.Message }
+      if ($viewSlide) {
+        try { $ssViewSlideShapeCount = $viewSlide.Shapes.Count } catch { $ssViewSlideShapeCount = $null; $ssViewSlideShapeError = $_.Exception.Message }
+        $viewShapes = $null
+        try { $viewShapes = $viewSlide.Shapes } catch { $viewShapes = $null; $viewShapesError = $_.Exception.Message }
+        if ($viewShapes) {
+          try { $viewSlideShapeCount = $viewShapes.Count } catch { $viewSlideShapeCount = 0; $viewShapesError = $_.Exception.Message }
+          for ($i = 1; $i -le $viewShapes.Count; $i++) {
+            $shape = $viewShapes.Item($i)
+            $mediaFormat = $null
+            try { $mediaFormat = $shape.MediaFormat } catch { $mediaFormat = $null }
+            if ($debugEnabled -and $viewSlideShapeDebug.Count -lt 6) {
+              $shapeType = Try-GetProp $shape 'Type'
+              $mediaType = Try-GetProp $shape 'MediaType'
+              $hasMedia = $mediaFormat -ne $null
+              $shapeName = Try-GetProp $shape 'Name'
+              $viewSlideShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType; hasMedia = $hasMedia }
+            }
+            if ($mediaFormat) {
+              $viewSlideMediaCount += 1
+              if ($viewSlideMediaLengthRaw -eq $null) {
+                $viewSlideMediaLengthRaw = Try-GetProp $mediaFormat 'Length'
+              }
+            }
+          }
+          Collect-MediaShapes $viewShapes
+        }
+      }
+    } catch {
+      $viewSlideMediaCount = $viewSlideMediaCount
+    }
+    try {
+      $editSlide = $null
+      try { $editSlide = $ppt.ActiveWindow.View.Slide } catch { $editSlide = $null; $editSlideError = $_.Exception.Message }
+      if ($editSlide) {
+        $editShapes = $null
+        try { $editShapes = $editSlide.Shapes } catch { $editShapes = $null; $editShapesError = $_.Exception.Message }
+        if ($editShapes) {
+          try { $editSlideShapeCount = $editShapes.Count } catch { $editSlideShapeCount = 0; $editShapesError = $_.Exception.Message }
+          for ($i = 1; $i -le $editShapes.Count; $i++) {
+            $shape = $editShapes.Item($i)
+            $mediaFormat = $null
+            try { $mediaFormat = $shape.MediaFormat } catch { $mediaFormat = $null }
+            if ($debugEnabled -and $editSlideShapeDebug.Count -lt 6) {
+              $shapeType = Try-GetProp $shape 'Type'
+              $mediaType = Try-GetProp $shape 'MediaType'
+              $hasMedia = $mediaFormat -ne $null
+              $shapeName = Try-GetProp $shape 'Name'
+              $editSlideShapeDebug += @{ name = $shapeName; type = $shapeType; mediaType = $mediaType; hasMedia = $hasMedia }
+            }
+            if ($mediaFormat) {
+              $editSlideMediaCount += 1
+              if ($editSlideMediaLengthRaw -eq $null) {
+                $editSlideMediaLengthRaw = Try-GetProp $mediaFormat 'Length'
+              }
+            }
+          }
+          Collect-MediaShapes $editShapes
+        }
+      }
+    } catch {
+      $editSlideMediaCount = $editSlideMediaCount
+    }
+    $candidateCount = $mediaCandidates.Count
+    foreach ($shape in $mediaCandidates) {
+      if ($videoDurationMs -eq $null) {
+        try {
+          $mediaFormat = $shape.MediaFormat
+          $length = Try-GetProp $mediaFormat 'Length'
+          $videoDurationMs = Convert-ToMs $length
+        } catch { }
+      }
+      try {
+        $shapeId = Try-GetProp $shape 'Id'
+        if ($shapeId -ne $null) {
+          $viewPlayer = $ppt.SlideShowWindows.Item(1).View.Player($shapeId)
+          if ($viewPlayer) {
+            $playerSource = 'SlideShowView.Player(shapeId)'
+            $state = Try-GetProp $viewPlayer 'State'
+            $pos = Try-GetProp $viewPlayer 'CurrentPosition'
+            if ($pos -ne $null) {
+              $videoElapsedMs = Convert-ToMs $pos
+            }
+            if ($state -ne $null) {
+              if ($state -eq 2) { $videoPlaying = $true }
+              elseif ($state -eq 1) { $videoPlaying = $false }
+            }
+          }
+        }
+      } catch { }
+      if ($videoDurationMs -ne $null -or $videoElapsedMs -ne $null) { break }
+    }
+    if ($videoDurationMs -eq $null -and $slideMediaLengthRaw -ne $null) {
+      $videoDurationMs = Convert-ToMs $slideMediaLengthRaw
+    }
+  } catch {
+    $videoPlaying = $null
+  }
+  if (
+    $player -ne $null -and
+    $videoDurationMs -eq $null -and
+    $videoElapsedMs -eq $null -and
+    $candidateCount -eq 0 -and
+    $slideShapeCount -eq 0 -and
+    $viewSlideShapeCount -eq 0 -and
+    $editSlideShapeCount -eq 0
+  ) {
+    $videoTimingUnavailable = $true
+  }
+} else {
   try { $slideIndex = $ppt.ActiveWindow.View.Slide.SlideIndex } catch { $slideIndex = $null }
 }
 $totalSlides = $null
 try { $totalSlides = $presentation.Slides.Count } catch { $totalSlides = $null }
 $title = $presentation.Name
 $filename = $presentation.FullName
-@{
+$payload = @{
   state = 'foreground'
   inSlideshow = $inSlideshow
   instanceId = $targetPid
@@ -2656,21 +3404,115 @@ $filename = $presentation.FullName
   totalSlides = $totalSlides
   title = $title
   filename = $filename
-} | ConvertTo-Json -Compress
+}
+if ($debugEnabled) {
+  $payload.debug = @{
+    playerFound = [bool]$player
+    playerSource = $playerSource
+    durationRaw = $duration
+    elapsedRaw = $elapsed
+    stateRaw = $state
+    mediaShapeCount = $mediaShapeCount
+    mediaLengthRaw = $mediaLengthRaw
+    slideMediaCount = $slideMediaCount
+    slideMediaLengthRaw = $slideMediaLengthRaw
+    slideShapeCount = $slideShapeCount
+    slideShapeDebug = $slideShapeDebug
+    viewSlideShapeCount = $viewSlideShapeCount
+    viewSlideMediaCount = $viewSlideMediaCount
+    viewSlideMediaLengthRaw = $viewSlideMediaLengthRaw
+    viewSlideShapeDebug = $viewSlideShapeDebug
+    candidateCount = $candidateCount
+    protectedViewCount = $protectedViewCount
+    ssWinCount = $ssWinCount
+    ssWinFound = $ssWinFound
+    ssViewFound = $ssViewFound
+    ssShowPositionRaw = $ssShowPositionRaw
+    ssWinError = $ssWinError
+    ssViewError = $ssViewError
+    ssPresentationError = $ssPresentationError
+    slideIndexError = $slideIndexError
+    targetSlideError = $targetSlideError
+    slideShapesError = $slideShapesError
+    viewSlideError = $viewSlideError
+    viewShapesError = $viewShapesError
+    editSlideError = $editSlideError
+    editShapesError = $editShapesError
+    activePresentationName = $activePresentationName
+    activePresentationFullName = $activePresentationFullName
+    ssPresentationName = $ssPresentationName
+    ssPresentationFullName = $ssPresentationFullName
+    presentationPath = $presentationPath
+    presentationSaved = $presentationSaved
+    presentationReadOnly = $presentationReadOnly
+    presentationSlidesCount = $presentationSlidesCount
+    editSlideShapeCount = $editSlideShapeCount
+    editSlideMediaCount = $editSlideMediaCount
+    editSlideMediaLengthRaw = $editSlideMediaLengthRaw
+    editSlideShapeDebug = $editSlideShapeDebug
+    layoutShapeCount = $layoutShapeCount
+    layoutMediaCount = $layoutMediaCount
+    layoutMediaLengthRaw = $layoutMediaLengthRaw
+    layoutShapeDebug = $layoutShapeDebug
+    masterShapeCount = $masterShapeCount
+    masterMediaCount = $masterMediaCount
+    masterMediaLengthRaw = $masterMediaLengthRaw
+    masterShapeDebug = $masterShapeDebug
+    timelineEffectCount = $timelineEffectCount
+    timelineMediaCount = $timelineMediaCount
+    timelineMediaLengthRaw = $timelineMediaLengthRaw
+    timelineShapeDebug = $timelineShapeDebug
+    activeSlideShapeCount = $activeSlideShapeCount
+    ssPresentationSlideShapeCount = $ssPresentationSlideShapeCount
+    ssViewSlideShapeCount = $ssViewSlideShapeCount
+    activeSlideShapeError = $activeSlideShapeError
+    ssPresentationSlideShapeError = $ssPresentationSlideShapeError
+    ssViewSlideShapeError = $ssViewSlideShapeError
+    ssPresentationSlideShapeDebug = $ssPresentationSlideShapeDebug
+    apartmentState = $apartmentState
+    apartmentStateName = $apartmentStateName
+    runspaceApartment = $runspaceApartment
+    psVersion = $psVersion
+    psHostName = $psHostName
+    pptVersion = $pptVersion
+    pptBuild = $pptBuild
+  }
+}
+if ($videoPlaying -ne $null) { $payload.videoPlaying = $videoPlaying }
+if ($videoDurationMs -ne $null) { $payload.videoDuration = $videoDurationMs }
+if ($videoElapsedMs -ne $null) { $payload.videoElapsed = $videoElapsedMs }
+if ($videoRemainingMs -ne $null) { $payload.videoRemaining = $videoRemainingMs }
+if ($videoTimingUnavailable) { $payload.videoTimingUnavailable = $true }
+$payload | ConvertTo-Json -Compress
 `.trim();
 
+  const helperResult = await pollPowerPointViaHelper(script);
+  if (helperResult) {
+    return helperResult;
+  }
+
   return await new Promise((resolve) => {
+    const powershellPath = path.join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe'
+    );
     const child = spawn(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      powershellPath,
+      ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
       { windowsHide: true }
     );
     let stdout = '';
     let stderr = '';
     const timeout = setTimeout(() => {
       child.kill();
+      if (pptDebugEnabled) {
+        console.warn('[ppt] PowerShell timeout');
+      }
       resolve(null);
-    }, 4000);
+    }, 8000);
 
     child.stdout.on('data', (buf) => {
       stdout += buf.toString('utf8');
@@ -2706,15 +3548,11 @@ $filename = $presentation.FullName
 
 function handlePowerPointStatus(result: PowerPointPollResult | null) {
   if (!result) {
-    if (pptDebugEnabled) {
-      console.info('[ppt] status: null')
-    }
+    logPptVerbose('[ppt] status: null');
     return;
   }
 
-  if (pptDebugEnabled) {
-    console.info('[ppt] status', result)
-  }
+  logPptVerbose('[ppt] status', result);
 
   const now = Date.now();
   if (result.state === 'foreground') {
@@ -2729,12 +3567,61 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
       return;
     }
     const title = result.title?.trim() || result.filename?.trim() || 'PowerPoint';
+    const lastSlideNumber =
+      pptAnnouncedSnapshot?.instanceId === result.instanceId ? pptAnnouncedSnapshot.slideNumber : undefined;
+    const resolvedSlideNumber = result.slideNumber ?? lastSlideNumber;
+    const slideKey = `${result.instanceId}:${resolvedSlideNumber ?? 'unknown'}`;
+    const slideChanged =
+      pptAnnouncedSnapshot?.instanceId === result.instanceId &&
+      pptAnnouncedSnapshot.slideNumber !== resolvedSlideNumber;
+    const explicitNoVideo = result.videoDetected === false;
+    const hasVideoPayload =
+      !explicitNoVideo &&
+      (result.videoDetected === true ||
+        result.videoDuration !== undefined ||
+        result.videoElapsed !== undefined ||
+        result.videoRemaining !== undefined ||
+        result.videoPlaying !== undefined ||
+        result.videoTimingUnavailable === true);
+    if (!hasVideoPayload) {
+      if (pptNoVideoKey === slideKey) {
+        pptNoVideoCount += 1;
+      } else {
+        pptNoVideoKey = slideKey;
+        pptNoVideoCount = 1;
+      }
+    } else {
+      pptNoVideoKey = null;
+      pptNoVideoCount = 0;
+    }
+    if (slideChanged) {
+      pptNoVideoKey = slideKey;
+      pptNoVideoCount = explicitNoVideo ? PPT_VIDEO_CLEAR_POLLS : 0;
+    }
+    const shouldClearVideo =
+      (slideChanged && explicitNoVideo) ||
+      (!hasVideoPayload && pptNoVideoCount >= PPT_VIDEO_CLEAR_POLLS);
+    const videoDetected = hasVideoPayload && !shouldClearVideo;
+    const canReuseVideo =
+      videoDetected &&
+      pptAnnouncedSnapshot?.instanceId === result.instanceId &&
+      pptAnnouncedSnapshot.slideNumber === resolvedSlideNumber;
+    const priorSnapshot = canReuseVideo ? pptAnnouncedSnapshot : null;
+    const lastVideoDuration = priorSnapshot?.videoDuration;
+    const lastVideoElapsed = priorSnapshot?.videoElapsed;
+    const lastVideoRemaining = priorSnapshot?.videoRemaining;
+    const lastVideoPlaying = priorSnapshot?.videoPlaying;
     const snapshot: PresentationSnapshot = {
       instanceId: result.instanceId,
-      slideNumber: result.slideNumber,
+      slideNumber: resolvedSlideNumber,
       totalSlides: result.totalSlides,
       title,
       filename: result.filename,
+      videoPlaying: videoDetected ? result.videoPlaying ?? lastVideoPlaying : undefined,
+      videoDuration: videoDetected ? result.videoDuration ?? lastVideoDuration : undefined,
+      videoElapsed: videoDetected ? result.videoElapsed ?? lastVideoElapsed : undefined,
+      videoRemaining: videoDetected ? result.videoRemaining ?? lastVideoRemaining : undefined,
+      videoTimingUnavailable: videoDetected && result.videoTimingUnavailable === true,
     };
     updatePresentationCandidate(snapshot);
     return;
@@ -2744,7 +3631,7 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
     if (pptBackgroundSince === null) {
       pptBackgroundSince = now;
     }
-    if (pptCandidateSnapshot && !snapshotsEqual(pptCandidateSnapshot, pptAnnouncedSnapshot)) {
+    if (pptCandidateSnapshot && !snapshotsIdentityEqual(pptCandidateSnapshot, pptAnnouncedSnapshot)) {
       if (now - pptCandidateSince >= PPT_DEBOUNCE_MS) {
         commitPresentationSnapshot(pptCandidateSnapshot);
         pptCandidateSnapshot = pptAnnouncedSnapshot;
@@ -2762,19 +3649,19 @@ function startPowerPointDetection() {
   if (pptPollTimer) return;
   if (process.platform !== 'win32' && process.platform !== 'darwin') {
     if (pptDebugEnabled) {
-      console.info('[ppt] detection disabled: unsupported platform')
+      logPptInfo('[ppt] detection disabled: unsupported platform')
     }
     return;
   }
   if (!getCompanionCapabilities().powerpoint) {
     if (pptDebugEnabled) {
-      console.info('[ppt] detection disabled: capability false')
+      logPptInfo('[ppt] detection disabled: capability false')
     }
     return;
   }
 
   if (pptDebugEnabled) {
-    console.info('[ppt] detection started', { platform: process.platform })
+    logPptInfo('[ppt] detection started', { platform: process.platform })
   }
   void appendPptLog(`[ppt] detection start mode=${currentCompanionMode} caps=${JSON.stringify(getCompanionCapabilities())}`);
 
