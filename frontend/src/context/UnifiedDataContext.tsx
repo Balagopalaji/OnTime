@@ -1179,6 +1179,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const setCompanionActiveLiveCueId = useCallback((roomId: string, cueId: string | null) => {
     setCompanionRooms((prev) => {
       const current = prev[roomId]
+      if (!current) {
+        if (debugCompanion) {
+          console.info('[companion] activeLiveCueId ignored: missing room', {
+            roomId,
+            cueId,
+          })
+        }
+        return prev
+      }
       if (!current || current.activeLiveCueId === cueId) return prev
       return {
         ...prev,
@@ -1823,6 +1832,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const isStale =
         snapshotTs + confidenceWindowMs < existingTs ||
         snapshotTs + confidenceWindowMs < firebaseTs
+      if (debugCompanion) {
+        console.info('[companion] ROOM_STATE_SNAPSHOT activeLiveCueId', {
+          roomId: payload.roomId,
+          activeLiveCueId: payload.state.activeLiveCueId ?? null,
+          snapshotTs,
+        })
+      }
       if (isStale) {
         if (debugCompanion) {
           console.info('[companion] stale update ignored', {
@@ -2057,6 +2073,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const handleLiveCueUpsert = (payload: LiveCueEventPayload) => {
       if (!canUseLiveCues(payload.roomId)) return
       const updatedAt = payload.timestamp ?? Date.now()
+      if (debugCompanion) {
+        console.info('[companion] LIVE_CUE_UPSERT', {
+          roomId: payload.roomId,
+          cueId: payload.cue.id,
+          updatedAt,
+          videoCount: payload.cue.metadata?.videos?.length ?? 0,
+        })
+      }
       const record: LiveCueRecord = {
         cue: payload.cue,
         updatedAt,
@@ -2301,6 +2325,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
       const companionTs = companionState.lastUpdate ?? 0
       const source = pickSource(roomId, firebaseTs, companionTs, authority)
+      if (debugCompanion) {
+        console.info('[companion] pickSource', {
+          roomId,
+          source,
+          firebaseTs,
+          companionTs,
+          authority: authority.source,
+        })
+      }
       if (source === 'companion') {
         // Merge cached progress into the companion-built room
         const companionRoom = buildRoomFromCompanion(roomId, companionState, firebaseRoom)
@@ -2346,6 +2379,22 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return firebaseRecords
       }
 
+      const mergeCueVideos = (existing: LiveCueRecord, incoming: LiveCueRecord): LiveCueRecord => {
+        const existingVideos = existing.cue.metadata?.videos ?? []
+        const incomingVideos = incoming.cue.metadata?.videos ?? []
+        if (incomingVideos.length > 0 || existingVideos.length === 0) return incoming
+        return {
+          ...incoming,
+          cue: {
+            ...incoming.cue,
+            metadata: {
+              ...incoming.cue.metadata,
+              videos: existingVideos,
+            },
+          },
+        }
+      }
+
       const merged = new Map<string, LiveCueRecord>()
       companionRecords.forEach((record) => {
         merged.set(record.cue.id, record)
@@ -2360,12 +2409,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           return
         }
         if (record.updatedAt > existing.updatedAt) {
-          merged.set(record.cue.id, record)
+          merged.set(record.cue.id, mergeCueVideos(existing, record))
           return
         }
         if (record.updatedAt < existing.updatedAt) return
         if (existing.source === 'companion' && record.source === 'controller') {
-          merged.set(record.cue.id, record)
+          merged.set(record.cue.id, mergeCueVideos(existing, record))
         }
       })
 

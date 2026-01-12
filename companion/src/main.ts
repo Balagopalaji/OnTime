@@ -62,6 +62,9 @@ let pptDebugEnabled = false;
 let pptDebugVerboseEnabled = false;
 let pptNoVideoKey: string | null = null;
 let pptNoVideoCount = 0;
+let pptExplicitNoVideoKey: string | null = null;
+let pptExplicitNoVideoCount = 0;
+const pptVideoCache = new Map<string, VideoTiming[]>();
 const COMPANION_CAPABILITIES_BY_MODE: Record<
   string,
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
@@ -353,6 +356,15 @@ type LiveCueConfig = {
   criticalSec?: number;
 };
 
+type VideoTiming = {
+  id?: number;
+  name?: string;
+  duration?: number;
+  elapsed?: number;
+  remaining?: number;
+  playing?: boolean;
+};
+
 type LiveCueMetadata = {
   slideNumber?: number;
   totalSlides?: number;
@@ -365,6 +377,7 @@ type LiveCueMetadata = {
   videoDuration?: number;
   videoElapsed?: number;
   videoRemaining?: number;
+  videos?: VideoTiming[];
   videoTimingUnavailable?: boolean;
   instanceId?: number;
 };
@@ -411,11 +424,13 @@ type PowerPointPollResult = {
   totalSlides?: number;
   title?: string;
   filename?: string;
+  editSlideVideos?: VideoTiming[];
   videoDetected?: boolean;
   videoPlaying?: boolean;
   videoDuration?: number;
   videoElapsed?: number;
   videoRemaining?: number;
+  videos?: VideoTiming[];
   videoTimingUnavailable?: boolean;
 };
 
@@ -429,6 +444,7 @@ type PresentationSnapshot = {
   videoDuration?: number;
   videoElapsed?: number;
   videoRemaining?: number;
+  videos?: VideoTiming[];
   videoTimingUnavailable?: boolean;
 };
 
@@ -632,6 +648,7 @@ function emitLiveCueUpdated(roomId: string, cue: LiveCue) {
     cue,
     timestamp: now,
   };
+  console.log(`[ws] LIVE_CUE_UPDATED emit room=${roomId} cue=${cue.id}`);
   emitToRoom(roomId, 'LIVE_CUE_UPDATED', payload);
 }
 
@@ -2458,8 +2475,30 @@ function snapshotsTimingEqual(a: PresentationSnapshot | null, b: PresentationSna
     a.videoDuration === b.videoDuration &&
     a.videoElapsed === b.videoElapsed &&
     a.videoRemaining === b.videoRemaining &&
-    a.videoTimingUnavailable === b.videoTimingUnavailable
+    a.videoTimingUnavailable === b.videoTimingUnavailable &&
+    videoListsEqual(a.videos, b.videos)
   );
+}
+
+function videoListsEqual(a?: VideoTiming[], b?: VideoTiming[]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left?.id !== right?.id ||
+      left?.name !== right?.name ||
+      left?.duration !== right?.duration ||
+      left?.elapsed !== right?.elapsed ||
+      left?.remaining !== right?.remaining ||
+      left?.playing !== right?.playing
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
@@ -2477,6 +2516,7 @@ function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): 
     videoDuration: snapshot.videoDuration,
     videoElapsed: snapshot.videoElapsed,
     videoRemaining: snapshot.videoRemaining ?? derivedRemaining,
+    videos: snapshot.videos,
     videoTimingUnavailable: snapshot.videoTimingUnavailable,
   };
 
@@ -2549,6 +2589,9 @@ function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
   if (!snapshotsIdentityEqual(snapshot, pptCandidateSnapshot)) {
     pptCandidateSnapshot = snapshot;
     pptCandidateSince = now;
+  } else if (!snapshotsTimingEqual(snapshot, pptCandidateSnapshot)) {
+    // Same identity but timing/videos changed - update content without resetting debounce
+    pptCandidateSnapshot = snapshot;
   }
 
   if (now - pptCandidateSince < PPT_DEBOUNCE_MS) {
@@ -3555,8 +3598,14 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
   logPptVerbose('[ppt] status', result);
 
   const now = Date.now();
-  if (result.state === 'foreground') {
-    pptBackgroundSince = null;
+  if (result.state === 'foreground' || result.state === 'background') {
+    if (result.state === 'foreground') {
+      pptBackgroundSince = null;
+    } else {
+      if (pptBackgroundSince === null) {
+        pptBackgroundSince = now;
+      }
+    }
     if (!result.instanceId) {
       return;
     }
@@ -3574,10 +3623,41 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
     const slideChanged =
       pptAnnouncedSnapshot?.instanceId === result.instanceId &&
       pptAnnouncedSnapshot.slideNumber !== resolvedSlideNumber;
-    const explicitNoVideo = result.videoDetected === false;
+    const explicitNoVideo =
+      result.videoDetected === false &&
+      result.videoDuration === undefined &&
+      result.videoElapsed === undefined &&
+      result.videoRemaining === undefined &&
+      (!result.videos || result.videos.length === 0) &&
+      (!result.editSlideVideos || result.editSlideVideos.length === 0);
+    let videos = result.videos && result.videos.length > 0 ? result.videos : undefined;
+    if (!videos && result.editSlideVideos && result.editSlideVideos.length > 0) {
+      videos = result.editSlideVideos;
+    }
+    if (!videos && !explicitNoVideo) {
+      const cached = pptVideoCache.get(slideKey);
+      if (cached) {
+        videos = cached;
+      }
+    }
+    logPptVerbose('[ppt] cache probe', {
+      slideKey,
+      slideNumber: resolvedSlideNumber,
+      slideChanged,
+      explicitNoVideo,
+      hasVideos: videos?.length ?? 0,
+      cachedVideos: pptVideoCache.get(slideKey)?.length ?? 0,
+      resultVideos: result.videos?.length ?? 0,
+      editVideos: result.editSlideVideos?.length ?? 0,
+      videoDetected: result.videoDetected,
+      videoDuration: result.videoDuration,
+      videoElapsed: result.videoElapsed,
+      videoRemaining: result.videoRemaining,
+    });
     const hasVideoPayload =
       !explicitNoVideo &&
       (result.videoDetected === true ||
+        (videos && videos.length > 0) ||
         result.videoDuration !== undefined ||
         result.videoElapsed !== undefined ||
         result.videoRemaining !== undefined ||
@@ -3594,19 +3674,77 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
       pptNoVideoKey = null;
       pptNoVideoCount = 0;
     }
+    if (explicitNoVideo) {
+      if (pptExplicitNoVideoKey === slideKey) {
+        pptExplicitNoVideoCount += 1;
+      } else {
+        pptExplicitNoVideoKey = slideKey;
+        pptExplicitNoVideoCount = 1;
+      }
+    } else {
+      pptExplicitNoVideoKey = null;
+      pptExplicitNoVideoCount = 0;
+    }
     if (slideChanged) {
       pptNoVideoKey = slideKey;
       pptNoVideoCount = explicitNoVideo ? PPT_VIDEO_CLEAR_POLLS : 0;
+      pptExplicitNoVideoKey = slideKey;
+      pptExplicitNoVideoCount = explicitNoVideo ? PPT_VIDEO_CLEAR_POLLS : 0;
     }
     const shouldClearVideo =
       (slideChanged && explicitNoVideo) ||
       (!hasVideoPayload && pptNoVideoCount >= PPT_VIDEO_CLEAR_POLLS);
-    const videoDetected = hasVideoPayload && !shouldClearVideo;
-    const canReuseVideo =
-      videoDetected &&
+    const shouldClearExplicit =
+      explicitNoVideo && pptExplicitNoVideoCount >= PPT_VIDEO_CLEAR_POLLS;
+    if (shouldClearVideo || shouldClearExplicit) {
+      pptVideoCache.delete(slideKey);
+      videos = undefined;
+      logPptVerbose('[ppt] cache cleared', {
+        slideKey,
+        shouldClearVideo,
+        shouldClearExplicit,
+        pptNoVideoCount,
+        pptExplicitNoVideoCount,
+      });
+    }
+    const priorSnapshot =
       pptAnnouncedSnapshot?.instanceId === result.instanceId &&
-      pptAnnouncedSnapshot.slideNumber === resolvedSlideNumber;
-    const priorSnapshot = canReuseVideo ? pptAnnouncedSnapshot : null;
+      pptAnnouncedSnapshot.slideNumber === resolvedSlideNumber
+        ? pptAnnouncedSnapshot
+        : null;
+    const videoDetected = hasVideoPayload && !shouldClearVideo;
+    const canReuseVideo = videoDetected && priorSnapshot !== null;
+    if (videos && videoDetected) {
+      if (priorSnapshot?.videos && priorSnapshot.videos.length > 0) {
+        let hasDelta = false;
+        videos = videos.map((video, index) => {
+          const prior =
+            priorSnapshot.videos?.find((entry) => entry.id !== undefined && entry.id === video.id) ??
+            priorSnapshot.videos?.find((entry) => entry.name && entry.name === video.name) ??
+            priorSnapshot.videos?.[index];
+          const currentElapsed = video.elapsed ?? null;
+          const priorElapsed = prior?.elapsed ?? null;
+          const delta =
+            currentElapsed !== null && priorElapsed !== null ? currentElapsed - priorElapsed : null;
+          if (delta !== null && delta > 200) {
+            hasDelta = true;
+            return { ...video, playing: true };
+          }
+          return video;
+        });
+        if (hasDelta) {
+          videos = videos.map((video) =>
+            video.playing ? video : { ...video, playing: false }
+          );
+        }
+      }
+      pptVideoCache.set(slideKey, videos);
+    }
+    // Calculate resolvedVideos AFTER enrichment so we get the enriched array
+    const resolvedVideos =
+      shouldClearVideo || shouldClearExplicit
+        ? undefined
+        : videos ?? priorSnapshot?.videos;
     const lastVideoDuration = priorSnapshot?.videoDuration;
     const lastVideoElapsed = priorSnapshot?.videoElapsed;
     const lastVideoRemaining = priorSnapshot?.videoRemaining;
@@ -3621,23 +3759,10 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
       videoDuration: videoDetected ? result.videoDuration ?? lastVideoDuration : undefined,
       videoElapsed: videoDetected ? result.videoElapsed ?? lastVideoElapsed : undefined,
       videoRemaining: videoDetected ? result.videoRemaining ?? lastVideoRemaining : undefined,
+      videos: resolvedVideos,
       videoTimingUnavailable: videoDetected && result.videoTimingUnavailable === true,
     };
     updatePresentationCandidate(snapshot);
-    return;
-  }
-
-  if (result.state === 'background') {
-    if (pptBackgroundSince === null) {
-      pptBackgroundSince = now;
-    }
-    if (pptCandidateSnapshot && !snapshotsIdentityEqual(pptCandidateSnapshot, pptAnnouncedSnapshot)) {
-      if (now - pptCandidateSince >= PPT_DEBOUNCE_MS) {
-        commitPresentationSnapshot(pptCandidateSnapshot);
-        pptCandidateSnapshot = pptAnnouncedSnapshot;
-        pptCandidateSince = now;
-      }
-    }
     return;
   }
 
@@ -3817,6 +3942,30 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   };
 
   socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
+
+  // Send current live cues (including PPT cue with videos) so client has full state
+  const roomCues = getRoomLiveCues(payload.roomId);
+  roomCues.forEach(({ cue, updatedAt }) => {
+    const cuePayload: LiveCueEventPayload = {
+      type: 'LIVE_CUE_UPDATED',
+      roomId: payload.roomId,
+      cue,
+      timestamp: updatedAt,
+    };
+    console.log(`[ws] LIVE_CUE_UPDATED replay room=${payload.roomId} cue=${cue.id}`);
+    socket.emit('LIVE_CUE_UPDATED', cuePayload);
+    if (cue.source === 'powerpoint') {
+      const presentationPayload: PresentationEventPayload = {
+        type: 'PRESENTATION_UPDATE',
+        roomId: payload.roomId,
+        cue,
+        timestamp: updatedAt,
+      };
+      console.log(`[ws] PRESENTATION_UPDATE replay room=${payload.roomId} cue=${cue.id}`);
+      socket.emit('PRESENTATION_UPDATE', presentationPayload);
+    }
+  });
+
   pendingHandshakeStore.delete(clientId);
 }
 

@@ -208,6 +208,18 @@ export const ControllerPage = () => {
     (activeLiveCueId ? liveCues.find((cue) => cue.id === activeLiveCueId) : undefined) ??
     liveCues[0] ??
     null
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    console.info('[controller] activeLiveCue', {
+      roomId: room?.id,
+      activeLiveCueId,
+      liveCuesCount: liveCues.length,
+      firstCueId: liveCues[0]?.id ?? null,
+      resolvedCueId: activeLiveCue?.id ?? null,
+      videoCount: activeLiveCue?.metadata?.videos?.length ?? 0,
+      videoDuration: activeLiveCue?.metadata?.videoDuration ?? null,
+    })
+  }, [activeLiveCue, activeLiveCueId, liveCues, room?.id])
   const [controlNow, setControlNow] = useState(() => Date.now())
   const [ignoredRequestTs, setIgnoredRequestTs] = useState<number | null>(null)
   const [dismissedDenialTs, setDismissedDenialTs] = useState<number | null>(null)

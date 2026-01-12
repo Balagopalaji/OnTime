@@ -144,21 +144,55 @@ internal static class Program
       return payload;
     }
 
-    var candidates = new List<object?>();
-    CollectMediaShapes(TryGetProp(slide, "Shapes"), candidates);
-    payload["videoDetected"] = candidates.Count > 0;
+    var slideCandidates = new List<object?>();
+    CollectMediaShapes(TryGetProp(slide, "Shapes"), slideCandidates);
 
-    foreach (var shape in candidates)
+    var editSlideVideos = new List<Dictionary<string, object?>>();
+    var editCandidates = new List<object?>();
+    var activeWindow = TryGetProp(pptObj, "ActiveWindow");
+    var activeView = TryGetProp(activeWindow, "View");
+    var activeSlide = TryGetProp(activeView, "Slide");
+    if (activeSlide != null)
+    {
+      CollectMediaShapes(TryGetProp(activeSlide, "Shapes"), editCandidates);
+      foreach (var shape in editCandidates)
+      {
+        if (shape == null) continue;
+        var entry = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var shapeId = TryGetInt(TryGetProp(shape, "Id"));
+        var shapeName = TryGetProp(shape, "Name") as string;
+        if (shapeId.HasValue) entry["id"] = shapeId.Value;
+        if (!string.IsNullOrWhiteSpace(shapeName)) entry["name"] = shapeName;
+        var mediaFormat = TryGetProp(shape, "MediaFormat");
+        var durationMs = ConvertToMs(TryGetProp(mediaFormat, "Length"));
+        if (durationMs.HasValue)
+        {
+          entry["duration"] = durationMs.Value;
+        }
+        editSlideVideos.Add(entry);
+      }
+    }
+    payload["videoDetected"] = slideCandidates.Count > 0 || editCandidates.Count > 0;
+
+    var videos = new List<Dictionary<string, object?>>();
+    Dictionary<string, object?>? primaryVideo = null;
+    var primaryLocked = false;
+    foreach (var shape in slideCandidates)
     {
       if (shape == null) continue;
+      var entry = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+      var shapeId = TryGetInt(TryGetProp(shape, "Id"));
+      var shapeName = TryGetProp(shape, "Name") as string;
+      if (shapeId.HasValue) entry["id"] = shapeId.Value;
+      if (!string.IsNullOrWhiteSpace(shapeName)) entry["name"] = shapeName;
+
       var mediaFormat = TryGetProp(shape, "MediaFormat");
       var durationMs = ConvertToMs(TryGetProp(mediaFormat, "Length"));
       if (durationMs.HasValue)
       {
-        payload["videoDuration"] = durationMs.Value;
+        entry["duration"] = durationMs.Value;
       }
 
-      var shapeId = TryGetInt(TryGetProp(shape, "Id"));
       if (shapeId.HasValue && ssView != null)
       {
         var player = TryInvoke(ssView, "Player", shapeId.Value);
@@ -166,25 +200,62 @@ internal static class Program
         var elapsedMs = NormalizeElapsed(durationMs, rawElapsed);
         if (elapsedMs.HasValue)
         {
-          payload["videoElapsed"] = elapsedMs.Value;
+          entry["elapsed"] = elapsedMs.Value;
         }
 
         var stateRaw = TryGetInt(TryGetProp(player, "State"));
         if (stateRaw.HasValue)
         {
-          if (stateRaw.Value == 2) payload["videoPlaying"] = true;
-          if (stateRaw.Value == 1) payload["videoPlaying"] = false;
+          if (stateRaw.Value == 2) entry["playing"] = true;
+          if (stateRaw.Value == 1) entry["playing"] = false;
         }
 
         if (durationMs.HasValue && elapsedMs.HasValue && elapsedMs.Value <= durationMs.Value * 2)
         {
-          payload["videoRemaining"] = Math.Max(0, durationMs.Value - elapsedMs.Value);
+          entry["remaining"] = Math.Max(0, durationMs.Value - elapsedMs.Value);
         }
       }
 
-      if (payload.ContainsKey("videoDuration") || payload.ContainsKey("videoElapsed"))
+      videos.Add(entry);
+
+      var isPlaying = entry.TryGetValue("playing", out var playingRaw) && playingRaw is bool playing && playing;
+      if (!primaryLocked && (primaryVideo == null || isPlaying))
       {
-        break;
+        primaryVideo = entry;
+        if (isPlaying)
+        {
+          // Prefer currently playing media as the primary timing source.
+          primaryLocked = true;
+        }
+      }
+    }
+
+    if (videos.Count > 0)
+    {
+      payload["videos"] = videos;
+    }
+    if (editSlideVideos.Count > 0)
+    {
+      payload["editSlideVideos"] = editSlideVideos;
+    }
+
+    if (primaryVideo != null)
+    {
+      if (primaryVideo.TryGetValue("duration", out var durationRaw) && durationRaw is int durationValue)
+      {
+        payload["videoDuration"] = durationValue;
+      }
+      if (primaryVideo.TryGetValue("elapsed", out var elapsedRaw) && elapsedRaw is int elapsedValue)
+      {
+        payload["videoElapsed"] = elapsedValue;
+      }
+      if (primaryVideo.TryGetValue("playing", out var playingRaw) && playingRaw is bool playingValue)
+      {
+        payload["videoPlaying"] = playingValue;
+      }
+      if (primaryVideo.TryGetValue("remaining", out var remainingRaw) && remainingRaw is int remainingValue)
+      {
+        payload["videoRemaining"] = remainingValue;
       }
     }
 

@@ -87,6 +87,14 @@ export type LiveCue = {
     player?: string
     parentTimerId?: string
     autoAdvanceNext?: boolean
+    videos?: {
+      id?: number
+      name?: string
+      duration?: number
+      elapsed?: number
+      remaining?: number
+      playing?: boolean
+    }[]
     videoPlaying?: boolean
     videoDuration?: number
     videoElapsed?: number

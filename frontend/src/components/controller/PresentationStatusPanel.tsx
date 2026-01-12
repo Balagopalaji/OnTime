@@ -23,6 +23,7 @@ export const PresentationStatusPanel = ({
   isMacPlatform,
 }: PresentationStatusPanelProps) => {
   const slideLabel = cue ? buildSlideLabel(cue) : null
+  const videos = cue?.metadata?.videos ?? []
   const videoDurationMs = cue?.metadata?.videoDuration
   const videoElapsedMs = cue?.metadata?.videoElapsed
   const derivedRemaining =
@@ -55,6 +56,7 @@ export const PresentationStatusPanel = ({
       : urgency === 'warning'
         ? 'bg-amber-300'
         : 'bg-emerald-400'
+  const showVideoList = videos.length > 0
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 shadow-card">
@@ -99,23 +101,34 @@ export const PresentationStatusPanel = ({
               <p className="mt-2 text-xs text-amber-200">
                 Video timing unavailable. Continue without timing metadata.
               </p>
-            ) : boundedRemainingMs === null || videoDurationMs === undefined ? (
-              <p className="mt-2 text-xs text-slate-300">Unknown duration.</p>
+            ) : showVideoList ? (
+              <div className="mt-2 space-y-2">
+                {videos.map((video, index) => {
+                  const label = video.name?.trim() || `Video ${index + 1}`
+                  const remaining = video.remaining
+                  const duration = video.duration
+                  const value =
+                    remaining !== undefined
+                      ? formatDuration(Math.max(0, remaining))
+                      : duration !== undefined
+                        ? formatDuration(Math.max(0, duration))
+                        : '--:--'
+                  const badge = video.playing ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-300'
+                  return (
+                    <div key={`${label}-${index}`} className="flex items-center justify-between text-xs text-slate-300">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-100">{label}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${badge}`}>
+                          {video.playing ? 'Playing' : 'Ready'}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-white">{value}</span>
+                    </div>
+                  )
+                })}
+              </div>
             ) : (
-              <>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Remaining</span>
-                  <span className={`text-lg font-semibold ${urgencyText}`}>
-                    {formatDuration(boundedRemainingMs)}
-                  </span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-slate-800">
-                  <div
-                    className={`h-full rounded-full transition-all ${urgencyBar}`}
-                    style={{ width: `${Math.round((progressRatio ?? 0) * 100)}%` }}
-                  />
-                </div>
-              </>
+              <p className="mt-2 text-xs text-slate-300">No video on this slide.</p>
             )}
           </div>
         </div>
