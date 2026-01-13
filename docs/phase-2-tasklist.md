@@ -110,8 +110,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Manual Verification (Pass B)**
 - [ ] Install an older build and confirm auto-update to latest. (Auto-update not implemented yet.)
-- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Downloaded macOS build blocked by unsigned developer warning; Windows untested.)
-- [ ] Dev builds: use a `-dev.N` version suffix for clean in-place reinstalls (NSIS is per-user). 
+- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Windows verified; macOS still pending.)
+- [x] Dev builds: use a `-dev.N` version suffix for clean in-place reinstalls (NSIS is per-user). (Windows verified via companion `dist:dev` and controller `electron-builder --config.extraMetadata.version=0.1.0-dev.1`.)
 
 **Definition of Done (Milestone 0)**
 - [x] Electron controller runs without browser, persists local cache, and updates cleanly.
@@ -360,7 +360,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Force token expiry and confirm refresh path works once, then shows reconnect prompt. (Companion stop triggered reconnect banner.)
 - [x] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash. (Windows: use UTF-8 JSON body for `/api/open`/`/api/file/metadata` via `--data-binary` or PowerShell UTF-8 bytes; inline `curl.exe --data-raw` may send legacy encoding.)
 - [x] PowerPoint: Handle multiple embedded videos on one slide (prefer currently playing media; fallback to first playable) and validate on Windows.
-- [ ] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then close slideshow and confirm `PRESENTATION_CLEAR` on end (no idle/background clear). (blocked: Windows validation pending)
+- [x] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then close slideshow and confirm `PRESENTATION_CLEAR` on end (no idle/background clear).
 
 **Pass B: Frontend Workflow**
 **Frontend**
