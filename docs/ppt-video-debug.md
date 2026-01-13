@@ -81,7 +81,12 @@ Native helper (live timing)
   - Native STA helper source lives in `companion/ppt-probe`.
   - Build with `powershell -ExecutionPolicy Bypass -File companion/scripts/build-ppt-probe.ps1`.
   - Output executable is `companion/bin/ppt-probe.exe` (bundled via electron-builder extraResources).
-  - Companion prefers `ppt-probe.exe` when present, then falls back to PowerShell helper.
+- Companion prefers `ppt-probe.exe` when present, then falls back to PowerShell helper.
+
+Windows COM variance matrix (seed)
+| Date | Windows build | Office build | PowerPoint bitness | Path | Helper | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-01-13 | 10.0.26200 | 16.0 (19426) | 64-bit | OneDrive URL + C:\Temp | STA helper | Works (live timing); PowerShell fallback cannot enumerate Shapes |
 
 Debug toggles
 - Basic: set `COMPANION_DEBUG_PPT=true` or create `ppt.debug` in the Companion user data directory.
