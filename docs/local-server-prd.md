@@ -34,6 +34,19 @@ Scope: Companion local server requirements (Electron/Node).
 - Companion enforces a single authoritative controller per room (lock + takeover).
 - Cloud controller lock enforcement is **not** implemented yet (Milestone 5; see `docs/cloud-lock-design.md`).
 
+## Build & Run Notes (Companion + Controller)
+- **Companion (local mode):**
+  - Dev: `cd companion && npm run dev`.
+  - Dist: `cd companion && npm run dist` or `npm run dist:dev` for `-dev.N`.
+  - Token endpoint: `https://127.0.0.1:4441/api/token` (use Bearer token for `/api/open` + `/api/file/metadata`).
+  - `ffprobe` missing returns `{"warning":"ffprobe missing","size":...}` (no crash).
+  - Windows PPT timing uses `companion/bin/ppt-probe.exe` (STA helper); PowerShell fallback can’t enumerate Shapes.
+
+- **Controller (Electron):**
+  - Dev: `cd controller && npm run dev`.
+  - Dist: `cd controller && npm run dist` or `npm run dist:dev` for `-dev.N`.
+  - Frontend build is embedded via `npm run build:frontend` (uses `VITE_APP_BASE=./`).
+
 ## Phase 2b Authority Enforcement
 - Companion enforces a single authoritative controller per room.
 - Non-authoritative controllers receive `PERMISSION_DENIED` on write attempts.
