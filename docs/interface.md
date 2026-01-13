@@ -123,9 +123,11 @@ Notes:
 - `startedAt?: number`
 - `status?: 'playing' | 'paused' | 'ended'`
 - `config?: { warningSec?: number; criticalSec?: number }`
-- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; instanceId?: number; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number; videoTimingUnavailable?: boolean }`
+- `metadata?: { slideNumber?: number; totalSlides?: number; slideNotes?: string; filename?: string; instanceId?: number; player?: string; parentTimerId?: string; autoAdvanceNext?: boolean; videoPlaying?: boolean; videoDuration?: number; videoElapsed?: number; videoRemaining?: number; videoTimingUnavailable?: boolean; videos?: Array<{ id?: number; name?: string; duration?: number; elapsed?: number; remaining?: number; status?: 'ready' | 'playing' | 'paused' | 'ended' }> }`
   - Video timing fields are in milliseconds. `videoRemaining` may be computed client-side (`videoDuration - videoElapsed`) when not provided.
-  - `videoTimingUnavailable` is set to true when video timing data is not available (macOS PowerPoint).
+  - `videos[]` is the per-slide media list. `status` is derived from PowerPoint player state and timing; `ready` means no elapsed yet.
+  - PowerPoint video timing is Windows-only and uses a dedicated STA helper (`companion/ppt-probe/ppt-probe.exe`).
+  - `videoTimingUnavailable` is set to true when timing data is not available (macOS PowerPoint).
 - `updatedAt?: number` (write-through timestamp)
 - `writeSource?: 'companion' | 'controller'` (write-through origin; distinct from cue `source`)
 
@@ -579,7 +581,7 @@ Notes:
 **Show Control Events (planned)**
 - `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`
 - `PRESENTATION_LOADED`, `PRESENTATION_UPDATE`
-- `PRESENTATION_CLEAR` (presentation closed or idle/backgrounded; payload includes `cueId` when available)
+- `PRESENTATION_CLEAR` (presentation closed; no idle/background clear; payload includes `cueId` when available)
 
 ### 3.3 Error Codes
 **Generic `ERROR` event codes:** `INVALID_PAYLOAD`, `PERMISSION_DENIED`

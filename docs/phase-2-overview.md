@@ -259,7 +259,7 @@ This section summarizes the show-control architecture at a high level. Canonical
 
 3. **Presentation Import & File Operations**
    - Secure `/api/open`, `/api/file/exists`, `/api/file/metadata` with token auth, path normalization, symlink/network path rejection.
-   - PPT detection debounce/foreground guard; `PRESENTATION_CLEAR` on close/idle; ffprobe fallback warning path.
+   - PPT detection debounce/foreground guard; `PRESENTATION_CLEAR` on slideshow end (no idle/background clear); ffprobe fallback warning path.
    - Success: Safe file ops, graceful metadata fallback, accurate PPT detect/clear behavior.
 
 4. **UX Polish & Companion GUI**

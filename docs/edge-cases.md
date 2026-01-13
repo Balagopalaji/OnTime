@@ -118,6 +118,25 @@ Target behavior (not yet implemented):
 - Show a clear message: "This timer has been deleted by the owner"
 - Offer "Return to Dashboard" button
 
+---
+
+## 7. PowerPoint Video Timing (Windows Only)
+
+Scenario: PowerPoint slide contains one or more embedded videos; timing must show even while the controller UI is in the foreground.
+
+Current state:
+- Windows uses a dedicated STA helper (`companion/ppt-probe/ppt-probe.exe`) to avoid COM shape enumeration failures in the Electron host.
+- Helper emits per-video `videos[]` metadata and a primary timing tuple (`videoDuration`, `videoElapsed`, `videoRemaining`, `videoPlaying`).
+- Frontend merges live-cue updates and preserves `videos[]` metadata via `mergeCueVideos` in `frontend/src/context/UnifiedDataContext.tsx` to avoid flicker.
+
+Risks:
+- If `videos[]` metadata is overwritten by a newer record with empty `videos`, the UI can flicker “No video on this slide.”
+- Helper binaries must be rebuilt when `companion/ppt-probe/Program.cs` changes.
+
+Mitigation:
+- Keep `mergeCueVideos` metadata-preserving merge logic intact.
+- Rebuild `ppt-probe.exe` and package it via `extraResources` after helper changes.
+
 Current state:
 - Direct-link handling for deleted rooms is TBD
 

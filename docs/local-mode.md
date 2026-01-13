@@ -396,6 +396,8 @@ useEffect(() => {
 
 **Video metadata note:** Duration/resolution extraction should use a bundled `ffprobe` binary in production Companion builds so end users do not need separate FFmpeg installs. The bundled `ffprobe` MUST come from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components) unless explicitly approved and documented. If `ffprobe` is not present (dev builds/edge cases), return a warning and fallback to size-only metadata.
 
+**PowerPoint video timing (Windows helper):** PowerPoint video timing on Windows uses a dedicated STA helper (`companion/ppt-probe/ppt-probe.exe`) because COM access from the Electron/PowerShell host can intermittently fail or return empty Shapes. The helper emits `videos[]` for all media on the current slide (Shape Id/Name + `duration`, `elapsed`, `remaining`, `status`) and the primary timing tuple (`videoDuration`, `videoElapsed`, `videoRemaining`, `videoPlaying`). Frontend merges must preserve rich `videos[]` metadata when newer/shallow records arrive; see `frontend/src/context/UnifiedDataContext.tsx` `mergeCueVideos` in `getLiveCueRecords`.
+
 ### 3.5 Security & Authentication
 *   **Token:** Companion exposes a short-lived token via `GET /api/token` (loopback only + Origin allowlist).
 *   **Handshake:** Clients provide token in `JOIN_ROOM` payload.
