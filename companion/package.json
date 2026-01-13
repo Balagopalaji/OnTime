@@ -1,6 +1,6 @@
 {
   "name": "ontime-companion",
-  "version": "0.1.1-dev.0",
+  "version": "0.1.1-dev.2",
   "description": "OnTime Companion desktop app (Electron, local mode bridge)",
   "private": true,
   "type": "commonjs",
