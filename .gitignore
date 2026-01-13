@@ -4,3 +4,4 @@ node_modules/
 companion/dist_out/
 companion/bin/
 docs/temp/
+controller/.dev-version.json

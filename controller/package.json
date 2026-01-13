@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "build:frontend": "cd ../frontend && cross-env VITE_APP_BASE=./ npm run build",
     "dist": "npm run build:frontend && npm run build && electron-builder",
+    "dist:dev": "scripts\\dist-dev.cmd",
     "dist:mac": "npm run build:frontend && npm run build && electron-builder --mac",
     "dist:win": "npm run build:frontend && npm run build && electron-builder --win",
     "dist:linux": "npm run build:frontend && npm run build && electron-builder --linux",
