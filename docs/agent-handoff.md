@@ -68,9 +68,9 @@ Next steps: Replace tray icon with branded asset later.
 
 Timestamp (UTC): 2026-01-13T07:50:55Z
 Owner (Windows)
-Context: Windows PPT video timing (STA helper), multi-video labels, build/packaging, and doc updates.
+Context: Windows PPT video timing (STA helper), multi-video labels, build/packaging, doc updates, plus macOS research guidance.
 Commands: `powershell -ExecutionPolicy Bypass -File companion/scripts/build-ppt-probe.ps1`; `npm run dev` (companion + frontend); `npm run dist` (companion); `npm run dist:dev` (controller); `npm run lint && npm run test` (frontend).
 Results: PPT timing works via `companion/bin/ppt-probe.exe`; multi-video statuses (Ready/Playing/Paused/Ended) stable; frontend merge preserves non-empty `videos[]` to stop flicker; Windows manual checks done (`/api/open` invalid path rejection, ffprobe missing warning); controller & companion Windows installers built and verified; controller `dist:dev` auto-increments dev version with `controller/.dev-version.json` gitignored; docs updated (`docs/ppt-video-debug.md`, `docs/local-server-prd.md`, `docs/tasks.md`, `docs/phase-2-tasklist.md`).
-Blockers: macOS notarization still pending; PPT COM variance matrix needs more entries.
-Next steps: Resume on macOS; add more COM variance seeds; keep docs aligned; optional tray icon polish later.
+Blockers: macOS notarization still pending; PPT COM variance matrix needs more entries; macOS PPT timing capability unknown.
+Next steps: Resume on macOS; add more COM variance seeds; keep docs aligned; optional tray icon polish later; run AppleScript/ScriptingBridge probes to confirm slideshow window/current slide/media length/player APIs. If no live timing, plan fallback: parse pptx for embedded media + ffprobe duration only, and label UI as duration-only/no live time.
 ---
