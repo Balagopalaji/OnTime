@@ -1,6 +1,6 @@
 {
   "name": "ontime-companion",
-  "version": "0.1.0",
+  "version": "0.1.1-dev.0",
   "description": "OnTime Companion desktop app (Electron, local mode bridge)",
   "private": true,
   "type": "commonjs",
@@ -9,35 +9,45 @@
     "dev": "electron ./electron-dev.js",
     "build": "tsc -p tsconfig.json",
     "dist": "npm run build && electron-builder",
+    "dist:dev": "npm version prerelease --preid dev --no-git-tag-version && npm run dist",
     "fetch-ffprobe": "node ./scripts/fetch-ffprobe.js",
     "lint": "echo \"No lint configured\""
   },
-    "build": {
-      "appId": "com.ontime.companion",
-      "productName": "OnTime Companion",
-      "directories": {
-        "output": "dist_out"
-      },
-      "mac": {
-        "target": ["dmg", "zip"],
-        "gatekeeperAssess": false,
-        "identity": null
-      },
-      "win": {
-        "target": "nsis"
-      },
-      "linux": {
-        "target": "AppImage"
-      },
-      "extraResources": [
-        {
-          "from": "bin",
-          "to": "bin",
-          "filter": ["ffprobe", "ffprobe.exe", "ppt-probe.exe"]
-        }
-      ]
+  "build": {
+    "appId": "com.ontime.companion",
+    "productName": "OnTime Companion",
+    "directories": {
+      "output": "dist_out"
     },
-  
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "perMachine": false
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "ffprobe",
+          "ffprobe.exe",
+          "ppt-probe.exe"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "selfsigned": "^2.4.1",
     "jsonwebtoken": "^9.0.2",
