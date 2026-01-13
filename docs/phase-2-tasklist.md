@@ -111,7 +111,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Manual Verification (Pass B)**
 - [ ] Install an older build and confirm auto-update to latest. (Auto-update not implemented yet.)
 - [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Windows verified; macOS still pending.)
-- [x] Dev builds: use a `-dev.N` version suffix for clean in-place reinstalls (NSIS is per-user). (Windows verified via companion `dist:dev` and controller `electron-builder --config.extraMetadata.version=0.1.0-dev.1`.)
+- [x] Dev builds: use a `-dev.N` version suffix for clean in-place reinstalls (NSIS is per-user). (Windows verified via `npm run dist:dev` in `companion/` and `controller/`.)
 
 **Definition of Done (Milestone 0)**
 - [x] Electron controller runs without browser, persists local cache, and updates cleanly.

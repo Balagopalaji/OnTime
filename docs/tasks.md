@@ -28,6 +28,7 @@ Scope: Active tasks and notes.
 - PowerPoint: Consider pre-scanning all slides for embedded media so we can flag video slides before playback.
 - Pre-release cleanup: decide whether to remove or keep `COMPANION_DEBUG_PPT_VERBOSE` diagnostics.
 - PowerPoint: Add multi-video slide handling (prefer currently playing media; fallback to first playable) and test with multiple embedded videos.
+- Dev builds: use `npm run dist:dev` in `companion/` and `controller/` to auto-increment `-dev.N` suffix for clean reinstalls.
 
 ## Phase 2 Actionables (Need Implementation)
 - [ ] Viewer-only Electron build target (distinct app/build config).
