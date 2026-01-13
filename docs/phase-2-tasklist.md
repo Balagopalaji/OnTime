@@ -457,15 +457,18 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Pass A: Lock Schema & Cloud Functions**
 **Cloud/Firebase**
 - [ ] Add `rooms/{roomId}/lock` document schema to Firestore.
+- [ ] Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest` schemas.
 - [ ] Implement Cloud Functions:
   - `acquireLock`: Atomic lock acquisition with transaction; handles race conditions.
   - `releaseLock`: Release held lock (voluntary or cleanup).
   - `forceTakeover`: Force acquisition with PIN validation or stale check.
   - `updateHeartbeat`: Refresh `lastHeartbeat` timestamp.
+  - Request/deny control helpers to create/clear `controlRequest` with server timestamps.
 - [ ] All staleness logic in Cloud Functions only (90s threshold); no stale checks in rules.
 **Firestore Rules**
 - [ ] Update rules to check lock holder by `userId` (not `clientId`).
 - [ ] Lock document: read allowed, write restricted to Cloud Functions only.
+- [ ] `config/pin`: owner-only writes.
 - [ ] State/timers: require authenticated user matching lock holder's `userId`.
 - [ ] liveCues: allow service account (Companion) writes regardless of lock.
 - [ ] Verify public read access unchanged (viewers work without auth).
@@ -479,6 +482,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Two users open same room in cloud mode; first acquires lock, second sees read-only.
 - [ ] Force takeover with correct PIN succeeds immediately.
 - [ ] Force takeover with stale lock (>90s) succeeds without PIN.
+- [ ] Control request doc is created on request and cleared/expired on deny/force/timeout.
 - [ ] Companion can still write liveCues when cloud lock is held by another user.
 - [ ] Viewer (unauthenticated) can still read room/timers.
 
@@ -511,9 +515,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass C: Request/Force Takeover UX (Cloud)**
 **Frontend**
-- [ ] Request control flow works in cloud mode (calls `forceTakeover` function).
+- [ ] Request control flow works in cloud mode (creates/updates `controlRequest`).
 - [ ] Force takeover with PIN works in cloud mode.
-- [ ] Force takeover after timeout (30s since request) works in cloud mode.
+- [ ] Force takeover after timeout (30s since request, server timestamp) works in cloud mode.
 - [ ] Displaced controller notification works in cloud mode.
 - [ ] Ensure UX parity with Companion takeover flow.
 **Codebase Entry Points**
@@ -529,7 +533,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass D: Documentation & Cleanup**
 **Documentation**
-- [ ] Update `docs/interface.md`: add cloud lock schema and Cloud Functions API.
+- [ ] Update `docs/interface.md`: add cloud lock + PIN + controlRequest schemas, Cloud Functions API, service account claims.
 - [ ] Update `docs/client-prd.md`: add control lock enforcement section.
 - [ ] Update `docs/local-mode.md`: add cloud mode parity note.
 - [ ] Update `docs/app-prd.md`: clarify lock enforcement across tiers.

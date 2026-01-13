@@ -289,16 +289,19 @@ Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list a
 
 Scope:
 - Add `rooms/{roomId}/lock` document schema to Firestore.
-- Implement Cloud Functions: `acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`.
+- Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest` schemas.
+- Implement Cloud Functions: `acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`, plus request/deny control helpers to manage `controlRequest`.
 - Use Firestore transactions for atomic lock acquisition.
 - All staleness logic (90s threshold) in Cloud Functions only; no stale checks in rules.
-- Update Firestore security rules: lock holder check by `userId`, service account bypass for liveCues.
+- Update Firestore security rules: lock holder check by `userId`, owner-only writes for `config/pin`, service account bypass for liveCues.
 - Ensure public read access unchanged (viewers work without auth).
 
 Key design decisions (from design doc):
 - Rules enforce by `userId` (Firebase Auth UID), not per-tab `clientId`.
 - Cloud Functions validate `clientId` for lock ownership.
 - Lock document managed by Cloud Functions only (rules deny direct writes).
+- `controlRequest` uses server timestamps; client-provided timestamps are not trusted.
+- Companion service account claims are required for `liveCues` bypass (see `docs/interface.md`).
 
 Files: `firebase/firestore.rules`, new Firebase Cloud Functions directory.
 
