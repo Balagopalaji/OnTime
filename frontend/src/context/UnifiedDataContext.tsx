@@ -2382,14 +2382,44 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const mergeCueVideos = (existing: LiveCueRecord, incoming: LiveCueRecord): LiveCueRecord => {
         const existingVideos = existing.cue.metadata?.videos ?? []
         const incomingVideos = incoming.cue.metadata?.videos ?? []
-        if (incomingVideos.length > 0 || existingVideos.length === 0) return incoming
+        if (incomingVideos.length === 0 && existingVideos.length === 0) return incoming
+        if (incomingVideos.length === 0) {
+          return {
+            ...incoming,
+            cue: {
+              ...incoming.cue,
+              metadata: {
+                ...incoming.cue.metadata,
+                videos: existingVideos,
+              },
+            },
+          }
+        }
+        if (existingVideos.length === 0) return incoming
+        const mergedVideos = incomingVideos.map((video) => {
+          const match =
+            existingVideos.find((entry) => entry.id !== undefined && entry.id === video.id) ??
+            existingVideos.find((entry) => entry.name && entry.name === video.name)
+          if (!match) return video
+          return {
+            ...match,
+            ...video,
+            id: video.id ?? match.id,
+            name: video.name ?? match.name,
+            duration: video.duration ?? match.duration,
+            elapsed: video.elapsed ?? match.elapsed,
+            remaining: video.remaining ?? match.remaining,
+            playing: video.playing ?? match.playing,
+            status: video.status ?? match.status,
+          }
+        })
         return {
           ...incoming,
           cue: {
             ...incoming.cue,
             metadata: {
               ...incoming.cue.metadata,
-              videos: existingVideos,
+              videos: mergedVideos,
             },
           },
         }
