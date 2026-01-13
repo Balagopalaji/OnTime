@@ -24,38 +24,7 @@ export const PresentationStatusPanel = ({
 }: PresentationStatusPanelProps) => {
   const slideLabel = cue ? buildSlideLabel(cue) : null
   const videos = cue?.metadata?.videos ?? []
-  const videoDurationMs = cue?.metadata?.videoDuration
-  const videoElapsedMs = cue?.metadata?.videoElapsed
-  const derivedRemaining =
-    videoDurationMs !== undefined && videoElapsedMs !== undefined
-      ? videoDurationMs - videoElapsedMs
-      : null
   const timingUnavailable = Boolean(cue?.metadata?.videoTimingUnavailable)
-  const videoRemainingMs =
-    cue?.metadata?.videoRemaining ?? (derivedRemaining !== null ? derivedRemaining : null)
-  const boundedRemainingMs = videoRemainingMs === null ? null : Math.max(0, videoRemainingMs)
-  const progressRatio =
-    videoDurationMs && boundedRemainingMs !== null
-      ? Math.min(1, Math.max(0, 1 - boundedRemainingMs / videoDurationMs))
-      : null
-  const urgency =
-    boundedRemainingMs !== null && boundedRemainingMs <= 10_000
-      ? 'critical'
-      : boundedRemainingMs !== null && boundedRemainingMs <= 30_000
-        ? 'warning'
-        : 'default'
-  const urgencyText =
-    urgency === 'critical'
-      ? 'text-rose-200 animate-pulse'
-      : urgency === 'warning'
-        ? 'text-amber-200 animate-pulse'
-        : 'text-slate-200'
-  const urgencyBar =
-    urgency === 'critical'
-      ? 'bg-rose-400'
-      : urgency === 'warning'
-        ? 'bg-amber-300'
-        : 'bg-emerald-400'
   const showVideoList = videos.length > 0
 
   return (
@@ -113,13 +82,39 @@ export const PresentationStatusPanel = ({
                       : duration !== undefined
                         ? formatDuration(Math.max(0, duration))
                         : '--:--'
-                  const badge = video.playing ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-800 text-slate-300'
+                  const hasDuration = typeof video.duration === 'number'
+                  const hasElapsed = typeof video.elapsed === 'number'
+                  const hasRemaining = typeof video.remaining === 'number'
+                  const inferredEnded =
+                    (hasRemaining && video.remaining !== undefined && video.remaining <= 0) ||
+                    (hasDuration &&
+                      hasElapsed &&
+                      video.duration !== undefined &&
+                      video.elapsed !== undefined &&
+                      video.elapsed >= video.duration - 250)
+                  const status =
+                    video.status ??
+                    (video.playing ? 'playing' : inferredEnded ? 'ended' : 'ready')
+                  const badge =
+                    status === 'playing'
+                      ? 'bg-emerald-500/20 text-emerald-200'
+                      : status === 'paused'
+                        ? 'bg-amber-500/20 text-amber-200'
+                        : status === 'ended'
+                          ? 'bg-slate-700/40 text-slate-300'
+                          : 'bg-slate-800 text-slate-300'
                   return (
                     <div key={`${label}-${index}`} className="flex items-center justify-between text-xs text-slate-300">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-slate-100">{label}</span>
                         <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${badge}`}>
-                          {video.playing ? 'Playing' : 'Ready'}
+                          {status === 'playing'
+                            ? 'Playing'
+                            : status === 'paused'
+                              ? 'Paused'
+                              : status === 'ended'
+                                ? 'Ended'
+                                : 'Ready'}
                         </span>
                       </div>
                       <span className="text-sm font-semibold text-white">{value}</span>

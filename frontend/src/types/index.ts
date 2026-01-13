@@ -94,6 +94,7 @@ export type LiveCue = {
       elapsed?: number
       remaining?: number
       playing?: boolean
+      status?: 'playing' | 'paused' | 'ended'
     }[]
     videoPlaying?: boolean
     videoDuration?: number

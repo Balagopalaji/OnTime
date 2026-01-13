@@ -1197,7 +1197,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         },
       }
     })
-  }, [])
+  }, [debugCompanion])
 
   const writeActiveLiveCueId = useCallback(
     async (roomId: string, cueId: string | null) => {
@@ -2341,7 +2341,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       return mergeProgressFromCache(firebaseRoom)
     },
-    [companionRooms, firebase, isCompanionLive, pickSource, roomAuthority],
+    [companionRooms, debugCompanion, firebase, isCompanionLive, pickSource, roomAuthority],
   )
 
   const getTimers = useCallback(

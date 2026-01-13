@@ -204,15 +204,27 @@ internal static class Program
         }
 
         var stateRaw = TryGetInt(TryGetProp(player, "State"));
+        string? status = null;
         if (stateRaw.HasValue)
         {
-          if (stateRaw.Value == 2) entry["playing"] = true;
-          if (stateRaw.Value == 1) entry["playing"] = false;
+          if (stateRaw.Value == 2) status = "playing";
+          if (stateRaw.Value == 1) status = "paused";
         }
 
         if (durationMs.HasValue && elapsedMs.HasValue && elapsedMs.Value <= durationMs.Value * 2)
         {
-          entry["remaining"] = Math.Max(0, durationMs.Value - elapsedMs.Value);
+          var remaining = Math.Max(0, durationMs.Value - elapsedMs.Value);
+          entry["remaining"] = remaining;
+          if (remaining == 0 || elapsedMs.Value >= durationMs.Value - 250)
+          {
+            status = "ended";
+          }
+        }
+
+        if (!string.IsNullOrEmpty(status))
+        {
+          entry["status"] = status;
+          entry["playing"] = status == "playing";
         }
       }
 
