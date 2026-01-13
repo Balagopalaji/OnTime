@@ -111,6 +111,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Manual Verification (Pass B)**
 - [ ] Install an older build and confirm auto-update to latest. (Auto-update not implemented yet.)
 - [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Downloaded macOS build blocked by unsigned developer warning; Windows untested.)
+- [ ] Dev builds: use a `-dev.N` version suffix for clean in-place reinstalls (NSIS is per-user). 
 
 **Definition of Done (Milestone 0)**
 - [x] Electron controller runs without browser, persists local cache, and updates cleanly.
@@ -338,7 +339,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Path validation: normalize (`path.resolve`), ensure under allowed roots (user home or app support dir); reject if outside after resolving symlinks; reject UNC/remote paths; disallow traversal segments; bind HTTP to 127.0.0.1.
 - [x] Token lifecycle: TTL 30m; rotate on Companion restart; frontend refreshes token on 401 once, then surfaces reconnect modal.
 - [x] ffprobe bundle: use bundled LGPL-only ffprobe; if missing, return `{ warning: "FFPROBE_MISSING", metadata: { sizeBytes, mimeGuess } }` and continue (no crash on non-UTF8 filenames).
-- [x] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed or background >10s.
+- [x] PowerPoint detection: debounce 1.5s; only emit when PPT window foreground; if multiple instances, pick foreground and include `instanceId`; emit `PRESENTATION_CLEAR` when closed (no idle/background clear).
   - instanceId: PowerPoint process PID or window handle for tracking multiple PPT instances.
 **Codebase Entry Points**
 - Companion: `companion/src/main.ts` (HTTP + PPT detection)
@@ -358,8 +359,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Attempt `/api/open` with a path outside allowed roots; verify rejection. (Windows test returned `{"error":"invalid_path"}` for `C:\\Windows\\System32\\drivers\\etc\\hosts`.)
 - [x] Force token expiry and confirm refresh path works once, then shows reconnect prompt. (Companion stop triggered reconnect banner.)
 - [x] Rename a file with non-UTF8 characters and ensure metadata endpoint doesn’t crash. (Windows: use UTF-8 JSON body for `/api/open`/`/api/file/metadata` via `--data-binary` or PowerShell UTF-8 bytes; inline `curl.exe --data-raw` may send legacy encoding.)
-- [ ] PowerPoint: Handle multiple embedded videos on one slide (prefer currently playing media; fallback to first playable) and validate on Windows.
-- [ ] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then background/close it and confirm `PRESENTATION_CLEAR` after 10s idle. (blocked: Windows validation pending)
+- [x] PowerPoint: Handle multiple embedded videos on one slide (prefer currently playing media; fallback to first playable) and validate on Windows.
+- [ ] Windows PPT test: run Companion in `show_control`/`production`, open PowerPoint in foreground, confirm `PRESENTATION_LOADED/UPDATE`, then close slideshow and confirm `PRESENTATION_CLEAR` on end (no idle/background clear). (blocked: Windows validation pending)
 
 **Pass B: Frontend Workflow**
 **Frontend**
@@ -372,7 +373,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Manual Verification (Pass B)**
 - [x] Presentation detected banner appears and can be dismissed.
-- [ ] Missing ffprobe yields warning but no crash; UI still renders. (blocked: requires Windows/ffprobe test)
+- [x] Missing ffprobe yields warning but no crash; UI still renders. (Windows: returns warning + size-only metadata)
 - [x] Minimal mode shows FEATURE_UNAVAILABLE messaging.
 
 **Success Criteria**
@@ -384,7 +385,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Risks/Unknowns**
 - PPT COM API variance across Windows builds.
 - ffprobe licensing/packaging on macOS notarization.
-- Milestone 3 blocked on Windows ffprobe validation; continue to Milestone 4 while pending.
+- Milestone 3 unblocked for Windows ffprobe validation.
 
 **Definition of Done (Milestone 3)**
 - [ ] File ops are safe, PPT detection stable, and UI handles warnings gracefully.

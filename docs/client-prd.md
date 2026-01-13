@@ -100,10 +100,10 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
 - Phase 3 UI should offer a "Local network viewer" option (only when Companion is connected), with a warning about certificate trust.
 
-## Cloud Controller Lock Enforcement (Milestone 5)
+## Planned Cloud Controller Lock Enforcement (Milestone 5)
 
 **Overview**
-Controller lock enforcement applies to both Companion (local) and Cloud (Firebase) modes. In cloud mode, lock state is stored in Firestore and managed via Cloud Functions.
+Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is planned for Milestone 5 and is **not** live yet. When implemented, lock state will be stored in Firestore and managed via Cloud Functions.
 
 **Lock source resolution**
 - `roomAuthority.source === 'companion'` → Use Companion lock (existing Socket.IO flow).

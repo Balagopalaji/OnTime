@@ -25,6 +25,11 @@ This index lists canonical documentation by type and links to the feature matrix
 - Update `docs/doc-matrix.md` when a new feature or doc is introduced.
 - Do not create new subfolders under `docs/` without explicit approval.
 
+## Which Doc Should I Use?
+- `docs/local-mode.md`: Runtime behavior for local/parallel sync (local-first app mode).
+- `docs/local-server-prd.md`: Companion server requirements (tokens, sockets, show-control signals).
+- `docs/local-offline-lan-plan.md`: Phase 3 plan for LAN/offline viewer hosting (not current behavior).
+
 ## Indexes
 - `docs/README.md` (this file)
 - `docs/doc-matrix.md` (feature-to-doc matrix)

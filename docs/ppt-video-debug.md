@@ -1,8 +1,9 @@
-# PowerPoint Video Timing Debug Notes (Windows)
+# PowerPoint Video Timing Debug Notes (Windows, Dev-Only)
 
 Purpose
 - Avoid re-running the same dead-end tests.
 - Capture the current state of the investigation, key logs, and the next recommended approach.
+- Debug flags are dev-only and should not be required for production behavior.
 
 Summary (current status)
 - Live PPT video timing works on Windows via a native STA helper (`ppt-probe.exe`).

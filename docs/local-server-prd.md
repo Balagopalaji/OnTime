@@ -31,7 +31,8 @@ Scope: Companion local server requirements (Electron/Node).
 - Local WebSocket relay with token validation and room state cache.
 - HTTP token endpoint on loopback with Origin allowlist.
 - State persistence in Companion cache to survive restarts.
-- Multi-controller connections are currently allowed (no lock enforcement). Phase 2b introduces controller lock + takeover enforcement.
+- Companion enforces a single authoritative controller per room (lock + takeover).
+- Cloud controller lock enforcement is **not** implemented yet (Milestone 5; see `docs/cloud-lock-design.md`).
 
 ## Phase 2b Authority Enforcement
 - Companion enforces a single authoritative controller per room.
@@ -54,12 +55,12 @@ Scope: Companion local server requirements (Electron/Node).
 
 **PowerPoint AppleScript troubleshooting (macOS)**
 - **Automation permissions:** macOS must allow Companion to control **System Events** and **Microsoft PowerPoint** (System Settings → Privacy & Security → Automation).
-- **Frontmost requirement:** slide tracking only updates when PowerPoint is the frontmost app (per Phase 2 spec). Background = no updates.
+- **Frontmost requirement (macOS-only):** slide tracking only updates when PowerPoint is the frontmost app. Background = no updates. Windows helper does not require foreground.
 - **Idle behavior:** last known slide persists until PowerPoint closes; no idle timeout clears the status card.
 - **String escaping:** the AppleScript is embedded in a JS template literal for `osascript -e`; JSON strings must use escaped quotes (`\"`). Do not remove backslashes or the script will fail to compile.
 - **Known syntax pitfall:** errors like `Expected end of line but found class name (-2741)` usually mean a property name is not valid for the installed PowerPoint dictionary (e.g., `current slide` on some versions). Avoid unrecognized properties.
 - **Supported slide index call (current implementation):** `current show position of slide show view of slide show window 1`.
-- **Debug logs:** create a file named `ppt.debug` in `~/Library/Application Support/ontime-companion` (Companion userData) to enable `ppt.log` and `ppt.script.applescript` output.
+- **Debug logs (dev-only):** create a file named `ppt.debug` in `~/Library/Application Support/ontime-companion` (Companion userData) to enable `ppt.log` and `ppt.script.applescript` output.
 - **Log locations:** `ppt.log` captures osascript stdout/stderr; `ppt.script.applescript` captures the exact script passed to `osascript -e` for syntax debugging.
 - **Discovery in Script Editor (safe validation):**
   - `tell application "Microsoft PowerPoint" to return properties of slide show view of slide show window 1`
