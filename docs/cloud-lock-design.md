@@ -43,7 +43,7 @@ Enforce single authoritative controller when the room is controlled via Firebase
 | `userName` | string | No | Display name of lock holder |
 | `lockedAt` | timestamp | Yes | When lock was first acquired |
 | `lastHeartbeat` | timestamp | Yes | Updated every heartbeat interval |
-| `controlPolicy` | string | Yes | `'exclusive'` (default) or `'shared_with_pin'` (future) |
+| `controlPolicy` | string | No | `'exclusive'` (default; only value in Pass A) or `'shared_with_pin'` (future) |
 
 ### Example Document
 
@@ -137,6 +137,8 @@ Layer 2: Cloud Functions (clientId)
    - Same user = not a security issue, just data consistency
    - Can tighten later by routing writes through Functions if needed
 
+**Tab duplication note:** Some browsers clone `sessionStorage` on tab duplication, so a duplicated tab may share the same `clientId` and appear authoritative. This is a UX edge case; document it for Pass A and consider a future mitigation (per-tab instance token).
+
 **Recommendation for Pass A:** Frontend enforcement is sufficient. Add Cloud Function write proxies in Pass B if needed.
 
 ---
@@ -229,12 +231,12 @@ All lock operations use Cloud Functions to ensure atomic, server-timestamped ope
 ```
 
 **Authorization (one must be true):**
-1. `pin` matches room's PIN (from `roomPinStore` equivalent in Firestore)
+1. `pin` matches room's PIN (from a cloud PIN document, e.g., `rooms/{roomId}/config/pin` with owner-only writes)
 2. `reauthenticated` flag is true (frontend confirms re-auth)
 3. Lock is stale (lastHeartbeat > 90s ago)
 4. Request timeout elapsed (30s since REQUEST_CONTROL)
 
-**Note on request timeout:** The 30s timeout is tracked client-side (frontend stores `requestedAt` timestamp when REQUEST_CONTROL is sent). The Cloud Function receives `requestedAt` in the payload and validates `Date.now() - requestedAt >= 30000`. This avoids needing a server-side pending requests collection for cloud mode. (TBD: Could also store in `rooms/{roomId}/pendingRequests` if server-side validation is preferred.)
+**Note on request timeout:** Use server-stored timestamps to avoid spoofing. Store `requestedAt` in a Firestore doc (e.g., `rooms/{roomId}/controlRequests/{requestId}` or a single `rooms/{roomId}/controlRequest`), and have Cloud Functions validate the elapsed time using server timestamps. Client-provided timestamps must not be trusted.
 
 **Logic:**
 ```
@@ -635,8 +637,8 @@ Delegate (Operator)
 
 **Implementation consideration:** The lock system should support delegation by:
 1. Lock document stores primary controller
-2. Timer documents can have `delegatedTo: clientId` field
-3. Rules check: `isLockHolder(roomId) || isDelegatedTo(timerId)`
+2. Timer documents can have `delegatedTo: userId` (align with `timerDelegate.userId` in `docs/interface.md`)
+3. Rules check: `isLockHolder(roomId) || isDelegatedToUser(timerId)`
 
 ### Shared Control Policy (Pass B)
 
@@ -662,6 +664,8 @@ Pass B requirements (not in scope for Pass A):
 - [ ] **A1:** Add `lock` document schema to Firestore
 - [ ] **A2:** Implement Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`)
 - [ ] **A3:** Update Firestore security rules (lock holder check)
+- [ ] **A3b:** Define cloud PIN storage location + owner-only write rules
+- [ ] **A3c:** Define Companion service account claims contract (liveCues bypass)
 - [ ] **A4:** Persist `clientId` in `sessionStorage`
 - [ ] **A5:** Add heartbeat loop to controller pages (30s interval)
 - [ ] **A6:** Subscribe to lock document in `UnifiedDataContext`
@@ -700,8 +704,7 @@ Pass B requirements (not in scope for Pass A):
    - Direct write: Faster, but rules can only validate userId (same user, different tab could update)
    - **Recommendation:** Start with Cloud Function for safety; optimize later if latency is an issue.
 
-5. **Service account token for Companion:** How does Companion authenticate to bypass lock for liveCues?
-   - Need to define the service account setup and custom claims structure.
+5. **Service account token for Companion:** Companion liveCues writes require a custom auth claim contract. Define the token minting path and claims (e.g., `sign_in_provider: 'custom'`, `service_account: true`, `companionId`) and document where tokens are issued.
 
 6. **Multi-tab same-user behavior:** If same user has two tabs, both pass rules but only one holds lock. Should we:
    - Allow direct writes from non-lock-holding tab? (current design)
@@ -722,4 +725,4 @@ Pass B requirements (not in scope for Pass A):
 | Force takeover | PIN or 30s timeout | PIN or 90s stale |
 | Events | Socket.IO broadcast | Firestore realtime listener |
 
-**Note:** Companion's 5s is a frontend UI staleness check for display purposes; actual lock release happens on socket disconnect. Cloud mode relies on server-side stale detection since tab close cannot reliably call Cloud Functions.
+**Note:** Companion's 5s is a frontend UI staleness check for display purposes; actual lock release happens on socket disconnect. Cloud mode relies on server-side stale detection since tab close cannot reliably call Cloud Functions. Cloud rules currently allow writes when no lock doc exists; this is a known race window until the lock is created. UI must acquire the lock before enabling writes.

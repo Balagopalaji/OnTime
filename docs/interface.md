@@ -37,6 +37,22 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - `config.criticalSec: number`
 - `_version?: number` (1 = legacy room-state-in-room; 2 = state subcollection)
 
+**`rooms/{roomId}/config/pin`** (cloud room PIN for takeover auth)
+- `value: string` (PIN; format TBD, e.g., 4–6 digits)
+- `updatedAt: timestamp`
+- `updatedBy: string` (userId)
+Notes:
+- Owner-only writes (cloud rules). Controllers read to validate PIN during takeover.
+
+**`rooms/{roomId}/controlRequest`** (cloud takeover request, single pending request)
+- `requesterId: string` (userId)
+- `requesterClientId: string` (clientId)
+- `requestedAt: timestamp`
+- `status: 'pending' | 'denied' | 'fulfilled' | 'expired'`
+Notes:
+- Created on Request Control; cleared on deny/force/handover or after timeout.
+- Functions enforce timeout using server timestamps; client timestamps are not trusted.
+
 **Legacy room state (v1, when `_version` is absent or 1)**
 - `state.activeTimerId: string | null`
 - `state.isRunning: boolean`
@@ -190,7 +206,7 @@ Trigger notes:
 - `userName?: string` (display name of lock holder)
 - `lockedAt: timestamp` (when lock was first acquired)
 - `lastHeartbeat: timestamp` (updated every 30s)
-- `controlPolicy: 'exclusive'` (default; only value supported in Pass A)
+- `controlPolicy?: 'exclusive'` (default; only value supported in Pass A)
 Notes:
 - Lock document is managed by Cloud Functions only (rules deny direct writes).
 - `clientId` is per-tab (persisted in sessionStorage); `userId` is used in rules for enforcement.
@@ -204,9 +220,10 @@ Notes:
   - If no lock exists: any authenticated user can write (first controller wins).
   - If lock exists: only authenticated user matching lock holder's `userId` can write.
 - Lock document: read allowed, write restricted to Cloud Functions only.
+- Room PIN: owner-only writes to `rooms/{roomId}/config/pin`.
 - liveCues: allow service account (Companion) writes regardless of lock.
 
-### 2.3 Cloud Functions API (Lock Operations; Milestone 5)
+### 2.3 Cloud Functions API (Milestone 5)
 
 All lock operations use Cloud Functions to ensure atomic, server-timestamped operations.
 
@@ -254,6 +271,7 @@ All lock operations use Cloud Functions to ensure atomic, server-timestamped ope
 ```
 Notes:
 - Authorization requires one of: valid PIN, `reauthenticated: true`, stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
+- `controlRequest` lifecycle: `requestControl` (or equivalent) creates/updates `rooms/{roomId}/controlRequest`; `forceTakeover` and `deny` clear it; timeout sets `status: 'expired'`.
 
 **`updateHeartbeat`** - Refresh heartbeat timestamp
 ```json
@@ -264,6 +282,23 @@ Notes:
 ```
 
 See `docs/cloud-lock-design.md` for full design details.
+
+### 2.4 Companion Service Account Claims (Cloud liveCues bypass)
+
+**Purpose:** Allow Companion to write `liveCues` in cloud mode even when a cloud lock is held by a controller.
+
+**Token minting:**
+- Minted via Firebase Admin SDK in Companion (server-side) or a dedicated Cloud Function.
+- Tokens must be short-lived and rotated on restart or at a fixed interval (e.g., 60 minutes).
+
+**Required custom claims:**
+- `service_account: true`
+- `companionId: string`
+- `sign_in_provider: 'custom'`
+
+**Notes:**
+- Firestore rules allow `liveCues` writes when `service_account == true`.
+- This does not grant write access to room state/timers.
 
 ## 3. Frontend ↔ Local (Companion)
 
