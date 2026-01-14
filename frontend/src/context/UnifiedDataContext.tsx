@@ -752,10 +752,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const shouldUseCloudLock = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
-      if (authority.source !== 'cloud') return false
+      const cloudAuthority = authority.source === 'cloud'
+      const pendingCloud = authority.source === 'pending' && effectiveMode === 'cloud'
+      if (!cloudAuthority && !pendingCloud) return false
       return isCloudLockEligible(roomId)
     },
-    [isCloudLockEligible, roomAuthority],
+    [effectiveMode, isCloudLockEligible, roomAuthority],
   )
 
   const isCloudController = useCallback(
