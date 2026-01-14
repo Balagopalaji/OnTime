@@ -1,8 +1,9 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { deleteDoc, deleteField, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { deleteDoc, deleteField, doc, getDoc, onSnapshot, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, ControllerLock, ControllerLockState, ControllerClient } from '../types'
-import { db } from '../lib/firebase'
+import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
 import {
   computeElapsed,
@@ -319,6 +320,7 @@ const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
 const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
 const CONTROL_CHANNEL_NAME = 'ontime:control:channel'
 const CACHE_LIMIT = 20
+const HEARTBEAT_INTERVAL_MS = 30_000
 
 type CachedRoomSnapshot = {
   roomId: string
@@ -547,6 +549,29 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
   lastUpdate: Date.now(),
 })
 
+const toMillis = (value: unknown): number => {
+  if (typeof value === 'number') return value
+  if (value && typeof (value as { toMillis?: () => number }).toMillis === 'function') {
+    return (value as { toMillis: () => number }).toMillis()
+  }
+  return 0
+}
+
+const normalizeControllerLock = (roomId: string, raw: Record<string, unknown> | null | undefined): ControllerLock | null => {
+  if (!raw) return null
+  const clientId = typeof raw.clientId === 'string' ? raw.clientId : ''
+  if (!clientId) return null
+  return {
+    clientId,
+    deviceName: typeof raw.deviceName === 'string' ? raw.deviceName : undefined,
+    userId: typeof raw.userId === 'string' ? raw.userId : undefined,
+    userName: typeof raw.userName === 'string' ? raw.userName : undefined,
+    lockedAt: toMillis(raw.lockedAt),
+    lastHeartbeat: toMillis(raw.lastHeartbeat),
+    roomId,
+  }
+}
+
 const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
@@ -584,6 +609,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [queueStatus, setQueueStatus] = useState<
     Record<string, { count: number; max: number; nearLimit: boolean; percent: number }>
   >({})
+  const [isPageVisible, setIsPageVisible] = useState(() => {
+    if (typeof document === 'undefined') return true
+    return document.visibilityState !== 'hidden'
+  })
   const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>(cachedSnapshots)
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
@@ -598,6 +627,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const companionRoomsRef = useRef(companionRooms)
   const companionTimersRef = useRef(companionTimers)
   const controllerLocksRef = useRef(controllerLocks)
+  const lockSubscriptionsRef = useRef<Record<string, () => void>>({})
+  const heartbeatIntervalsRef = useRef<Record<string, number>>({})
   const liveCueRateRef = useRef<Record<string, number>>({})
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
@@ -642,10 +673,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [debugCompanion])
   const isLockedOut = useCallback(
     (roomId: string) => {
-      const lock = controllerLocksRef.current[roomId]
-      return Boolean(lock && lock.clientId !== clientId)
+      const lockState = resolveControllerLockState({
+        roomId,
+        clientId,
+        controllerLocks: controllerLocksRef.current,
+        controlDisplacements,
+        pendingControlRequests,
+      })
+      return lockState !== 'authoritative'
     },
-    [clientId],
+    [clientId, controlDisplacements, pendingControlRequests],
   )
   const canWriteThrough = useCallback(
     (roomId: string) => {
@@ -702,6 +739,40 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const appLabel = isElectron ? 'Electron' : browserLabel
     return `${appLabel} on ${platformLabel}`.slice(0, 120)
   }, [])
+
+  const isCloudLockEligible = useCallback(
+    (roomId: string) => {
+      const room = firebase.getRoom(roomId)
+      const tier = room?.tier
+      return tier === 'show_control' || tier === 'production'
+    },
+    [firebase],
+  )
+
+  const shouldUseCloudLock = useCallback(
+    (roomId: string) => {
+      const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
+      if (authority.source !== 'cloud') return false
+      return isCloudLockEligible(roomId)
+    },
+    [isCloudLockEligible, roomAuthority],
+  )
+
+  const isCloudController = useCallback(
+    (roomId: string) => {
+      return subscribedRoomsRef.current[roomId]?.clientType === 'controller'
+    },
+    [],
+  )
+
+  const acquireLockCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'acquireLock') : null),
+    [],
+  )
+  const updateHeartbeatCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'updateHeartbeat') : null),
+    [],
+  )
 
   const processJoinQueue = useCallback(() => {
     if (!socket) return
@@ -824,6 +895,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     controllerLocksRef.current = controllerLocks
   }, [controllerLocks])
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const handleVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState !== 'hidden')
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
 
   const addPendingSyncRoom = useCallback((roomId: string) => {
     const current = pendingSyncRoomsRef.current
@@ -897,8 +979,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const setRoomPin = useCallback(
     (roomId: string, pin: string | null) => {
       if (!socket) return
-      const lock = controllerLocksRef.current[roomId]
-      if (lock && lock.clientId !== clientId) return
+      if (isLockedOut(roomId)) return
       socket.emit('SET_ROOM_PIN', {
         type: 'SET_ROOM_PIN',
         roomId,
@@ -906,7 +987,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timestamp: Date.now(),
       })
     },
-    [clientId, socket],
+    [isLockedOut, socket],
   )
 
   const requestControl = useCallback(
@@ -1523,8 +1604,33 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [])
 
   const replayRoomQueue = useCallback(
-    (roomId: string, minTimestamp?: number) => {
+    async (roomId: string, minTimestamp?: number) => {
       if (!socket) return
+      if (shouldUseCloudLock(roomId) && firestore) {
+        try {
+          const lockSnap = await getDoc(doc(firestore, 'rooms', roomId, 'lock', 'current'))
+          if (lockSnap.exists()) {
+            const lock = normalizeControllerLock(roomId, lockSnap.data() as Record<string, unknown>)
+            if (lock && lock.clientId !== clientId) {
+              saveQueue(roomId, [])
+              setControllerLocks((prev) => ({ ...prev, [roomId]: lock }))
+              setControlDisplacements((prev) => ({
+                ...prev,
+                [roomId]: {
+                  takenAt: Date.now(),
+                  takenById: lock.clientId,
+                  takenByName: lock.deviceName,
+                  takenByUserId: lock.userId,
+                  takenByUserName: lock.userName,
+                },
+              }))
+              return
+            }
+          }
+        } catch (error) {
+          console.warn('[UnifiedDataContext] lock validation failed before queue replay', { roomId, error })
+        }
+      }
       const queue = loadQueue(roomId)
       if (!queue.length) return
       const filtered =
@@ -1541,15 +1647,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       saveQueue(roomId, [])
       isReplayingRef.current = false
     },
-    [loadQueue, mergeQueuedEvents, saveQueue, socket],
+    [clientId, firestore, loadQueue, mergeQueuedEvents, saveQueue, shouldUseCloudLock, socket],
   )
 
   const emitOrQueue = useCallback(
     (roomId: string, event: QueuedEvent) => {
-      const lock = controllerLocksRef.current[roomId]
-      if (lock && lock.clientId !== clientId) {
-        return
-      }
+      if (isLockedOut(roomId)) return
       markControllerWrite(roomId, 'companion')
       const canEmit =
         socket?.connected && handshakeStatus === 'ack' && !isReplayingRef.current
@@ -1560,14 +1663,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         enqueueAction(roomId, event)
       }
     },
-    [clientId, enqueueAction, handshakeStatus, markControllerWrite, socket],
+    [enqueueAction, handshakeStatus, isLockedOut, markControllerWrite, socket],
   )
 
   const emitSyncRoomState = useCallback(
     (roomId: string) => {
       if (!socket?.connected) return
-      const lock = controllerLocksRef.current[roomId]
-      if (lock && lock.clientId !== clientId) return
+      if (isLockedOut(roomId)) return
       const room = firebase.getRoom(roomId)
       if (!room) return
       const timers = firebase.getTimers(roomId)
@@ -1594,7 +1696,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       socket.emit('SYNC_ROOM_STATE', payload)
     },
-    [clientId, computeCurrentTimeWithProgress, debugCompanion, firebase, socket],
+    [clientId, computeCurrentTimeWithProgress, debugCompanion, firebase, isLockedOut, socket],
   )
 
   const broadcastControlPayload = useCallback(
@@ -1717,6 +1819,165 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
     }
   }, [applyControlPayload, clientId])
+
+  useEffect(() => {
+    if (!firestore) return
+    const rooms = Object.entries(subscribedRooms)
+      .filter(([, sub]) => sub.clientType === 'controller')
+      .map(([roomId]) => roomId)
+    const eligible = new Set<string>()
+
+    rooms.forEach((roomId) => {
+      if (!shouldUseCloudLock(roomId)) return
+      eligible.add(roomId)
+      if (lockSubscriptionsRef.current[roomId]) return
+      const lockDoc = doc(firestore, 'rooms', roomId, 'lock', 'current')
+      const unsubscribe = onSnapshot(
+        lockDoc,
+        (snapshot) => {
+          const lock = snapshot.exists()
+            ? normalizeControllerLock(roomId, snapshot.data() as Record<string, unknown>)
+            : null
+          applyControlPayload(
+            {
+              type: 'CONTROLLER_LOCK_STATE',
+              roomId,
+              lock,
+              timestamp: Date.now(),
+            },
+            { broadcast: false },
+          )
+        },
+        (error) => {
+          console.warn('[UnifiedDataContext] lock subscription failed', { roomId, error })
+        },
+      )
+      lockSubscriptionsRef.current[roomId] = unsubscribe
+    })
+
+    Object.keys(lockSubscriptionsRef.current).forEach((roomId) => {
+      if (eligible.has(roomId)) return
+      lockSubscriptionsRef.current[roomId]?.()
+      delete lockSubscriptionsRef.current[roomId]
+      setControllerLocks((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+    })
+  }, [applyControlPayload, firestore, shouldUseCloudLock, subscribedRooms])
+
+  useEffect(() => {
+    return () => {
+      Object.values(lockSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      lockSubscriptionsRef.current = {}
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isPageVisible) {
+      Object.values(heartbeatIntervalsRef.current).forEach((intervalId) => {
+        window.clearInterval(intervalId)
+      })
+      heartbeatIntervalsRef.current = {}
+      return
+    }
+    if (!acquireLockCallable || !updateHeartbeatCallable) return
+
+    const rooms = Object.entries(subscribedRooms)
+      .filter(([, sub]) => sub.clientType === 'controller')
+      .map(([roomId]) => roomId)
+    const activeRooms = new Set<string>()
+
+    rooms.forEach((roomId) => {
+      if (!shouldUseCloudLock(roomId)) return
+      if (!isCloudController(roomId)) return
+      const lockState = resolveControllerLockState({
+        roomId,
+        clientId,
+        controllerLocks,
+        controlDisplacements,
+        pendingControlRequests,
+      })
+      if (lockState !== 'authoritative') return
+
+      activeRooms.add(roomId)
+      if (heartbeatIntervalsRef.current[roomId]) return
+
+      const sendAcquire = async () => {
+        try {
+          const response = await acquireLockCallable({
+            roomId,
+            clientId,
+            userId: user?.uid,
+            deviceName,
+            userName: user?.displayName,
+            forceIfStale: false,
+          })
+          const data = response.data as {
+            success: boolean
+            lock?: Record<string, unknown>
+            currentLock?: Record<string, unknown>
+          }
+          const nextLock = normalizeControllerLock(
+            roomId,
+            (data.lock ?? data.currentLock) as Record<string, unknown> | null,
+          )
+          if (nextLock) {
+            setControllerLocks((prev) => ({ ...prev, [roomId]: nextLock }))
+          }
+        } catch (error) {
+          console.warn('[UnifiedDataContext] cloud lock acquire failed', { roomId, error })
+        }
+      }
+
+      const sendHeartbeat = async () => {
+        try {
+          await updateHeartbeatCallable({ roomId, clientId })
+        } catch (error) {
+          console.warn('[UnifiedDataContext] cloud heartbeat failed', { roomId, error })
+        }
+      }
+
+      void sendAcquire()
+      const intervalId = window.setInterval(() => {
+        void sendHeartbeat()
+      }, HEARTBEAT_INTERVAL_MS)
+      heartbeatIntervalsRef.current[roomId] = intervalId
+    })
+
+    Object.keys(heartbeatIntervalsRef.current).forEach((roomId) => {
+      if (activeRooms.has(roomId)) return
+      window.clearInterval(heartbeatIntervalsRef.current[roomId])
+      delete heartbeatIntervalsRef.current[roomId]
+    })
+  }, [
+    acquireLockCallable,
+    clientId,
+    controllerLocks,
+    controlDisplacements,
+    deviceName,
+    isCloudController,
+    isPageVisible,
+    pendingControlRequests,
+    shouldUseCloudLock,
+    subscribedRooms,
+    updateHeartbeatCallable,
+    user?.displayName,
+    user?.uid,
+  ])
+
+  useEffect(() => {
+    return () => {
+      Object.values(heartbeatIntervalsRef.current).forEach((intervalId) => {
+        window.clearInterval(intervalId)
+      })
+      heartbeatIntervalsRef.current = {}
+    }
+  }, [])
 
   useEffect(() => {
     if (!socket) return
@@ -1920,7 +2181,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
 
-      replayRoomQueue(payload.roomId, snapshotTs)
+      void replayRoomQueue(payload.roomId, snapshotTs)
     }
 
     const handleRoomStateDelta = (payload: RoomStateDeltaPayload) => {
@@ -1990,7 +2251,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         })
       }
 
-      replayRoomQueue(payload.roomId, incomingTs)
+      void replayRoomQueue(payload.roomId, incomingTs)
     }
 
     const handleTimerCreated = (payload: TimerCreatedPayload) => {

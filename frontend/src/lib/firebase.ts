@@ -1,6 +1,7 @@
 import { getApps, initializeApp, getApp } from 'firebase/app'
 import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -20,6 +21,7 @@ const hasConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && f
 let app: ReturnType<typeof initializeApp> | null = null
 let auth: ReturnType<typeof getAuth> | null = null
 let db: ReturnType<typeof getFirestore> | null = null
+let functions: ReturnType<typeof getFunctions> | null = null
 
 if (hasConfig) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig)
@@ -28,6 +30,7 @@ if (hasConfig) {
     console.warn('Failed to set auth persistence', error)
   })
   db = getFirestore(app)
+  functions = getFunctions(app)
 } else {
   console.warn('[Firebase] No configuration found - running in local/companion mode only')
 }
@@ -41,4 +44,12 @@ if (useEmulator && auth && db) {
   }
 }
 
-export { app, auth, db }
+if (useEmulator && functions) {
+  try {
+    connectFunctionsEmulator(functions, 'localhost', 5001)
+  } catch (error) {
+    console.warn('Failed to connect Firebase Functions emulator', error)
+  }
+}
+
+export { app, auth, db, functions }
