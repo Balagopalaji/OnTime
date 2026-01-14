@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { deleteDoc, deleteField, doc, getDoc, onSnapshot, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { db, functions } from '../lib/firebase'
@@ -628,6 +628,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const companionTimersRef = useRef(companionTimers)
   const controllerLocksRef = useRef(controllerLocks)
   const lockSubscriptionsRef = useRef<Record<string, () => void>>({})
+  const controlRequestSubscriptionsRef = useRef<Record<string, () => void>>({})
+  const roomPinSubscriptionsRef = useRef<Record<string, () => void>>({})
   const heartbeatIntervalsRef = useRef<Record<string, number>>({})
   const liveCueRateRef = useRef<Record<string, number>>({})
   const tokenRefreshInFlightRef = useRef(false)
@@ -773,6 +775,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
   const updateHeartbeatCallable = useMemo(
     () => (functions ? httpsCallable(functions, 'updateHeartbeat') : null),
+    [],
+  )
+  const requestControlCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'requestControl') : null),
+    [],
+  )
+  const forceTakeoverCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'forceTakeover') : null),
+    [],
+  )
+  const denyControlCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'denyControl') : null),
     [],
   )
 
@@ -980,6 +994,27 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const setRoomPin = useCallback(
     (roomId: string, pin: string | null) => {
+      if (shouldUseCloudLock(roomId)) {
+        if (!firestoreWriteThrough || !firestore) return
+        if (!user?.uid) return
+        void (async () => {
+          const pinDoc = doc(firestore, 'rooms', roomId, 'config', 'pin')
+          if (!pin) {
+            await deleteDoc(pinDoc).catch(() => undefined)
+            return
+          }
+          await setDoc(
+            pinDoc,
+            {
+              value: pin,
+              updatedAt: serverTimestamp(),
+              updatedBy: user.uid,
+            },
+            { merge: true },
+          ).catch(() => undefined)
+        })()
+        return
+      }
       if (!socket) return
       if (isLockedOut(roomId)) return
       socket.emit('SET_ROOM_PIN', {
@@ -989,11 +1024,55 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timestamp: Date.now(),
       })
     },
-    [isLockedOut, socket],
+    [firestore, firestoreWriteThrough, isLockedOut, shouldUseCloudLock, socket, user],
   )
 
   const requestControl = useCallback(
     (roomId: string, overrideName?: string) => {
+      if (shouldUseCloudLock(roomId)) {
+        if (!requestControlCallable) return
+        if (!user?.uid) return
+        const requestedAt = Date.now()
+        setPendingControlRequests((prev) => ({
+          ...prev,
+          [roomId]: {
+            requesterId: clientId,
+            requesterName: overrideName ?? deviceName,
+            requesterUserId: user.uid,
+            requesterUserName: user.displayName ?? undefined,
+            requestedAt,
+          },
+        }))
+        setControlDenials((prev) => ({ ...prev, [roomId]: null }))
+        setControlErrors((prev) => ({ ...prev, [roomId]: null }))
+        void (async () => {
+          try {
+            const response = await requestControlCallable({ roomId, clientId, userId: user.uid })
+            const data = response.data as { success?: boolean; error?: string }
+            if (data?.success === false) {
+              setControlErrors((prev) => ({
+                ...prev,
+                [roomId]: {
+                  code: data.error ?? 'REQUEST_CONTROL_FAILED',
+                  message: 'Request control failed.',
+                  receivedAt: Date.now(),
+                },
+              }))
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Request failed'
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'REQUEST_CONTROL_FAILED',
+                message,
+                receivedAt: Date.now(),
+              },
+            }))
+          }
+        })()
+        return
+      }
       if (!socket) return
       const payload = {
         type: 'REQUEST_CONTROL' as const,
@@ -1018,11 +1097,50 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       setControlErrors((prev) => ({ ...prev, [roomId]: null }))
       socket.emit('REQUEST_CONTROL', payload)
     },
-    [clientId, deviceName, socket, user?.displayName, user?.uid],
+    [clientId, deviceName, requestControlCallable, shouldUseCloudLock, socket, user],
   )
 
   const forceTakeover = useCallback(
     (roomId: string, options?: { pin?: string; reauthenticated?: boolean }) => {
+      if (shouldUseCloudLock(roomId)) {
+        if (!forceTakeoverCallable) return
+        if (!user?.uid) return
+        void (async () => {
+          try {
+            const response = await forceTakeoverCallable({
+              roomId,
+              clientId,
+              userId: user.uid,
+              deviceName,
+              userName: user.displayName,
+              pin: options?.pin,
+              reauthenticated: options?.reauthenticated,
+            })
+            const data = response.data as { success?: boolean; error?: string }
+            if (data?.success === false) {
+              setControlErrors((prev) => ({
+                ...prev,
+                [roomId]: {
+                  code: data.error ?? 'FORCE_TAKEOVER_FAILED',
+                  message: 'Force takeover failed.',
+                  receivedAt: Date.now(),
+                },
+              }))
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Force takeover failed'
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'FORCE_TAKEOVER_FAILED',
+                message,
+                receivedAt: Date.now(),
+              },
+            }))
+          }
+        })()
+        return
+      }
       if (!socket) return
       socket.emit('FORCE_TAKEOVER', {
         type: 'FORCE_TAKEOVER',
@@ -1033,7 +1151,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timestamp: Date.now(),
       })
     },
-    [clientId, socket],
+    [clientId, deviceName, forceTakeoverCallable, shouldUseCloudLock, socket, user],
   )
 
   const handOverControl = useCallback(
@@ -1051,6 +1169,39 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const denyControl = useCallback(
     (roomId: string, requesterId: string) => {
+      if (shouldUseCloudLock(roomId)) {
+        if (!denyControlCallable) return
+        void (async () => {
+          try {
+            const response = await denyControlCallable({ roomId })
+            const data = response.data as { success?: boolean; error?: string }
+            if (data?.success === false) {
+              setControlErrors((prev) => ({
+                ...prev,
+                [roomId]: {
+                  code: data.error ?? 'DENY_CONTROL_FAILED',
+                  message: 'Deny control failed.',
+                  receivedAt: Date.now(),
+                },
+              }))
+              return
+            }
+            setPendingControlRequests((prev) => ({ ...prev, [roomId]: null }))
+            setControlRequests((prev) => ({ ...prev, [roomId]: null }))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Deny request failed'
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'DENY_CONTROL_FAILED',
+                message,
+                receivedAt: Date.now(),
+              },
+            }))
+          }
+        })()
+        return
+      }
       if (!socket) return
       socket.emit('DENY_CONTROL', {
         type: 'DENY_CONTROL',
@@ -1059,7 +1210,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timestamp: Date.now(),
       })
     },
-    [socket],
+    [denyControlCallable, shouldUseCloudLock, socket],
   )
 
   const sendHeartbeat = useCallback(
@@ -1871,11 +2022,152 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [applyControlPayload, firestore, shouldUseCloudLock, subscribedRooms])
 
   useEffect(() => {
+    if (!firestore) return
+    const rooms = Object.entries(subscribedRooms)
+      .filter(([, sub]) => sub.clientType === 'controller')
+      .map(([roomId]) => roomId)
+    const eligible = new Set<string>()
+
+    rooms.forEach((roomId) => {
+      if (!shouldUseCloudLock(roomId)) return
+      eligible.add(roomId)
+      if (controlRequestSubscriptionsRef.current[roomId]) return
+      const requestDoc = doc(firestore, 'rooms', roomId, 'controlRequest', 'current')
+      const unsubscribe = onSnapshot(
+        requestDoc,
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            setControlRequests((prev) => ({ ...prev, [roomId]: null }))
+            setPendingControlRequests((prev) => ({ ...prev, [roomId]: null }))
+            return
+          }
+          const data = snapshot.data() as Record<string, unknown>
+          const status = typeof data.status === 'string' ? data.status : 'pending'
+          const requesterClientId = typeof data.requesterClientId === 'string' ? data.requesterClientId : ''
+          const requesterUserId = typeof data.requesterId === 'string' ? data.requesterId : undefined
+          const requestedAt = toMillis(data.requestedAt) ?? Date.now()
+
+          if (status === 'pending' && requesterClientId) {
+            setControlRequests((prev) => ({
+              ...prev,
+              [roomId]: {
+                requesterId: requesterClientId,
+                requesterUserId,
+                requestedAt,
+              },
+            }))
+            setControlDenials((prev) => ({ ...prev, [roomId]: null }))
+          } else {
+            setControlRequests((prev) => ({ ...prev, [roomId]: null }))
+          }
+
+          if (status === 'pending' && requesterClientId === clientId) {
+            setPendingControlRequests((prev) => ({
+              ...prev,
+              [roomId]: {
+                requesterId: requesterClientId,
+                requesterUserId,
+                requestedAt,
+              },
+            }))
+          } else {
+            setPendingControlRequests((prev) => ({ ...prev, [roomId]: null }))
+          }
+
+          if (status === 'denied' && requesterClientId) {
+            const deniedAt = Date.now()
+            setControlDenials((prev) => ({
+              ...prev,
+              [roomId]: {
+                requesterId: requesterClientId,
+                deniedAt,
+              },
+            }))
+          }
+        },
+        (error) => {
+          console.warn('[UnifiedDataContext] control request subscription failed', { roomId, error })
+        },
+      )
+      controlRequestSubscriptionsRef.current[roomId] = unsubscribe
+    })
+
+    Object.keys(controlRequestSubscriptionsRef.current).forEach((roomId) => {
+      if (eligible.has(roomId)) return
+      controlRequestSubscriptionsRef.current[roomId]?.()
+      delete controlRequestSubscriptionsRef.current[roomId]
+      setControlRequests((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+      setPendingControlRequests((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+    })
+  }, [clientId, firestore, shouldUseCloudLock, subscribedRooms])
+
+  useEffect(() => {
+    if (!firestore) return
+    const rooms = Object.entries(subscribedRooms)
+      .filter(([, sub]) => sub.clientType === 'controller')
+      .map(([roomId]) => roomId)
+    const eligible = new Set<string>()
+
+    rooms.forEach((roomId) => {
+      if (!shouldUseCloudLock(roomId)) return
+      eligible.add(roomId)
+      if (roomPinSubscriptionsRef.current[roomId]) return
+      const pinDoc = doc(firestore, 'rooms', roomId, 'config', 'pin')
+      const unsubscribe = onSnapshot(
+        pinDoc,
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            setRoomPins((prev) => ({ ...prev, [roomId]: null }))
+            return
+          }
+          const data = snapshot.data() as Record<string, unknown>
+          const value = typeof data.value === 'string' ? data.value : null
+          setRoomPins((prev) => ({ ...prev, [roomId]: value }))
+        },
+        (error) => {
+          console.warn('[UnifiedDataContext] room pin subscription failed', { roomId, error })
+        },
+      )
+      roomPinSubscriptionsRef.current[roomId] = unsubscribe
+    })
+
+    Object.keys(roomPinSubscriptionsRef.current).forEach((roomId) => {
+      if (eligible.has(roomId)) return
+      roomPinSubscriptionsRef.current[roomId]?.()
+      delete roomPinSubscriptionsRef.current[roomId]
+      setRoomPins((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+    })
+  }, [firestore, shouldUseCloudLock, subscribedRooms])
+
+  useEffect(() => {
     return () => {
       Object.values(lockSubscriptionsRef.current).forEach((unsubscribe) => {
         unsubscribe()
       })
       lockSubscriptionsRef.current = {}
+      Object.values(controlRequestSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      controlRequestSubscriptionsRef.current = {}
+      Object.values(roomPinSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      roomPinSubscriptionsRef.current = {}
     }
   }, [])
 
