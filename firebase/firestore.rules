@@ -18,8 +18,8 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/rooms/$(roomId)).data.features.showControl == true;
     }
     function isLockHolderByUserId(roomId) {
-      return !exists(/databases/$(database)/documents/rooms/$(roomId)/lock)
-        || get(/databases/$(database)/documents/rooms/$(roomId)/lock).data.userId == request.auth.uid;
+      return !exists(/databases/$(database)/documents/rooms/$(roomId)/lock/current)
+        || get(/databases/$(database)/documents/rooms/$(roomId)/lock/current).data.userId == request.auth.uid;
     }
 
     match /rooms/{roomId} {
@@ -58,7 +58,7 @@ service cloud.firestore {
         allow read, write: if isOwner(roomId);
       }
 
-      match /lock {
+      match /lock/{lockId} {
         allow read: if true;
         allow write: if false;
       }
@@ -68,7 +68,7 @@ service cloud.firestore {
         allow create, update, delete: if isOwner(roomId);
       }
 
-      match /controlRequest {
+      match /controlRequest/{requestId} {
         allow read: if isSignedIn();
         allow write: if false;
       }
