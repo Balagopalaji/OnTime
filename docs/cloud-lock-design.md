@@ -21,6 +21,8 @@ Controller lock/takeover enforcement exists only in the Companion (local) path. 
 
 Enforce single authoritative controller when the room is controlled via Firebase (cloud path), achieving parity with Companion lock semantics.
 
+**Tier gating:** Cloud lock enforcement applies to Show Control + Production tiers. Basic tier remains unlocked (multiple controllers allowed) unless upgraded.
+
 ### Non-Goals (Pass A)
 
 - Shared/multi-controller mode (Pass B)
@@ -33,7 +35,7 @@ Enforce single authoritative controller when the room is controlled via Firebase
 
 ### Firestore Document
 
-**Location:** `rooms/{roomId}/lock`
+**Location:** `rooms/{roomId}/lock/current`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -236,7 +238,7 @@ All lock operations use Cloud Functions to ensure atomic, server-timestamped ope
 3. Lock is stale (lastHeartbeat > 90s ago)
 4. Request timeout elapsed (30s since REQUEST_CONTROL)
 
-**Note on request timeout:** Use server-stored timestamps to avoid spoofing. Store `requestedAt` in a Firestore doc (e.g., `rooms/{roomId}/controlRequests/{requestId}` or a single `rooms/{roomId}/controlRequest`), and have Cloud Functions validate the elapsed time using server timestamps. Client-provided timestamps must not be trusted.
+**Note on request timeout:** Use server-stored timestamps to avoid spoofing. Store `requestedAt` in a single Firestore doc (`rooms/{roomId}/controlRequest/current`), and have Cloud Functions validate the elapsed time using server timestamps. Client-provided timestamps must not be trusted.
 
 **Logic:**
 ```
@@ -520,7 +522,7 @@ const getLockSource = (roomAuthority: RoomAuthority): 'companion' | 'cloud' | nu
 | `roomAuthority.source` | Lock Source | Lock Storage | Events |
 |------------------------|-------------|--------------|--------|
 | `'companion'` | Companion | In-memory (`roomControllerStore`) | Socket.IO |
-| `'cloud'` | Firebase | Firestore (`rooms/{roomId}/lock`) | Firestore listener |
+| `'cloud'` | Firebase | Firestore (`rooms/{roomId}/lock/current`) | Firestore listener |
 | `'pending'` | None | N/A | Wait for resolution |
 
 ### No Lock Mixing
@@ -717,7 +719,7 @@ Pass B requirements (not in scope for Pass A):
 
 | Aspect | Companion | Cloud (Proposed) |
 |--------|-----------|------------------|
-| Storage | In-memory `roomControllerStore` | Firestore `rooms/{roomId}/lock` |
+| Storage | In-memory `roomControllerStore` | Firestore `rooms/{roomId}/lock/current` |
 | Heartbeat | Socket.IO `HEARTBEAT` event | Cloud Function `updateHeartbeat` |
 | Stale threshold | 5s (frontend UI check) | 90s (server-side) |
 | Acquisition | `setControllerLock()` on JOIN_ROOM | `acquireLock()` Cloud Function |

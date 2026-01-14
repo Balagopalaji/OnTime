@@ -453,11 +453,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - No shared/multi-controller mode (see "Future: Enterprise Shared Control" below).
 - No role-based permissions or timerDelegate (Phase 3).
 - No audit logging (see "Future: Enterprise Shared Control" below).
+- Basic tier remains unlocked (cloud lock gated to Show Control + Production).
 
 **Pass A: Lock Schema & Cloud Functions**
 **Cloud/Firebase**
-- [ ] Add `rooms/{roomId}/lock` document schema to Firestore.
-- [ ] Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest` schemas.
+- [ ] Add `rooms/{roomId}/lock/current` document schema to Firestore.
+- [ ] Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest/current` schemas.
 - [ ] Implement Cloud Functions:
   - `acquireLock`: Atomic lock acquisition with transaction; handles race conditions.
   - `releaseLock`: Release held lock (voluntary or cleanup).
@@ -490,7 +491,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Frontend**
 - [ ] Persist `clientId` in `sessionStorage` (survives refresh, not new tabs).
 - [ ] Add heartbeat loop (30s interval) for cloud mode controllers.
-- [ ] Subscribe to `rooms/{roomId}/lock` document in `UnifiedDataContext`.
+- [ ] Subscribe to `rooms/{roomId}/lock/current` document in `UnifiedDataContext`.
 - [ ] Map cloud lock state to existing `resolveControllerLockState()` (authoritative/read-only/requesting/displaced).
 - [ ] Implement `visibilitychange` handler: stop heartbeat when tab hidden, resume when visible.
 - [ ] Add queue flush validation: check lock before flushing offline writes; discard if lock lost.

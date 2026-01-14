@@ -35,3 +35,4 @@ Scope: Active tasks and notes.
 - [ ] Crash recovery banner on force-quit relaunch ("Recovered session").
 - [ ] Auto-update pipeline for Electron controller (canary + stable).
 - [ ] RAM target reduction work for Minimal mode (currently over 50MB).
+- [ ] Add optional version bump step for macOS builds (mirror Windows script); not urgent since mac install doesn’t require uninstall/reinstall per build.

@@ -288,8 +288,8 @@ Implement Milestone 5 Pass A.
 Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 
 Scope:
-- Add `rooms/{roomId}/lock` document schema to Firestore.
-- Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest` schemas.
+- Add `rooms/{roomId}/lock/current` document schema to Firestore.
+- Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest/current` schemas.
 - Implement Cloud Functions: `acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`, plus request/deny control helpers to manage `controlRequest`.
 - Use Firestore transactions for atomic lock acquisition.
 - All staleness logic (90s threshold) in Cloud Functions only; no stale checks in rules.
@@ -322,7 +322,7 @@ Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list a
 Scope:
 - Persist `clientId` in `sessionStorage` (survives refresh, not new tabs).
 - Add heartbeat loop (30s interval) for cloud mode controllers only.
-- Subscribe to `rooms/{roomId}/lock` document in `UnifiedDataContext`.
+- Subscribe to `rooms/{roomId}/lock/current` document in `UnifiedDataContext`.
 - Map cloud lock state to existing `resolveControllerLockState()` (authoritative/read-only/requesting/displaced).
 - Implement `visibilitychange` handler: stop heartbeat when tab hidden, resume when visible.
 - Add queue flush validation: check lock before flushing offline writes; discard if lock lost.

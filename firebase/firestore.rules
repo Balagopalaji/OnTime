@@ -4,6 +4,11 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
+    function isServiceAccount() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'custom'
+        && request.auth.token.service_account == true;
+    }
     function isOwner(roomId) {
       return isSignedIn()
         && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerId == request.auth.uid;
@@ -11,6 +16,10 @@ service cloud.firestore {
     function hasShowControl(roomId) {
       return isSignedIn()
         && get(/databases/$(database)/documents/rooms/$(roomId)).data.features.showControl == true;
+    }
+    function isLockHolderByUserId(roomId) {
+      return !exists(/databases/$(database)/documents/rooms/$(roomId)/lock)
+        || get(/databases/$(database)/documents/rooms/$(roomId)/lock).data.userId == request.auth.uid;
     }
 
     match /rooms/{roomId} {
@@ -27,25 +36,41 @@ service cloud.firestore {
       match /timers/{timerId} {
         // Public read for viewers; owner-only writes.
         allow read: if true;
-        allow create, update, delete: if isOwner(roomId);
+        allow create, update, delete: if isSignedIn() && isLockHolderByUserId(roomId);
       }
 
       // Live cues (Show Control tier+ only)
       match /liveCues/{cueId} {
         // Keep read authenticated-only for now; cue metadata can include slide notes / paths.
         allow read: if hasShowControl(roomId);
-        allow create, update, delete: if isOwner(roomId) && hasShowControl(roomId);
+        allow create, update, delete: if hasShowControl(roomId)
+          && (isLockHolderByUserId(roomId) || isServiceAccount());
       }
 
       // Room state (v2): /rooms/{roomId}/state/current
       match /state/current {
         allow read: if true;
-        allow create, update, delete: if isOwner(roomId);
+        allow create, update, delete: if isSignedIn() && isLockHolderByUserId(roomId);
       }
 
       // Migration backups (v1 -> v2 rollback support)
       match /migrationBackups/{backupId} {
         allow read, write: if isOwner(roomId);
+      }
+
+      match /lock {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /config/pin {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isOwner(roomId);
+      }
+
+      match /controlRequest {
+        allow read: if isSignedIn();
+        allow write: if false;
       }
     }
   }

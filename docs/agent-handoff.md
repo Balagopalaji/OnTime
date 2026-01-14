@@ -57,6 +57,15 @@ Blockers: None.
 Next steps: Prune handoff entries after Phase 2 completion.
 ---
 
+Timestamp (UTC): 2026-01-14T04:06:41Z
+Owner (macOS)
+Context: macOS PPT detection testing requires packaged build.
+Commands: n/a
+Results: AppleScript automation only works reliably when running the packaged Companion app (dist build); dev runner lacks macOS Automation permission.
+Blockers: None.
+Next steps: Use packaged Companion for macOS PPT tests; log issues only after testing with dist build.
+---
+
 Timestamp (UTC): 2026-01-11T08:20:00Z
 Owner (Windows, WSL)
 Context: Windows PPT slide updates + tray icon visibility.

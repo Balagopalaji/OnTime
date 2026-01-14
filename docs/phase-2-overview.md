@@ -269,7 +269,7 @@ This section summarizes the show-control architecture at a high level. Canonical
 
 5. **Cloud Controller Lock Enforcement**
    - Enforce single authoritative controller in cloud/Firebase mode (parity with Companion lock).
-   - Firestore lock document (`rooms/{roomId}/lock`) with Cloud Functions for atomic acquire/release/force.
+   - Firestore lock document (`rooms/{roomId}/lock/current`) with Cloud Functions for atomic acquire/release/force.
    - Rules enforce lock holder by `userId`; Cloud Functions validate `clientId` for per-tab enforcement.
    - Frontend heartbeat loop (30s), stale detection (90s), request/force takeover UX in cloud mode.
    - Success: Single controller in cloud mode; request/force takeover works; viewers unaffected.

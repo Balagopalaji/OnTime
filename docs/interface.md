@@ -44,7 +44,7 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 Notes:
 - Owner-only writes (cloud rules). Controllers read to validate PIN during takeover.
 
-**`rooms/{roomId}/controlRequest`** (cloud takeover request, single pending request)
+**`rooms/{roomId}/controlRequest/current`** (cloud takeover request, single pending request)
 - `requesterId: string` (userId)
 - `requesterClientId: string` (clientId)
 - `requestedAt: timestamp`
@@ -198,7 +198,7 @@ Trigger notes:
 - `presetId?: string` (when type is `preset`)
 - `createdAt: number`
 
-**`rooms/{roomId}/lock`** (cloud controller lock; Milestone 5)
+**`rooms/{roomId}/lock/current`** (cloud controller lock; Milestone 5)
 - **Purpose:** Enforce single authoritative controller in cloud mode (parity with Companion lock).
 - `clientId: string` (unique client identifier, per-tab)
 - `userId: string` (Firebase Auth UID, per-account)
@@ -271,7 +271,7 @@ All lock operations use Cloud Functions to ensure atomic, server-timestamped ope
 ```
 Notes:
 - Authorization requires one of: valid PIN, `reauthenticated: true`, stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
-- `controlRequest` lifecycle: `requestControl` (or equivalent) creates/updates `rooms/{roomId}/controlRequest`; `forceTakeover` and `deny` clear it; timeout sets `status: 'expired'`.
+- `controlRequest` lifecycle: `requestControl` (or equivalent) creates/updates `rooms/{roomId}/controlRequest/current`; `forceTakeover` and `deny` clear it; timeout sets `status: 'expired'`.
 
 **`updateHeartbeat`** - Refresh heartbeat timestamp
 ```json

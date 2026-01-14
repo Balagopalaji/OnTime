@@ -105,9 +105,13 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 **Overview**
 Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is planned for Milestone 5 and is **not** live yet. When implemented, lock state will be stored in Firestore and managed via Cloud Functions.
 
+**Tier gating**
+- Show Control + Production tiers enforce cloud lock.
+- Basic tier remains unlocked (multiple controllers allowed) unless upgraded.
+
 **Lock source resolution**
 - `roomAuthority.source === 'companion'` → Use Companion lock (existing Socket.IO flow).
-- `roomAuthority.source === 'cloud'` → Use Firestore lock (`rooms/{roomId}/lock`).
+- `roomAuthority.source === 'cloud'` → Use Firestore lock (`rooms/{roomId}/lock/current`).
 - No mixing; one lock source per room.
 
 **Cloud lock behavior**

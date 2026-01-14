@@ -36,7 +36,9 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 
 ## Controller Lock Enforcement (Target: Milestone 5)
 
-All tiers will enforce single-controller lock to prevent concurrent writes from multiple controllers. Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
+Show Control + Production tiers will enforce single-controller lock to prevent concurrent writes from multiple controllers. Basic tier remains unlocked (multiple controllers allowed) until explicitly upgraded.
+
+Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
 
 **Lock enforcement applies to:**
 - **Companion mode:** In-memory lock with Socket.IO events (existing).

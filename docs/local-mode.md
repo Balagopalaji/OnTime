@@ -418,15 +418,15 @@ useEffect(() => {
 
 ### 3.5.2 Cloud Mode Lock Enforcement (Milestone 5)
 
-When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcement uses Firestore instead of Companion's in-memory lock.
+When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcement uses Firestore instead of Companion's in-memory lock. Cloud lock enforcement is gated to Show Control + Production tiers; Basic remains unlocked until upgraded.
 
 **Lock source resolution:**
 - `roomAuthority.source === 'companion'` → Use Companion lock (Socket.IO events, in-memory store)
-- `roomAuthority.source === 'cloud'` → Use Firestore lock (`rooms/{roomId}/lock`)
+- `roomAuthority.source === 'cloud'` → Use Firestore lock (`rooms/{roomId}/lock/current`)
 - No mixing; one lock source per room based on authority
 
 **Cloud lock storage:**
-- Location: `rooms/{roomId}/lock` document in Firestore
+- Location: `rooms/{roomId}/lock/current` document in Firestore
 - Managed by Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`)
 - Rules enforce by `userId`; Cloud Functions validate `clientId` for per-tab enforcement
 
