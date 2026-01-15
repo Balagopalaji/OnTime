@@ -510,9 +510,9 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Manual Verification (Pass B)**
 - [x] Refresh tab while holding cloud lock; lock retained (clientId persists).
 - [x] Open second tab (same user); second tab shows read-only, cannot acquire lock.
-- [ ] Close lock-holding tab; after 90s, second tab can force takeover.
-- [ ] Go offline while holding lock; reconnect within 90s and lock retained.
-- [ ] Go offline, another user takes over; on reconnect, first user sees "displaced" UI and queued writes discarded.
+- [ ] Close lock-holding tab; after requesting control, force takeover should work after 30s timeout or with PIN (stale lock alone does not auto-force).
+- [x] Go offline while holding lock; reconnect within 90s and lock retained.
+- [x] Go offline, another user takes over; on reconnect, first user sees "displaced" UI and queued writes discarded.
 
 **Pass C: Request/Force Takeover UX (Cloud)**
 **Frontend**
@@ -527,10 +527,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: full request/force/handover flow in cloud mode
 
 **Manual Verification (Pass C)**
-- [ ] Request control in cloud mode shows waiting state with countdown.
-- [ ] Force takeover with PIN succeeds; without PIN, must wait for timeout.
-- [ ] Displaced controller sees notification with "Reclaim Control" action.
-- [ ] Reclaim control works in cloud mode.
+- [x] Request control in cloud mode shows waiting state with countdown.
+- [x] Force takeover with PIN succeeds; without PIN, must wait for timeout.
+- [x] Displaced controller sees notification with "Reclaim Control" action.
+- [x] Reclaim control works in cloud mode.
 
 **Pass D: Documentation & Cleanup**
 **Documentation**
