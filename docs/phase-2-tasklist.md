@@ -510,7 +510,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Manual Verification (Pass B)**
 - [x] Refresh tab while holding cloud lock; lock retained (clientId persists).
 - [x] Open second tab (same user); second tab shows read-only, cannot acquire lock.
-- [ ] Close lock-holding tab; after requesting control, force takeover should work after 30s timeout or with PIN (stale lock alone does not auto-force).
+- [x] Close lock-holding tab; after requesting control, force takeover should work after 30s timeout or with PIN (stale lock alone does not auto-force).
 - [x] Go offline while holding lock; reconnect within 90s and lock retained.
 - [x] Go offline, another user takes over; on reconnect, first user sees "displaced" UI and queued writes discarded.
 
@@ -555,7 +555,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - `beforeunload` release skipped; relying on 90s stale timeout for cleanup.
 
 **Definition of Done (Milestone 5)**
-- [ ] Cloud lock enforced; request/force takeover works; UX parity with Companion; docs updated.
+- [x] Cloud lock enforced; request/force takeover works; UX parity with Companion; docs updated.
 
 **Follow-up: Cloud Handover Presence (New Scope)**
 - [x] Add cloud presence list for controllers (`rooms/{roomId}/clients/*`) with heartbeat + cleanup.
