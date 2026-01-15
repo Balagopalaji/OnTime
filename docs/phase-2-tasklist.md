@@ -558,14 +558,14 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [ ] Cloud lock enforced; request/force takeover works; UX parity with Companion; docs updated.
 
 **Follow-up: Cloud Handover Presence (New Scope)**
-- [ ] Add cloud presence list for controllers (`rooms/{roomId}/clients/*`) with heartbeat + cleanup.
-- [ ] UI: show cloud handover targets + allow handover without a request.
-- [ ] Cloud Function to transfer lock to target client with explicit errors (TARGET_OFFLINE, TARGET_NOT_FOUND, NOT_LOCK_HOLDER) and surface errors in UI.
-- [ ] Rules: authenticated users can read presence (broad read acceptable for Pass A); only matching `clientId` + `userId` can write.
-- [ ] Handover clears `controlRequest/current` (delete) and transitions caller to read-only.
-- [ ] Policy: handover is unilateral by default (consent flow is a future enhancement).
-- [ ] Presence `lastHeartbeat` is server-timestamped; handover clears `controlRequest/current` in the same transaction.
-- [ ] Self-handover refreshes lock timestamps (no-op with heartbeat refresh).
+- [x] Add cloud presence list for controllers (`rooms/{roomId}/clients/*`) with heartbeat + cleanup.
+- [x] UI: show cloud handover targets + allow handover without a request.
+- [x] Cloud Function to transfer lock to target client with explicit errors (TARGET_OFFLINE, TARGET_NOT_FOUND, NOT_LOCK_HOLDER) and surface errors in UI.
+- [x] Rules: authenticated users can read presence (broad read acceptable for Pass A); only matching `clientId` + `userId` can write.
+- [x] Handover clears `controlRequest/current` (delete) and transitions caller to read-only.
+- [x] Policy: handover is unilateral by default (consent flow is a future enhancement).
+- [x] Presence `lastHeartbeat` is server-timestamped; handover clears `controlRequest/current` in the same transaction.
+- [x] Self-handover refreshes lock timestamps (no-op with heartbeat refresh).
 ---
 
 ## Future: Enterprise Shared Control (Post-Milestone 5)
