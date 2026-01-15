@@ -350,7 +350,7 @@ Implement Milestone 5 Pass C.
 Complete every item listed under this pass in `docs/phase-2-tasklist.md`; list any item you cannot complete and why.
 
 Scope:
-- Request control flow works in cloud mode (calls `forceTakeover` Cloud Function).
+- Request control flow works in cloud mode (calls `requestControl` Cloud Function).
 - Force takeover with PIN works in cloud mode.
 - Force takeover after timeout (30s since request) works in cloud mode.
 - Displaced controller notification works in cloud mode.
@@ -358,7 +358,7 @@ Scope:
 
 Reference: `docs/client-prd.md` "Cloud Controller Lock Enforcement" section for UX requirements.
 
-Files: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/components/*`.
+Files: `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/routes/ControllerPage.tsx`, `frontend/src/components/*`.
 
 Before writing code:
 1. List the files you will create/modify
@@ -385,4 +385,27 @@ Before writing code:
 1. List the files you will review/modify
 2. Confirm the documentation matches the implementation
 3. Then proceed with cleanup
+```
+
+### Follow-up: Cloud Handover Presence (New Scope)
+Prompt:
+```
+Before any code: open `docs/phase-2-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read: `docs/cloud-lock-design.md` (Section 11 - Cloud Handover Presence).
+Implement the follow-up "Cloud Handover Presence" tasks from `docs/phase-2-tasklist.md`.
+Complete every item listed under this follow-up; list any item you cannot complete and why.
+
+Scope:
+- Presence docs at `rooms/{roomId}/clients/{clientId}` with server-timestamped heartbeats.
+- Presence read: authenticated users (broad read acceptable for Pass A); viewers unauthenticated.
+- Presence write: only matching `clientId` + `userId` (see example rule in docs).
+- Cloud Function `handoverLock` with explicit errors and transactional lock swap + controlRequest delete.
+- UI: show cloud handover targets and surface handover errors in the control bar.
+
+Files: `firebase/firestore.rules`, `functions/src/lock.ts`, `frontend/src/context/UnifiedDataContext.tsx`, `frontend/src/routes/ControllerPage.tsx`.
+
+Before writing code:
+1. List the files you will create/modify
+2. Confirm you understand the scope exclusions
+3. Then proceed with implementation
 ```

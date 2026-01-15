@@ -21,7 +21,7 @@ Controller lock/takeover enforcement exists only in the Companion (local) path. 
 
 Enforce single authoritative controller when the room is controlled via Firebase (cloud path), achieving parity with Companion lock semantics.
 
-**Tier gating:** Cloud lock enforcement applies to Show Control + Production tiers. Basic tier remains unlocked (multiple controllers allowed) unless upgraded.
+**Tier gating:** Cloud lock enforcement applies to Show Control + Production tiers. Basic tier remains unlocked (multiple controllers allowed) unless upgraded. **Note:** tier gating is enforced in the frontend; Firestore rules do not enforce tiers.
 
 ### Non-Goals (Pass A)
 
@@ -65,7 +65,7 @@ Enforce single authoritative controller when the room is controlled via Firebase
 
 ```
 rooms/{roomId}/
-├── lock                    ← NEW: Controller lock document
+├── lock/current            ← NEW: Controller lock document
 ├── state/current           ← Protected by lock
 ├── timers/{timerId}        ← Protected by lock
 └── liveCues/{cueId}        ← Protected by lock (Show Control tier)
@@ -308,10 +308,10 @@ service cloud.firestore {
 
     // Helper: Check if requester's userId matches lock holder
     function isLockHolderByUserId(roomId) {
-      let lock = get(/databases/$(database)/documents/rooms/$(roomId)/lock);
+      let lock = get(/databases/$(database)/documents/rooms/$(roomId)/lock/current);
       // Lock doesn't exist = anyone can write (first controller wins)
       // Lock exists = only lock holder's userId can write
-      return !exists(/databases/$(database)/documents/rooms/$(roomId)/lock)
+      return !exists(/databases/$(database)/documents/rooms/$(roomId)/lock/current)
           || lock.data.userId == request.auth.uid;
     }
 
@@ -326,7 +326,7 @@ service cloud.firestore {
       allow read: if true;
 
       // Lock document: managed by Cloud Functions only
-      match /lock {
+      match /lock/{lockId} {
         allow read: if true;  // Anyone can see lock state (for UI)
         allow write: if false; // Only Cloud Functions can write
       }
@@ -659,7 +659,63 @@ Pass B requirements (not in scope for Pass A):
 
 ---
 
-## 11. Implementation Checklist
+## 11. Planned: Cloud Handover Presence (Follow-up)
+
+**Goal:** Provide a cloud-mode presence list so the lock holder can hand over control without a request, matching Companion UX.
+
+### 11.1 Presence Schema
+**Location:** `rooms/{roomId}/clients/{clientId}`
+
+Fields:
+- `clientId: string`
+- `userId: string`
+- `userName?: string`
+- `deviceName?: string`
+- `lastHeartbeat: timestamp`
+
+Notes:
+- Presence updates are throttled to 30s (same as lock heartbeat).
+- Presence `lastHeartbeat` is always server-timestamped (clients do not supply timestamps).
+- Read-only controllers still write presence so they can appear as handover targets.
+- Clients are considered active if `lastHeartbeat` < 90s.
+- UI filters presence by staleness; no server-side cleanup in Pass A.
+- Presence is only used when `roomAuthority.source === 'cloud'` and tier is Show Control or Production.
+- Collection name `clients/*` is reserved for controller presence (no other planned use).
+
+### 11.2 Security Rules (Planned)
+- Read: authenticated users only (broad read is acceptable for Pass A). Viewers unauthenticated.
+- Write: only the authenticated user can write their own presence doc (example rule: `request.resource.id == request.resource.data.clientId && request.auth.uid == request.resource.data.userId`).
+- Viewers must not read presence docs.
+
+### 11.3 Cloud Function: `handoverLock`
+**Input:** `{ roomId, targetClientId }`
+
+**Authorization:**
+- Caller must be current lock holder (by userId + clientId).
+- Target presence must exist and be fresh (<30s).
+
+**Behavior:**
+- Overwrite `lock/current` with target presence (clientId, userId, device/user names).
+- Set `lockedAt` + `lastHeartbeat` to server timestamp.
+- Clear `controlRequest/current` (delete the doc; treat as fulfilled in UI).
+- The lock swap and `controlRequest` delete occur in the same transaction.
+
+**Errors:**
+- `NOT_LOCK_HOLDER`, `NO_ACTIVE_LOCK`, `TARGET_NOT_FOUND`, `TARGET_OFFLINE`.
+
+**Consent policy:**
+- Unilateral by default (lock holder can hand over without target approval). If consent is required later, add a request/accept flow.
+- Self-handover refreshes lock timestamps (no-op with heartbeat refresh) and returns success.
+
+### 11.4 Frontend Behavior
+- Subscribe to `clients/*` only when authoritative in cloud mode.
+- Filter targets by `lastHeartbeat` < 90s.
+- On success: show confirmation and transition to read-only state.
+- On failure: surface error reason (target offline, not lock holder, etc.).
+
+---
+
+## 12. Implementation Checklist
 
 ### Pass A Tasks
 

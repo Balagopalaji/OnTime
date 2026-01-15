@@ -222,8 +222,13 @@ Notes:
 - `userName?: string`
 - `lastHeartbeat: timestamp`
 Notes:
-- Controllers update their own presence; reads limited to authenticated controllers.
+- Controllers update their own presence; writes limited to matching `clientId` + `userId` (example: `request.resource.id == request.resource.data.clientId && request.auth.uid == request.resource.data.userId`).
+- Presence `lastHeartbeat` is server-timestamped (clients do not supply timestamps).
+- Reads limited to authenticated users (viewers unauthenticated). Broad read is acceptable for Pass A.
+- UI filters presence by staleness; no server-side cleanup in Pass A.
 - Used only for cloud-mode handover (no effect on lock enforcement).
+- Tier gating is enforced in the frontend; Firestore rules do not enforce tiers.
+- Collection name `clients/*` is reserved for controller presence.
 
 ### 2.2 Security Rules (Summary)
 - Public read access to rooms/timers/lock for viewers.
@@ -282,7 +287,25 @@ All lock operations use Cloud Functions to ensure atomic, server-timestamped ope
 ```
 Notes:
 - Authorization requires one of: valid PIN, `reauthenticated: true`, stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
-- `controlRequest` lifecycle: `requestControl` (or equivalent) creates/updates `rooms/{roomId}/controlRequest/current`; `forceTakeover` and `deny` clear it; timeout sets `status: 'expired'`.
+- `controlRequest` lifecycle: `requestControl` creates/updates `rooms/{roomId}/controlRequest/current`; `forceTakeover` and `deny` delete it; timeout sets `status: 'expired'`.
+
+**`handoverLock`** - Transfer lock to a target client
+```json
+// Input
+{
+  "roomId": "abc123",
+  "targetClientId": "client-uuid"
+}
+// Output (success)
+{ "success": true, "lock": { ... } }
+// Output (errors)
+{ "success": false, "error": "TARGET_OFFLINE" }
+```
+Notes:
+- Caller must be current lock holder.
+- Target presence must be fresh (<30s) or return `TARGET_OFFLINE`.
+- Clears `controlRequest/current` (delete) in the same transaction as the lock swap.
+- Self-handover refreshes lock timestamps and returns success.
 
 **`updateHeartbeat`** - Refresh heartbeat timestamp
 ```json
