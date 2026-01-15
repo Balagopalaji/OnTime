@@ -266,6 +266,7 @@ export const ControllerPage = () => {
   const [forcePromptMode, setForcePromptMode] = useState<'pin' | 'confirm'>('pin')
   const [forcePinDraft, setForcePinDraft] = useState('')
   const forcePinInputRef = useRef<HTMLInputElement | null>(null)
+  const pinInputRef = useRef<HTMLInputElement | null>(null)
   const [handoverOpen, setHandoverOpen] = useState(false)
   const [handoverTargetId, setHandoverTargetId] = useState<string | null>(null)
   const [viewerOnly, setViewerOnly] = useState(() => {
@@ -278,6 +279,11 @@ export const ControllerPage = () => {
   })
   const [pinEditing, setPinEditing] = useState(false)
   const [pinDraft, setPinDraft] = useState(roomPin ?? '')
+  useEffect(() => {
+    if (!pinEditing) return
+    const id = window.setTimeout(() => pinInputRef.current?.focus(), 0)
+    return () => window.clearTimeout(id)
+  }, [pinEditing])
   const [requestChimeEnabled, setRequestChimeEnabled] = useState(() => {
     if (typeof window === 'undefined') return true
     const stored = window.localStorage.getItem('ontime:requestChime')
@@ -972,15 +978,6 @@ export const ControllerPage = () => {
     if (!room || !handoverTargetId) return
     const target = activeRoomClients.find((client) => client.clientId === handoverTargetId)
     if (!target) return
-    const targetLabel =
-      target.userName && target.deviceName
-        ? `${target.userName} · ${target.deviceName}`
-        : target.userName ?? target.deviceName ?? 'another device'
-    const prompt =
-      target.userId && controllerLock?.userId && target.userId !== controllerLock.userId
-        ? `Transfer control to ${target.userName ?? targetLabel}? They will have full control.`
-        : `Hand over control to ${targetLabel}?`
-    if (!window.confirm(prompt)) return
     handOverControl(room.id, target.clientId)
     setHandoverOpen(false)
     setHandoverTargetId(null)
@@ -1558,6 +1555,7 @@ export const ControllerPage = () => {
                 <span className="text-[9px] tracking-[0.2em] text-slate-400">PIN</span>
                 {pinEditing ? (
                   <input
+                    ref={pinInputRef}
                     value={pinDraft}
                     onChange={(event) => setPinDraft(event.target.value)}
                     onBlur={handleSavePin}
@@ -1991,7 +1989,7 @@ export const ControllerPage = () => {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {lockState === 'requesting' && !viewerOnly && !displacement ? (
+              {lockState === 'requesting' && !displacement ? (
                 <span className="text-[11px] text-slate-200/70">
                   {forceTakeoverReady
                     ? 'Take control now'
