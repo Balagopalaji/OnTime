@@ -3010,7 +3010,24 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       handleLiveCueUpdated({ type: 'LIVE_CUE_UPDATED', roomId: payload.roomId, cue: payload.cue, timestamp: payload.timestamp })
     }
 
-    const handlePresentationClear = () => {}
+    const handlePresentationClear = (payload: PresentationClearPayload) => {
+      if (!canUseLiveCues(payload.roomId)) return
+      if (payload.cueId) {
+        removeCompanionLiveCue(payload.roomId, payload.cueId)
+      } else {
+        setCompanionLiveCues((prev) => {
+          if (!prev[payload.roomId]) return prev
+          return { ...prev, [payload.roomId]: {} }
+        })
+      }
+      setCompanionActiveLiveCueId(payload.roomId, null)
+      const writeSource = resolveLiveCueWriteSource(payload.roomId)
+      if (!writeSource) return
+      void writeActiveLiveCueId(payload.roomId, null)
+      if (payload.cueId) {
+        void deleteLiveCueFromFirestore(payload.roomId, payload.cueId)
+      }
+    }
 
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
       applyControlPayload(payload, { broadcast: true })

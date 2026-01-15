@@ -356,6 +356,15 @@ export const AppShell = () => {
     }
   }, [data.connectionStatus])
 
+  useEffect(() => {
+    if (effectiveMode !== 'cloud' || connection.isConnected) return
+    const timeout = window.setTimeout(() => {
+      setTokenBannerDismissed(true)
+      setReconnectBannerDismissed(true)
+    }, 8000)
+    return () => window.clearTimeout(timeout)
+  }, [connection.isConnected, effectiveMode])
+
   const capabilitySignature = useMemo(
     () =>
       JSON.stringify({
