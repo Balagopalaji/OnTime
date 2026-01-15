@@ -2338,7 +2338,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         activeJoinRef.current = null
       }
       if (err?.code === 'CONTROLLER_TAKEN') {
-        // TODO: surface the request control flow in the UI when lock/takeover lands.
         return
       }
       if (err?.code !== 'INVALID_TOKEN') return
