@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { db, functions } from '../lib/firebase'
@@ -577,6 +577,26 @@ const normalizeControllerLock = (roomId: string, raw: Record<string, unknown> | 
   }
 }
 
+const normalizeControllerClient = (
+  raw: Record<string, unknown> | null | undefined,
+  fallbackClientId: string,
+): ControllerClient | null => {
+  if (!raw) return null
+  const clientId = typeof raw.clientId === 'string' ? raw.clientId : fallbackClientId
+  if (!clientId) return null
+  if (raw.clientType !== 'controller') return null
+  const clientType = 'controller'
+  const lastHeartbeat = toMillis(raw.lastHeartbeat)
+  return {
+    clientId,
+    clientType,
+    deviceName: typeof raw.deviceName === 'string' ? raw.deviceName : undefined,
+    userId: typeof raw.userId === 'string' ? raw.userId : undefined,
+    userName: typeof raw.userName === 'string' ? raw.userName : undefined,
+    lastHeartbeat: lastHeartbeat ? lastHeartbeat : undefined,
+  }
+}
+
 const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
@@ -636,7 +656,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const lockSubscriptionsRef = useRef<Record<string, () => void>>({})
   const controlRequestSubscriptionsRef = useRef<Record<string, () => void>>({})
   const roomPinSubscriptionsRef = useRef<Record<string, () => void>>({})
+  const roomClientSubscriptionsRef = useRef<Record<string, () => void>>({})
   const heartbeatIntervalsRef = useRef<Record<string, number>>({})
+  const presenceIntervalsRef = useRef<Record<string, number>>({})
   const cloudSubscribedRoomsRef = useRef(cloudSubscribedRooms)
   const liveCueRateRef = useRef<Record<string, number>>({})
   const tokenRefreshInFlightRef = useRef(false)
@@ -796,6 +818,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   )
   const denyControlCallable = useMemo(
     () => (functions ? httpsCallable(functions, 'denyControl') : null),
+    [],
+  )
+  const handoverLockCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'handoverLock') : null),
     [],
   )
 
@@ -1187,6 +1213,58 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const handOverControl = useCallback(
     (roomId: string, targetClientId: string) => {
+      if (shouldUseCloudLock(roomId)) {
+        if (!handoverLockCallable) return
+        if (!user?.uid) return
+        void (async () => {
+          try {
+            const response = await handoverLockCallable({
+              roomId,
+              targetClientId,
+              clientId,
+              userId: user.uid,
+            })
+            const data = response.data as { success?: boolean; error?: string }
+            if (data?.success === false) {
+              const message = (() => {
+                switch (data.error) {
+                  case 'NOT_LOCK_HOLDER':
+                    return 'Only the current controller can hand over.'
+                  case 'NO_ACTIVE_LOCK':
+                    return 'No active controller lock to hand over.'
+                  case 'TARGET_NOT_FOUND':
+                    return 'That controller is no longer connected.'
+                  case 'TARGET_OFFLINE':
+                    return 'That controller appears offline.'
+                  default:
+                    return 'Hand over failed.'
+                }
+              })()
+              setControlErrors((prev) => ({
+                ...prev,
+                [roomId]: {
+                  code: data.error ?? 'HANDOVER_FAILED',
+                  message,
+                  receivedAt: Date.now(),
+                },
+              }))
+              return
+            }
+            setControlErrors((prev) => ({ ...prev, [roomId]: null }))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Hand over failed'
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'HANDOVER_FAILED',
+                message,
+                receivedAt: Date.now(),
+              },
+            }))
+          }
+        })()
+        return
+      }
       if (!socket) return
       socket.emit('HAND_OVER', {
         type: 'HAND_OVER',
@@ -1195,7 +1273,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timestamp: Date.now(),
       })
     },
-    [socket],
+    [clientId, handoverLockCallable, shouldUseCloudLock, socket, user],
   )
 
   const denyControl = useCallback(
@@ -2081,8 +2159,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         unsubscribe()
       })
       controlRequestSubscriptionsRef.current = {}
-      setControlRequests({})
-      setPendingControlRequests({})
+      window.setTimeout(() => {
+        setControlRequests({})
+        setPendingControlRequests({})
+      }, 0)
       return
     }
     const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
@@ -2180,7 +2260,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         unsubscribe()
       })
       roomPinSubscriptionsRef.current = {}
-      setRoomPins({})
+      window.setTimeout(() => {
+        setRoomPins({})
+      }, 0)
       return
     }
     const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
@@ -2225,6 +2307,76 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms, user?.uid])
 
   useEffect(() => {
+    if (!firestore) return
+    if (!user?.uid) {
+      Object.values(roomClientSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      roomClientSubscriptionsRef.current = {}
+      window.setTimeout(() => {
+        setRoomClients({})
+      }, 0)
+      return
+    }
+    const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
+      .filter(([, sub]) => sub.clientType === 'controller')
+      .map(([roomId]) => roomId)
+    const eligible = new Set<string>()
+
+    rooms.forEach((roomId) => {
+      if (!shouldUseCloudLock(roomId)) return
+      const lockState = resolveControllerLockState({
+        roomId,
+        clientId,
+        controllerLocks,
+        controlDisplacements,
+        pendingControlRequests,
+      })
+      if (lockState !== 'authoritative') return
+      eligible.add(roomId)
+      if (roomClientSubscriptionsRef.current[roomId]) return
+      const clientCollection = collection(firestore, 'rooms', roomId, 'clients')
+      const unsubscribe = onSnapshot(
+        clientCollection,
+        (snapshot) => {
+          const clients = snapshot.docs
+            .map((docSnap) =>
+              normalizeControllerClient(docSnap.data() as Record<string, unknown>, docSnap.id),
+            )
+            .filter(Boolean) as ControllerClient[]
+          setRoomClients((prev) => ({ ...prev, [roomId]: clients }))
+        },
+        (error) => {
+          console.warn('[UnifiedDataContext] room clients subscription failed', { roomId, error })
+        },
+      )
+      roomClientSubscriptionsRef.current[roomId] = unsubscribe
+    })
+
+    Object.keys(roomClientSubscriptionsRef.current).forEach((roomId) => {
+      if (eligible.has(roomId)) return
+      roomClientSubscriptionsRef.current[roomId]?.()
+      delete roomClientSubscriptionsRef.current[roomId]
+      setRoomClients((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+    })
+  }, [
+    clientId,
+    cloudSubscribedRooms,
+    controlDisplacements,
+    controllerLocks,
+    firestore,
+    pendingControlRequests,
+    shouldUseCloudLock,
+    subscribedRooms,
+    user?.uid,
+  ])
+
+  useEffect(() => {
     return () => {
       Object.values(lockSubscriptionsRef.current).forEach((unsubscribe) => {
         unsubscribe()
@@ -2238,6 +2390,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         unsubscribe()
       })
       roomPinSubscriptionsRef.current = {}
+      Object.values(roomClientSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      roomClientSubscriptionsRef.current = {}
     }
   }, [])
 
@@ -2336,11 +2492,78 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   ])
 
   useEffect(() => {
+    if (!isPageVisible) {
+      Object.values(presenceIntervalsRef.current).forEach((intervalId) => {
+        window.clearInterval(intervalId)
+      })
+      presenceIntervalsRef.current = {}
+      return
+    }
+    if (!firestore || !user?.uid) return
+
+    const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
+      .filter(([, sub]) => sub.clientType === 'controller')
+      .map(([roomId]) => roomId)
+    const activeRooms = new Set<string>()
+
+    rooms.forEach((roomId) => {
+      if (!shouldUseCloudLock(roomId)) return
+      if (!isCloudController(roomId)) return
+      activeRooms.add(roomId)
+      if (presenceIntervalsRef.current[roomId]) return
+
+      const clientDoc = doc(firestore, 'rooms', roomId, 'clients', clientId)
+      const sendPresence = async () => {
+        const payload: Record<string, unknown> = {
+          clientId,
+          clientType: 'controller',
+          userId: user.uid,
+          lastHeartbeat: serverTimestamp(),
+        }
+        if (deviceName) payload.deviceName = deviceName
+        if (user.displayName) payload.userName = user.displayName
+        try {
+          await setDoc(clientDoc, payload, { merge: true })
+        } catch (error) {
+          console.warn('[UnifiedDataContext] presence heartbeat failed', { roomId, error })
+        }
+      }
+
+      void sendPresence()
+      const intervalId = window.setInterval(() => {
+        void sendPresence()
+      }, HEARTBEAT_INTERVAL_MS)
+      presenceIntervalsRef.current[roomId] = intervalId
+    })
+
+    Object.keys(presenceIntervalsRef.current).forEach((roomId) => {
+      if (activeRooms.has(roomId)) return
+      window.clearInterval(presenceIntervalsRef.current[roomId])
+      delete presenceIntervalsRef.current[roomId]
+    })
+  }, [
+    clientId,
+    cloudSubscribedRooms,
+    deviceName,
+    firestore,
+    isCloudController,
+    isPageVisible,
+    shouldUseCloudLock,
+    subscribedRooms,
+    user?.displayName,
+    user?.uid,
+  ])
+
+  useEffect(() => {
     return () => {
       Object.values(heartbeatIntervalsRef.current).forEach((intervalId) => {
         window.clearInterval(intervalId)
       })
       heartbeatIntervalsRef.current = {}
+      Object.values(presenceIntervalsRef.current).forEach((intervalId) => {
+        window.clearInterval(intervalId)
+      })
+      presenceIntervalsRef.current = {}
     }
   }, [])
 

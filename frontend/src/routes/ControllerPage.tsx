@@ -156,7 +156,7 @@ export const ControllerPage = () => {
     }
   }, [effectiveMode, registerCloudRoom, roomAuthority?.source, roomId, unregisterCloudRoom])
   const controllerLock = roomId ? getControllerLock(roomId) : null
-  const canHandOver = roomAuthority?.source === 'companion'
+  const canHandOver = roomAuthority?.source === 'companion' || roomAuthority?.source === 'cloud'
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
   const isReadOnly = lockState !== 'authoritative'
   const roomPin = roomId ? getRoomPin(roomId) : null
@@ -242,6 +242,12 @@ export const ControllerPage = () => {
     })
   }, [activeLiveCue, activeLiveCueId, liveCues, room?.id])
   const [controlNow, setControlNow] = useState(() => Date.now())
+  const activeRoomClients = useMemo(() => {
+    const now = controlNow
+    return roomClientList.filter(
+      (client) => typeof client.lastHeartbeat === 'number' && now - client.lastHeartbeat < 30_000,
+    )
+  }, [controlNow, roomClientList])
   const [ignoredRequestTs, setIgnoredRequestTs] = useState<number | null>(null)
   const [dismissedDenialTs, setDismissedDenialTs] = useState<number | null>(null)
   const [dismissedDisplacementTs, setDismissedDisplacementTs] = useState<number | null>(null)
@@ -291,10 +297,10 @@ export const ControllerPage = () => {
       : controllerLock?.userName ?? controllerLock?.deviceName ?? 'another device'
   const availableHandoverTargets = useMemo(
     () =>
-      roomClientList.filter(
+      activeRoomClients.filter(
         (client) => client.clientType === 'controller' && client.clientId !== controllerLock?.clientId,
       ),
-    [controllerLock?.clientId, roomClientList],
+    [activeRoomClients, controllerLock?.clientId],
   )
   const canForceNow = true
   const visibleDenial = denial && dismissedDenialTs !== denial.deniedAt ? denial : null
@@ -964,7 +970,7 @@ export const ControllerPage = () => {
 
   const handleConfirmHandover = useCallback(() => {
     if (!room || !handoverTargetId) return
-    const target = roomClientList.find((client) => client.clientId === handoverTargetId)
+    const target = activeRoomClients.find((client) => client.clientId === handoverTargetId)
     if (!target) return
     const targetLabel =
       target.userName && target.deviceName
@@ -978,7 +984,7 @@ export const ControllerPage = () => {
     handOverControl(room.id, target.clientId)
     setHandoverOpen(false)
     setHandoverTargetId(null)
-  }, [controllerLock?.userId, handOverControl, handoverTargetId, room, roomClientList])
+  }, [activeRoomClients, controllerLock?.userId, handOverControl, handoverTargetId, room])
 
   const handleTimezoneSave = () => {
     if (isReadOnly) {

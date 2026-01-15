@@ -72,6 +72,23 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow write: if false;
       }
+
+      match /clients/{clientId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.clientId == clientId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.clientType == 'controller';
+        allow update: if isSignedIn()
+          && request.resource.data.clientId == clientId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.clientType == 'controller'
+          && resource.data.userId == request.auth.uid
+          && resource.data.clientId == clientId;
+        allow delete: if isSignedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.clientId == clientId;
+      }
     }
   }
 }

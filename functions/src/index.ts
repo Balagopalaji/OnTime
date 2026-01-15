@@ -1,6 +1,7 @@
 import {
   acquireLock,
   denyControl,
+  handoverLock,
   forceTakeover,
   releaseLock,
   requestControl,
@@ -10,6 +11,7 @@ import {
 export {
   acquireLock,
   denyControl,
+  handoverLock,
   forceTakeover,
   releaseLock,
   requestControl,

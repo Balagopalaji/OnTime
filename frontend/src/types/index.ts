@@ -137,5 +137,6 @@ export type ControllerClient = {
   deviceName?: string
   userId?: string
   userName?: string
+  lastHeartbeat?: number
   clientType: 'controller' | 'viewer'
 }

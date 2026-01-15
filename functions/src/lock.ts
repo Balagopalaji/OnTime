@@ -3,6 +3,7 @@ import * as functions from 'firebase-functions';
 
 const STALE_THRESHOLD_MS = 90_000;
 const FORCE_TAKEOVER_TIMEOUT_MS = 30_000;
+const HANDOVER_PRESENCE_FRESH_MS = 30_000;
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -27,6 +28,15 @@ type ControlRequest = {
   requesterClientId: string;
   requestedAt: admin.firestore.Timestamp;
   status: 'pending' | 'denied' | 'fulfilled' | 'expired';
+};
+
+type ControllerPresence = {
+  clientId: string;
+  userId: string;
+  deviceName?: string;
+  userName?: string;
+  clientType?: 'controller' | 'viewer';
+  lastHeartbeat?: admin.firestore.Timestamp;
 };
 
 const requireString = (value: unknown, fieldName: string): string => {
@@ -118,6 +128,8 @@ const lockRef = (roomId: string) => db.doc(`rooms/${roomId}/lock/current`);
 const pinRef = (roomId: string) => db.doc(`rooms/${roomId}/config/pin`);
 const controlRequestRef = (roomId: string) =>
   db.doc(`rooms/${roomId}/controlRequest/current`);
+const clientRef = (roomId: string, clientId: string) =>
+  db.doc(`rooms/${roomId}/clients/${clientId}`);
 
 export const acquireLock = functions.https.onCall(async (data, context) => {
   const roomId = requireString(data?.roomId, 'roomId');
@@ -261,6 +273,52 @@ export const denyControl = functions.https.onCall(async (data, context) => {
     });
 
     return { success: true };
+  });
+});
+
+export const handoverLock = functions.https.onCall(async (data, context) => {
+  const roomId = requireString(data?.roomId, 'roomId');
+  const targetClientId = requireString(data?.targetClientId, 'targetClientId');
+  const clientId = requireString(data?.clientId, 'clientId');
+  const userId = resolveUserId(data?.userId, context);
+  const now = admin.firestore.Timestamp.now();
+
+  return db.runTransaction(async (tx) => {
+    const lockSnap = await tx.get(lockRef(roomId));
+    if (!lockSnap.exists) {
+      return { success: false, error: 'NO_ACTIVE_LOCK' };
+    }
+
+    const existingLock = lockSnap.data() as ControllerLock;
+    if (existingLock.clientId !== clientId || existingLock.userId !== userId) {
+      return { success: false, error: 'NOT_LOCK_HOLDER' };
+    }
+
+    const targetSnap = await tx.get(clientRef(roomId, targetClientId));
+    if (!targetSnap.exists) {
+      return { success: false, error: 'TARGET_NOT_FOUND' };
+    }
+
+    const target = targetSnap.data() as ControllerPresence;
+    if (!target?.userId || !target.clientId || target.clientType !== 'controller') {
+      return { success: false, error: 'TARGET_NOT_FOUND' };
+    }
+
+    const lastHeartbeatMs = toMillis(target.lastHeartbeat);
+    if (!lastHeartbeatMs || now.toMillis() - lastHeartbeatMs > HANDOVER_PRESENCE_FRESH_MS) {
+      return { success: false, error: 'TARGET_OFFLINE' };
+    }
+
+    const newLock = buildLockData({
+      clientId: target.clientId,
+      userId: target.userId,
+      deviceName: target.deviceName,
+      userName: target.userName,
+      now,
+    });
+    tx.set(lockRef(roomId), newLock);
+    tx.delete(controlRequestRef(roomId));
+    return { success: true, lock: newLock };
   });
 });
 
