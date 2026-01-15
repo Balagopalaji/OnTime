@@ -54,6 +54,10 @@ Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
 - Shared control policy with authority levels (Owner/Operator/Assistant).
 - See `docs/cloud-lock-design.md` for full design details.
 
+**Planned (Follow-up): Cloud handover presence**
+- Add cloud presence list (`rooms/{roomId}/clients/*`) so controllers can hand over without a request in cloud mode.
+- Companion already provides this via `roomClients`; cloud will mirror the same UX once presence is available.
+
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (see `docs/phase-2-overview.md`).
 - Phase 3: LAN offline viewers + manual run-of-show ("Show Planner"), including sections/segments, cues, crew chat, multi-room monitoring, and Show Caller Mode (see `docs/local-offline-lan-plan.md`).

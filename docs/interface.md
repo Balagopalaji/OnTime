@@ -214,6 +214,17 @@ Notes:
 - **Future (Pass B / Enterprise):** `controlPolicy: 'shared_with_pin'` for multi-controller access with PIN authorization.
 - See `docs/cloud-lock-design.md` for full design details.
 
+**Planned: `rooms/{roomId}/clients/{clientId}`** (cloud controller presence list)
+- **Purpose:** Support cloud handover targets (presence list for controller UI).
+- `clientId: string`
+- `userId: string`
+- `deviceName?: string`
+- `userName?: string`
+- `lastHeartbeat: timestamp`
+Notes:
+- Controllers update their own presence; reads limited to authenticated controllers.
+- Used only for cloud-mode handover (no effect on lock enforcement).
+
 ### 2.2 Security Rules (Summary)
 - Public read access to rooms/timers/lock for viewers.
 - Authenticated writes for rooms/timers/state:

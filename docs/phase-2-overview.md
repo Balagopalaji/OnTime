@@ -42,6 +42,7 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
   - External video monitoring integrations beyond stubs.
   - Multi-operator roles/permissions.
   - Show Planner (segments, cue timeline authoring, crew chat, multi-room dashboard).
+  - Cloud handover presence list for controller targets in cloud mode.
   - Smart slide-note parsing/auto cues.
   - LAN offline viewers (Companion-served viewer bundle + cert/pairing/trust).
   - Optional Viewer App for desktop LAN stations (Electron, viewer-only).

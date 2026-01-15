@@ -147,6 +147,10 @@ Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is 
 
 **Design document:** See `docs/cloud-lock-design.md` for full technical details.
 
+**Planned (Follow-up): Cloud handover presence**
+- Add cloud presence list (`rooms/{roomId}/clients/*`) so controllers can hand over without a request in cloud mode.
+- Companion already provides this via `roomClients`; cloud will mirror the same UX once presence is available.
+
 ## Show Control UI (Phase 2c)
 **Tier gating**
 - Live cue overlays and tech viewer variants are Show Control tier only.

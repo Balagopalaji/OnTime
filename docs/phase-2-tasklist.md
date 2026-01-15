@@ -457,22 +457,22 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass A: Lock Schema & Cloud Functions**
 **Cloud/Firebase**
-- [ ] Add `rooms/{roomId}/lock/current` document schema to Firestore.
-- [ ] Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest/current` schemas.
-- [ ] Implement Cloud Functions:
+- [x] Add `rooms/{roomId}/lock/current` document schema to Firestore.
+- [x] Add `rooms/{roomId}/config/pin` (room PIN) and `rooms/{roomId}/controlRequest/current` schemas.
+- [x] Implement Cloud Functions:
   - `acquireLock`: Atomic lock acquisition with transaction; handles race conditions.
   - `releaseLock`: Release held lock (voluntary or cleanup).
   - `forceTakeover`: Force acquisition with PIN validation or stale check.
   - `updateHeartbeat`: Refresh `lastHeartbeat` timestamp.
   - Request/deny control helpers to create/clear `controlRequest` with server timestamps.
-- [ ] All staleness logic in Cloud Functions only (90s threshold); no stale checks in rules.
+- [x] All staleness logic in Cloud Functions only (90s threshold); no stale checks in rules.
 **Firestore Rules**
-- [ ] Update rules to check lock holder by `userId` (not `clientId`).
-- [ ] Lock document: read allowed, write restricted to Cloud Functions only.
-- [ ] `config/pin`: owner-only writes.
-- [ ] State/timers: require authenticated user matching lock holder's `userId`.
-- [ ] liveCues: allow service account (Companion) writes regardless of lock.
-- [ ] Verify public read access unchanged (viewers work without auth).
+- [x] Update rules to check lock holder by `userId` (not `clientId`).
+- [x] Lock document: read allowed, write restricted to Cloud Functions only.
+- [x] `config/pin`: owner-only writes.
+- [x] State/timers: require authenticated user matching lock holder's `userId`.
+- [x] liveCues: allow service account (Companion) writes regardless of lock.
+- [x] Verify public read access unchanged (viewers work without auth).
 **Codebase Entry Points**
 - Firebase: `firebase/firestore.rules`, Firebase Cloud Functions (directory TBD, likely `functions/` or `firebase/functions/`)
 **Test Expectations**
@@ -489,15 +489,15 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass B: Frontend Integration**
 **Frontend**
-- [ ] Persist `clientId` in `sessionStorage` (survives refresh, not new tabs).
-- [ ] Add heartbeat loop (30s interval) for cloud mode controllers.
-- [ ] Subscribe to `rooms/{roomId}/lock/current` document in `UnifiedDataContext`.
-- [ ] Map cloud lock state to existing `resolveControllerLockState()` (authoritative/read-only/requesting/displaced).
-- [ ] Implement `visibilitychange` handler: stop heartbeat when tab hidden, resume when visible.
-- [ ] Add queue flush validation: check lock before flushing offline writes; discard if lock lost.
-- [ ] UI blocks writes when `controllerLockState !== 'authoritative'` (frontend enforcement).
+- [x] Persist `clientId` in `sessionStorage` (survives refresh, not new tabs).
+- [x] Add heartbeat loop (30s interval) for cloud mode controllers.
+- [x] Subscribe to `rooms/{roomId}/lock/current` document in `UnifiedDataContext`.
+- [x] Map cloud lock state to existing `resolveControllerLockState()` (authoritative/read-only/requesting/displaced).
+- [x] Implement `visibilitychange` handler: stop heartbeat when tab hidden, resume when visible.
+- [x] Add queue flush validation: check lock before flushing offline writes; discard if lock lost.
+- [x] UI blocks writes when `controllerLockState !== 'authoritative'` (frontend enforcement).
 **Authority Resolution**
-- [ ] Use existing `roomAuthority.source` as switch:
+- [x] Use existing `roomAuthority.source` as switch:
   - `'companion'` → use Companion lock (existing Socket.IO)
   - `'cloud'` → use Firestore lock (new)
   - No mixing; one lock source per room.
@@ -516,11 +516,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass C: Request/Force Takeover UX (Cloud)**
 **Frontend**
-- [ ] Request control flow works in cloud mode (creates/updates `controlRequest`).
-- [ ] Force takeover with PIN works in cloud mode.
-- [ ] Force takeover after timeout (30s since request, server timestamp) works in cloud mode.
-- [ ] Displaced controller notification works in cloud mode.
-- [ ] Ensure UX parity with Companion takeover flow.
+- [x] Request control flow works in cloud mode (creates/updates `controlRequest`).
+- [x] Force takeover with PIN works in cloud mode.
+- [x] Force takeover after timeout (30s since request, server timestamp) works in cloud mode.
+- [x] Displaced controller notification works in cloud mode.
+- [x] Ensure UX parity with Companion takeover flow.
 **Codebase Entry Points**
 - Frontend: `frontend/src/routes/ControllerPage.tsx`, `frontend/src/components/*`
 **Test Expectations**
@@ -534,12 +534,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Pass D: Documentation & Cleanup**
 **Documentation**
-- [ ] Update `docs/interface.md`: add cloud lock + PIN + controlRequest schemas, Cloud Functions API, service account claims.
-- [ ] Update `docs/client-prd.md`: add control lock enforcement section.
-- [ ] Update `docs/local-mode.md`: add cloud mode parity note.
-- [ ] Update `docs/app-prd.md`: clarify lock enforcement across tiers.
+- [x] Update `docs/interface.md`: add cloud lock + PIN + controlRequest schemas, Cloud Functions API, service account claims.
+- [x] Update `docs/client-prd.md`: add control lock enforcement section.
+- [x] Update `docs/local-mode.md`: add cloud mode parity note.
+- [x] Update `docs/app-prd.md`: clarify lock enforcement across tiers.
 **Cleanup**
-- [ ] Remove any TODO comments related to cloud lock.
+- [x] Remove any TODO comments related to cloud lock.
 - [ ] Verify no regressions in Companion lock flow.
 
 **Success Criteria**
@@ -556,6 +556,11 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Definition of Done (Milestone 5)**
 - [ ] Cloud lock enforced; request/force takeover works; UX parity with Companion; docs updated.
+
+**Follow-up: Cloud Handover Presence (New Scope)**
+- [ ] Add cloud presence list for controllers (`rooms/{roomId}/clients/*`) with heartbeat + cleanup.
+- [ ] UI: show cloud handover targets + allow handover without a request.
+- [ ] Cloud Function to transfer lock to target client.
 
 ---
 
@@ -612,3 +617,4 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - ffprobe packaging/notarization on macOS; confirm code signing impact.
 - LAN exposure (non-loopback) remains deferred; do not open ports beyond 127.0.0.1 without new auth model.
 - Electron auth UX: consider skipping `prompt=select_account` in Electron to avoid repeated account picker.
+- Upgrade `functions/` `firebase-functions` to >=5.1.0 with emulator smoke tests (breaking changes possible).

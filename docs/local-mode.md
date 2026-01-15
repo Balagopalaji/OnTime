@@ -440,6 +440,10 @@ When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcem
 - Request/force takeover UI works identically in both modes
 - Frontend subscribes to lock document for real-time state updates
 
+**Planned (Follow-up): Cloud handover presence**
+- Add cloud presence list (`rooms/{roomId}/clients/*`) so controllers can hand over without a request in cloud mode.
+- Companion already provides this via `roomClients`; cloud will mirror the same UX once presence is available.
+
 **See:** `docs/cloud-lock-design.md` for full design details.
 
 ### 3.6 State Initialization
