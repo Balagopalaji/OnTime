@@ -98,6 +98,12 @@ export const ControllerPage = () => {
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
     subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
   }).subscribeToCompanionRoom
+  const registerCloudRoom = (ctx as typeof ctx & {
+    registerCloudRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
+  }).registerCloudRoom
+  const unregisterCloudRoom = (ctx as typeof ctx & {
+    unregisterCloudRoom?: (roomId: string) => void
+  }).unregisterCloudRoom
   const lastJoinKeyRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const debugCompanion =
@@ -135,6 +141,20 @@ export const ControllerPage = () => {
 
   const room = roomId ? getRoom(roomId) : undefined
   const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
+
+  useEffect(() => {
+    if (!roomId || !registerCloudRoom) return
+    const cloudActive =
+      roomAuthority?.source === 'cloud' || (effectiveMode === 'cloud' && roomAuthority?.source !== 'companion')
+    if (!cloudActive) {
+      unregisterCloudRoom?.(roomId)
+      return
+    }
+    registerCloudRoom(roomId, 'controller')
+    return () => {
+      unregisterCloudRoom?.(roomId)
+    }
+  }, [effectiveMode, registerCloudRoom, roomAuthority?.source, roomId, unregisterCloudRoom])
   const controllerLock = roomId ? getControllerLock(roomId) : null
   const canHandOver = roomAuthority?.source === 'companion'
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'

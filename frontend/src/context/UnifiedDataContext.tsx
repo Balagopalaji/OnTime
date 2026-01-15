@@ -41,6 +41,8 @@ type UnifiedDataContextValue = DataContextValue & {
     tokenOverride?: string,
   ) => void
   unsubscribeFromCompanionRoom: (roomId: string) => void
+  registerCloudRoom: (roomId: string, clientType: 'controller' | 'viewer') => void
+  unregisterCloudRoom: (roomId: string) => void
 }
 
 type RoomStateSnapshotPayload = {
@@ -561,13 +563,16 @@ const normalizeControllerLock = (roomId: string, raw: Record<string, unknown> | 
   if (!raw) return null
   const clientId = typeof raw.clientId === 'string' ? raw.clientId : ''
   if (!clientId) return null
+  const lockedAt = toMillis(raw.lockedAt)
+  const lastHeartbeat = toMillis(raw.lastHeartbeat)
+  const fallback = Date.now()
   return {
     clientId,
     deviceName: typeof raw.deviceName === 'string' ? raw.deviceName : undefined,
     userId: typeof raw.userId === 'string' ? raw.userId : undefined,
     userName: typeof raw.userName === 'string' ? raw.userName : undefined,
-    lockedAt: toMillis(raw.lockedAt),
-    lastHeartbeat: toMillis(raw.lastHeartbeat),
+    lockedAt: lockedAt || lastHeartbeat || fallback,
+    lastHeartbeat: lastHeartbeat || lockedAt || fallback,
     roomId,
   }
 }
@@ -594,6 +599,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [controllerLocks, setControllerLocks] = useState<Record<string, ControllerLock | null>>({})
   const [roomPins, setRoomPins] = useState<Record<string, string | null>>({})
   const [roomClients, setRoomClients] = useState<Record<string, ControllerClient[]>>({})
+  const [cloudSubscribedRooms, setCloudSubscribedRooms] = useState<Record<string, { clientType: 'controller' | 'viewer' }>>({})
   const [controlRequests, setControlRequests] = useState<Record<string, ControlRequest | null>>({})
   const [pendingControlRequests, setPendingControlRequests] = useState<Record<string, ControlRequest | null>>({})
   const [controlDenials, setControlDenials] = useState<Record<string, ControlDenial | null>>({})
@@ -631,6 +637,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const controlRequestSubscriptionsRef = useRef<Record<string, () => void>>({})
   const roomPinSubscriptionsRef = useRef<Record<string, () => void>>({})
   const heartbeatIntervalsRef = useRef<Record<string, number>>({})
+  const cloudSubscribedRoomsRef = useRef(cloudSubscribedRooms)
   const liveCueRateRef = useRef<Record<string, number>>({})
   const tokenRefreshInFlightRef = useRef(false)
   const bootstrappedSubsRef = useRef(false)
@@ -764,6 +771,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const isCloudController = useCallback(
     (roomId: string) => {
+      const cloudSub = cloudSubscribedRoomsRef.current[roomId]
+      if (cloudSub) return cloudSub.clientType === 'controller'
       return subscribedRoomsRef.current[roomId]?.clientType === 'controller'
     },
     [],
@@ -837,6 +846,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     subscribedRoomsRef.current = subscribedRooms
   }, [subscribedRooms])
+
+  useEffect(() => {
+    cloudSubscribedRoomsRef.current = cloudSubscribedRooms
+  }, [cloudSubscribedRooms])
 
   useEffect(() => {
     if (capabilitiesRevision === 0) return
@@ -1277,6 +1290,26 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     },
     [addPendingSyncRoom, enqueueJoin, fetchToken, token],
   )
+
+  const registerCloudRoom = useCallback(
+    (roomId: string, clientType: 'controller' | 'viewer') => {
+      setCloudSubscribedRooms((prev) => {
+        if (prev[roomId]?.clientType === clientType) return prev
+        const next = { ...prev, [roomId]: { clientType } }
+        return next
+      })
+    },
+    [],
+  )
+
+  const unregisterCloudRoom = useCallback((roomId: string) => {
+    setCloudSubscribedRooms((prev) => {
+      if (!prev[roomId]) return prev
+      const next = { ...prev }
+      delete next[roomId]
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (bootstrappedSubsRef.current) return
@@ -1888,10 +1921,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (payload.type === 'CONTROLLER_LOCK_STATE') {
         const previousLock = controllerLocksRef.current[payload.roomId]
         const nextLock = payload.lock
+        const gainedLock = nextLock?.clientId === clientId && previousLock?.clientId !== clientId
         setControllerLocks((prev) => ({ ...prev, [payload.roomId]: nextLock }))
         if (nextLock?.clientId === clientId) {
           setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
-          setControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
+          if (gainedLock) {
+            setControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
+          }
           setControlDenials((prev) => ({ ...prev, [payload.roomId]: null }))
           setControlDisplacements((prev) => ({ ...prev, [payload.roomId]: null }))
           setControlErrors((prev) => ({ ...prev, [payload.roomId]: null }))
@@ -1992,7 +2028,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (!firestore) return
-    const rooms = Object.entries(subscribedRooms)
+    const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
     const eligible = new Set<string>()
@@ -2036,7 +2072,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [applyControlPayload, firestore, shouldUseCloudLock, subscribedRooms])
+  }, [applyControlPayload, firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms])
 
   useEffect(() => {
     if (!firestore) return
@@ -2049,7 +2085,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       setPendingControlRequests({})
       return
     }
-    const rooms = Object.entries(subscribedRooms)
+    const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
     const eligible = new Set<string>()
@@ -2135,7 +2171,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [clientId, firestore, shouldUseCloudLock, subscribedRooms, user?.uid])
+  }, [clientId, firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms, user?.uid])
 
   useEffect(() => {
     if (!firestore) return
@@ -2147,7 +2183,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       setRoomPins({})
       return
     }
-    const rooms = Object.entries(subscribedRooms)
+    const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
     const eligible = new Set<string>()
@@ -2186,7 +2222,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [firestore, shouldUseCloudLock, subscribedRooms, user?.uid])
+  }, [firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms, user?.uid])
 
   useEffect(() => {
     return () => {
@@ -2215,7 +2251,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
     if (!acquireLockCallable || !updateHeartbeatCallable) return
 
-    const rooms = Object.entries(subscribedRooms)
+    const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
     const activeRooms = new Set<string>()
@@ -2285,6 +2321,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [
     acquireLockCallable,
     clientId,
+    cloudSubscribedRooms,
     controllerLocks,
     controlDisplacements,
     deviceName,
@@ -3894,6 +3931,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         sendHeartbeat,
         subscribeToCompanionRoom,
         unsubscribeFromCompanionRoom,
+        registerCloudRoom,
+        unregisterCloudRoom,
       }
     },
     [
@@ -3937,6 +3976,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       startTimer,
       subscribeToCompanionRoom,
       unsubscribeFromCompanionRoom,
+      registerCloudRoom,
+      unregisterCloudRoom,
       updateTimer,
     ],
   )
