@@ -733,9 +733,20 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         console.warn(`[UnifiedDataContext] cloud write blocked (${action})`, roomId)
         return false
       }
+      if (firebase.connectionStatus !== 'online') {
+        setControlErrors((prev) => ({
+          ...prev,
+          [roomId]: {
+            code: 'CLOUD_OFFLINE',
+            message: 'Cloud sync is offline. Reconnect to make changes.',
+            receivedAt: Date.now(),
+          },
+        }))
+        return false
+      }
       return true
     },
-    [canWriteThrough],
+    [canWriteThrough, firebase.connectionStatus],
   )
   const deviceName = useMemo(() => {
     if (typeof window === 'undefined') return undefined

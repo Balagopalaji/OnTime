@@ -156,9 +156,11 @@ export const ControllerPage = () => {
     }
   }, [effectiveMode, registerCloudRoom, roomAuthority?.source, roomId, unregisterCloudRoom])
   const controllerLock = roomId ? getControllerLock(roomId) : null
-  const canHandOver = roomAuthority?.source === 'companion' || roomAuthority?.source === 'cloud'
+  const isCloudOffline = connectionStatus !== 'online' && roomAuthority?.source === 'cloud'
+  const canHandOver =
+    (roomAuthority?.source === 'companion' || roomAuthority?.source === 'cloud') && !isCloudOffline
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
-  const isReadOnly = lockState !== 'authoritative'
+  const isReadOnly = lockState !== 'authoritative' || isCloudOffline
   const roomPin = roomId ? getRoomPin(roomId) : null
   const isOwner = Boolean(room?.ownerId && user?.uid && room.ownerId === user.uid)
   const canEditPin = Boolean(room && isOwner)
@@ -1535,7 +1537,7 @@ export const ControllerPage = () => {
             </div>
           <div className="flex flex-wrap items-center gap-3">
             <ConnectionIndicator status={connectionStatus} />
-            {lockState !== 'authoritative' ? (
+            {lockState !== 'authoritative' || isCloudOffline ? (
               <button
                 type="button"
                 onClick={() => setControlBarCollapsed(false)}
@@ -1639,7 +1641,7 @@ export const ControllerPage = () => {
                   ↻
                 </button>
               </Tooltip>
-              {roomId && lockState === 'authoritative' && availableHandoverTargets.length > 0 ? (
+              {roomId && lockState === 'authoritative' && !isReadOnly && availableHandoverTargets.length > 0 ? (
                 <Tooltip content="Hand over control">
                   <button
                     type="button"
@@ -2147,7 +2149,9 @@ export const ControllerPage = () => {
         {connectionStatus !== 'online' && (
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             <AlertTriangle size={16} />
-            Demo latency enabled. Actions may take a moment.
+            {roomAuthority?.source === 'cloud' && !companionReady
+              ? 'No cloud sync or Companion connection. Controls disabled.'
+              : 'Cloud sync offline. Reconnect to make changes.'}
           </div>
           )}
         </header>
