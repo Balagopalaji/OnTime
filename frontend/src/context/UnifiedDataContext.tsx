@@ -999,19 +999,32 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         if (!user?.uid) return
         void (async () => {
           const pinDoc = doc(firestore, 'rooms', roomId, 'config', 'pin')
-          if (!pin) {
-            await deleteDoc(pinDoc).catch(() => undefined)
-            return
+          try {
+            if (!pin) {
+              await deleteDoc(pinDoc)
+            } else {
+              await setDoc(
+                pinDoc,
+                {
+                  value: pin,
+                  updatedAt: serverTimestamp(),
+                  updatedBy: user.uid,
+                },
+                { merge: true },
+              )
+            }
+            setControlErrors((prev) => ({ ...prev, [roomId]: null }))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'PIN update failed'
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'PIN_UPDATE_FAILED',
+                message,
+                receivedAt: Date.now(),
+              },
+            }))
           }
-          await setDoc(
-            pinDoc,
-            {
-              value: pin,
-              updatedAt: serverTimestamp(),
-              updatedBy: user.uid,
-            },
-            { merge: true },
-          ).catch(() => undefined)
         })()
         return
       }
@@ -1058,6 +1071,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
                   receivedAt: Date.now(),
                 },
               }))
+              setPendingControlRequests((prev) => ({ ...prev, [roomId]: null }))
+              return
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Request failed'
@@ -1069,6 +1084,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
                 receivedAt: Date.now(),
               },
             }))
+            setPendingControlRequests((prev) => ({ ...prev, [roomId]: null }))
           }
         })()
         return
@@ -1126,7 +1142,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
                   receivedAt: Date.now(),
                 },
               }))
+              return
             }
+            setControlErrors((prev) => ({ ...prev, [roomId]: null }))
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Force takeover failed'
             setControlErrors((prev) => ({
@@ -1878,7 +1896,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           setControlDisplacements((prev) => ({ ...prev, [payload.roomId]: null }))
           setControlErrors((prev) => ({ ...prev, [payload.roomId]: null }))
         } else {
-          setRoomPins((prev) => ({ ...prev, [payload.roomId]: null }))
           setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
         }
         if (previousLock?.clientId === clientId && nextLock && nextLock.clientId !== clientId) {
@@ -2023,6 +2040,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (!firestore) return
+    if (!user?.uid) {
+      Object.values(controlRequestSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      controlRequestSubscriptionsRef.current = {}
+      setControlRequests({})
+      setPendingControlRequests({})
+      return
+    }
     const rooms = Object.entries(subscribedRooms)
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
@@ -2109,10 +2135,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [clientId, firestore, shouldUseCloudLock, subscribedRooms])
+  }, [clientId, firestore, shouldUseCloudLock, subscribedRooms, user?.uid])
 
   useEffect(() => {
     if (!firestore) return
+    if (!user?.uid) {
+      Object.values(roomPinSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      roomPinSubscriptionsRef.current = {}
+      setRoomPins({})
+      return
+    }
     const rooms = Object.entries(subscribedRooms)
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
@@ -2152,7 +2186,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [firestore, shouldUseCloudLock, subscribedRooms])
+  }, [firestore, shouldUseCloudLock, subscribedRooms, user?.uid])
 
   useEffect(() => {
     return () => {

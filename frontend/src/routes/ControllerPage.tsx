@@ -136,6 +136,7 @@ export const ControllerPage = () => {
   const room = roomId ? getRoom(roomId) : undefined
   const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
   const controllerLock = roomId ? getControllerLock(roomId) : null
+  const canHandOver = roomAuthority?.source === 'companion'
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
   const isReadOnly = lockState !== 'authoritative'
   const roomPin = roomId ? getRoomPin(roomId) : null
@@ -2087,8 +2088,13 @@ export const ControllerPage = () => {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => room && handOverControl(room.id, incomingRequest.requesterId)}
-                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200"
+                onClick={() => {
+                  if (!canHandOver) return
+                  if (room) handOverControl(room.id, incomingRequest.requesterId)
+                }}
+                disabled={!canHandOver}
+                title={canHandOver ? undefined : 'Handover requires Companion'}
+                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
               >
                 Hand over
               </button>

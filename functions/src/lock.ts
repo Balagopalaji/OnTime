@@ -214,7 +214,7 @@ export const requestControl = functions.https.onCall(async (data, context) => {
     return { success: false, error: 'NO_ACTIVE_LOCK' };
   }
   const existingLock = lockSnap.data() as ControllerLock;
-  if (existingLock.userId === requesterId) {
+  if (existingLock.userId === requesterId && existingLock.clientId === requesterClientId) {
     return { success: false, error: 'ALREADY_LOCK_HOLDER' };
   }
 
@@ -304,16 +304,12 @@ export const forceTakeover = functions.https.onCall(async (data, context) => {
         const requestedAtMs = toMillis(request.requestedAt);
         if (requestedAtMs) {
           const elapsedMs = now.toMillis() - requestedAtMs;
-          const isRequesterMatch =
-            request.requesterClientId === clientId && request.requesterId === userId;
           if (elapsedMs >= FORCE_TAKEOVER_TIMEOUT_MS) {
             tx.set(controlRequestRef(roomId), {
               ...request,
               status: 'expired',
             });
-            if (isRequesterMatch) {
-              requestTimedOut = true;
-            }
+            requestTimedOut = true;
           }
         }
       }
