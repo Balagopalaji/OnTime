@@ -104,6 +104,9 @@ export const ControllerPage = () => {
   const unregisterCloudRoom = (ctx as typeof ctx & {
     unregisterCloudRoom?: (roomId: string) => void
   }).unregisterCloudRoom
+  const clearLiveCues = (ctx as typeof ctx & {
+    clearLiveCues?: (roomId: string) => void
+  }).clearLiveCues
   const lastJoinKeyRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const debugCompanion =
@@ -231,6 +234,7 @@ export const ControllerPage = () => {
     (activeLiveCueId ? liveCues.find((cue) => cue.id === activeLiveCueId) : undefined) ??
     liveCues[0] ??
     null
+  const canClearPresentation = Boolean(roomId && (activeLiveCue || presentationRecords.length > 0))
   useEffect(() => {
     if (!import.meta.env.DEV) return
     console.info('[controller] activeLiveCue', {
@@ -983,7 +987,7 @@ export const ControllerPage = () => {
     handOverControl(room.id, target.clientId)
     setHandoverOpen(false)
     setHandoverTargetId(null)
-  }, [activeRoomClients, controllerLock?.userId, handOverControl, handoverTargetId, room])
+  }, [activeRoomClients, handOverControl, handoverTargetId, room])
 
   const handleTimezoneSave = () => {
     if (isReadOnly) {
@@ -1698,11 +1702,34 @@ export const ControllerPage = () => {
                     </p>
                   </div>
                 </div>
-                <PresentationStatusPanel
-                  cue={activeLiveCue}
-                  isCapabilityMissing={capabilityMissing}
-                  isMacPlatform={Boolean(isMacPlatform)}
-                />
+                {companionReady ? (
+                  <PresentationStatusPanel
+                    cue={activeLiveCue}
+                    isCapabilityMissing={capabilityMissing}
+                    isMacPlatform={Boolean(isMacPlatform)}
+                  />
+                ) : (
+                  <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                      Presentation status
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-white">Companion required</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Connect Companion to track slides and video timing.
+                    </p>
+                    {canClearPresentation ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (room) clearLiveCues?.(room.id)
+                        }}
+                        className="mt-3 inline-flex items-center justify-center rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+                      >
+                        Clear presentation status
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </>
             ) : showControlBlocked ? (
               <div className="rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">

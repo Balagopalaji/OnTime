@@ -43,6 +43,7 @@ type UnifiedDataContextValue = DataContextValue & {
   unsubscribeFromCompanionRoom: (roomId: string) => void
   registerCloudRoom: (roomId: string, clientType: 'controller' | 'viewer') => void
   unregisterCloudRoom: (roomId: string) => void
+  clearLiveCues: (roomId: string) => void
 }
 
 type RoomStateSnapshotPayload = {
@@ -1608,6 +1609,28 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       await deleteDoc(doc(firestore, 'rooms', roomId, 'liveCues', cueId)).catch(() => undefined)
     },
     [firestore, firestoreWriteThrough],
+  )
+
+  const clearLiveCues = useCallback(
+    (roomId: string) => {
+      if (!firestoreWriteThrough || !firestore) return
+      if (isLockedOut(roomId)) return
+      if (!ensureCloudWriteAllowed(roomId, 'clearLiveCues')) return
+      const records = firebase.getLiveCueRecords(roomId) ?? []
+      records.forEach((record) => {
+        void deleteLiveCueFromFirestore(roomId, record.cue.id)
+      })
+      void writeActiveLiveCueId(roomId, null)
+    },
+    [
+      deleteLiveCueFromFirestore,
+      ensureCloudWriteAllowed,
+      firebase,
+      firestore,
+      firestoreWriteThrough,
+      isLockedOut,
+      writeActiveLiveCueId,
+    ],
   )
 
   useEffect(() => {
@@ -4162,6 +4185,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         forceTakeover,
         handOverControl,
         denyControl,
+        clearLiveCues,
         sendHeartbeat,
         subscribeToCompanionRoom,
         unsubscribeFromCompanionRoom,
@@ -4195,6 +4219,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       getLiveCueDiagnostics,
       getLiveCueRecords,
       denyControl,
+      clearLiveCues,
       handOverControl,
       moveTimer,
       nudgeTimer,
