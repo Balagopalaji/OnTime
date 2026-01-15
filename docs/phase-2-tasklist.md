@@ -480,12 +480,12 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: simultaneous acquisition race condition
 
 **Manual Verification (Pass A)**
-- [ ] Two users open same room in cloud mode; first acquires lock, second sees read-only.
-- [ ] Force takeover with correct PIN succeeds immediately.
-- [ ] Force takeover with stale lock (>90s) succeeds without PIN.
-- [ ] Control request doc is created on request and cleared/expired on deny/force/timeout.
+- [x] Two users open same room in cloud mode; first acquires lock, second sees read-only.
+- [x] Force takeover with correct PIN succeeds immediately.
+- [x] Force takeover with stale lock (>90s) succeeds without PIN.
+- [x] Control request doc is created on request and cleared/expired on deny/force/timeout.
 - [ ] Companion can still write liveCues when cloud lock is held by another user.
-- [ ] Viewer (unauthenticated) can still read room/timers.
+- [x] Viewer (unauthenticated) can still read room/timers.
 
 **Pass B: Frontend Integration**
 **Frontend**
@@ -508,8 +508,8 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - Integration: cloud lock subscription, queue flush validation
 
 **Manual Verification (Pass B)**
-- [ ] Refresh tab while holding cloud lock; lock retained (clientId persists).
-- [ ] Open second tab (same user); second tab shows read-only, cannot acquire lock.
+- [x] Refresh tab while holding cloud lock; lock retained (clientId persists).
+- [x] Open second tab (same user); second tab shows read-only, cannot acquire lock.
 - [ ] Close lock-holding tab; after 90s, second tab can force takeover.
 - [ ] Go offline while holding lock; reconnect within 90s and lock retained.
 - [ ] Go offline, another user takes over; on reconnect, first user sees "displaced" UI and queued writes discarded.

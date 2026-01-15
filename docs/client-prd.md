@@ -108,6 +108,7 @@ Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is 
 **Tier gating**
 - Show Control + Production tiers enforce cloud lock.
 - Basic tier remains unlocked (multiple controllers allowed) unless upgraded.
+- **Basic/Standalone:** allow local-only control when offline, but sync + viewer URLs when online.
 
 **Lock source resolution**
 - `roomAuthority.source === 'companion'` → Use Companion lock (existing Socket.IO flow).
