@@ -7,3 +7,4 @@ bin
 *.app
 ppt-probe/bin
 ppt-probe/obj
+docs/temp/
