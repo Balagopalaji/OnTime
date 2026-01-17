@@ -1,18 +1,16 @@
 # Build the Swift helper for PowerPoint video timing
-# Targets: Intel (x86_64) and Apple Silicon (arm64)
-
 HELPER_SRC = ppt-probe/ppt-probe-mac.swift
 HELPER_BIN = bin/ppt-probe-mac
 
-.PHONY: all clean build-universal
+.PHONY: all clean build
 
-all: build-universal
+all: build
 
 $(HELPER_BIN): $(HELPER_SRC)
 	mkdir -p bin
-	swiftc -O -arch arm64 -arch x86_64 -o $(HELPER_BIN) $(HELPER_SRC)
+	swiftc -O -o $(HELPER_BIN) $(HELPER_SRC)
 
-build-universal: $(HELPER_BIN)
+build: $(HELPER_BIN)
 	@echo "Build successful: $(HELPER_BIN)"
 	@file $(HELPER_BIN)
 
