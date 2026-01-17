@@ -20,12 +20,12 @@ const buildSlideLabel = (cue: LiveCue) => {
 export const PresentationStatusPanel = ({
   cue,
   isCapabilityMissing,
-  isMacPlatform,
 }: PresentationStatusPanelProps) => {
   const slideLabel = cue ? buildSlideLabel(cue) : null
   const videos = cue?.metadata?.videos ?? []
   const timingUnavailable = Boolean(cue?.metadata?.videoTimingUnavailable)
   const showVideoList = videos.length > 0
+  const permissions = cue?.metadata?.permissions
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 shadow-card">
@@ -64,9 +64,12 @@ export const PresentationStatusPanel = ({
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3">
             <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Video timing</p>
-            {isMacPlatform ? (
-              <p className="mt-2 text-xs text-slate-300">Video timing unavailable on macOS.</p>
-            ) : timingUnavailable ? (
+            {permissions === 'missing' ? (
+              <div className="mt-2 rounded-lg border border-amber-800/50 bg-amber-950/40 p-2 text-xs text-amber-200">
+                <p className="font-semibold">Permissions Required</p>
+                <p className="mt-1 opacity-80">Grant Accessibility permissions to OnTime Companion in System Settings to enable video tracking.</p>
+              </div>
+            ) : timingUnavailable && !showVideoList ? (
               <p className="mt-2 text-xs text-amber-200">
                 Video timing unavailable. Continue without timing metadata.
               </p>
@@ -74,7 +77,13 @@ export const PresentationStatusPanel = ({
               <div className="mt-2 space-y-2">
                 {videos.map((video, index) => {
                   const label = video.name?.trim() || `Video ${index + 1}`
-                  const remaining = video.remaining
+                  const derivedRemaining =
+                    video.remaining === undefined &&
+                    typeof video.duration === 'number' &&
+                    typeof video.elapsed === 'number'
+                      ? Math.max(0, video.duration - video.elapsed)
+                      : undefined
+                  const remaining = video.remaining ?? derivedRemaining
                   const duration = video.duration
                   const value =
                     remaining !== undefined

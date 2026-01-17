@@ -195,8 +195,8 @@ export const ControllerPage = () => {
     () =>
       companionReady
         ? liveCueRecords.filter(
-            (record) => record.source === 'companion' && record.cue.source === 'powerpoint',
-          )
+          (record) => record.source === 'companion' && record.cue.source === 'powerpoint',
+        )
         : [],
     [companionReady, liveCueRecords],
   )
@@ -263,6 +263,7 @@ export const ControllerPage = () => {
   const [presentationBannerDismissedAt, setPresentationBannerDismissedAt] = useState<number | null>(
     null,
   )
+  const presentationClearTimerRef = useRef<number | null>(null)
   const [presentationImportOpen, setPresentationImportOpen] = useState(false)
   const [presentationMappings, setPresentationMappings] = useState<
     Record<string, { targetId: string; customLabel: string }>
@@ -326,8 +327,8 @@ export const ControllerPage = () => {
   )
   const showControlBar = Boolean(
     roomId &&
-      lockState !== 'authoritative' &&
-      (!controlBarCollapsed || latestControlEventAt > controlBarDismissedAt),
+    lockState !== 'authoritative' &&
+    (!controlBarCollapsed || latestControlEventAt > controlBarDismissedAt),
   )
   const controlBarTone = visibleDisplacement || visibleDenial || visibleError ? 'rose' : 'amber'
   const reauthHintActive = reauthHintAt !== null && controlNow - reauthHintAt < 12_000
@@ -344,9 +345,9 @@ export const ControllerPage = () => {
             : 'Controls locked'
   const controlDetail = visibleDisplacement
     ? `Now controlled by ${visibleDisplacement.takenByName ?? visibleDisplacement.takenByUserName ?? 'another device'} at ${formatDate(
-        visibleDisplacement.takenAt,
-        room?.timezone ?? 'UTC',
-      )}.`
+      visibleDisplacement.takenAt,
+      room?.timezone ?? 'UTC',
+    )}.`
     : visibleDenial
       ? `Request declined by ${visibleDenial.deniedByName ?? visibleDenial.deniedByUserName ?? 'the current controller'}.`
       : visibleError
@@ -782,9 +783,9 @@ export const ControllerPage = () => {
   const showControlUi = showControlEnabled && !capabilityMissing
   const showPresentationBanner = Boolean(
     showControlEnabled &&
-      presentationFeatureEnabled &&
-      lastPresentationDetectedAt &&
-      lastPresentationDetectedAt > (presentationBannerDismissedAt ?? 0),
+    presentationFeatureEnabled &&
+    lastPresentationDetectedAt &&
+    lastPresentationDetectedAt > (presentationBannerDismissedAt ?? 0),
   )
   const isMacPlatform = companionReady && companion.systemInfo?.platform === 'darwin'
   useEffect(() => {
@@ -809,9 +810,19 @@ export const ControllerPage = () => {
     latestPresentationEntry?.record.updatedAt,
   ])
   useEffect(() => {
-    if (presentationEntries.length > 0) return
-    setLastPresentationDetectedAt(null)
-    setLastPresentationEntry(null)
+    if (presentationEntries.length > 0) {
+      if (presentationClearTimerRef.current !== null) {
+        window.clearTimeout(presentationClearTimerRef.current)
+        presentationClearTimerRef.current = null
+      }
+      return
+    }
+    if (presentationClearTimerRef.current !== null) return
+    presentationClearTimerRef.current = window.setTimeout(() => {
+      setLastPresentationDetectedAt(null)
+      setLastPresentationEntry(null)
+      presentationClearTimerRef.current = null
+    }, 5000)
   }, [presentationEntries.length])
   useEffect(() => {
     if (showControlEnabled && presentationFeatureEnabled) return
@@ -1381,11 +1392,10 @@ export const ControllerPage = () => {
                       key={client.clientId}
                       type="button"
                       onClick={() => setHandoverTargetId(client.clientId)}
-                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition ${
-                        selected
+                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition ${selected
                           ? 'border-rose-300/70 bg-rose-500/10 text-rose-100'
                           : 'border-slate-800 bg-slate-900/60 text-slate-200 hover:border-slate-600'
-                      }`}
+                        }`}
                     >
                       <span className="font-semibold">{label}</span>
                       {selected ? <span className="text-xs uppercase tracking-[0.2em]">Selected</span> : null}
@@ -1539,80 +1549,80 @@ export const ControllerPage = () => {
                 </div>
               </div>
             </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <ConnectionIndicator status={connectionStatus} />
-            {lockState !== 'authoritative' || isCloudOffline ? (
-              <button
-                type="button"
-                onClick={() => setControlBarCollapsed(false)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-              >
-                {viewerOnly ? 'Viewer mode' : 'View only'}
-              </button>
-            ) : null}
-            {roomAuthority?.status === 'syncing' ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
-                <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
-                Sync
+            <div className="flex flex-wrap items-center gap-3">
+              <ConnectionIndicator status={connectionStatus} />
+              {lockState !== 'authoritative' || isCloudOffline ? (
+                <button
+                  type="button"
+                  onClick={() => setControlBarCollapsed(false)}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                >
+                  {viewerOnly ? 'Viewer mode' : 'View only'}
+                </button>
+              ) : null}
+              {roomAuthority?.status === 'syncing' ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-200">
+                  <span className="h-2 w-2 rounded-full bg-sky-300 animate-pulse" />
+                  Sync
                 </span>
               ) : null}
-            {roomId && lockState === 'authoritative' ? (
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200">
-                <span className="text-[9px] tracking-[0.2em] text-slate-400">PIN</span>
-                {pinEditing ? (
-                  <input
-                    ref={pinInputRef}
-                    value={pinDraft}
-                    onChange={(event) => setPinDraft(event.target.value)}
-                    onBlur={handleSavePin}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        handleSavePin()
-                      }
-                      if (event.key === 'Escape') {
-                        event.preventDefault()
-                        handleCancelPin()
-                      }
-                    }}
-                    className="w-20 rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-100"
-                    placeholder="1234"
-                    inputMode="numeric"
-                    autoFocus
-                  />
-                ) : canEditPin ? (
-                  <button
-                    type="button"
-                    onClick={handleSetPin}
-                    className="text-[11px] font-semibold text-slate-100 transition hover:text-white"
-                  >
-                    {roomPin ? (pinHidden ? '****' : roomPin) : 'Not set'}
-                  </button>
-                ) : (
-                  <span className="text-[11px] text-slate-400">{pinPermissionLabel}</span>
-                )}
-                {!pinEditing && roomPin && canEditPin ? (
-                  <>
+              {roomId && lockState === 'authoritative' ? (
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200">
+                  <span className="text-[9px] tracking-[0.2em] text-slate-400">PIN</span>
+                  {pinEditing ? (
+                    <input
+                      ref={pinInputRef}
+                      value={pinDraft}
+                      onChange={(event) => setPinDraft(event.target.value)}
+                      onBlur={handleSavePin}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          handleSavePin()
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          handleCancelPin()
+                        }
+                      }}
+                      className="w-20 rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-semibold text-slate-100"
+                      placeholder="1234"
+                      inputMode="numeric"
+                      autoFocus
+                    />
+                  ) : canEditPin ? (
                     <button
                       type="button"
-                      onClick={() => setPinHidden((prev) => !prev)}
-                      className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300 transition hover:border-slate-500"
+                      onClick={handleSetPin}
+                      className="text-[11px] font-semibold text-slate-100 transition hover:text-white"
                     >
-                      {pinHidden ? 'Show' : 'Hide'}
+                      {roomPin ? (pinHidden ? '****' : roomPin) : 'Not set'}
                     </button>
-                    {!pinHidden ? (
+                  ) : (
+                    <span className="text-[11px] text-slate-400">{pinPermissionLabel}</span>
+                  )}
+                  {!pinEditing && roomPin && canEditPin ? (
+                    <>
                       <button
                         type="button"
-                        onClick={() => void handleCopyPin()}
+                        onClick={() => setPinHidden((prev) => !prev)}
                         className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300 transition hover:border-slate-500"
                       >
-                        Copy
+                        {pinHidden ? 'Show' : 'Hide'}
                       </button>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-            ) : null}
+                      {!pinHidden ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyPin()}
+                          className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300 transition hover:border-slate-500"
+                        >
+                          Copy
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               <Tooltip content="Undo timer delete (Cmd/Ctrl+Z)">
                 <button
                   type="button"
@@ -1671,515 +1681,514 @@ export const ControllerPage = () => {
                   Viewer
                 </a>
               </Tooltip>
-            <ShareLinkButton roomId={room.id} />
-          </div>
-        </div>
-        {showControlTier ? (
-          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-            {showControlUi ? (
-              <>
-                <div className="space-y-4">
-                  <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Main timer</p>
-                    <p className="text-sm font-semibold text-white">
-                      {activeTimer ? activeTimer.title : 'Standby'}
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold text-white">{mainDisplay}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
-                      {mainStatusLabel}
-                    </p>
-                  </div>
-                  <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
-                      PiP {pipLabel}
-                    </p>
-                    <p className="text-sm font-semibold text-white">
-                      {pipTimer ? pipTimer.title : 'Standby'}
-                    </p>
-                    <p className="mt-2 text-2xl font-semibold text-white">{pipRemaining}</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {pipTimer?.speaker ? `Speaker: ${pipTimer.speaker}` : 'Ready'}
-                    </p>
-                  </div>
-                </div>
-                {companionReady ? (
-                  <PresentationStatusPanel
-                    cue={activeLiveCue}
-                    isCapabilityMissing={capabilityMissing}
-                    isMacPlatform={Boolean(isMacPlatform)}
-                  />
-                ) : (
-                  <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
-                      Presentation status
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">Companion required</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Connect Companion to track slides and video timing.
-                    </p>
-                    {canClearPresentation ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (room) clearLiveCues?.(room.id)
-                        }}
-                        className="mt-3 inline-flex items-center justify-center rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
-                      >
-                        Clear presentation status
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-              </>
-            ) : showControlBlocked ? (
-              <div className="rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
-                <p className="font-semibold">
-                  Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
-                </p>
-                <p className="mt-1 text-amber-100/80">
-                  Show Control mode is required for the dual header.
-                </p>
-                <Link
-                  to="/local"
-                  className="mt-2 inline-flex rounded-full border border-amber-400/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition hover:bg-amber-500/10"
-                >
-                  Learn more
-                </Link>
-              </div>
-            ) : null}
-          </div>
-        ) : isBasicTier ? (
-          <div className="mt-4 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4 text-left">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Simple mode</p>
-                  <span className="rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
-                    Upgrade
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-slate-200">
-                  Upgrade to unlock Show Control tools, presentation status, and PiP timers.
-                </p>
-              </div>
-              <Link
-                to="/"
-                className="rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
-              >
-                See plans
-              </Link>
+              <ShareLinkButton roomId={room.id} />
             </div>
           </div>
-        ) : null}
-        {showControlEnabled && presentationFeatureEnabled && powerpointMissing && !showControlBlocked ? (
-          <div className="mt-4 rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
-            <p className="font-semibold">
-              Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
-            </p>
-            <p className="mt-1 text-amber-100/80">
-              Show Control mode is required for presentation import.
-            </p>
-            <Link
-              to="/local"
-              className="mt-2 inline-flex rounded-full border border-amber-400/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition hover:bg-amber-500/10"
-            >
-              Learn more
-            </Link>
-          </div>
-        ) : null}
-        {showPresentationBanner ? (
-          <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-200">
-                  Presentation detected
-                </p>
-                <p className="text-sm font-semibold text-white">
-                  {presentationCue?.metadata?.filename ??
-                    lastPresentationEntry?.record.cue.metadata?.filename ??
-                    presentationCue?.title ??
-                    lastPresentationEntry?.record.cue.title ??
-                    'PowerPoint presentation'}
-                </p>
-                <p className="text-xs text-emerald-100/80">
-                  {lastPresentationDetectedAt
-                    ? `Detected at ${formatDate(
+          {showControlTier ? (
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+              {showControlUi ? (
+                <>
+                  <div className="space-y-4">
+                    <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
+                      <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Main timer</p>
+                      <p className="text-sm font-semibold text-white">
+                        {activeTimer ? activeTimer.title : 'Standby'}
+                      </p>
+                      <p className="mt-2 text-3xl font-semibold text-white">{mainDisplay}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
+                        {mainStatusLabel}
+                      </p>
+                    </div>
+                    <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
+                      <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                        PiP {pipLabel}
+                      </p>
+                      <p className="text-sm font-semibold text-white">
+                        {pipTimer ? pipTimer.title : 'Standby'}
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{pipRemaining}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {pipTimer?.speaker ? `Speaker: ${pipTimer.speaker}` : 'Ready'}
+                      </p>
+                    </div>
+                  </div>
+                  {companionReady ? (
+                    <PresentationStatusPanel
+                      cue={activeLiveCue}
+                      isCapabilityMissing={capabilityMissing}
+                      isMacPlatform={Boolean(isMacPlatform)}
+                    />
+                  ) : (
+                    <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
+                      <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                        Presentation status
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-white">Companion required</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Connect Companion to track slides and video timing.
+                      </p>
+                      {canClearPresentation ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (room) clearLiveCues?.(room.id)
+                          }}
+                          className="mt-3 inline-flex items-center justify-center rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+                        >
+                          Clear presentation status
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </>
+              ) : showControlBlocked ? (
+                <div className="rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
+                  <p className="font-semibold">
+                    Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
+                  </p>
+                  <p className="mt-1 text-amber-100/80">
+                    Show Control mode is required for the dual header.
+                  </p>
+                  <Link
+                    to="/local"
+                    className="mt-2 inline-flex rounded-full border border-amber-400/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition hover:bg-amber-500/10"
+                  >
+                    Learn more
+                  </Link>
+                </div>
+              ) : null}
+            </div>
+          ) : isBasicTier ? (
+            <div className="mt-4 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4 text-left">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Simple mode</p>
+                    <span className="rounded-full border border-amber-300/60 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
+                      Upgrade
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-200">
+                    Upgrade to unlock Show Control tools, presentation status, and PiP timers.
+                  </p>
+                </div>
+                <Link
+                  to="/"
+                  className="rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+                >
+                  See plans
+                </Link>
+              </div>
+            </div>
+          ) : null}
+          {showControlEnabled && presentationFeatureEnabled && powerpointMissing && !showControlBlocked ? (
+            <div className="mt-4 rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
+              <p className="font-semibold">
+                Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
+              </p>
+              <p className="mt-1 text-amber-100/80">
+                Show Control mode is required for presentation import.
+              </p>
+              <Link
+                to="/local"
+                className="mt-2 inline-flex rounded-full border border-amber-400/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition hover:bg-amber-500/10"
+              >
+                Learn more
+              </Link>
+            </div>
+          ) : null}
+          {showPresentationBanner ? (
+            <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-200">
+                    Presentation detected
+                  </p>
+                  <p className="text-sm font-semibold text-white">
+                    {presentationCue?.metadata?.filename ??
+                      lastPresentationEntry?.record.cue.metadata?.filename ??
+                      presentationCue?.title ??
+                      lastPresentationEntry?.record.cue.title ??
+                      'PowerPoint presentation'}
+                  </p>
+                  <p className="text-xs text-emerald-100/80">
+                    {lastPresentationDetectedAt
+                      ? `Detected at ${formatDate(
                         lastPresentationDetectedAt,
                         room?.timezone ?? 'UTC',
                       )}`
-                    : 'Ready to import slides and video cues.'}
-                </p>
-                {presentationDuplicatesHidden > 0 ? (
-                  <p className="mt-1 text-[10px] text-emerald-100/70">
-                    Deduped {presentationDuplicatesHidden} duplicate updates.
+                      : 'Ready to import slides and video cues.'}
                   </p>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPresentationImportOpen(true)}
-                  className="rounded-full border border-emerald-200/60 bg-emerald-500/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-50 transition hover:border-emerald-100"
-                >
-                  Import
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDismissPresentationBanner}
-                  className="rounded-full border border-emerald-200/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100 transition hover:border-emerald-100"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-        {showControlEnabled &&
-        presentationFeatureEnabled &&
-        presentationImportOpen &&
-        presentationEntries.length > 0 ? (
-          <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
-                  Presentation import
-                </p>
-                <p className="text-xs text-slate-300">
-                  Map detected video moments to cues. Changes are stored locally in this session.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPresentationImportOpen(false)}
-                className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-              >
-                Close
-              </button>
-            </div>
-            {isMacPlatform ? (
-              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
-                Video timing is unavailable on macOS. Imports still work without timing metadata.
-              </div>
-            ) : presentationTimingWarning ? (
-              <div className="mt-3 rounded-xl border border-amber-800/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
-                Video metadata unavailable (ffprobe missing or unsupported). Continue without timing data.
-              </div>
-            ) : null}
-            <div className="mt-3 space-y-3">
-              {presentationEntries.map((entry) => {
-                const mapping = presentationMappings[entry.key] ?? {
-                  targetId: 'unassigned',
-                  customLabel: '',
-                }
-                const slideLabel = (() => {
-                  const slideNumber = entry.record.cue.metadata?.slideNumber
-                  const totalSlides = entry.record.cue.metadata?.totalSlides
-                  if (slideNumber === undefined && totalSlides === undefined) return 'Slide data unavailable'
-                  return `Slide ${slideNumber ?? '--'} / ${totalSlides ?? '--'}`
-                })()
-                return (
-                  <div
-                    key={entry.key}
-                    className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-white">
-                          {entry.record.cue.metadata?.filename ??
-                            entry.record.cue.title ??
-                            'Presentation'}
-                        </p>
-                        <p className="text-xs text-slate-400">{slideLabel}</p>
-                      </div>
-                      {entry.duplicateCount > 1 ? (
-                        <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
-                          {entry.duplicateCount} updates
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                      <div>
-                        <label className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
-                          Cue mapping
-                        </label>
-                        <select
-                          value={mapping.targetId}
-                          onChange={(event) => {
-                            const nextTarget = event.target.value
-                            updatePresentationMapping(entry.key, {
-                              targetId: nextTarget,
-                              customLabel: nextTarget === 'custom' ? mapping.customLabel : '',
-                            })
-                          }}
-                          className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
-                        >
-                          <option value="unassigned">Unassigned</option>
-                          <option value="custom">Custom cue label</option>
-                          {presentationMappingOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
-                          Cue label
-                        </label>
-                        <input
-                          type="text"
-                          value={
-                            mapping.targetId === 'custom'
-                              ? mapping.customLabel
-                              : mapping.targetId === 'unassigned'
-                              ? ''
-                              : presentationMappingOptions.find(
-                                  (option) => option.value === mapping.targetId,
-                                )?.label ?? ''
-                          }
-                          onChange={(event) =>
-                            updatePresentationMapping(entry.key, {
-                              customLabel: event.target.value,
-                              targetId: mapping.targetId === 'custom' ? 'custom' : mapping.targetId,
-                            })
-                          }
-                          placeholder={
-                            mapping.targetId === 'custom'
-                              ? 'Enter cue label'
-                              : mapping.targetId === 'unassigned'
-                              ? 'Not mapped'
-                              : undefined
-                          }
-                          disabled={mapping.targetId !== 'custom'}
-                          className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-2 text-xs text-slate-200 disabled:opacity-50"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <p className="mt-3 text-[10px] text-slate-500">
-              Mapping is local-only for now. No cues are created in this pass.
-            </p>
-            {debugCompanion ? (
-              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-[11px] text-slate-300">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
-                  Presentation debug
-                </p>
-                <div className="mt-2 grid gap-1 text-xs text-slate-400">
-                  <span>liveCueRecords: {liveCueRecords.length}</span>
-                  <span>presentationRecords: {presentationRecords.length}</span>
-                  <span>presentationEntries: {presentationEntries.length}</span>
-                  <span>activeLiveCueId: {activeLiveCueId ?? 'none'}</span>
-                  <span>
-                    slide: {presentationCue?.metadata?.slideNumber ?? '—'} /{' '}
-                    {presentationCue?.metadata?.totalSlides ?? '—'}
-                  </span>
-                  <span>companionConnected: {String(companion.isConnected)}</span>
-                  <span>handshakeStatus: {companion.handshakeStatus}</span>
-                  <span>capabilityPowerPoint: {String(presentationCapability)}</span>
-                  <span>featurePowerPoint: {String(presentationFeatureEnabled)}</span>
-                  <span>showControlEnabled: {String(showControlEnabled)}</span>
-                  <span>effectiveMode: {effectiveMode}</span>
-                  {liveCueDiagnostics ? (
-                    <>
-                      <span>canUseLiveCues: {String(liveCueDiagnostics.canUseLiveCues)}</span>
-                      <span>companionLive: {String(liveCueDiagnostics.isCompanionLive)}</span>
-                      <span>companionSubscribed: {String(liveCueDiagnostics.isSubscribed)}</span>
-                      <span>firebaseLiveCues: {liveCueDiagnostics.firebaseCount}</span>
-                      <span>companionLiveCues: {liveCueDiagnostics.companionCount}</span>
-                    </>
+                  {presentationDuplicatesHidden > 0 ? (
+                    <p className="mt-1 text-[10px] text-emerald-100/70">
+                      Deduped {presentationDuplicatesHidden} duplicate updates.
+                    </p>
                   ) : null}
                 </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {showControlBar ? (
-          <div
-            className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border px-4 py-2 text-xs text-slate-100 shadow-sm ${
-              controlBarTone === 'rose'
-                ? 'border-rose-400/40 bg-rose-500/10'
-                : 'border-amber-400/40 bg-amber-500/10'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className={`flex h-2 w-2 rounded-full ${
-                  controlBarTone === 'rose' ? 'bg-rose-300' : 'bg-amber-300'
-                } ${controlBarTone === 'amber' ? 'animate-pulse' : ''}`}
-              />
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-200">
-                  {controlTitle}
-                </p>
-                <p className="text-[11px] text-slate-200/80">{controlDetail}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPresentationImportOpen(true)}
+                    className="rounded-full border border-emerald-200/60 bg-emerald-500/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-50 transition hover:border-emerald-100"
+                  >
+                    Import
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDismissPresentationBanner}
+                    className="rounded-full border border-emerald-200/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100 transition hover:border-emerald-100"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {lockState === 'requesting' && !displacement ? (
-                <span className="text-[11px] text-slate-200/70">
-                  {forceTakeoverReady
-                    ? 'Take control now'
-                    : requestCountdown
-                    ? `Take control in ${requestCountdown}s`
-                    : 'Waiting for response'}
-                </span>
+          ) : null}
+          {showControlEnabled &&
+            presentationFeatureEnabled &&
+            presentationImportOpen &&
+            presentationEntries.length > 0 ? (
+            <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-left">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
+                    Presentation import
+                  </p>
+                  <p className="text-xs text-slate-300">
+                    Map detected video moments to cues. Changes are stored locally in this session.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPresentationImportOpen(false)}
+                  className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                >
+                  Close
+                </button>
+              </div>
+              {isMacPlatform && (presentationCue?.metadata?.permissions === 'missing' || !presentationCue?.metadata?.permissions) ? (
+                <div className="mt-3 rounded-xl border border-amber-800/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+                  <p className="font-semibold">Permissions Required</p>
+                  <p className="mt-1 opacity-80">Grant Accessibility permissions to OnTime Companion in System Settings to enable video tracking on macOS.</p>
+                </div>
+              ) : presentationTimingWarning ? (
+                <div className="mt-3 rounded-xl border border-amber-800/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+                  Video metadata unavailable (ffprobe missing or unsupported). Continue without timing data.
+                </div>
               ) : null}
-              {!forceTakeoverReady && (
-                <span className="text-[10px] text-slate-200/60">
-                  Use PIN or re-auth to take control now.
-                </span>
-              )}
-              {reauthHintActive ? (
-                <span className="text-[10px] text-slate-200/70">
-                  Re-auth failed. Close the pop-up if it stays open.
-                </span>
-              ) : null}
-              {displacement ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (room) requestControl(room.id)
-                      setControlBarCollapsed(false)
-                    }}
-                    disabled={lockState === 'requesting'}
-                    className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
-                  >
-                    {lockState === 'requesting' ? 'Requesting' : 'Reclaim'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleForceTakeover}
-                    disabled={!forceTakeoverReady && !canForceNow}
-                    className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
-                  >
-                    {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleDismissControlBar()
-                    }}
-                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-                  >
-                    Dismiss
-                  </button>
-                </>
-              ) : visibleDenial || visibleError ? (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleDismissControlBar()
-                    }}
-                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-                  >
-                    Dismiss
-                  </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    disabled={lockState === 'requesting'}
-                    onClick={() => room && requestControl(room.id)}
-                    className="rounded-full border border-amber-300/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200 disabled:opacity-60"
-                  >
-                    {lockState === 'requesting' ? 'Requesting' : 'Request'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleForceTakeover}
-                    disabled={!forceTakeoverReady && !canForceNow}
-                    title={
-                      forceTakeoverReady
-                        ? 'Force takeover now'
-                        : canForceNow
-                        ? 'Force takeover with PIN or re-auth'
-                        : 'No PIN set; force takeover after timeout'
-                    }
-                    className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
-                  >
-                    {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewerOnly((prev) => !prev)}
-                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-                  >
-                    {viewerOnly ? 'Enable control' : 'Viewer-only'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleDismissControlBar()
-                    }}
-                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-                  >
-                    Dismiss
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ) : null}
-        {roomId && lockState === 'authoritative' && incomingRequest && ignoredRequestTs !== incomingRequest.requestedAt ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border border-rose-500/50 bg-rose-500/10 px-4 py-2 text-xs text-rose-100 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="flex h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-rose-100">Control request</p>
-                <p className="text-[11px] text-rose-100/90">
-                  {incomingRequest.requesterUserName ?? incomingRequest.requesterName ?? 'Another device'} wants control.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!canHandOver) return
-                  if (room) handOverControl(room.id, incomingRequest.requesterId)
-                }}
-                disabled={!canHandOver}
-                title={canHandOver ? undefined : 'Handover requires Companion'}
-                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
-              >
-                Hand over
-              </button>
-              <button
-                type="button"
-                onClick={() => setRequestChimeEnabled((prev) => !prev)}
-                className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-              >
-                Chime {requestChimeEnabled ? 'On' : 'Off'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (room) {
-                    denyControl(room.id, incomingRequest.requesterId)
+              <div className="mt-3 space-y-3">
+                {presentationEntries.map((entry) => {
+                  const mapping = presentationMappings[entry.key] ?? {
+                    targetId: 'unassigned',
+                    customLabel: '',
                   }
-                  setIgnoredRequestTs(incomingRequest.requestedAt)
-                }}
-                className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
-              >
-                Deny
-              </button>
+                  const slideLabel = (() => {
+                    const slideNumber = entry.record.cue.metadata?.slideNumber
+                    const totalSlides = entry.record.cue.metadata?.totalSlides
+                    if (slideNumber === undefined && totalSlides === undefined) return 'Slide data unavailable'
+                    return `Slide ${slideNumber ?? '--'} / ${totalSlides ?? '--'}`
+                  })()
+                  return (
+                    <div
+                      key={entry.key}
+                      className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {entry.record.cue.metadata?.filename ??
+                              entry.record.cue.title ??
+                              'Presentation'}
+                          </p>
+                          <p className="text-xs text-slate-400">{slideLabel}</p>
+                        </div>
+                        {entry.duplicateCount > 1 ? (
+                          <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
+                            {entry.duplicateCount} updates
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                            Cue mapping
+                          </label>
+                          <select
+                            value={mapping.targetId}
+                            onChange={(event) => {
+                              const nextTarget = event.target.value
+                              updatePresentationMapping(entry.key, {
+                                targetId: nextTarget,
+                                customLabel: nextTarget === 'custom' ? mapping.customLabel : '',
+                              })
+                            }}
+                            className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                          >
+                            <option value="unassigned">Unassigned</option>
+                            <option value="custom">Custom cue label</option>
+                            {presentationMappingOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                            Cue label
+                          </label>
+                          <input
+                            type="text"
+                            value={
+                              mapping.targetId === 'custom'
+                                ? mapping.customLabel
+                                : mapping.targetId === 'unassigned'
+                                  ? ''
+                                  : presentationMappingOptions.find(
+                                    (option) => option.value === mapping.targetId,
+                                  )?.label ?? ''
+                            }
+                            onChange={(event) =>
+                              updatePresentationMapping(entry.key, {
+                                customLabel: event.target.value,
+                                targetId: mapping.targetId === 'custom' ? 'custom' : mapping.targetId,
+                              })
+                            }
+                            placeholder={
+                              mapping.targetId === 'custom'
+                                ? 'Enter cue label'
+                                : mapping.targetId === 'unassigned'
+                                  ? 'Not mapped'
+                                  : undefined
+                            }
+                            disabled={mapping.targetId !== 'custom'}
+                            className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900/80 px-2 py-2 text-xs text-slate-200 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="mt-3 text-[10px] text-slate-500">
+                Mapping is local-only for now. No cues are created in this pass.
+              </p>
+              {debugCompanion ? (
+                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-[11px] text-slate-300">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">
+                    Presentation debug
+                  </p>
+                  <div className="mt-2 grid gap-1 text-xs text-slate-400">
+                    <span>liveCueRecords: {liveCueRecords.length}</span>
+                    <span>presentationRecords: {presentationRecords.length}</span>
+                    <span>presentationEntries: {presentationEntries.length}</span>
+                    <span>activeLiveCueId: {activeLiveCueId ?? 'none'}</span>
+                    <span>
+                      slide: {presentationCue?.metadata?.slideNumber ?? '—'} /{' '}
+                      {presentationCue?.metadata?.totalSlides ?? '—'}
+                    </span>
+                    <span>companionConnected: {String(companion.isConnected)}</span>
+                    <span>handshakeStatus: {companion.handshakeStatus}</span>
+                    <span>capabilityPowerPoint: {String(presentationCapability)}</span>
+                    <span>featurePowerPoint: {String(presentationFeatureEnabled)}</span>
+                    <span>showControlEnabled: {String(showControlEnabled)}</span>
+                    <span>effectiveMode: {effectiveMode}</span>
+                    {liveCueDiagnostics ? (
+                      <>
+                        <span>canUseLiveCues: {String(liveCueDiagnostics.canUseLiveCues)}</span>
+                        <span>companionLive: {String(liveCueDiagnostics.isCompanionLive)}</span>
+                        <span>companionSubscribed: {String(liveCueDiagnostics.isSubscribed)}</span>
+                        <span>firebaseLiveCues: {liveCueDiagnostics.firebaseCount}</span>
+                        <span>companionLiveCues: {liveCueDiagnostics.companionCount}</span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          </div>
-        ) : null}
-        {connectionStatus !== 'online' && (
-          <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-            <AlertTriangle size={16} />
-            {roomAuthority?.source === 'cloud' && !companionReady
-              ? 'No cloud sync or Companion connection. Controls disabled.'
-              : 'Cloud sync offline. Reconnect to make changes.'}
-          </div>
+          ) : null}
+          {showControlBar ? (
+            <div
+              className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border px-4 py-2 text-xs text-slate-100 shadow-sm ${controlBarTone === 'rose'
+                  ? 'border-rose-400/40 bg-rose-500/10'
+                  : 'border-amber-400/40 bg-amber-500/10'
+                }`}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`flex h-2 w-2 rounded-full ${controlBarTone === 'rose' ? 'bg-rose-300' : 'bg-amber-300'
+                    } ${controlBarTone === 'amber' ? 'animate-pulse' : ''}`}
+                />
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-200">
+                    {controlTitle}
+                  </p>
+                  <p className="text-[11px] text-slate-200/80">{controlDetail}</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {lockState === 'requesting' && !displacement ? (
+                  <span className="text-[11px] text-slate-200/70">
+                    {forceTakeoverReady
+                      ? 'Take control now'
+                      : requestCountdown
+                        ? `Take control in ${requestCountdown}s`
+                        : 'Waiting for response'}
+                  </span>
+                ) : null}
+                {!forceTakeoverReady && (
+                  <span className="text-[10px] text-slate-200/60">
+                    Use PIN or re-auth to take control now.
+                  </span>
+                )}
+                {reauthHintActive ? (
+                  <span className="text-[10px] text-slate-200/70">
+                    Re-auth failed. Close the pop-up if it stays open.
+                  </span>
+                ) : null}
+                {displacement ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (room) requestControl(room.id)
+                        setControlBarCollapsed(false)
+                      }}
+                      disabled={lockState === 'requesting'}
+                      className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
+                    >
+                      {lockState === 'requesting' ? 'Requesting' : 'Reclaim'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleForceTakeover}
+                      disabled={!forceTakeoverReady && !canForceNow}
+                      className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
+                    >
+                      {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleDismissControlBar()
+                      }}
+                      className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                    >
+                      Dismiss
+                    </button>
+                  </>
+                ) : visibleDenial || visibleError ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDismissControlBar()
+                    }}
+                    className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                  >
+                    Dismiss
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={lockState === 'requesting'}
+                      onClick={() => room && requestControl(room.id)}
+                      className="rounded-full border border-amber-300/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200 disabled:opacity-60"
+                    >
+                      {lockState === 'requesting' ? 'Requesting' : 'Request'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleForceTakeover}
+                      disabled={!forceTakeoverReady && !canForceNow}
+                      title={
+                        forceTakeoverReady
+                          ? 'Force takeover now'
+                          : canForceNow
+                            ? 'Force takeover with PIN or re-auth'
+                            : 'No PIN set; force takeover after timeout'
+                      }
+                      className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
+                    >
+                      {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewerOnly((prev) => !prev)}
+                      className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                    >
+                      {viewerOnly ? 'Enable control' : 'Viewer-only'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleDismissControlBar()
+                      }}
+                      className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                    >
+                      Dismiss
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
+          {roomId && lockState === 'authoritative' && incomingRequest && ignoredRequestTs !== incomingRequest.requestedAt ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-full border border-rose-500/50 bg-rose-500/10 px-4 py-2 text-xs text-rose-100 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-rose-100">Control request</p>
+                  <p className="text-[11px] text-rose-100/90">
+                    {incomingRequest.requesterUserName ?? incomingRequest.requesterName ?? 'Another device'} wants control.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canHandOver) return
+                    if (room) handOverControl(room.id, incomingRequest.requesterId)
+                  }}
+                  disabled={!canHandOver}
+                  title={canHandOver ? undefined : 'Handover requires Companion'}
+                  className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
+                >
+                  Hand over
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRequestChimeEnabled((prev) => !prev)}
+                  className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                >
+                  Chime {requestChimeEnabled ? 'On' : 'Off'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (room) {
+                      denyControl(room.id, incomingRequest.requesterId)
+                    }
+                    setIgnoredRequestTs(incomingRequest.requestedAt)
+                  }}
+                  className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                >
+                  Deny
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {connectionStatus !== 'online' && (
+            <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+              <AlertTriangle size={16} />
+              {roomAuthority?.source === 'cloud' && !companionReady
+                ? 'No cloud sync or Companion connection. Controls disabled.'
+                : 'Cloud sync offline. Reconnect to make changes.'}
+            </div>
           )}
         </header>
 
@@ -2369,17 +2378,17 @@ export const ControllerPage = () => {
             onClick={() => setQrModalOpen(false)}
           >
             <div
-            className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                viewerUrl,
-              )}`}
-              alt="Viewer QR"
-              className="h-80 w-80 object-contain"
-              onError={() => setQrError(true)}
-            />
+              className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+                  viewerUrl,
+                )}`}
+                alt="Viewer QR"
+                className="h-80 w-80 object-contain"
+                onError={() => setQrError(true)}
+              />
               <button
                 type="button"
                 className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/60"
