@@ -101,6 +101,7 @@ export type LiveCue = {
     videoElapsed?: number
     videoRemaining?: number
     videoTimingUnavailable?: boolean
+    permissions?: 'granted' | 'missing' | 'unknown'
   }
 }
 
