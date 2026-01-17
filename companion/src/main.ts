@@ -1,4 +1,4 @@
-import { app, Menu, Tray, nativeImage, clipboard, shell, dialog, BrowserWindow } from 'electron';
+import { app, Menu, Tray, nativeImage, clipboard, shell, dialog, BrowserWindow, systemPreferences } from 'electron';
 import { createServer, Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, Server as HttpsServer } from 'node:https';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -21,7 +21,7 @@ type CompanionMode = 'minimal' | 'show_control' | 'production';
 
 const APP_LABEL = 'OnTime Companion';
 let currentCompanionMode: CompanionMode = 'show_control';
-const COMPANION_VERSION = '0.1.0';
+const COMPANION_VERSION = '0.1.1-dev.2';
 const INTERFACE_VERSION = '1.2.0';
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const TOKEN_SERVICE = 'OnTime Companion Token';
@@ -65,6 +65,110 @@ let pptNoVideoCount = 0;
 let pptExplicitNoVideoKey: string | null = null;
 let pptExplicitNoVideoCount = 0;
 const pptVideoCache = new Map<string, VideoTiming[]>();
+
+/**
+ * PptProbeManager manages the persistent native Swift helper process.
+ */
+class PptProbeManager {
+  private child: ChildProcessWithoutNullStreams | null = null;
+  private lastStatus: PowerPointProbeResult | null = null;
+  private restartCount = 0;
+  private lastRestartTime = 0;
+
+  start() {
+    if (process.platform !== 'darwin') return;
+    this.spawn();
+  }
+
+  private spawn() {
+    const exeName = 'ppt-probe-mac';
+    const candidates = [
+      path.join(process.resourcesPath || '', 'bin', exeName),
+      path.join(app.getAppPath(), 'bin', exeName),
+      path.join(__dirname, '..', 'bin', exeName)
+    ].filter(Boolean);
+
+    let helperPath = candidates.find(p => fsSync.existsSync(p));
+
+    if (pptDebugEnabled) {
+      void appendPptLog(`[ppt-probe] Searching for helper at: ${candidates.join(', ')}`);
+      void appendPptLog(`[ppt-probe] Resolved path: ${helperPath || 'NOT FOUND'}`);
+    }
+
+    if (!helperPath) {
+      console.warn(`[ppt-probe] Helper not found at searched locations.`);
+      return;
+    }
+
+    try {
+      this.child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
+      logPptInfo(`[ppt-probe] Native helper spawned (pid: ${this.child.pid}) at ${helperPath}`);
+
+      this.child.on('error', (err) => {
+        logPptInfo(`[ppt-probe] Spawn error: ${err.message}`);
+        this.child = null;
+      });
+
+      const rl = readline.createInterface({ input: this.child.stdout });
+      rl.on('line', (line) => {
+        try {
+          this.lastStatus = JSON.parse(line);
+          if (pptDebugVerboseEnabled) {
+            logPptInfo(`[ppt-probe] Received status for pid=${this.lastStatus?.instanceId} videos=${this.lastStatus?.videos.length}`);
+          }
+        } catch (err) {
+          logPptInfo(`[ppt-probe] JSON parse error: ${line}`);
+        }
+      });
+
+      this.child.stderr.on('data', (data) => {
+        logPptInfo(`[ppt-probe-stderr] ${data.toString('utf8').trim()}`);
+      });
+
+      this.child.on('exit', (code) => {
+        console.warn(`[ppt-probe] Native helper exited with code ${code}`);
+        logPptInfo(`[ppt-probe] Native helper exited with code ${code}`);
+        this.child = null;
+        this.handleRestart();
+      });
+    } catch (err) {
+      logPptInfo(`[ppt-probe] Unexpected spawn error: ${String(err)}`);
+    }
+  }
+
+  private handleRestart() {
+    const now = Date.now();
+    if (now - this.lastRestartTime > 60000) {
+      this.restartCount = 0;
+    }
+
+    if (this.restartCount < 3) {
+      this.restartCount++;
+      this.lastRestartTime = now;
+      console.log(`[ppt-probe] Restart attempt ${this.restartCount}/3...`);
+      setTimeout(() => this.spawn(), 2000);
+    } else {
+      console.error('[ppt-probe] Max restart attempts reached.');
+    }
+  }
+
+  getStatus(): PowerPointProbeResult | null {
+    return this.lastStatus;
+  }
+
+  isRunning(): boolean {
+    return this.child !== null && this.child.exitCode === null;
+  }
+
+  stop() {
+    if (this.child) {
+      this.child.kill();
+      this.child = null;
+    }
+  }
+}
+
+const pptProbeManager = new PptProbeManager();
 const COMPANION_CAPABILITIES_BY_MODE: Record<
   string,
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
@@ -131,8 +235,8 @@ function computePptDebugVerboseEnabled(dirs: string[]): boolean {
 
 async function initializePptDebugLogging(): Promise<void> {
   pptDebugDirs = resolvePptDebugDirs();
-  pptDebugEnabled = computePptDebugEnabled(pptDebugDirs);
-  pptDebugVerboseEnabled = computePptDebugVerboseEnabled(pptDebugDirs);
+  pptDebugEnabled = computePptDebugEnabled(pptDebugDirs) || process.env.PPT_AX_DEBUG === "1" || process.env.PPT_HAWK_MODE === "1";
+  pptDebugVerboseEnabled = process.env.PPT_AX_DEBUG === "1" || process.env.PPT_HAWK_MODE === "1" || computePptDebugVerboseEnabled(pptDebugDirs);
   if (pptDebugVerboseEnabled) {
     pptDebugEnabled = true;
   }
@@ -151,20 +255,16 @@ async function initializePptDebugLogging(): Promise<void> {
 
 function logPptInfo(message: string, meta?: unknown): void {
   if (!pptDebugEnabled) return;
-  if (meta === undefined) {
-    console.info(message);
-  } else {
-    console.info(message, meta);
-  }
+  const line = meta === undefined ? message : `${message} ${JSON.stringify(meta)}`;
+  console.info(message, meta);
+  void appendPptLog(line);
 }
 
 function logPptVerbose(message: string, meta?: unknown): void {
   if (!pptDebugVerboseEnabled) return;
-  if (meta === undefined) {
-    console.info(message);
-  } else {
-    console.info(message, meta);
-  }
+  const line = meta === undefined ? message : `${message} ${JSON.stringify(meta)}`;
+  console.info(message, meta);
+  void appendPptLog(line);
 }
 
 async function appendPptLog(line: string): Promise<void> {
@@ -365,6 +465,25 @@ type VideoTiming = {
   playing?: boolean;
 };
 
+type VideoProbeStatus = {
+  name: string;
+  duration?: number;
+  elapsed?: number;
+  playing: boolean;
+};
+
+type PowerPointProbeResult = {
+  state: 'none' | 'background' | 'foreground';
+  instanceId: number;
+  inSlideshow: boolean;
+  slideNumber?: number;
+  totalSlides?: number;
+  pptPath?: string;
+  videos: VideoProbeStatus[];
+  error?: string;
+  permissions: 'granted' | 'missing' | 'unknown';
+};
+
 type LiveCueMetadata = {
   slideNumber?: number;
   totalSlides?: number;
@@ -432,6 +551,7 @@ type PowerPointPollResult = {
   videoRemaining?: number;
   videos?: VideoTiming[];
   videoTimingUnavailable?: boolean;
+  permissions?: 'granted' | 'missing' | 'unknown';
 };
 
 type PresentationSnapshot = {
@@ -446,6 +566,7 @@ type PresentationSnapshot = {
   videoRemaining?: number;
   videos?: VideoTiming[];
   videoTimingUnavailable?: boolean;
+  permissions?: 'granted' | 'missing' | 'unknown';
 };
 
 type TimerActionPayload = {
@@ -1418,7 +1539,7 @@ function updateTrayMenu(token: string, expiresAt: number) {
 
   const clientCount = getConnectedClientsCount();
 
-  const contextMenu = Menu.buildFromTemplate([
+  const menuTemplate = [
     { label: `${APP_LABEL} - ${getModeLabel(currentCompanionMode)}`, enabled: false },
     { type: 'separator' },
     {
@@ -1445,13 +1566,24 @@ function updateTrayMenu(token: string, expiresAt: number) {
       ]
     },
     { type: 'separator' },
+    {
+      label: 'Copy token',
+      click: () => clipboard.writeText(token)
+    },
     { label: 'Show Status Window', click: () => showStatusWindow(token, expiresAt) },
     { label: 'Quit', click: () => app.quit() }
-  ]);
+  ] as Electron.MenuItemConstructorOptions[];
 
+  const contextMenu = Menu.buildFromTemplate(menuTemplate);
   trayContextMenu = contextMenu;
-  if (process.platform !== 'darwin') {
-    tray.setContextMenu(contextMenu);
+
+  // Always set tray context menu (Darwin too)
+  tray.setContextMenu(contextMenu);
+
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([{ label: APP_LABEL, submenu: menuTemplate }])
+    );
   }
   tray.setToolTip(`${APP_LABEL} - ${getModeLabel(currentCompanionMode)} (${clientCount} clients)`);
 }
@@ -2011,6 +2143,7 @@ function startSocketServer() {
     void flushRoomCache();
     stopPowerPointHelper('app quit');
     stopPptProbeHelper('app quit');
+    pptProbeManager.stop();
   });
 }
 
@@ -2521,7 +2654,10 @@ function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): 
   };
 
   if (process.platform === 'darwin') {
-    metadata.videoTimingUnavailable = true;
+    const hasVideoTiming = snapshot.videoDuration !== undefined || snapshot.videoElapsed !== undefined;
+    if (!hasVideoTiming) {
+      metadata.videoTimingUnavailable = true;
+    }
   }
 
   return {
@@ -2825,59 +2961,58 @@ async function pollPowerPointViaHelper(
 async function fetchPowerPointStatus(): Promise<PowerPointPollResult | null> {
   if (process.platform === 'darwin') {
     const script = `
-set output to ""
-set pptRunning to false
-set pptFrontmost to false
-set pptPid to 0
-try
-  tell application "System Events"
-    set pptRunning to (count of (application processes whose name is "Microsoft PowerPoint")) > 0
-    if pptRunning then
-      set pptProcess to first application process whose name is "Microsoft PowerPoint"
-      set pptPid to unix id of pptProcess
-      set frontApp to name of first application process whose frontmost is true
-      if frontApp contains "PowerPoint" then set pptFrontmost to true
-    end if
-  end tell
-end try
-if pptRunning is false then
-  return "{\\"state\\":\\"none\\"}"
-end if
-if pptFrontmost is false then
-  return "{\\"state\\":\\"background\\"}"
-end if
-
-set slideNumberValue to ""
-set totalSlidesValue to ""
-
+set res to "{\\"state\\":\\"none\\"}"
 try
   tell application "Microsoft PowerPoint"
-    if (count of presentations) is 0 then
-      set output to "{\\"state\\":\\"foreground\\",\\"instanceId\\":" & pptPid & "}"
-      return output
+    set isRunning to true
+    set isFront to frontmost
+    set hasPres to (count of presentations) > 0
+    set isInShow to (count of slide show windows) > 0
+    
+    set maxSlides to 0
+    set filePath to ""
+    if hasPres then
+      try
+        set activePres to active presentation
+        set maxSlides to count of slides of activePres
+        set filePath to (full name of activePres) as string
+      on error
+        -- handle unsaved or busy presentation
+      end try
     end if
-    set currentPresentation to active presentation
-    try
-      set totalSlidesValue to count of slides of currentPresentation
-    end try
-    set inSlideshowValue to false
-    try
-      if (count of slide show windows) > 0 then
-        set inSlideshowValue to true
-        set slideNumberValue to current show position of slide show view of slide show window 1
-      end if
-    end try
-  end tell
-end try
+    
+    set curSlide to 0
+    if isInShow then
+      try
+        set curSlide to (current show position of slide show view of slide show window 1)
+      on error
+        set curSlide to 0
+      end try
+    end if
+    
+    set thePid to 0
+    tell application "System Events"
+      try
+        set thePid to unix id of process "Microsoft PowerPoint"
+      end try
+    end tell
 
-set output to "{\\"state\\":\\"foreground\\",\\"instanceId\\":" & pptPid
-if inSlideshowValue is true then set output to output & ",\\"inSlideshow\\":true"
-if inSlideshowValue is false then set output to output & ",\\"inSlideshow\\":false"
-if slideNumberValue is not "" then set output to output & ",\\"slideNumber\\":" & slideNumberValue
-if totalSlidesValue is not "" then set output to output & ",\\"totalSlides\\":" & totalSlidesValue
-set output to output & "}"
-return output
+    set stateStr to "background"
+    if isFront then set stateStr to "foreground"
+    set showStr to "false"
+    if isInShow then set showStr to "true"
+
+    set res to "{\\"state\\":\\"" & stateStr & "\\",\\"instanceId\\":" & thePid & ",\\"filename\\":\\"" & filePath & "\\",\\"inSlideshow\\":" & showStr
+    if curSlide > 0 then set res to res & ",\\"slideNumber\\":" & curSlide
+    if maxSlides > 0 then set res to res & ",\\"totalSlides\\":" & maxSlides
+    set res to res & "}"
+  end tell
+on error err
+  set res to "{\\"state\\":\\"none\\",\\"error\\":\\"" & err & "\\"}"
+end try
+res
 `.trim();
+
 
     void writePptScript(script);
     return await new Promise((resolve) => {
@@ -2920,7 +3055,43 @@ return output
         try {
           logPptVerbose('[ppt] osascript raw', raw);
           void appendPptLog(`[ppt] osascript raw ${raw}`);
-          resolve(JSON.parse(raw) as PowerPointPollResult);
+          const parsed = JSON.parse(raw) as PowerPointPollResult;
+
+          // MERGE: Persistent Probe Data (macOS Only)
+          const probeStatus = pptProbeManager.getStatus();
+          if (probeStatus) {
+            if (parsed.instanceId === 0 && probeStatus.instanceId) {
+              parsed.instanceId = probeStatus.instanceId;
+            }
+            if (pptDebugVerboseEnabled) {
+              logPptInfo(`[ppt-probe] Matching probe pid=${probeStatus.instanceId} against parsed pid=${parsed.instanceId}`);
+            }
+            if (probeStatus.instanceId === parsed.instanceId) {
+              if (probeStatus.videos && probeStatus.videos.length > 0) {
+                parsed.videos = probeStatus.videos.map((v) => ({
+                  name: v.name,
+                  duration: v.duration,
+                  elapsed: v.elapsed,
+                  remaining:
+                    typeof v.duration === 'number' && typeof v.elapsed === 'number'
+                      ? Math.max(0, v.duration - v.elapsed)
+                      : undefined,
+                  playing: v.playing
+                }));
+                // For backward compatibility with single-video fields
+                const first = probeStatus.videos[0];
+                parsed.videoDetected = true;
+                parsed.videoDuration = first.duration;
+                parsed.videoElapsed = first.elapsed;
+                parsed.videoPlaying = first.playing;
+              }
+              if (probeStatus.error) {
+                logPptInfo(`[ppt-probe] Probe Error: ${probeStatus.error}`);
+              }
+              parsed.permissions = probeStatus.permissions;
+            }
+          }
+          resolve(parsed);
         } catch (error) {
           console.warn(`[ppt] Failed to parse osascript output: ${String(error)}`);
           void appendPptLog(`[ppt] parse error: ${String(error)}`);
@@ -3661,8 +3832,7 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
         result.videoDuration !== undefined ||
         result.videoElapsed !== undefined ||
         result.videoRemaining !== undefined ||
-        result.videoPlaying !== undefined ||
-        result.videoTimingUnavailable === true);
+        result.videoPlaying !== undefined);
     if (!hasVideoPayload) {
       if (pptNoVideoKey === slideKey) {
         pptNoVideoCount += 1;
@@ -3709,7 +3879,7 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
     }
     const priorSnapshot =
       pptAnnouncedSnapshot?.instanceId === result.instanceId &&
-      pptAnnouncedSnapshot.slideNumber === resolvedSlideNumber
+        pptAnnouncedSnapshot.slideNumber === resolvedSlideNumber
         ? pptAnnouncedSnapshot
         : null;
     const videoDetected = hasVideoPayload && !shouldClearVideo;
@@ -3760,7 +3930,9 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
       videoElapsed: videoDetected ? result.videoElapsed ?? lastVideoElapsed : undefined,
       videoRemaining: videoDetected ? result.videoRemaining ?? lastVideoRemaining : undefined,
       videos: resolvedVideos,
-      videoTimingUnavailable: videoDetected && result.videoTimingUnavailable === true,
+      videoTimingUnavailable:
+        videoDetected && (result.videoTimingUnavailable === true && (!resolvedVideos || resolvedVideos.length === 0)),
+      permissions: result.permissions
     };
     updatePresentationCandidate(snapshot);
     return;
@@ -3771,6 +3943,11 @@ function handlePowerPointStatus(result: PowerPointPollResult | null) {
 }
 
 function startPowerPointDetection() {
+  if (process.platform === 'darwin') {
+    const isAppTrusted = systemPreferences.isTrustedAccessibilityClient(false);
+    logPptInfo(`[ppt] Startup - App Accessibility Trust: ${isAppTrusted}`);
+    void appendPptLog(`[ppt] Startup - App Accessibility Trust: ${isAppTrusted}`);
+  }
   if (pptPollTimer) return;
   if (process.platform !== 'win32' && process.platform !== 'darwin') {
     if (pptDebugEnabled) {
@@ -3789,6 +3966,10 @@ function startPowerPointDetection() {
     logPptInfo('[ppt] detection started', { platform: process.platform })
   }
   void appendPptLog(`[ppt] detection start mode=${currentCompanionMode} caps=${JSON.stringify(getCompanionCapabilities())}`);
+
+  if (process.platform === 'darwin') {
+    pptProbeManager.start();
+  }
 
   pptPollTimer = setInterval(() => {
     if (pptPollInFlight) return;

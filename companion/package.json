@@ -9,6 +9,8 @@
     "dev": "electron ./electron-dev.js",
     "build": "tsc -p tsconfig.json",
     "dist": "npm run build && electron-builder",
+    "postdist": "node ./scripts/dev-sign-mac.js",
+    "sign:installed": "node ./scripts/dev-sign-installed.js",
     "dist:dev": "npm version prerelease --preid dev --no-git-tag-version && npm run dist",
     "fetch-ffprobe": "node ./scripts/fetch-ffprobe.js",
     "lint": "echo \"No lint configured\""
@@ -43,7 +45,8 @@
         "filter": [
           "ffprobe",
           "ffprobe.exe",
-          "ppt-probe.exe"
+          "ppt-probe.exe",
+          "ppt-probe-mac"
         ]
       }
     ]
