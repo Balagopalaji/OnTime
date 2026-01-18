@@ -14,14 +14,16 @@ func dumpUI(_ element: AXUIElement, depth: Int = 0) {
     let desc = getAXAttribute(element, kAXDescriptionAttribute) as? String ?? ""
     let value = getAXAttribute(element, kAXValueAttribute)
     let enabled = (getAXAttribute(element, kAXEnabledAttribute) as? NSNumber)?.boolValue ?? true
+    let identifier = getAXAttribute(element, "AXIdentifier") as? String ?? "None"
+    let pressed = (getAXAttribute(element, "AXPressed") as? NSNumber)?.boolValue ?? false
+    let selected = (getAXAttribute(element, "AXSelected") as? NSNumber)?.boolValue ?? false
 
     let indent = String(repeating: "  ", count: depth)
+    let valueDesc = value != nil ? "\(value!)" : "nil"
     
-    if role == "AXButton" || role == "AXSlider" || role == "AXStaticText" || role == "AXLabel" || !title.isEmpty {
-        let valueDesc = value != nil ? "\(value!)" : "nil"
-        print("\(indent)[\(role)] title='\(title)' desc='\(desc)' value='\(valueDesc)' enabled=\(enabled)")
-    }
+    print("\(indent)[\(role)] title='\(title)' desc='\(desc)' identifier='\(identifier)' value='\(valueDesc)' enabled=\(enabled) pressed=\(pressed) selected=\(selected)")
 
+    // Only dive deep into windows, groups, and playback-related containers
     var children: AnyObject?
     if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success {
         if let childrenArray = children as? [AXUIElement] {

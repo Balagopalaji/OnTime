@@ -132,6 +132,15 @@ func normalizeAXText(_ text: String) -> String {
     return text.lowercased()
 }
 
+func containsWord(_ text: String, _ word: String) -> Bool {
+    let pattern = "\\b" + NSRegularExpression.escapedPattern(for: word) + "\\b"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        return false
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.firstMatch(in: text, options: [], range: range) != nil
+}
+
 func parseDouble(_ value: AnyObject?, fallback: String) -> Double? {
     if let num = value as? NSNumber {
         return num.doubleValue
@@ -230,29 +239,44 @@ func crawlForData(
     let valueStr = (value as? String) ?? ""
     let combinedText = [title, desc, valueStr].joined(separator: " ")
 
-    // Video Shape Detection
-    let isVideoShape = (role == "AXLayoutArea" && roleDesc == "Video") || 
-                       (role == "AXImage" && roleDesc == "Video") ||
+    // Video Shape Detection (Refined with High-Fidelity RoleDesc)
+    let isVideoShape = (roleDesc == "Video" && (role == "AXLayoutArea" || role == "AXImage")) ||
                        (role == "AXLayoutArea" && combinedText.contains("Video"))
 
-    if isVideoShape && !title.isEmpty && !title.contains("Slide") {
-        foundNames.insert(title)
+    // If it's a video shape, the description often holds the filename
+    if isVideoShape {
+        if !desc.isEmpty && (desc.contains(".") || desc.contains("_")) {
+            foundNames.insert(desc)
+        } else if !title.isEmpty && !title.contains("Slide") {
+            foundNames.insert(title)
+        }
     }
     
     if axDebugEnabled && isVideoShape {
         fputs("AX_VIDEO_SHAPE: role='\(role)' roleDesc='\(roleDesc)' title='\(title)' desc='\(desc)'\n", stderr)
     }
     
-    // Slider detection: Heuristic for "playing"
-    if role == "AXSlider" || role == "AXProgressIndicator" || role == "AXValueIndicator" {
-        if let sliderVal = parseDouble(value, fallback: valueStr) {
-            foundSliders.append(sliderVal)
+    // Time Display / Timing Labels
+    if (roleDesc == "Time Display" || combinedText.contains("Elapsed Time")) && !valueStr.isEmpty {
+        // Prefer AX Time Display values when picking a label for motion detection.
+        foundLabels.insert(valueStr, at: 0)
+        if axDebugEnabled {
+            fputs("AX_LABEL: value='\(valueStr)'\n", stderr)
+        }
+    }
+    
+    // Slider / Timeline Detection
+    if role == "AXSlider" || role == "AXScrollBar" || role == "AXValueIndicator" {
+        let isTimeline = (desc == "Timeline") || roleDesc == "Timeline"
+        if isTimeline || role == "AXSlider" {
             if axDebugEnabled {
-                fputs("AX_SLIDER: role='\(role)' title='\(title)' desc='\(desc)' value=\(sliderVal)\n", stderr)
+                fputs("AX_SLIDER: role='\(role)' roleDesc='\(roleDesc)' desc='\(desc)' value='\(valueStr)'\n", stderr)
+            }
+            if let sliderVal = parseDouble(value, fallback: valueStr) {
+                foundSliders.append(sliderVal)
             }
         }
     }
-
     // Time label detection: "0:05 / 2:30" or just "0:05"
     if role == "AXStaticText" || role == "AXLabel" {
         if combinedText.contains(":") && combinedText.count >= 4 && combinedText.count <= 15 {
@@ -267,22 +291,23 @@ func crawlForData(
         let combined = normalizeAXText([title, desc, roleDesc, valueStr].joined(separator: " "))
         let titleLower = normalizeAXText(title)
         let descLower = normalizeAXText(desc)
-        let isMedia = combined.contains("play") || combined.contains("pause") || combined.contains("resume") || combined.contains("video")
+        let isMedia = containsWord(combined, "play") || containsWord(combined, "pause") || containsWord(combined, "resume") || combined.contains("video")
         
         if axDebugEnabled && (isMedia || role == "AXButton") {
             fputs("AX_DISCOVERY: role='\(role)' subrole='\(subrole)' roleDesc='\(roleDesc)' title='\(title)' desc='\(desc)' combined='\(combined)' value='\(valueStr)'\n", stderr)
         }
 
         // Strong signal: exact Play/Pause description/title.
-        if descLower == "pause" || titleLower == "pause" {
+        if containsWord(descLower, "pause") || containsWord(titleLower, "pause") {
             isPlaying = true
             sawPauseLabel = true
-        } else if descLower == "play" || titleLower == "play" || descLower == "resume" || titleLower == "resume" {
+        } else if containsWord(descLower, "play") || containsWord(titleLower, "play") ||
+            containsWord(descLower, "resume") || containsWord(titleLower, "resume") {
             sawPlayLabel = true
-        } else if combined.contains("pause") {
+        } else if containsWord(combined, "pause") {
             isPlaying = true
             sawPauseLabel = true
-        } else if combined.contains("play") || combined.contains("resume") {
+        } else if containsWord(combined, "play") || containsWord(combined, "resume") {
             sawPlayLabel = true
         }
     }
