@@ -43,4 +43,5 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | LAN viewers (offline) | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |
 | Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |
 | PowerPoint video timing debug notes (Windows, dev-only) | `docs/ppt-video-debug.md` | Reference | current | `companion/src/main.ts` |  |  |  |
+| PowerPoint video timing debug notes (macOS, AX discovery) | `docs/ppt-video-debug-macos.md` | Reference | current | `companion/ppt-probe/ppt-probe-mac.swift` |  |  |  |
 | Standalone PowerPoint video timer app | `docs/phase-3-standalone-ppt-timer.md` | Plan | draft | `companion/ppt-probe/Program.cs` |  |  |  |

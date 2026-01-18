@@ -25,6 +25,7 @@ Scope: Active tasks and notes.
 - Phase 3 backlog: Prefer VLC when opening external videos (fallback to default player if VLC not installed).
 - Phase 3 backlog: Standalone PowerPoint video timer app (lead-in funnel) — see `docs/phase-3-standalone-ppt-timer.md`.
 - PowerPoint video timing (Windows): See `docs/ppt-video-debug.md` for current findings and the STA helper plan.
+- PowerPoint video timing (macOS): See `docs/ppt-video-debug-macos.md` for verified AX signals and audit steps.
 - PowerPoint: Consider pre-scanning all slides for embedded media so we can flag video slides before playback.
 - Pre-release cleanup: decide whether to remove or keep `COMPANION_DEBUG_PPT_VERBOSE` diagnostics.
 - PowerPoint: Add multi-video slide handling (prefer currently playing media; fallback to first playable) and test with multiple embedded videos.

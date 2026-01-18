@@ -55,6 +55,7 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/cloud-lock-design.md` (cloud controller lock design)
 - `docs/agent-handoff.md` (cross-device agent handoff log)
 - `docs/ppt-video-debug.md` (PowerPoint video timing debug notes)
+- `docs/ppt-video-debug-macos.md` (PowerPoint video timing debug notes, macOS AX discovery)
 
 ## Tasklists
 - `docs/tasks.md`
