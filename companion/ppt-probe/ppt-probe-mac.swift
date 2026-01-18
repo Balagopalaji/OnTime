@@ -37,6 +37,12 @@ var videoHistory: [String: VideoStatus] = [:]
 var hasPromptedForPermissions = false
 let axDebugEnabled = ProcessInfo.processInfo.environment["PPT_AX_DEBUG"] == "1"
 let hawkModeEnabled = ProcessInfo.processInfo.environment["PPT_HAWK_MODE"] == "1"
+let hawkTimeoutSeconds = TimeInterval(ProcessInfo.processInfo.environment["PPT_HAWK_TIMEOUT"] ?? "60") ?? 60
+let hawkQuery = ProcessInfo.processInfo.environment["PPT_HAWK_QUERY"]?.lowercased() ?? ""
+let hawkPreferRole = ProcessInfo.processInfo.environment["PPT_HAWK_ROLE"]?.lowercased() ?? ""
+let hawkPreferSubrole = ProcessInfo.processInfo.environment["PPT_HAWK_SUBROLE"]?.lowercased() ?? ""
+let hawkDumpEnabled = ProcessInfo.processInfo.environment["PPT_HAWK_DUMP"] == "1"
+var shouldExit = false
 
 func getAllAttributes(_ element: AXUIElement) -> [String: String] {
     var results: [String: String] = [:]
@@ -56,18 +62,59 @@ func findHawkTarget(_ element: AXUIElement) -> AXUIElement? {
     var role: AnyObject?
     AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
     let roleStr = role as? String ?? ""
+    let roleLower = roleStr.lowercased()
+    
+    var subrole: AnyObject?
+    AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
+    let subroleStr = subrole as? String ?? ""
+    let subroleLower = subroleStr.lowercased()
     
     var val: AnyObject?
     AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &val)
     let valueStr = val != nil ? "\(val!)" : "nil"
     
-    if roleStr == "AXStaticText" && (
-        valueStr.contains("Elapsed") || 
-        valueStr.contains("0.0") || 
-        valueStr.contains("0:0") ||
-        valueStr.contains("/")
-    ) {
-        return element
+    var title: AnyObject?
+    AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
+    let titleStr = title as? String ?? ""
+    
+    var desc: AnyObject?
+    AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &desc)
+    let descStr = desc as? String ?? ""
+    
+    var roleDesc: AnyObject?
+    AXUIElementCopyAttributeValue(element, kAXRoleDescriptionAttribute as CFString, &roleDesc)
+    let roleDescStr = roleDesc as? String ?? ""
+    
+    var help: AnyObject?
+    AXUIElementCopyAttributeValue(element, kAXHelpAttribute as CFString, &help)
+    let helpStr = help as? String ?? ""
+    
+    let combined = normalizeAXText([titleStr, descStr, roleDescStr, helpStr, valueStr].joined(separator: " "))
+    
+    let roleMatches = hawkPreferRole.isEmpty || roleLower == hawkPreferRole
+    let subroleMatches = hawkPreferSubrole.isEmpty || subroleLower == hawkPreferSubrole
+    
+    if !hawkQuery.isEmpty {
+        if roleMatches && subroleMatches && combined.contains(hawkQuery) {
+            fputs("🎯 HAWK TARGET: role='\(roleStr)' subrole='\(subroleStr)' title='\(titleStr)' desc='\(descStr)' value='\(valueStr)'\n", stderr)
+            return element
+        }
+    } else {
+        if roleMatches && subroleMatches && roleStr == "AXStaticText" && (
+            valueStr.contains("Elapsed") ||
+            valueStr.contains("0.0") ||
+            valueStr.contains("0:0") ||
+            valueStr.contains("/")
+        ) {
+            fputs("🎯 HAWK TARGET: role='\(roleStr)' subrole='\(subroleStr)' title='\(titleStr)' desc='\(descStr)' value='\(valueStr)'\n", stderr)
+            return element
+        }
+        
+        if roleMatches && subroleMatches && (roleStr == "AXButton" || roleStr == "AXToggleButton") &&
+            (combined.contains("play") || combined.contains("pause") || combined.contains("resume")) {
+            fputs("🎯 HAWK TARGET: role='\(roleStr)' subrole='\(subroleStr)' title='\(titleStr)' desc='\(descStr)' value='\(valueStr)'\n", stderr)
+            return element
+        }
     }
 
     var children: AnyObject?
@@ -218,13 +265,21 @@ func crawlForData(
     
     if role == "AXButton" || subrole == "AXToggleButton" || role == "AXCheckBox" {
         let combined = normalizeAXText([title, desc, roleDesc, valueStr].joined(separator: " "))
+        let titleLower = normalizeAXText(title)
+        let descLower = normalizeAXText(desc)
         let isMedia = combined.contains("play") || combined.contains("pause") || combined.contains("resume") || combined.contains("video")
         
         if axDebugEnabled && (isMedia || role == "AXButton") {
             fputs("AX_DISCOVERY: role='\(role)' subrole='\(subrole)' roleDesc='\(roleDesc)' title='\(title)' desc='\(desc)' combined='\(combined)' value='\(valueStr)'\n", stderr)
         }
 
-        if combined.contains("pause") {
+        // Strong signal: exact Play/Pause description/title.
+        if descLower == "pause" || titleLower == "pause" {
+            isPlaying = true
+            sawPauseLabel = true
+        } else if descLower == "play" || titleLower == "play" || descLower == "resume" || titleLower == "resume" {
+            sawPlayLabel = true
+        } else if combined.contains("pause") {
             isPlaying = true
             sawPauseLabel = true
         } else if combined.contains("play") || combined.contains("resume") {
@@ -287,7 +342,20 @@ func updateEstimation(
         var v = VideoStatus(name: name)
         v.duration = durations[name]
         
-        let history = videoHistory[name]
+        var history = videoHistory[name]
+        if history == nil {
+            if name == "active_video" {
+                history = videoHistory.first(where: { $0.key != "active_video" && ($0.value.duration == v.duration || v.duration == nil) && ($0.value.elapsed ?? 0) > 0 })?.value
+                if history == nil {
+                    history = videoHistory.first(where: { $0.key != "active_video" && $0.value.lastInteraction != nil })?.value
+                }
+            } else {
+                history = videoHistory["active_video"]
+            }
+            if history != nil && axDebugEnabled {
+                fputs("PROBE_EST: \(name) using fallback history\n", stderr)
+            }
+        }
         
         // --- Heuristic: Slider movement detection ---
         var sliderPlaying = false
@@ -326,6 +394,11 @@ func updateEstimation(
             v.noMotionCount = 0
             if sawPauseLabel { v.lastPauseSeen = now }
             v.wasPlayingMemory = false // Manual or detected play resets memory
+        } else if sawPlayLabel {
+            // Explicit play label + no motion => paused.
+            v.playing = false
+            v.noMotionCount = 0
+            v.wasPlayingMemory = false
         } else if history?.wasPlayingMemory == true {
             // Focus Mirroring: Auto-resume on return to foreground
             v.playing = true
@@ -410,6 +483,7 @@ func printStatus(_ status: PowerPointStatus) {
 let queue = DispatchQueue(label: "stdin-watcher", attributes: .concurrent)
 queue.async {
     _ = fgetc(stdin)
+    shouldExit = true
     exit(0)
 }
 
@@ -489,7 +563,8 @@ func poll() {
             let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windows)
 
             if hawkModeEnabled {
-                fputs("🎯 HAWK MODE: Searching for Timing Element...\n", stderr)
+                let hawkLabel = hawkQuery.isEmpty ? "timing/play/pause element" : "query '\(hawkQuery)'"
+                fputs("🎯 HAWK MODE: Searching for \(hawkLabel)...\n", stderr)
                 var targetElement: AXUIElement?
                 if result == .success, let windowArray = windows as? [AXUIElement] {
                     for window in windowArray {
@@ -503,18 +578,43 @@ func poll() {
                 if let target = targetElement {
                     fputs("🎯 TARGET FOUND! Watching for ANY change in attributes. Start video now...\n", stderr)
                     var lastSnapshot = getAllAttributes(target)
+                    if hawkDumpEnabled {
+                        fputs("HAWK SNAPSHOT: initial attributes\n", stderr)
+                        for (name, val) in lastSnapshot.sorted(by: { $0.key < $1.key }) {
+                            fputs("  \(name): \(val)\n", stderr)
+                        }
+                    }
+                    var changeCounts: [String: Int] = [:]
+                    let hawkStart = Date()
                     while true {
+                        if shouldExit {
+                            fputs("HAWK MODE: stdin closed, exiting.\n", stderr)
+                            break
+                        }
+                        if Date().timeIntervalSince(hawkStart) > hawkTimeoutSeconds {
+                            fputs("HAWK MODE: timeout reached, exiting.\n", stderr)
+                            break
+                        }
                         let currentSnapshot = getAllAttributes(target)
                         for (name, val) in currentSnapshot {
                             if let lastVal = lastSnapshot[name], lastVal != val {
-                                fputs("🔥 CHANGE DETECTED: [\(name)] OLD: \(lastVal) NEW: \(val)\n", stderr)
+                                let ts = String(format: "%.3f", Date().timeIntervalSinceReferenceDate)
+                                fputs("[\(ts)] HAWK CHANGE: [\(name)] OLD: \(lastVal) NEW: \(val)\n", stderr)
+                                changeCounts[name, default: 0] += 1
                             }
                         }
                         lastSnapshot = currentSnapshot
                         Thread.sleep(forTimeInterval: 0.1)
                     }
+                    if !changeCounts.isEmpty {
+                        fputs("HAWK SUMMARY: attribute change counts\n", stderr)
+                        for (name, count) in changeCounts.sorted(by: { $0.value > $1.value }).prefix(10) {
+                            fputs("  \(name): \(count)\n", stderr)
+                        }
+                    }
+                    exit(0)
                 } else {
-                    fputs("❌ HAWK MODE: Could not find element with 'Elapsed Time' or '0.00'.\n", stderr)
+                    fputs("❌ HAWK MODE: No matching element found (query='\(hawkQuery)', role='\(hawkPreferRole)', subrole='\(hawkPreferSubrole)').\n", stderr)
                 }
             }
 
