@@ -19,7 +19,7 @@ Scope: Active tasks and notes.
 - Phase 3 backlog: Local network viewer option (Companion-served viewer bundle + QR + token flow).
 - Enterprise: Controller settings to choose a fixed local port (Enterprise-only, in-app).
 - QA checklist: multi-tab/mode switch, Companion restart, dashboard previews stay fresh.
-- Companion RAM budgets: reassess Minimal/Show Control/Production targets using packaged builds (dev/headless exceeded Minimal target).
+- Companion RAM budgets: reassess Minimal/Show Control/Production targets using packaged builds (dev/headless exceeded Minimal target). Deferred until pre-release (feature set still shifting).
 - Migration: Drop v1→v2 migration from the active backlog (no users on v1); treat v2 as baseline. Keep migration notes archived only.
 - Phase 3 backlog: Add an Electron controller option to send the viewer to a second display (fullscreen) for internal screen workflows.
 - Phase 3 backlog: Prefer VLC when opening external videos (fallback to default player if VLC not installed).
@@ -33,6 +33,6 @@ Scope: Active tasks and notes.
 ## Phase 2 Actionables (Need Implementation)
 - [ ] Viewer-only Electron build target (distinct app/build config).
 - [ ] Crash recovery banner on force-quit relaunch ("Recovered session").
-- [ ] Auto-update pipeline for Electron controller (canary + stable).
-- [ ] RAM target reduction work for Minimal mode (currently over 50MB).
+- [ ] Auto-update pipeline for Electron controller (canary + stable). Deferred until pre-release.
+- [ ] RAM target reduction work for Minimal mode (currently over 50MB). Deferred until pre-release (re-baseline after features stabilize).
 - [ ] Add optional version bump step for macOS builds (mirror Windows script); not urgent since mac install doesn’t require uninstall/reinstall per build.

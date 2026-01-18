@@ -38,12 +38,17 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - **Reconnect backoff (Companion clients):** Attempt 1 immediate; attempts 2–5 at 2s; 6+ at 10s; cap at 60s; stop after 20 attempts and surface retry CTA.
 - **Preview cache (dashboard):** TTL 10s or on `HANDSHAKE_ACK` capability change, whichever is sooner.
 - **Authority confidence window (room reads):** 2s base, expand to 4s on reconnect churn (per local-mode.md Section 3.3).
-- **Companion RAM budgets (steady state after 60s idle, average of 3 samples):** Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB.
+- **Companion RAM budgets (steady state after 60s idle, average of 3 samples):** Minimal <50 MB, Show Control ≤100 MB, Production ≤150 MB. Deferred enforcement until pre-release; use as targets only.
 - **Feature gating:** Legacy rooms without `features` default to deny Show Control/Production data paths; UI must hide gated features and emit upgrade prompts.
 - **Tier selection UI:** Deferred to Phase 3; Phase 2 assumes new rooms default to `basic` unless set by admin tooling.
 - **File ops security:** Normalize path, require path within user home or OS app data; reject symlinks pointing outside allowed roots; reject UNC/network paths; bind HTTP to 127.0.0.1; token auth required.
 - **Tokens:** TTL 4 hours; frontend refreshes on 401 by refetching token; Companion rotates token on restart.
 - **Protocol versioning:** Client includes interface version in JOIN/handshake; if major mismatch, show warning banner and suggest update; if incompatible, fallback to Cloud with clear message.
+
+## Phase 2 Deferrals (Recorded)
+- Auto-update pipeline (electron-updater or equivalent) and canary/stable verification are deferred until pre-release.
+- macOS notarization and related verification are deferred until a macOS dev account is available.
+- RAM budget enforcement and reassessment are deferred until the feature set stabilizes (pre-release re-baseline).
 
 ## Error UX Matrix (Phase 2)
 | Error Code | User Message | Auto-Retry | CTA |
@@ -86,7 +91,7 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 - [x] Deep link handler: register `ontime://room/:roomId` to open a room in the controller. Note: protocol registration only works in packaged builds on Windows; dev-mode deep links require manual testing via command line args.
 - [x] Crash recovery: on relaunch, restore last room session from cache and show "Recovered session" banner.
 - [x] Stable origin for Electron controller so auth persists across restarts (ports 5174–5176; fallback to random only if occupied).
-- [ ] Separate build target so a viewer-only Electron app can be added later. (Not implemented; future need.)
+- [ ] Separate build target so a viewer-only Electron app can be added later. (Not implemented; future need, phase 3.)
 - [x] Acceptance: Controller launches, connects to Companion, and runs without a browser.
 
 **Manual Verification (Pass A)**
@@ -103,14 +108,14 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 **Companion**
 - [x] No Companion changes required.
 **Frontend/Electron**
-- [x] Code signing for macOS + Windows (notarization on macOS).
-- [x] Auto-update pipeline (electron-updater or equivalent).
-- [ ] Test update from canary channel before production release. (Auto-update not implemented yet.)
+- [ ] Code signing for macOS + Windows (notarization on macOS). (Deferred until mac dev account is available.)
+- [ ] Auto-update pipeline (electron-updater or equivalent). (Deferred until pre-release.)
+- [ ] Test update from canary channel before production release. (Deferred until auto-update is implemented.)
 - [x] Acceptance: Builds install and update cleanly on macOS + Windows.
 
 **Manual Verification (Pass B)**
-- [ ] Install an older build and confirm auto-update to latest. (Auto-update not implemented yet.)
-- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Windows verified; macOS still pending.)
+- [ ] Install an older build and confirm auto-update to latest. (Deferred until auto-update is implemented.)
+- [ ] Confirm notarization passes on macOS and no SmartScreen warnings on Windows. (Deferred until mac dev account is available.)
 - [x] Dev builds: use a `-dev.N` version suffix for clean in-place reinstalls (NSIS is per-user). (Windows verified via `npm run dist:dev` in `companion/` and `controller/`.)
 
 **Definition of Done (Milestone 0)**
@@ -437,10 +442,10 @@ This file translates the Phase 2 plan into granular, implementable steps for bui
 
 **Risks/Unknowns**
 - Electron tray/window differences on Windows vs. macOS; watch for resource spikes.
-- Reassess RAM budgets using packaged builds; dev/headless exceeded Minimal target.
+- Reassess RAM budgets using packaged builds; dev/headless exceeded Minimal target. (Deferred until pre-release.)
 
 **Definition of Done (Milestone 4)**
-- [ ] UI polish complete; RAM budgets met with GUI enabled; gating copy is clear. (RAM target not met in Minimal mode; defer reassessment.)
+- [ ] UI polish complete; RAM budgets met with GUI enabled; gating copy is clear. (Deferred until pre-release; RAM target not met in Minimal mode.)
 
 ---
 
