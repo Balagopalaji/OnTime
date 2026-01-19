@@ -10,6 +10,9 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 
 ## Locked Decisions
 - Phase 3 sequencing: 3A Show Controller definition, 3B LAN offline viewer infrastructure, 3C Show Controller build, 3D hardening/release.
+- Cue ordering field: add optional `order` on `cues` for deterministic manual/sequential ordering within a segment/section; timed cues still sort by time.
+- Custom role label: add optional `odRoleLabel` when `operators.odRole == 'custom'` to persist display text.
+- Companion cue events: add explicit socket event payload schemas for cue CRUD/reorder/ack in `docs/interface.md` (Phase 3C Pass A).
 - LAN offline viewer implementation follows `docs/local-offline-lan-plan.md` as the authoritative plan.
 - Protocol/schema changes follow `docs/interface.md` (planned Phase 3 fields already defined there).
 - Standalone PowerPoint video timer app is deferred until after Phase 3 core.
@@ -30,12 +33,20 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
   - Storage key: `ontime:cueQueue:{roomId}`.
   - Same FIFO overflow and replay semantics as timer queue.
   - Rationale: Cue volume is higher than timer actions; isolation prevents cues from pushing out critical timer state.
+- Cue authority mode transitions: Firestore remains canonical when online; Companion accepts cue writes offline and queues them for replay on reconnect.
+  - Replay order is timestamp-ordered after per-type merge (match timer queue semantics in `docs/local-mode.md`).
+  - Conflict resolution uses the existing timestamp arbitration rules; newest cue write wins.
+  - Pending offline cues do not block cloud edits; on reconnect, queued writes apply on top of latest cloud state.
+- Role storage is explicit only: authorization relies on `rooms/{roomId}/operators/{odUserId}` (plus owner implicit TD/Director); no role inference from connection source or client type.
 - Bundle strategy: separate viewer-only Vite build (`VITE_VIEWER_ONLY=true`), packaged in `resources/viewer/`, served at `/viewer/v{appVersion}/` with content-hash filenames. See `docs/phase-3-bundle-strategy.md`.
 - Cert trust UX: trust guide in Companion LAN Viewers panel; viewer-side "Trust Required" screen with retry; BYO cert in Settings (advanced); no HTTP fallback. See `docs/phase-3-cert-trust-ux.md`.
+- Pairing defaults: code TTL 10 min (not persisted across restart), viewer token TTL 8 hours (persisted), max 20 devices per room; tokens reusable until expiry unless revoked.
+- Crew chat: operators can send to all or targeted roles; role-targeted messages are highlighted for that role.
+- Crew chat channels: Phase 3 uses role-targeted audiences; named channels (saved role groups) are a Phase 4 enhancement.
 - LAN-only operator join is deferred for Phase 3 core; offline LAN mode remains owner-only for operator actions.
 
 ## Proposed Decisions (Pending Confirmation)
-- Timeline target: 3A (1 week), 3B (2–3 weeks), 3C (2–3 weeks), 3D (1 week).
+- Timeline targets: 3A (1 week), 3B (2–3 weeks), 3C (2–3 weeks), 3D (1 week).
 
 ## Assumptions
 - Electron controller remains the operator surface for offline use.
@@ -44,7 +55,9 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 
 ## Open Questions
 - Phase 3 release window aligned to actual velocity.
-- Windows cert trust behavior confirmed: Edge/Chrome require Advanced → Proceed to localhost; no installable cert path confirmed.
+
+## Notes
+- Windows cert trust behavior: Edge/Chrome require Advanced → Proceed to localhost; no installable cert path confirmed.
 - Optional hardening: document Windows cert install path during Phase 3D if feasible; otherwise defer to Phase 4.
 
 ## Locked Decisions (Addendum)

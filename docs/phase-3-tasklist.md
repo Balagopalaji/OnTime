@@ -26,23 +26,23 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 **Goal:** Define planner workflows and viewer requirements before building LAN distribution.
 
 ### Pass A: Workflow + UX Definition
-- [ ] Map controller flows for sections, segments, cues, acknowledgments, and crew chat.
-- [ ] Define role-based viewer panels and filters.
-- [ ] Produce a brief spec for viewer panels (text-based is fine).
-- [ ] Define pairing UX flow (QR + manual entry), where it lives (Companion vs. controller UI), and write it to `docs/phase-3-pairing-ux.md`.
-- [ ] Identify required permissions (owner/operator/viewer).
+- [x] Map controller flows for sections, segments, cues, acknowledgments, and crew chat.
+- [x] Define role-based viewer panels and filters.
+- [x] Produce a brief spec for viewer panels (text-based is fine).
+- [x] Define pairing UX flow (QR + manual entry), where it lives (Companion vs. controller UI), and write it to `docs/phase-3-pairing-ux.md`.
+- [x] Identify required permissions (owner/operator/viewer).
 
 ### Pass B: Authority + Data Model Alignment
-- [ ] Lock cue authority model (cloud vs. companion) and mode transition behavior.
-- [ ] Clarify role storage mechanism (room membership schema vs. inferred roles) and document in `docs/interface.md` if needed.
-- [ ] Confirm cue queue implementation (reuse existing queue vs. new queue) and define max queue size.
-- [ ] Validate Phase 3 schema fields in `docs/interface.md` against intended flows.
-- [ ] List any schema gaps and propose updates (do not change code in this pass).
+- [x] Lock cue authority model (cloud vs. companion) and mode transition behavior.
+- [x] Clarify role storage mechanism (room membership schema vs. inferred roles) and document in `docs/interface.md` if needed.
+- [x] Confirm cue queue implementation (reuse existing queue vs. new queue) and define max queue size.
+- [x] Validate Phase 3 schema fields in `docs/interface.md` against intended flows.
+- [x] List any schema gaps and propose updates (do not change code in this pass).
 
 ### Pass C: PRD + Plan Updates
-- [ ] Update `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/cloud-server-prd.md` with Phase 3 requirements.
-- [ ] Update `docs/phase-3-overview.md` if scope changes.
-- [ ] Update `docs/phase-3-decisions.md` with locked decisions; confirm or adjust timeline targets.
+- [x] Update `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/cloud-server-prd.md` with Phase 3 requirements.
+- [x] Update `docs/phase-3-overview.md` if scope changes.
+- [ ] Update `docs/phase-3-decisions.md` with locked decisions; confirm or defer timeline targets.
 
 ---
 

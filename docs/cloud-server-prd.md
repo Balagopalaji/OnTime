@@ -18,6 +18,7 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 **Non-goals**
 - Local Companion server behavior (see `docs/local-server-prd.md`).
 - LAN viewer delivery (see `docs/local-offline-lan-plan.md`).
+- LAN viewer token issuance and pairing (Companion-only; cloud remains unchanged).
 
 ## Roles & Permissions
 - **Controller (lock holder)**: Authenticated write access to room and timers (Show Control + Production tiers).

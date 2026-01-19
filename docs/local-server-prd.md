@@ -36,6 +36,14 @@ Scope: Companion local server requirements (Electron/Node).
 - Cloud controller lock enforcement is **not** implemented yet (Milestone 5; see `docs/cloud-lock-design.md`).
 - Existing Companion trust flow modal + trust-page launch is available for local controller setup.
 
+## Phase 3 LAN Viewer Hosting (Requirements)
+- Serve a viewer-only bundle from the Companion origin over HTTPS/WSS (no HTTP fallback).
+- Bundle packaging: viewer build stored in `resources/viewer/`, unpacked to a runtime cache on first launch, served at `/viewer/v{appVersion}/` with content-hash filenames.
+- Trust UX: reuse the existing Companion trust flow; LAN Viewers panel surfaces OS/browser steps and a copyable LAN URL (see `docs/phase-3-cert-trust-ux.md`).
+- Pairing defaults: QR/manual pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours (persisted), max 20 devices per room; tokens are reusable until expiry unless revoked.
+- LAN exposure is opt-in, restricted to private subnets only, with PNA/CORS headers and allowlist enforcement (RFC1918 + IPv4 link-local + IPv6 ULA/link-local).
+- Token endpoint remains loopback-only; LAN pairing uses a separate pairing path (no `/api/token` on LAN).
+
 ## Build & Run Notes (Companion + Controller)
 - **Companion (local mode):**
   - Dev: `cd companion && npm run dev`.

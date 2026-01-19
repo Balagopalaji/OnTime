@@ -289,6 +289,32 @@ Before writing code:
 3) Then proceed
 ```
 
+### Pass B: Performance + Reliability
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Implement Phase 3D Pass B.
+Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
+Scope: performance validation and RAM budget reassessment.
+Before writing changes:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+### Pass C: Documentation
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Implement Phase 3D Pass C.
+Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
+Scope: documentation updates only.
+Before writing changes:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
 ---
 
 ## Phase 2 Carryover Prompts
@@ -340,32 +366,6 @@ Implement the carryover items in `docs/phase-3-tasklist.md` marked for target 3D
 Complete every item listed under this carryover group; list any item you cannot complete and why.
 Scope: crash recovery banner, UI polish, auto-update, code signing, RAM targets, macOS version bump.
 Before writing code:
-1) List the files you will modify
-2) Confirm scope exclusions
-3) Then proceed
-```
-
-### Pass B: Performance + Reliability
-Prompt:
-```
-Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
-Implement Phase 3D Pass B.
-Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
-Scope: performance validation and RAM budget reassessment.
-Before writing changes:
-1) List the files you will modify
-2) Confirm scope exclusions
-3) Then proceed
-```
-
-### Pass C: Documentation
-Prompt:
-```
-Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
-Implement Phase 3D Pass C.
-Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
-Scope: documentation updates only.
-Before writing changes:
 1) List the files you will modify
 2) Confirm scope exclusions
 3) Then proceed

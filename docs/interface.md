@@ -157,6 +157,7 @@ Notes:
 - `notes?: string`
 - `sectionId?: string` (optional section-level cue)
 - `segmentId?: string` (optional linkage to rundown segment)
+- `order?: number` (manual ordering within segment/section when applicable)
 - `triggerType: 'timed' | 'fixed_time' | 'sequential' | 'follow' | 'floating'`
 - `offsetMs?: number` (timed: relative to segment or timer start)
 - `timeBase?: 'actual' | 'planned'` (timed: default actual start; planned is optional)
@@ -217,6 +218,7 @@ Notes:
 - `displayName?: string`
 - `email?: string`
 - `odRole: 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom'`
+- `odRoleLabel?: string` (display label when `odRole == 'custom'`)
 - `approvedAt: number`
 - `approvedVia: 'invite_code' | 'direct'` (direct = owner added manually)
 Notes:
@@ -670,6 +672,13 @@ Notes:
 **Planned Phase 3 events (Companion offline support, optional)**
 - Cue CRUD: `CREATE_CUE`, `CUE_CREATED`, `UPDATE_CUE`, `CUE_UPDATED`, `DELETE_CUE`, `CUE_DELETED`, `REORDER_CUES`, `CUES_REORDERED`.
 - Cue acknowledgment: `ACK_CUE`, `CUE_ACKED`.
+
+**Cue Event Payloads (Phase 3C Pass A)**
+- `CREATE_CUE` / `CUE_CREATED`: `{ roomId, cue }`
+- `UPDATE_CUE` / `CUE_UPDATED`: `{ roomId, cueId, changes }`
+- `DELETE_CUE` / `CUE_DELETED`: `{ roomId, cueId }`
+- `REORDER_CUES` / `CUES_REORDERED`: `{ roomId, cueIds }`
+- `ACK_CUE` / `CUE_ACKED`: `{ roomId, cueId, ackState, ackAt? }`
 - Timer delegation: `DELEGATE_TIMER`, `TIMER_DELEGATED`, `RECLAIM_TIMER`, `TIMER_RECLAIMED`.
 - Crew chat: `SEND_CHAT`, `CHAT_MESSAGE`.
 Notes:

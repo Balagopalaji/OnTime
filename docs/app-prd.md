@@ -28,7 +28,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 ## User Flows
 - Create room → open controller → manage rundown → start/pause/reset timers → share viewer link.
 - Cloud viewer opens link → sees active timer, clock, and messages with no auth.
-- LAN viewer pairs via QR/manual code → receives read-only token and connects over HTTPS/WSS.
+- LAN viewer pairs via QR/manual code → receives read-only token and connects over HTTPS/WSS (trust required).
 - Local mode: controller connects to Companion for low-latency updates; cloud remains as backup.
 - Phase 3: owner generates invite code → operators join and edit role-specific cues.
 
@@ -67,6 +67,7 @@ Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (see `docs/phase-2-overview.md`).
 - Phase 3: LAN offline viewers + Show Planner (sections/segments, cues, crew chat), operator invite flow, and viewer-only Electron app (see `docs/local-offline-lan-plan.md` and Phase 3 docs).
+  - LAN viewer delivery: Companion-served viewer bundle (versioned path) over HTTPS/WSS, private-subnet allowlist, and QR/manual pairing (code TTL 10 min, viewer token TTL 8 hours, max 20 devices).
   - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
 - Phase 4: AI-assisted program ingestion + optional native viewer apps + undo/redo.
 

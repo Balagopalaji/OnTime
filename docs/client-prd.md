@@ -29,10 +29,11 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 ## User Flows
 - Create room → open controller → start/pause/reset timers → share viewer link.
 - Cloud viewer opens link → sees active timer and messages → no auth required.
+- LAN viewer pairs via QR/manual → receives read-only token and connects over HTTPS/WSS.
 - Local mode: controller connects to Companion for low-latency updates; cloud remains as backup.
 ## Current Behavior (Reality)
 - Dual-connection model for data: Firebase + Companion, with mode bias defined in `docs/local-mode.md`.
-- Viewer is public; controller is owner-only.
+- Cloud viewer is public; controller is owner-only.
 - Timer math and transitions follow `docs/timer-logic.md`.
 - Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
 - Room tier defaults to `basic` on creation; tier selection UI is deferred to Phase 3.
@@ -102,6 +103,8 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
 - Phase 3 UI should offer a "Local network viewer" option (only when Companion is connected), with a warning about certificate trust and a preference for the viewer-only Electron app when available.
 - LAN viewers require pairing (QR/manual), role-bound tokens, and read-only enforcement; tokens are short‑lived per `docs/local-offline-lan-plan.md`.
+- LAN viewer delivery is via Companion-served viewer bundle over HTTPS/WSS (no HTTP fallback) with a "Trust Required" screen on cert errors.
+- Pairing defaults: code TTL 10 min (not persisted across restart), viewer tokens TTL 8 hours, max 20 devices per room, reusable until expiry unless revoked.
 
 ## Planned Cloud Controller Lock Enforcement (Milestone 5)
 
@@ -209,7 +212,9 @@ Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is 
 - Section cues use the same trigger types as segment cues; timed cues anchor to section start unless fixed_time is used.
 - Unified cue timeline (all roles in place), with role-based styling and filters.
 - Operators can create and edit their own cues; TD/Director can edit any cue.
-- Crew chat widget for quick coordination.
+**Crew chat widget for quick coordination.**
+- Phase 3: operators can send to all or selected roles; role-targeted messages are highlighted.
+- Phase 4: optional named channels (saved role groups).
 - Multi-room dashboard for breakout monitoring.
 - Planned start times define order; actual runtime can drift without changing the printed schedule.
 - When a segment start time is edited, prompt to shift downstream times:

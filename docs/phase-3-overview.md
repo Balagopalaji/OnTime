@@ -2,7 +2,7 @@
 Type: Plan
 Status: planned
 Owner: KDB
-Last updated: 2026-01-12
+Last updated: 2026-01-19
 Scope: Phase 3 plan for Show Controller definition, LAN offline viewers, and Show Planner build.
 ---
 
@@ -33,7 +33,7 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - Role-based permissions and gating aligned with tier strategy.
 
 ### Nice-to-have
-- Viewer-only Electron second-display mode (fullscreen, operator workflow).
+- Viewer-only Electron app (trust-bypass) and controller second-display output (viewer-only).
 - Prefer VLC for external video playback (fallback to default player).
 
 ### Deferred
@@ -49,7 +49,8 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 
 ### Phase 3B — LAN Offline Viewer Infrastructure
 - **Goals:** secure and reliable offline viewer delivery on LAN.
-- **Key work:** Companion-served viewer bundle, HTTPS/WSS cert strategy, PNA/CORS headers, pairing + token issuance + revocation, private subnet allowlist, cache/versioning.
+- **Key work:** Companion-served viewer bundle (versioned path), HTTPS/WSS cert strategy, PNA/CORS headers, pairing + token issuance + revocation, private subnet allowlist, cache/versioning.
+- **Defaults:** pairing code TTL 10 min, viewer token TTL 8 hours, max 20 devices per room (reusable until expiry unless revoked).
 - **Outputs:** LAN viewer delivery working offline with role-bound tokens.
 
 ### Phase 3C — Show Controller Build
