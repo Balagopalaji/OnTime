@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-10
+Last updated: 2026-01-19
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -16,18 +16,20 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Keep web and native controller UX visually consistent (shared colors, layout, and interactions).
 
 **Non-goals**
-- LAN viewer hosting and certificate management (see `docs/local-offline-lan-plan.md`).
+- LAN viewer hosting and certificate management beyond the Phase 3 plan (see `docs/local-offline-lan-plan.md`).
 - Room lock takeover UX beyond what is already implemented (tracked in plans).
 - AI-assisted program ingestion (planned later).
 
 ## Roles & Permissions
 - **Owner/Controller**: Authenticated user with write access to a room.
-- **Viewer**: Public read-only access (no auth required).
+- **Operator**: Authenticated user approved via invite code; can edit cues for their role only (Phase 3).
+- **Viewer (Cloud)**: Public read-only access (no auth required).
+- **Viewer (LAN)**: Paired via QR/manual code; read-only via role-bound tokens.
 
 ## User Flows
 - Create room → open controller → start/pause/reset timers → share viewer link.
-- Viewer opens link → sees active timer and messages → no auth required.
-
+- Cloud viewer opens link → sees active timer and messages → no auth required.
+- Local mode: controller connects to Companion for low-latency updates; cloud remains as backup.
 ## Current Behavior (Reality)
 - Dual-connection model for data: Firebase + Companion, with mode bias defined in `docs/local-mode.md`.
 - Viewer is public; controller is owner-only.
@@ -98,7 +100,8 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 **Viewer sharing**
 - Default QR and share URL point to `https://<web-app>/view/:roomId` (cloud viewer).
 - LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
-- Phase 3 UI should offer a "Local network viewer" option (only when Companion is connected), with a warning about certificate trust.
+- Phase 3 UI should offer a "Local network viewer" option (only when Companion is connected), with a warning about certificate trust and a preference for the viewer-only Electron app when available.
+- LAN viewers require pairing (QR/manual), role-bound tokens, and read-only enforcement; tokens are short‑lived per `docs/local-offline-lan-plan.md`.
 
 ## Planned Cloud Controller Lock Enforcement (Milestone 5)
 
@@ -251,6 +254,9 @@ Notes:
 | TD/Director | Full CRUD | Full CRUD | Full CRUD | Full | Full |
 | Operator (LX/AX/VX/SM) | Full CRUD | View only | View only | If delegated | None |
 | Viewer | None | View only | View only | None | None |
+Notes:
+- Role keys are stored lowercase in data; UI labels can remain uppercase.
+- Operators join via invite code (Cloud Function validation) and self-select role.
 
 **TD/Director command center (layout)**
 ```
@@ -351,7 +357,8 @@ Add segment button      |                               | Progress bar
 
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core (`docs/phase-2-overview.md`).
-- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including crew chat and multi-room monitoring.
+- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including crew chat and multi-room monitoring, operator invite flow, and viewer-only Electron app.
+  - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
 - Phase 4: AI-assisted program ingestion (image/PDF/Excel → auto-fill) and optional native viewer apps.
 
 ## Acceptance Criteria

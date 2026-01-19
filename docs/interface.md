@@ -2,13 +2,14 @@
 Type: Interface
 Status: current
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-01-19
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
-# Interface Specification (v1.3.0)
+# Interface Specification (v1.4.0)
 
 **Changelog**
+- v1.4.0 (2026-01-19): Added operator access schemas (`config/invite`, `operators`, `blocked`) and security rules summary (Phase 3).
 - v1.3.0 (2026-01-10): Added cloud controller lock schema and Cloud Functions API (Milestone 5).
 - v1.2.0 (2025-12-30): Added planned show cue + crew chat schemas (Phase 3).
 - v1.1.0 (2025-12-30): Added live cue video timing metadata fields (additive).
@@ -151,7 +152,7 @@ Notes:
 - **Purpose:** Manually authored cues in the Show Planner rundown. Operators create these for coordinating lighting, sound, video, stage management, etc.
 - `id: string`
 - `roomId: string`
-- `role: string` (e.g., LX, AX, VX, SM, TD, Director, FOH, Custom)
+- `role: string` (roleKey, e.g., lx, ax, vx, sm, td, director, foh, custom)
 - `title: string`
 - `notes?: string`
 - `sectionId?: string` (optional section-level cue)
@@ -170,11 +171,13 @@ Notes:
 - `createdAt?: number`
 - `updatedAt?: number`
 - `editedBy?: string`
+- `createdByRole?: string` (roleKey)
+- `editedByRole?: string` (roleKey)
 - `editNote?: string` (e.g., "edited by LX 2m ago")
 Notes:
 - Visual cue states (Standby/Warning/Imminent/Go) are derived client-side from time-to-cue.
 - Manual acknowledgment sets `ackState` and freezes the cue as done or skipped.
-- Role labels are freeform; recommended values: LX, AX, VX, SM, TD, Director, FOH, Custom.
+- Role labels are UI-only; stored roles use lowercase roleKey values.
 - **Tech viewer separates sources:**
   - `liveCues` appear in a **Now Playing** status panel.
   - `cues` appear in an **Upcoming Cues** list sorted by time-to-cue.
@@ -197,6 +200,41 @@ Trigger notes:
 - `type?: 'text' | 'preset'`
 - `presetId?: string` (when type is `preset`)
 - `createdAt: number`
+
+**`rooms/{roomId}/config/invite`** (Phase 3: operator invite code)
+- **Purpose:** Room-specific invite code for operator access. Owner generates code; operators enter code to join.
+- `code: string` (format: `XXXX-XXXX`, 8 chars uppercase alphanumeric)
+- `enabled: boolean` (owner can disable operator access entirely)
+- `generatedAt: number`
+- `generatedBy: string` (userId)
+Notes:
+- Regenerating the code does not kick existing operators; only new joins require the new code.
+- Owner-only writes. Read access is owner-only; invite validation is via Cloud Function.
+
+**`rooms/{roomId}/operators/{odUserId}`** (Phase 3: approved operators)
+- **Purpose:** Track authenticated users approved to edit cues for their role. Entry created when user joins via invite code.
+- `odUserId: string` (Firebase Auth UID; document ID)
+- `displayName?: string`
+- `email?: string`
+- `odRole: 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom'`
+- `approvedAt: number`
+- `approvedVia: 'invite_code' | 'direct'` (direct = owner added manually)
+Notes:
+- TD/Director role not stored here; owner uses their own auth and is implicitly TD.
+- Operators can update their own `odRole` (self-select); owner can update/delete any operator.
+- Read access: owner can read all; operators can read self; viewers have no access.
+- Deleting an operator document revokes their cue write access immediately.
+
+**`rooms/{roomId}/blocked/{odUserId}`** (Phase 3: kicked/blocked users)
+- **Purpose:** Prevent kicked users from rejoining via invite code.
+- `odUserId: string` (Firebase Auth UID; document ID)
+- `blockedAt: number`
+- `blockedBy: string` (userId who kicked)
+- `reason?: string` (optional note)
+Notes:
+- When kicking: delete from `operators`, add to `blocked`.
+- Invite code validation checks `blocked` first; blocked users are rejected.
+- Owner can unblock (delete from `blocked`) to allow rejoining.
 
 **`rooms/{roomId}/lock/current`** (cloud controller lock; Milestone 5)
 - **Purpose:** Enforce single authoritative controller in cloud mode (parity with Companion lock).
@@ -238,10 +276,37 @@ Notes:
 - Lock document: read allowed, write restricted to Cloud Functions only.
 - Room PIN: owner-only writes to `rooms/{roomId}/config/pin`.
 - liveCues: allow service account (Companion) writes regardless of lock.
+- Operator access (Phase 3):
+  - `config/invite`: owner-only reads/writes; invite validation via Cloud Function.
+  - `operators`: owner can CRUD any; operators can read self and update their own `odRole` only; create is Cloud Function-only.
+  - `blocked`: owner-only writes; reads owner-only (operators can read self if needed).
+  - `cues`: owner can CRUD any; approved operators can CRUD cues where `cue.role == operator.odRole`.
+  - Blocked users are rejected in Cloud Function and in Firestore rules for cue writes.
 
 ### 2.3 Cloud Functions API (Milestone 5)
 
 All lock operations use Cloud Functions to ensure atomic, server-timestamped operations.
+
+**`joinAsOperator`** - Validate invite code and add an operator
+```json
+// Input
+{
+  "roomId": "abc123",
+  "inviteCode": "CREW-7X4M",
+  "odRole": "lx"
+}
+// Output (success)
+{ "success": true }
+// Output (invalid)
+{ "success": false, "error": "INVALID_INVITE" }
+// Output (blocked)
+{ "success": false, "error": "BLOCKED" }
+```
+Notes:
+- Validates `config/invite` (code + enabled).
+- Rejects if `blocked/{odUserId}` exists.
+- Creates/updates `operators/{odUserId}` with role + metadata.
+- Rate limiting and audit logging are optional follow-ups.
 
 **`acquireLock`** - Attempt to acquire lock for a room
 ```json

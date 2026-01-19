@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-10
+Last updated: 2026-01-19
 Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 ---
 
@@ -13,6 +13,7 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 - Provide persistent, globally accessible room/timer state.
 - Enforce lock-holder writes via security rules while keeping viewer reads public (Milestone 5).
 - Support parallel sync with Companion when available.
+- Support operator access (invite code + approved operators + blocklist) for Phase 3 cues.
 
 **Non-goals**
 - Local Companion server behavior (see `docs/local-server-prd.md`).
@@ -21,7 +22,9 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 ## Roles & Permissions
 - **Controller (lock holder)**: Authenticated write access to room and timers (Show Control + Production tiers).
 - **Controller (non-authoritative)**: Read-only access; must request/force takeover.
-- **Viewer**: Public read-only access (no auth required).
+- **Operator**: Authenticated user approved via invite code; can write cues for their role (Phase 3).
+- **Viewer (Cloud)**: Public read-only access (no auth required).
+- **Viewer (LAN)**: Paired via QR/manual code; read-only via role-bound tokens (Companion-issued).
 
 ## User Flows
 - Controller writes room/timer state to Firebase; viewers read via public link.
@@ -36,13 +39,15 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 
 ## Planned Phases (Roadmap)
 - Milestone 5: Cloud controller lock enforcement (lock document + Cloud Functions + rules).
-- Security rule refinements for new collections (live cues, sections, segments, show planner cues, crew chat).
+- Phase 3: security rules for sections, segments, cues, crew chat, operators, blocked, config/invite.
+- Phase 3: `joinAsOperator` Cloud Function for invite validation and operator creation.
 - Role-based cue ownership (operators can edit only their role cues; TD/Director override).
 - Cloud-to-Companion sync improvements (see `docs/local-mode.md`).
 
 ## Acceptance Criteria
 - Viewer read access remains public and reliable.
 - Lock-holder writes enforced by Firestore rules (Milestone 5).
+- Operator access enforced by rules + Cloud Function validation.
 - Data model fields match frontend expectations.
 
 ## Out of Scope

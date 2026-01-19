@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-01-19
 Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 ---
 
@@ -12,7 +12,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 **Goals**
 - Provide reliable timer control and viewing for live events.
 - Support dual-sync operation: Firebase (cloud) + Companion (local).
-- Keep public viewer access simple while enforcing controller permissions.
+- Keep public viewer access simple while enforcing controller and operator permissions.
 - Maintain a modular product structure (timer core, show control, planner) with tiered access.
 
 **Non-goals**
@@ -21,12 +21,16 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 
 ## Roles & Permissions
 - **Owner/Controller**: Authenticated user who can create rooms, manage timers, and control playback.
-- **Viewer**: Read-only public access to room state via shareable link.
+- **Operator**: Authenticated user approved via invite code; can edit cues for their role only (Phase 3).
+- **Viewer (Cloud)**: Public read-only access via shareable link.
+- **Viewer (LAN)**: Paired via QR/manual code; read-only via role-bound tokens.
 
 ## User Flows
 - Create room → open controller → manage rundown → start/pause/reset timers → share viewer link.
-- Viewer opens link → sees active timer, clock, and messages with no auth.
+- Cloud viewer opens link → sees active timer, clock, and messages with no auth.
+- LAN viewer pairs via QR/manual code → receives read-only token and connects over HTTPS/WSS.
 - Local mode: controller connects to Companion for low-latency updates; cloud remains as backup.
+- Phase 3: owner generates invite code → operators join and edit role-specific cues.
 
 ## Current Behavior (Reality)
 - Client uses dual data sources (Firebase + Companion) coordinated by `UnifiedDataContext`.
@@ -62,7 +66,8 @@ Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
 
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (see `docs/phase-2-overview.md`).
-- Phase 3: LAN offline viewers + manual run-of-show ("Show Planner"), including sections/segments, cues, crew chat, multi-room monitoring, and Show Caller Mode (see `docs/local-offline-lan-plan.md`).
+- Phase 3: LAN offline viewers + Show Planner (sections/segments, cues, crew chat), operator invite flow, and viewer-only Electron app (see `docs/local-offline-lan-plan.md` and Phase 3 docs).
+  - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
 - Phase 4: AI-assisted program ingestion + optional native viewer apps + undo/redo.
 
 ## Notes

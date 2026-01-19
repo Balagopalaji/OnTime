@@ -1,0 +1,53 @@
+---
+Type: Reference
+Status: draft
+Owner: KDB
+Last updated: 2026-01-19
+Scope: Phase 3 scope locks, assumptions, and open questions.
+---
+
+# Phase 3 Decisions
+
+## Locked Decisions
+- Phase 3 sequencing: 3A Show Controller definition, 3B LAN offline viewer infrastructure, 3C Show Controller build, 3D hardening/release.
+- LAN offline viewer implementation follows `docs/local-offline-lan-plan.md` as the authoritative plan.
+- Protocol/schema changes follow `docs/interface.md` (planned Phase 3 fields already defined there).
+- Standalone PowerPoint video timer app is deferred until after Phase 3 core.
+- Show Planner features are gated by room tier, not Companion mode. Companion modes remain Minimal/Show Control/Production.
+- Cue authority model: Firestore is primary when online; Companion stores an offline cache and queues writes for replay on reconnect. Conflict resolution follows `docs/local-mode.md` timestamp arbitration, preferring local authority when the controller is local.
+- Tier gating default: Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
+- Viewer access split: Cloud viewers are public/read-only via shareable link; LAN viewers require pairing and role-bound tokens.
+- Operator access model: Invite code + approval list with blocklist for kicked users.
+  - Owner generates room-specific invite code (e.g., `CREW-7X4M`).
+  - Operators authenticate (Firebase Auth) + enter invite code → Cloud Function validates and creates `operators/{odUserId}`.
+  - Operators self-select role (lx/ax/vx/sm/foh/custom); td/director reserved for owner only.
+  - Owner can kick operators: removes from `operators`, adds to `blocked` → immediate revocation.
+  - Kicked users cannot rejoin with same invite code; owner can unblock if mistake.
+  - Firestore rules enforce: cue writes require (owner) OR (approved operator + role match) and blocklist check.
+  - Schema: `rooms/{roomId}/operators/{odUserId}`, `rooms/{roomId}/blocked/{odUserId}`, `rooms/{roomId}/config/invite`.
+- Cue queue implementation: Dedicated queue for cue events, separate from timer queue.
+  - Initial cap: 150 events.
+  - Storage key: `ontime:cueQueue:{roomId}`.
+  - Same FIFO overflow and replay semantics as timer queue.
+  - Rationale: Cue volume is higher than timer actions; isolation prevents cues from pushing out critical timer state.
+- Bundle strategy: separate viewer-only Vite build (`VITE_VIEWER_ONLY=true`), packaged in `resources/viewer/`, served at `/viewer/v{appVersion}/` with content-hash filenames. See `docs/phase-3-bundle-strategy.md`.
+- Cert trust UX: trust guide in Companion LAN Viewers panel; viewer-side "Trust Required" screen with retry; BYO cert in Settings (advanced); no HTTP fallback. See `docs/phase-3-cert-trust-ux.md`.
+- LAN-only operator join is deferred for Phase 3 core; offline LAN mode remains owner-only for operator actions.
+
+## Proposed Decisions (Pending Confirmation)
+- Timeline target: 3A (1 week), 3B (2–3 weeks), 3C (2–3 weeks), 3D (1 week).
+
+## Assumptions
+- Electron controller remains the operator surface for offline use.
+- LAN viewers are opt-in and restricted to private subnets with role-bound tokens.
+- Viewer bundle is served from the Companion origin for offline LAN usage.
+
+## Open Questions
+- Phase 3 release window aligned to actual velocity.
+- Windows cert trust behavior confirmed: Edge/Chrome require Advanced → Proceed to localhost; no installable cert path confirmed.
+- Optional hardening: document Windows cert install path during Phase 3D if feasible; otherwise defer to Phase 4.
+
+## Locked Decisions (Addendum)
+- Mobile viewer apps (iOS/Android) deferred until after Phase 3 core; Phase 3 focuses on desktop viewers (web + viewer-only Electron).
+- Viewer-only Electron app is Phase 3B (trust-bypass path).
+- Controller second-display output is Phase 3C and is viewer-only (no edit controls; authority remains on primary controller).

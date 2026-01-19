@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2026-01-10
+Last updated: 2026-01-19
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -46,6 +46,8 @@ This index lists canonical documentation by type and links to the feature matrix
 ## Plans
 - `docs/local-offline-lan-plan.md` (local/offline + LAN viewers)
 - `docs/phase-2-overview.md`
+- `docs/phase-3-overview.md`
+- `docs/phase-4-overview.md`
 - `docs/phase-3-standalone-ppt-timer.md` (standalone PowerPoint video timer draft)
 
 ## References
@@ -55,10 +57,16 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/cloud-lock-design.md` (cloud controller lock design)
 - `docs/agent-handoff.md` (cross-device agent handoff log)
 - `docs/ppt-video-debug.md` (PowerPoint video timing debug notes)
+- `docs/phase-3-decisions.md` (Phase 3 scope locks and open questions)
+- `docs/phase-3-pairing-ux.md` (Phase 3 LAN viewer pairing UX)
+- `docs/phase-3-bundle-strategy.md` (Phase 3 LAN viewer bundle strategy)
+- `docs/phase-3-cert-trust-ux.md` (Phase 3 LAN viewer cert trust UX)
 
 ## Tasklists
 - `docs/tasks.md`
 - `docs/phase-2-tasklist.md`
+- `docs/phase-3-tasklist.md`
+- `docs/phase-3-agent-prompts.md`
 
 ## Archive Policy
 - Archived docs are historical only and never sources of truth.

@@ -2,7 +2,7 @@
 Type: Index
 Status: draft
 Owner: KDB
-Last updated: 2026-01-10
+Last updated: 2026-01-19
 Scope: Feature-to-document mapping with implementation verification status.
 ---
 
@@ -41,6 +41,14 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Timer control delegation | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | Show Caller Mode (app as caller) | `docs/interface.md` | Interface | planned | n/a |  |  |  |
 | LAN viewers (offline) | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |
+| Phase 3 overview plan | `docs/phase-3-overview.md` | Plan | planned | n/a |  |  |  |
+| Phase 4 overview plan | `docs/phase-4-overview.md` | Plan | draft | n/a |  |  |  |
+| Phase 3 tasklist | `docs/phase-3-tasklist.md` | Tasklist | planned | n/a |  |  |  |
+| Phase 3 agent prompts | `docs/phase-3-agent-prompts.md` | Tasklist | planned | n/a |  |  |  |
+| Phase 3 decisions | `docs/phase-3-decisions.md` | Reference | draft | n/a |  |  |  |
+| Phase 3 pairing UX | `docs/phase-3-pairing-ux.md` | Reference | draft | n/a |  |  |  |
+| Phase 3 bundle strategy | `docs/phase-3-bundle-strategy.md` | Reference | draft | n/a |  |  |  |
+| Phase 3 cert trust UX | `docs/phase-3-cert-trust-ux.md` | Reference | draft | n/a |  |  |  |
 | Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |
 | PowerPoint video timing debug notes (Windows, dev-only) | `docs/ppt-video-debug.md` | Reference | current | `companion/src/main.ts` |  |  |  |
 | Standalone PowerPoint video timer app | `docs/phase-3-standalone-ppt-timer.md` | Plan | draft | `companion/ppt-probe/Program.cs` |  |  |  |

@@ -12,6 +12,12 @@ Archived docs are historical only and must not be used as a source of truth for 
   - `docs/local-offline-lan-plan.md`
   - `docs/tasks.md`
   - `docs/phase-2-tasklist.md`
+  - `docs/phase-3-overview.md`
+  - `docs/phase-3-tasklist.md`
+  - `docs/phase-3-decisions.md`
+  - `docs/phase-3-pairing-ux.md`
+  - `docs/phase-3-bundle-strategy.md`
+  - `docs/phase-3-cert-trust-ux.md`
   - `docs/edge-cases.md`
 
 # Repository Guidelines

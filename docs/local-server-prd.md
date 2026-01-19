@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-01-19
 Scope: Companion local server requirements (Electron/Node).
 ---
 
@@ -14,9 +14,10 @@ Scope: Companion local server requirements (Electron/Node).
 - Offer token-based auth for local connections.
 - Persist room state for offline continuity.
 - Support show-control signal emission (live cues, presentation updates) for Phase 2.
+- Host LAN viewer bundle with secure pairing + HTTPS/WSS trust flow (Phase 3).
 
 **Non-goals**
-- Full LAN viewer distribution in Phase 1 (see `docs/local-offline-lan-plan.md`).
+- LAN viewer distribution outside the Phase 3 plan (see `docs/local-offline-lan-plan.md`).
 - Advanced show-control integrations beyond current scope.
 
 ## Roles & Permissions
@@ -33,6 +34,7 @@ Scope: Companion local server requirements (Electron/Node).
 - State persistence in Companion cache to survive restarts.
 - Companion enforces a single authoritative controller per room (lock + takeover).
 - Cloud controller lock enforcement is **not** implemented yet (Milestone 5; see `docs/cloud-lock-design.md`).
+- Existing Companion trust flow modal + trust-page launch is available for local controller setup.
 
 ## Build & Run Notes (Companion + Controller)
 - **Companion (local mode):**
@@ -98,7 +100,10 @@ Scope: Companion local server requirements (Electron/Node).
 ## Planned Phases (Roadmap)
 - Phase 2: show-control signal pipeline (live cues, presentation updates, slide progress, video elapsed/remaining time).
 - Phase 3: LAN viewer hosting and pairing (cert strategy + static viewer bundle), see `docs/local-offline-lan-plan.md`.
+- Phase 3: pairing defaults — pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours, max 20 devices per room.
+- Phase 3: companion cue queue for offline cue actions (dedicated queue, cap 150).
 - Optional viewer-only Electron app (desktop LAN) to avoid browser trust prompts.
+- LAN-only operator join is deferred; offline LAN mode remains owner-only for operator actions.
 
 ## Acceptance Criteria
 - Valid tokens are required for local connections.
@@ -106,6 +111,7 @@ Scope: Companion local server requirements (Electron/Node).
 - Cache restore works after Companion restart.
 - Companion emits show-control updates with enough data to derive slide progress and video remaining time.
 - Companion cache is versioned; migrations run on update with fallback to last good backup on failure.
+- LAN viewers can pair via QR/manual and remain read-only with role-bound tokens.
 
 ## Out of Scope
 - Protocol contracts (see `docs/interface.md`).

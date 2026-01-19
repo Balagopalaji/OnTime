@@ -94,10 +94,11 @@ elapsedOffset: number  // base elapsed ms for paused state
 
 ## Documentation
 
-- Architecture overview: `docs/phase-2-overview.md`
+- Architecture overview: `docs/phase-2-overview.md`, `docs/phase-3-overview.md`
 - Interface contract: `docs/interface.md`
 - Product requirements: `docs/app-prd.md`, `docs/client-prd.md`, `docs/cloud-server-prd.md`, `docs/local-server-prd.md`
-- Local mode design: `docs/local-mode.md`
+- Local mode design: `docs/local-mode.md`, `docs/local-offline-lan-plan.md`
+- Phase 3 planning: `docs/phase-3-tasklist.md`, `docs/phase-3-decisions.md`, `docs/phase-3-pairing-ux.md`, `docs/phase-3-bundle-strategy.md`, `docs/phase-3-cert-trust-ux.md`
 
 ## Environment Variables
 
