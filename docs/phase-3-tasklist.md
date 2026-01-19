@@ -51,8 +51,8 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 **Goal:** Secure, reliable offline viewer delivery over LAN.
 
 ### Pass A0: Bundle Strategy Note
-- [ ] Define build/serve strategy for the LAN viewer bundle (build target, location in Companion, cache-busting/versioning).
-- [ ] Write the decision in `docs/phase-3-bundle-strategy.md` and summarize in `docs/phase-3-decisions.md`.
+- [x] Define build/serve strategy for the LAN viewer bundle (build target, location in Companion, cache-busting/versioning).
+- [x] Write the decision in `docs/phase-3-bundle-strategy.md` and summarize in `docs/phase-3-decisions.md`.
 
 ### Pass A: Viewer Bundle Packaging
 - [ ] Add Companion-served viewer bundle build, packaging, and versioning.
@@ -60,9 +60,9 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [ ] Ensure Companion cache/versioning/migration is updated for viewer bundle assets.
 
 ### Pass B0: Cert Trust UX Note
-- [ ] Define first-run trust UX, operator guidance, and fallback behavior.
-- [ ] Must align with `docs/local-offline-lan-plan.md` (HTTPS/WSS required).
-- [ ] Write the decision in `docs/phase-3-cert-trust-ux.md` and summarize in `docs/phase-3-decisions.md`.
+- [x] Define first-run trust UX, operator guidance, and fallback behavior.
+- [x] Must align with `docs/local-offline-lan-plan.md` (HTTPS/WSS required).
+- [x] Write the decision in `docs/phase-3-cert-trust-ux.md` and summarize in `docs/phase-3-decisions.md`.
 
 ### Pass B1: HTTPS/WSS + PNA/CORS (Self-signed)
 - [ ] Implement self-signed SAN cert generation, storage, and rotation.

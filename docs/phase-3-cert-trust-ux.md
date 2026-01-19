@@ -20,9 +20,26 @@ Scope: Phase 3 LAN viewer HTTPS/WSS trust UX.
 - Provide copy for Windows/macOS trust flows (browser + OS trust store as needed).
 - Clarify that viewer-only displays typically have lower trust friction than controller actions.
 
+## First-Run Flow (Operator)
+1) Enable LAN viewers (opt-in) and select the LAN host/IP; SANs must match the chosen host/IP.
+2) Generate or refresh the self-signed cert (default path) or choose BYO cert (advanced).
+3) Launch the existing Companion trust page for controller trust; reuse the same flow for LAN viewers.
+4) Copy the LAN viewer URL (host/IP + port + `/viewer/...`) and share via QR/manual entry.
+5) If trust fails, re-check SANs and regenerate cert; do not switch to HTTP.
+
+## Viewer Trust Flow
+- First load hits the browser TLS warning (self-signed cert); user must proceed to continue.
+- The "Trust Required" screen is shown after the user proceeds past the browser warning.
+- Once trusted, Reload/Retry returns to the viewer UI without changing the URL.
+
+## Operator Guidance Copy (Summary)
+- macOS: add cert to Keychain and mark as "Always Trust"; Safari/Firefox accept; Chrome may still warn.
+- Windows: Edge/Chrome require Advanced → Proceed anyway for self-signed; installable cert path is unconfirmed.
+- Recommend viewer-only Electron app where available to avoid browser trust friction.
+
 ## Known Limitations
 - macOS installable cert works with Safari and Firefox; Chrome-based browsers may still warn.
-- Windows (Edge/Chrome): trust flow requires Advanced → Proceed to localhost; no installable cert path confirmed yet.
+- Windows (Edge/Chrome): trust flow requires Advanced → Proceed anyway for the chosen host/IP; no installable cert path confirmed yet.
 
 ## Fallbacks
 - No HTTP fallback (explicitly disallowed by plan).
