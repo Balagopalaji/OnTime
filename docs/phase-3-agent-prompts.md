@@ -20,7 +20,7 @@ Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a singl
 - Do not modify timer math, elapsed calculations, or `useTimerEngine` unless the pass explicitly requires it.
 - Keep changes isolated to the stated files.
 - If you discover ambiguity, stop and report it; do not update docs unless the pass explicitly requires it.
-- Run relevant tests before marking the pass complete; if frontend touched, run `npm run lint && npm run test`.
+- For any code pass, run `npm run lint && npm run test` before marking complete.
 
 ---
 
