@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "electron ./electron-dev.js",
     "build": "tsc -p tsconfig.json",
-    "dist": "npm run build && electron-builder",
+    "build:viewer": "node ./scripts/build-viewer.js",
+    "dist": "npm run build:viewer && npm run build && electron-builder",
     "dist:dev": "npm version prerelease --preid dev --no-git-tag-version && npm run dist",
     "fetch-ffprobe": "node ./scripts/fetch-ffprobe.js",
     "lint": "echo \"No lint configured\""
@@ -45,6 +46,10 @@
           "ffprobe.exe",
           "ppt-probe.exe"
         ]
+      },
+      {
+        "from": "../frontend/dist-viewer",
+        "to": "viewer"
       }
     ]
   },

@@ -16,6 +16,10 @@ import { isElectron, onNavigate, updateSessionState } from '../lib/electron'
 // script runs before the page loads, so window.controllerAPI is already defined.
 // Do NOT lazy-load this module or the check may fail.
 const Router = isElectron() ? HashRouter : BrowserRouter
+const isViewerOnly = import.meta.env.VITE_VIEWER_ONLY === 'true'
+const rawBase = import.meta.env.VITE_APP_BASE ?? '/'
+const routerBase =
+  rawBase === '/' ? '/' : `/${rawBase.replace(/^\/+/, '').replace(/\/$/, '')}`
 
 const RouteRestorer = () => {
   const navigate = useNavigate()
@@ -63,31 +67,40 @@ const RouteRestorer = () => {
 
 export const AppRouter = () => {
   return (
-    <Router>
+    <Router basename={routerBase}>
       <RouteRestorer />
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<LandingPage />} />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/room/:roomId/control"
-            element={
-              <ProtectedRoute requireOwner>
-                <ControllerPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/room/:roomId/view" element={<ViewerPage />} />
-          <Route path="/companion-test" element={<CompanionTestPage />} />
-          <Route path="/local" element={<LocalModePage />} />
-          <Route path="/companion/trust" element={<CompanionTrustHelper />} />
+          {isViewerOnly ? (
+            <>
+              <Route path="/room/:roomId/view" element={<ViewerPage />} />
+              <Route index element={<LandingPage />} />
+            </>
+          ) : (
+            <>
+              <Route index element={<LandingPage />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <DashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/room/:roomId/control"
+                element={
+                  <ProtectedRoute requireOwner>
+                    <ControllerPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/room/:roomId/view" element={<ViewerPage />} />
+              <Route path="/companion-test" element={<CompanionTestPage />} />
+              <Route path="/local" element={<LocalModePage />} />
+              <Route path="/companion/trust" element={<CompanionTrustHelper />} />
+            </>
+          )}
         </Route>
       </Routes>
     </Router>

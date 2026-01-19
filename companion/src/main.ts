@@ -18,6 +18,11 @@ let trayContextMenu: Menu | null = null;
 let statusWindow: BrowserWindow | null = null;
 
 type CompanionMode = 'minimal' | 'show_control' | 'production';
+type ViewerBundleState = {
+  version: string;
+  basePath: string;
+  rootDir: string;
+};
 
 const APP_LABEL = 'OnTime Companion';
 let currentCompanionMode: CompanionMode = 'show_control';
@@ -41,6 +46,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'https://stagetime-*.firebaseapp.com'
 ];
 const CACHE_VERSION = 2;
+const VIEWER_CACHE_DIR = 'viewer';
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
@@ -762,6 +768,7 @@ const roomOwnerStore: Map<string, {
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
+let viewerBundleState: ViewerBundleState | null = null;
 let cacheWriteTimer: NodeJS.Timeout | null = null;
 let lastWriteTs = 0;
 let ffprobeMissingWarned = false;
@@ -1026,8 +1033,38 @@ function getCacheBaseDir(): string {
   return path.join(os.homedir(), '.config', 'ontime', 'cache');
 }
 
+function getCompanionAppVersion(): string {
+  if (app.isPackaged) {
+    return app.getVersion();
+  }
+  try {
+    const pkgPath = path.resolve(app.getAppPath(), 'package.json');
+    const raw = fsSync.readFileSync(pkgPath, 'utf8');
+    const parsed = JSON.parse(raw) as { version?: string };
+    if (parsed.version) return parsed.version;
+  } catch (error) {
+    console.warn('[viewer] Failed to read companion package version:', error);
+  }
+  return COMPANION_VERSION;
+}
+
 function getCachePath(): string {
   return path.join(getCacheBaseDir(), 'rooms.json');
+}
+
+function getViewerCacheRoot(): string {
+  return path.join(getCacheBaseDir(), VIEWER_CACHE_DIR);
+}
+
+function getViewerCacheDir(version: string): string {
+  return path.join(getViewerCacheRoot(), `v${version}`);
+}
+
+function getViewerResourcesDir(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, VIEWER_CACHE_DIR);
+  }
+  return path.resolve(app.getAppPath(), '..', 'frontend', 'dist-viewer');
 }
 
 function getSettingsPath(): string {
@@ -1069,6 +1106,182 @@ async function saveSettings(settings: CompanionSettings): Promise<void> {
 
 async function ensureDir(filePath: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
+}
+
+async function pruneViewerCache(currentVersion: string): Promise<void> {
+  const cacheRoot = getViewerCacheRoot();
+  try {
+    const entries = await fs.readdir(cacheRoot, { withFileTypes: true });
+    const dirs = await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory())
+        .map(async (entry) => {
+          const fullPath = path.join(cacheRoot, entry.name);
+          const stat = await fs.stat(fullPath);
+          return { name: entry.name, fullPath, mtimeMs: stat.mtimeMs };
+        }),
+    );
+    // Keep current plus one rollback copy; switching is a manual operation.
+    const keep = new Set([`v${currentVersion}`]);
+    const others = dirs.filter((dir) => dir.name !== `v${currentVersion}`);
+    others.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    if (others[0]) {
+      keep.add(others[0].name);
+    }
+    await Promise.all(
+      dirs
+        .filter((dir) => !keep.has(dir.name))
+        .map((dir) => fs.rm(dir.fullPath, { recursive: true, force: true })),
+    );
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('[viewer] Failed to prune viewer cache:', error);
+    }
+  }
+}
+
+async function ensureViewerBundle(version: string): Promise<ViewerBundleState | null> {
+  const sourceDir = getViewerResourcesDir();
+  try {
+    await fs.access(sourceDir);
+  } catch {
+    console.warn(`[viewer] Bundle missing at ${sourceDir}; viewer assets will not be served.`);
+    return null;
+  }
+
+  const targetDir = getViewerCacheDir(version);
+  const markerPath = path.join(targetDir, '.bundle-version');
+  const expectedMarker = `v${version}`;
+
+  try {
+    const marker = await fs.readFile(markerPath, 'utf8');
+    if (marker.trim() === expectedMarker) {
+      await pruneViewerCache(version);
+      return { version, basePath: `/viewer/v${version}/`, rootDir: targetDir };
+    }
+  } catch {
+    // Continue to unpack.
+  }
+
+  try {
+    await fs.rm(targetDir, { recursive: true, force: true });
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.cp(sourceDir, targetDir, { recursive: true });
+    await fs.writeFile(markerPath, expectedMarker, 'utf8');
+    await pruneViewerCache(version);
+    return { version, basePath: `/viewer/v${version}/`, rootDir: targetDir };
+  } catch (error) {
+    console.warn('[viewer] Failed to unpack viewer bundle:', error);
+    return null;
+  }
+}
+
+function getViewerContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.ico':
+      return 'image/x-icon';
+    case '.webp':
+      return 'image/webp';
+    case '.woff2':
+      return 'font/woff2';
+    case '.woff':
+      return 'font/woff';
+    case '.ttf':
+      return 'font/ttf';
+    case '.map':
+      return 'application/octet-stream';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function serveViewerRequest(req: any, res: any): boolean {
+  if (!viewerBundleState) return false;
+  if (!req?.url) return false;
+  const method = (req.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') return false;
+
+  const requestUrl = new URL(req.url, 'http://localhost');
+  const pathname = decodeURIComponent(requestUrl.pathname);
+  if (!pathname.startsWith(viewerBundleState.basePath)) return false;
+
+  const relativePath = pathname.slice(viewerBundleState.basePath.length);
+  const requestedPath = relativePath && !relativePath.endsWith('/') ? relativePath : 'index.html';
+  const resolvedPath = path.resolve(viewerBundleState.rootDir, requestedPath);
+  const relToRoot = path.relative(viewerBundleState.rootDir, resolvedPath);
+  if (relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Invalid path');
+    return true;
+  }
+
+  const sendFile = (filePath: string, cacheControl: string) => {
+    res.writeHead(200, {
+      'Content-Type': getViewerContentType(filePath),
+      'Cache-Control': cacheControl,
+    });
+    if (method === 'HEAD') {
+      res.end();
+      return;
+    }
+    const stream = fsSync.createReadStream(filePath);
+    stream.on('error', () => {
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Server error');
+    });
+    stream.pipe(res);
+  };
+
+  void (async () => {
+    try {
+      const stat = await fs.stat(resolvedPath);
+      if (stat.isDirectory()) {
+        const indexPath = path.join(resolvedPath, 'index.html');
+        sendFile(indexPath, 'no-cache');
+        return;
+      }
+      const isIndex = path.basename(resolvedPath) === 'index.html';
+      const cacheControl = isIndex ? 'no-cache' : 'public, max-age=31536000, immutable';
+      sendFile(resolvedPath, cacheControl);
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        const indexPath = path.join(viewerBundleState.rootDir, 'index.html');
+        sendFile(indexPath, 'no-cache');
+        return;
+      }
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Server error');
+    }
+  })();
+
+  return true;
+}
+
+function createViewerRequestHandler() {
+  return (req: any, res: any) => {
+    if (serveViewerRequest(req, res)) {
+      return;
+    }
+    // Let Socket.IO and other listeners handle non-viewer requests.
+  };
 }
 
 function getLocalhostCertPaths() {
@@ -1863,6 +2076,13 @@ async function bootstrap() {
 
   await loadRoomCache();
 
+  const appVersion = getCompanionAppVersion();
+  viewerBundleState = await ensureViewerBundle(appVersion);
+  if (viewerBundleState) {
+    console.log(`[viewer] Bundle ready at ${viewerBundleState.basePath}`);
+    console.log(`[viewer] URL: https://localhost:4440${viewerBundleState.basePath}`);
+  }
+
   const envSecret = process.env.COMPANION_JWT_SECRET || undefined;
   const { token, secret, expiresAt } = generateJwt(envSecret);
   currentToken = token;
@@ -1992,7 +2212,7 @@ function createSocketServer(server: HttpServer | HttpsServer): SocketIOServer {
 }
 
 function startSocketServer() {
-  httpServer = createServer();
+  httpServer = createServer(createViewerRequestHandler());
   io = createSocketServer(httpServer);
   ioServers.push(io);
 
@@ -2015,7 +2235,7 @@ function startSocketServer() {
 }
 
 function startSecureSocketServer(tls: { key: string; cert: string }) {
-  httpsServer = createHttpsServer({ key: tls.key, cert: tls.cert });
+  httpsServer = createHttpsServer({ key: tls.key, cert: tls.cert }, createViewerRequestHandler());
   ioSecure = createSocketServer(httpsServer);
   ioServers.push(ioSecure);
 

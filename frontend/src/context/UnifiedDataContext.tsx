@@ -83,6 +83,13 @@ type PresentationEventPayload = {
   timestamp?: number
 }
 
+type PresentationClearPayload = {
+  type: 'PRESENTATION_CLEAR'
+  roomId: string
+  cueId?: string
+  timestamp?: number
+}
+
 export const resolveControllerLockState = ({
   roomId,
   clientId,
