@@ -42,6 +42,9 @@ export const CompanionTrustHelper = () => {
       <p className="mt-2 text-xs text-slate-400">
         Using Brave or an ad blocker? Allow this site to connect to localhost or temporarily disable Shields.
       </p>
+      <p className="mt-2 text-xs text-slate-400">
+        For LAN viewers on other devices, open the LAN viewer URL and accept the certificate warning once on each device.
+      </p>
       <div className="mt-4 flex flex-col items-center gap-2 text-xs text-slate-200">
         <button
           type="button"

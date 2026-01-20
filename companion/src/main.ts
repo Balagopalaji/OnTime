@@ -5,6 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import * as readline from 'node:readline';
@@ -45,6 +46,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'https://stagetime-*.web.app',
   'https://stagetime-*.firebaseapp.com'
 ];
+const LAN_HOSTS = parseLanHostEnv();
+const LAN_ENABLED = LAN_HOSTS.length > 0 && process.env.COMPANION_LAN_ENABLED !== 'false';
 const CACHE_VERSION = 2;
 const VIEWER_CACHE_DIR = 'viewer';
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
@@ -1213,7 +1216,7 @@ function getViewerContentType(filePath: string): string {
   }
 }
 
-function serveViewerRequest(req: any, res: any): boolean {
+function serveViewerRequest(req: any, res: any, allowLan: boolean): boolean {
   if (!viewerBundleState) return false;
   if (!req?.url) return false;
   const method = (req.method || 'GET').toUpperCase();
@@ -1222,6 +1225,13 @@ function serveViewerRequest(req: any, res: any): boolean {
   const requestUrl = new URL(req.url, 'http://localhost');
   const pathname = decodeURIComponent(requestUrl.pathname);
   if (!pathname.startsWith(viewerBundleState.basePath)) return false;
+
+  const remoteAddress = req.socket?.remoteAddress;
+  if (!isAllowedCompanionAddress(remoteAddress, allowLan)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden');
+    return true;
+  }
 
   const relativePath = pathname.slice(viewerBundleState.basePath.length);
   const requestedPath = relativePath && !relativePath.endsWith('/') ? relativePath : 'index.html';
@@ -1275,9 +1285,9 @@ function serveViewerRequest(req: any, res: any): boolean {
   return true;
 }
 
-function createViewerRequestHandler() {
+function createViewerRequestHandler({ allowLan }: { allowLan: boolean }) {
   return (req: any, res: any) => {
-    if (serveViewerRequest(req, res)) {
+    if (serveViewerRequest(req, res, allowLan)) {
       return;
     }
     // Let Socket.IO and other listeners handle non-viewer requests.
@@ -1289,38 +1299,62 @@ function getLocalhostCertPaths() {
   return {
     certPath: path.join(base, 'localhost-cert.pem'),
     keyPath: path.join(base, 'localhost-key.pem'),
+    certMetaPath: path.join(base, 'localhost-cert.json'),
     trustFlagPath: path.join(base, 'trust-shown.txt'),
     trustInstalledFlagPath: path.join(base, 'trust-installed.txt'),
     trustSkipFlagPath: path.join(base, 'trust-skip.txt'),
   };
 }
 
-async function generateLocalhostCert(): Promise<{ key: string; cert: string }> {
-  try {
-    const mod = await import('selfsigned');
-    const selfsigned = (mod as any).default ?? mod;
-    const attrs = [{ name: 'commonName', value: 'localhost' }];
-    const pems = selfsigned.generate(attrs, {
-      days: 825, // within Chrome's 825-day cap
-      keySize: 2048,
-      extensions: [
-        { name: 'basicConstraints', cA: false },
-        { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true },
-        {
-          name: 'subjectAltName',
-          altNames: [
-            { type: 2, value: 'localhost' }, // DNS
-            { type: 7, ip: '127.0.0.1' }, // IPv4
-            { type: 7, ip: '::1' } // IPv6
-          ]
-        }
-      ]
-    });
-    return { key: pems.private, cert: pems.cert };
-  } catch (error) {
-    console.warn('[tls] selfsigned unavailable, using bundled localhost certificate');
-    return { key: BUNDLED_LOCALHOST_KEY, cert: BUNDLED_LOCALHOST_CERT };
-  }
+type CertMeta = {
+  sans: string[];
+  generatedAt: string;
+};
+
+function buildSanEntries(hosts: string[]) {
+  const entries = new Map<string, { type: number; value?: string; ip?: string }>();
+  hosts.forEach((host) => {
+    const normalized = normalizeHostEntry(host);
+    if (!normalized) return;
+    const ipType = net.isIP(normalized);
+    if (ipType === 4 || ipType === 6) {
+      const key = `ip:${normalized}`;
+      if (!entries.has(key)) {
+        entries.set(key, { type: 7, ip: normalized });
+      }
+      return;
+    }
+    const key = `dns:${normalized}`;
+    if (!entries.has(key)) {
+      entries.set(key, { type: 2, value: normalized });
+    }
+  });
+  const sans = Array.from(entries.keys()).sort();
+  return { altNames: Array.from(entries.values()), sans };
+}
+
+function getDesiredCertSanEntries() {
+  const baseHosts = ['localhost', '127.0.0.1', '::1'];
+  const allHosts = [...baseHosts, ...(LAN_ENABLED ? LAN_HOSTS : [])];
+  return buildSanEntries(allHosts);
+}
+
+async function generateLocalhostCert(): Promise<{ key: string; cert: string; sans: string[] }> {
+  const attrs = [{ name: 'commonName', value: 'localhost' }];
+  const { altNames, sans } = getDesiredCertSanEntries();
+  const pems = selfsigned.generate(attrs, {
+    days: 825, // within Chrome's 825-day cap
+    keySize: 2048,
+    extensions: [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true },
+      {
+        name: 'subjectAltName',
+        altNames
+      }
+    ]
+  });
+  return { key: pems.private, cert: pems.cert, sans };
 }
 
 function isCertExpiring(certPem: string, minMsRemaining = 30 * 24 * 60 * 60 * 1000): boolean {
@@ -1334,10 +1368,19 @@ function isCertExpiring(certPem: string, minMsRemaining = 30 * 24 * 60 * 60 * 10
 }
 
 async function loadOrCreateLocalhostCert(): Promise<{ key: string; cert: string }> {
-  const { certPath, keyPath } = getLocalhostCertPaths();
+  const { certPath, keyPath, certMetaPath } = getLocalhostCertPaths();
+  const desired = getDesiredCertSanEntries();
   try {
-    const [cert, key] = await Promise.all([fs.readFile(certPath, 'utf8'), fs.readFile(keyPath, 'utf8')]);
-    if (cert && key && !isCertExpiring(cert)) {
+    const [cert, key, metaRaw] = await Promise.all([
+      fs.readFile(certPath, 'utf8'),
+      fs.readFile(keyPath, 'utf8'),
+      fs.readFile(certMetaPath, 'utf8'),
+    ]);
+    const meta = JSON.parse(metaRaw) as CertMeta;
+    const metaSans = Array.isArray(meta?.sans) ? meta.sans.slice().sort() : [];
+    const desiredSans = desired.sans.slice().sort();
+    const sanMatch = metaSans.length === desiredSans.length && metaSans.every((value, index) => value === desiredSans[index]);
+    if (cert && key && !isCertExpiring(cert) && sanMatch) {
       return { cert, key };
     }
   } catch {
@@ -1346,9 +1389,17 @@ async function loadOrCreateLocalhostCert(): Promise<{ key: string; cert: string 
   const next = await generateLocalhostCert();
   await ensureDir(certPath);
   await ensureDir(keyPath);
-  await Promise.all([fs.writeFile(certPath, next.cert, 'utf8'), fs.writeFile(keyPath, next.key, 'utf8')]);
-  console.log('[tls] Generated new localhost certificate for Companion HTTPS');
-  return next;
+  await Promise.all([
+    fs.writeFile(certPath, next.cert, 'utf8'),
+    fs.writeFile(keyPath, next.key, 'utf8'),
+    fs.writeFile(certMetaPath, JSON.stringify({ sans: next.sans, generatedAt: new Date().toISOString() } satisfies CertMeta, null, 2), 'utf8'),
+  ]);
+  if (LAN_ENABLED && LAN_HOSTS.length > 0) {
+    console.log(`[tls] Generated new companion certificate for localhost + LAN (${LAN_HOSTS.join(', ')})`);
+  } else {
+    console.log('[tls] Generated new localhost certificate for Companion HTTPS');
+  }
+  return { cert: next.cert, key: next.key };
 }
 
 async function installTrustIfNeeded(certPath: string): Promise<boolean> {
@@ -1451,6 +1502,9 @@ async function installSystemTrust(certPath: string): Promise<boolean> {
 async function maybePromptTrust(_certPath: string) {
   console.log('[tls] Opening HTTPS token page so you can trust the Companion localhost certificate once.');
   console.log('      If a browser warns about the certificate, expand "Advanced" and proceed to https://localhost:4441.');
+  if (LAN_ENABLED && LAN_HOSTS.length > 0) {
+    console.log(`[tls] LAN viewers must also trust the Companion certificate at https://${LAN_HOSTS[0]}:4440.`);
+  }
   try {
     await openTrustPages('https://localhost:4441/api/token');
   } catch (error) {
@@ -1491,6 +1545,10 @@ async function maybeHandleTrust(certPath: string): Promise<void> {
   const skipped = await hasFile(trustSkipFlagPath);
   if (skipped) return;
 
+  const lanGuidance =
+    LAN_ENABLED && LAN_HOSTS.length > 0
+      ? `\nLAN viewers: each viewer device must trust https://${LAN_HOSTS[0]}:4440 (use the LAN viewer URL for this Companion).`
+      : '';
   const result = await dialog.showMessageBox({
     type: 'info',
     buttons: ['Allow (Recommended)', 'Open Trust Page', 'Advanced: System Trust (Admin)', 'Skip'],
@@ -1504,7 +1562,8 @@ async function maybeHandleTrust(certPath: string): Promise<void> {
       '• Allow (Recommended): Approve once in your browser.\n' +
       '• Open Trust Page: Same as Allow, opens the page to approve once.\n' +
       '• Advanced: System Trust (Admin): Add certificate to system trust (admin prompt).\n' +
-      '• Skip: I’ll handle trust later.',
+      '• Skip: I’ll handle trust later.' +
+      lanGuidance,
   });
 
   if (result.response === 0) {
@@ -1570,19 +1629,147 @@ async function persistToken(token: string, expiresAt: number) {
   }
 }
 
+function normalizeHostEntry(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const withoutScheme = (() => {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      try {
+        const url = new URL(trimmed);
+        return url.hostname;
+      } catch {
+        return trimmed;
+      }
+    }
+    return trimmed;
+  })();
+
+  const withoutPath = withoutScheme.split('/')[0]?.trim() ?? '';
+  if (!withoutPath) return null;
+
+  const withoutZone = withoutPath.split('%')[0];
+
+  if (withoutZone.startsWith('[') && withoutZone.includes(']')) {
+    const bracketed = withoutZone.slice(1, withoutZone.indexOf(']'));
+    return bracketed ? bracketed.toLowerCase() : null;
+  }
+
+  if (withoutZone.includes(':') && net.isIP(withoutZone) === 0) {
+    try {
+      const url = new URL(`https://${withoutZone}`);
+      return url.hostname.toLowerCase();
+    } catch {
+      const lastColon = withoutZone.lastIndexOf(':');
+      const hostPart = lastColon > 0 ? withoutZone.slice(0, lastColon) : withoutZone;
+      return hostPart ? hostPart.toLowerCase() : null;
+    }
+  }
+
+  const normalized = withoutZone.replace(/\.$/, '').toLowerCase();
+  return normalized || null;
+}
+
+function parseLanHostEnv(): string[] {
+  const raw = process.env.COMPANION_LAN_HOSTS ?? process.env.COMPANION_LAN_HOST ?? '';
+  if (!raw) return [];
+  const entries = raw.split(',').map((entry) => normalizeHostEntry(entry)).filter(Boolean) as string[];
+  return Array.from(new Set(entries));
+}
+
+function formatHostForOrigin(host: string): string {
+  if (net.isIP(host) === 6) {
+    return `[${host}]`;
+  }
+  return host;
+}
+
+function buildLanOrigins(hosts: string[]): string[] {
+  return hosts.map((host) => `https://${formatHostForOrigin(host)}:4440`);
+}
+
 function isLoopback(remoteAddress?: string | null): boolean {
   if (!remoteAddress) return false;
   const normalized = remoteAddress.replace(/^::ffff:/, '');
   return normalized === '127.0.0.1' || normalized === '::1' || normalized === '::ffff:127.0.0.1';
 }
 
+function normalizeRemoteAddress(remoteAddress?: string | null): string | null {
+  if (!remoteAddress) return null;
+  const withoutMapped = remoteAddress.replace(/^::ffff:/, '');
+  const withoutZone = withoutMapped.split('%')[0];
+  if (withoutZone.startsWith('[') && withoutZone.endsWith(']')) {
+    return withoutZone.slice(1, -1);
+  }
+  return withoutZone;
+}
+
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) return false;
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+function parseIpv6FirstSegment(ip: string): number | null {
+  const normalized = normalizeRemoteAddress(ip);
+  if (!normalized) return null;
+  const hasIpv4 = normalized.includes('.');
+  if (hasIpv4) {
+    return null;
+  }
+  const parts = normalized.split('::');
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(':').filter(Boolean) : [];
+  const right = parts[1] ? parts[1].split(':').filter(Boolean) : [];
+  const missing = parts.length === 2 ? 8 - (left.length + right.length) : 0;
+  if (missing < 0) return null;
+  const segments = [...left, ...Array(Math.max(missing, 0)).fill('0'), ...right];
+  if (segments.length !== 8) return null;
+  const first = segments[0];
+  const parsed = Number.parseInt(first, 16);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isAllowedLanAddress(remoteAddress?: string | null): boolean {
+  const normalized = normalizeRemoteAddress(remoteAddress);
+  if (!normalized) return false;
+  if (isLoopback(normalized)) return true;
+  const ipType = net.isIP(normalized);
+  if (ipType === 4) {
+    return isPrivateIpv4(normalized);
+  }
+  if (ipType === 6) {
+    const firstSegment = parseIpv6FirstSegment(normalized);
+    if (firstSegment === null) return false;
+    const isUla = (firstSegment & 0xfe00) === 0xfc00;
+    const isLinkLocal = (firstSegment & 0xffc0) === 0xfe80;
+    return isUla || isLinkLocal;
+  }
+  return false;
+}
+
+function isAllowedCompanionAddress(remoteAddress: string | null | undefined, allowLan: boolean): boolean {
+  if (isLoopback(remoteAddress)) return true;
+  if (!allowLan) return false;
+  return isAllowedLanAddress(remoteAddress);
+}
+
 function parseAllowedOrigins(): string[] {
   const envOrigins = process.env.COMPANION_ALLOWED_ORIGINS;
-  if (!envOrigins) return DEFAULT_ALLOWED_ORIGINS;
-  return envOrigins
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+  const base = envOrigins
+    ? envOrigins
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean)
+    : DEFAULT_ALLOWED_ORIGINS;
+  if (!LAN_ENABLED || LAN_HOSTS.length === 0) return base;
+  const lanOrigins = buildLanOrigins(LAN_HOSTS);
+  return Array.from(new Set([...base, ...lanOrigins]));
 }
 
 function validateOrigin(origin: string | undefined, allowedOrigins: string[]): boolean {
@@ -2072,6 +2259,12 @@ async function bootstrap() {
     console.log(`[startup] Mode loaded from settings: ${currentCompanionMode}`);
   }
 
+  if (process.env.COMPANION_LAN_ENABLED === 'true' && LAN_HOSTS.length === 0) {
+    console.warn('[lan] COMPANION_LAN_ENABLED is true but no COMPANION_LAN_HOSTS configured; LAN is disabled.');
+  } else if (LAN_ENABLED) {
+    console.log(`[lan] Enabled for hosts: ${LAN_HOSTS.join(', ')}`);
+  }
+
   await initializePptDebugLogging();
 
   await loadRoomCache();
@@ -2132,13 +2325,13 @@ bootstrap().catch((error) => {
   app.quit();
 });
 
-function attachEngineCors(sio: SocketIOServer) {
+function attachEngineCors(sio: SocketIOServer, allowLan: boolean) {
   // Allow secure contexts to call into the loopback server (Chrome PNA preflight)
   sio.engine.on('initial_headers', (headers, req) => {
     const allowedOrigins = parseAllowedOrigins();
     const origin = req.headers?.origin as string | undefined;
     const remoteAddress = req.socket?.remoteAddress;
-    if (!isLoopback(remoteAddress)) return;
+    if (!isAllowedCompanionAddress(remoteAddress, allowLan)) return;
     if (!validateOrigin(origin, allowedOrigins)) return;
     headers['Access-Control-Allow-Origin'] = origin ?? allowedOrigins[0];
     headers['Access-Control-Allow-Private-Network'] = 'true';
@@ -2148,7 +2341,7 @@ function attachEngineCors(sio: SocketIOServer) {
     const allowedOrigins = parseAllowedOrigins();
     const origin = req.headers?.origin as string | undefined;
     const remoteAddress = req.socket?.remoteAddress;
-    if (!isLoopback(remoteAddress)) return;
+    if (!isAllowedCompanionAddress(remoteAddress, allowLan)) return;
     if (!validateOrigin(origin, allowedOrigins)) return;
     headers['Access-Control-Allow-Origin'] = origin ?? allowedOrigins[0];
     headers['Access-Control-Allow-Private-Network'] = 'true';
@@ -2156,8 +2349,21 @@ function attachEngineCors(sio: SocketIOServer) {
   });
 }
 
-function registerSocketHandlers(server: SocketIOServer) {
+function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
   server.on('connection', (socket) => {
+    const remoteAddress =
+      typeof socket.handshake?.address === 'string'
+        ? socket.handshake.address
+        : socket.conn?.remoteAddress;
+    if (!isAllowedCompanionAddress(remoteAddress, allowLan)) {
+      socket.emit('ERROR', {
+        type: 'ERROR',
+        code: 'LAN_BLOCKED',
+        message: 'LAN access to Companion is disabled.',
+      });
+      socket.disconnect(true);
+      return;
+    }
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
@@ -2197,7 +2403,7 @@ function registerSocketHandlers(server: SocketIOServer) {
   });
 }
 
-function createSocketServer(server: HttpServer | HttpsServer): SocketIOServer {
+function createSocketServer(server: HttpServer | HttpsServer, allowLan: boolean): SocketIOServer {
   const sio = new SocketIOServer(server, {
     serveClient: false,
     cors: {
@@ -2206,18 +2412,18 @@ function createSocketServer(server: HttpServer | HttpsServer): SocketIOServer {
       credentials: true
     }
   });
-  attachEngineCors(sio);
-  registerSocketHandlers(sio);
+  attachEngineCors(sio, allowLan);
+  registerSocketHandlers(sio, allowLan);
   return sio;
 }
 
 function startSocketServer() {
-  httpServer = createServer(createViewerRequestHandler());
-  io = createSocketServer(httpServer);
+  httpServer = createServer(createViewerRequestHandler({ allowLan: false }));
+  io = createSocketServer(httpServer, false);
   ioServers.push(io);
 
-  httpServer.listen(4000, () => {
-    console.log('[ws] Companion listening on ws://localhost:4000');
+  httpServer.listen(4000, '127.0.0.1', () => {
+    console.log('[ws] Companion listening on ws://127.0.0.1:4000');
   });
 
   app.on('before-quit', () => {
@@ -2235,13 +2441,31 @@ function startSocketServer() {
 }
 
 function startSecureSocketServer(tls: { key: string; cert: string }) {
-  httpsServer = createHttpsServer({ key: tls.key, cert: tls.cert }, createViewerRequestHandler());
-  ioSecure = createSocketServer(httpsServer);
+  const allowLan = LAN_ENABLED;
+  httpsServer = createHttpsServer({ key: tls.key, cert: tls.cert }, createViewerRequestHandler({ allowLan }));
+  ioSecure = createSocketServer(httpsServer, allowLan);
   ioServers.push(ioSecure);
 
-  httpsServer.listen(4440, '127.0.0.1', () => {
-    console.log('[wss] Companion listening on wss://localhost:4440');
+  const lanBindHost = process.env.COMPANION_LAN_BIND ?? (allowLan ? '::' : '127.0.0.1');
+  const listenOptions =
+    allowLan && lanBindHost.includes(':')
+      ? { port: 4440, host: lanBindHost, ipv6Only: false }
+      : { port: 4440, host: lanBindHost };
+  httpsServer.listen(listenOptions, () => {
+    const hostLabel =
+      allowLan && (lanBindHost === '::' || lanBindHost === '::0')
+        ? '0.0.0.0'
+        : allowLan
+          ? lanBindHost
+          : 'localhost';
+    console.log(`[wss] Companion listening on wss://${hostLabel}:4440`);
     console.log('[wss] If the browser blocks self-signed certs, open https://localhost:4441 once and accept the warning.');
+    if (allowLan && LAN_HOSTS.length > 0 && viewerBundleState) {
+      const urls = LAN_HOSTS.map(
+        (host) => `https://${formatHostForOrigin(host)}:4440${viewerBundleState?.basePath ?? '/viewer/'}`
+      );
+      console.log(`[lan] Viewer URL(s): ${urls.join(', ')}`);
+    }
   });
 }
 
@@ -2320,6 +2544,7 @@ function sendJson(res: any, status: number, body: JsonValue, origin?: string) {
   };
   if (origin) {
     headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Private-Network'] = 'true';
     headers['Vary'] = 'Origin';
   }
   res.writeHead(status, headers);
@@ -5318,6 +5543,7 @@ function createTokenHandler(token: string, expiresAt: number) {
           'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          'Access-Control-Allow-Private-Network': 'true',
           Vary: 'Origin',
         });
         res.end();
@@ -5388,6 +5614,7 @@ function createTokenHandler(token: string, expiresAt: number) {
           'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          'Access-Control-Allow-Private-Network': 'true',
           Vary: 'Origin',
         });
         res.end();
@@ -5461,6 +5688,7 @@ function createTokenHandler(token: string, expiresAt: number) {
           'Access-Control-Allow-Origin': cors.origin ?? allowedOrigins[0],
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+          'Access-Control-Allow-Private-Network': 'true',
           Vary: 'Origin',
         });
         res.end();

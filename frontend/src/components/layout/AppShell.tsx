@@ -900,6 +900,9 @@ export const AppShell = () => {
                     Using Brave or an ad blocker? Disable Shields for this site and allow localhost connections so the Companion can connect.
                     Then trust the localhost certificate once when prompted (Advanced → “Proceed to localhost (unsafe)”).
                   </p>
+                  <p className="text-xs text-slate-400">
+                    Setting up LAN viewers on other devices? Open the LAN viewer URL on each device and accept the certificate once.
+                  </p>
                 </div>
                 <div className="mt-3 flex gap-2">
                   <button
@@ -951,6 +954,9 @@ export const AppShell = () => {
                 <li>This only allows your browser to talk to the Companion on this computer.</li>
                 <li>After approving, reload if prompted and the connection will complete.</li>
               </ul>
+              <p className="text-xs text-slate-400">
+                For LAN viewers, open the LAN viewer URL on each device and accept the certificate warning once.
+              </p>
             </div>
             <div className="mt-4 flex gap-2">
               <button
