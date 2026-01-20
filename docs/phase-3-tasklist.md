@@ -55,9 +55,9 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [x] Write the decision in `docs/phase-3-bundle-strategy.md` and summarize in `docs/phase-3-decisions.md`.
 
 ### Pass A: Viewer Bundle Packaging
-- [ ] Add Companion-served viewer bundle build, packaging, and versioning.
-- [ ] Ensure viewer assets can be served offline from the Companion origin.
-- [ ] Ensure Companion cache/versioning/migration is updated for viewer bundle assets.
+- [x] Add Companion-served viewer bundle build, packaging, and versioning.
+- [x] Ensure viewer assets can be served offline from the Companion origin.
+- [x] Ensure Companion cache/versioning/migration is updated for viewer bundle assets.
 
 ### Pass B0: Cert Trust UX Note
 - [x] Define first-run trust UX, operator guidance, and fallback behavior.
