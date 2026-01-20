@@ -70,8 +70,8 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [x] Provide first-run trust guidance UX.
 
 ### Pass B2: HTTPS/WSS (BYO cert)
-- [ ] Add BYO cert/key import and validation.
-- [ ] Document operational guidance for cert renewal.
+- [x] Add BYO cert/key import and validation.
+- [x] Document operational guidance for cert renewal.
 
 ### Pass C: Pairing + Tokens
 - [ ] Implement pairing flow (QR/manual) using the Phase 3A pairing UX spec.
