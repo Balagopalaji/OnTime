@@ -44,6 +44,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Crew chat: operators can send to all or targeted roles; role-targeted messages are highlighted for that role.
 - Crew chat channels: Phase 3 uses role-targeted audiences; named channels (saved role groups) are a Phase 4 enhancement.
 - LAN-only operator join is deferred for Phase 3 core; offline LAN mode remains owner-only for operator actions.
+- Phase 3B Pass B2 validation: verified BYO cert loads and viewer URL renders over HTTPS with custom cert.
 
 ## Proposed Decisions (Pending Confirmation)
 - Timeline targets: 3A (1 week), 3B (2–3 weeks), 3C (2–3 weeks), 3D (1 week).
