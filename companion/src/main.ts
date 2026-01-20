@@ -1077,6 +1077,9 @@ function getSettingsPath(): string {
 interface CompanionSettings {
   mode: CompanionMode;
   headless?: boolean;
+  tlsMode?: 'self_signed' | 'custom';
+  tlsCertPath?: string;
+  tlsKeyPath?: string;
 }
 
 async function loadSettings(): Promise<CompanionSettings> {
@@ -1084,9 +1087,19 @@ async function loadSettings(): Promise<CompanionSettings> {
   try {
     const data = await fs.readFile(settingsPath, 'utf8');
     const parsed = JSON.parse(data) as Partial<CompanionSettings>;
-    if (parsed.mode && ['minimal', 'show_control', 'production'].includes(parsed.mode)) {
-      return { mode: parsed.mode as CompanionMode, headless: parsed.headless };
-    }
+    const mode = parsed.mode && ['minimal', 'show_control', 'production'].includes(parsed.mode)
+      ? (parsed.mode as CompanionMode)
+      : 'show_control';
+    const tlsMode = parsed.tlsMode === 'custom' || parsed.tlsMode === 'self_signed' ? parsed.tlsMode : undefined;
+    const tlsCertPath = typeof parsed.tlsCertPath === 'string' ? parsed.tlsCertPath : undefined;
+    const tlsKeyPath = typeof parsed.tlsKeyPath === 'string' ? parsed.tlsKeyPath : undefined;
+    return {
+      mode,
+      headless: parsed.headless,
+      tlsMode,
+      tlsCertPath,
+      tlsKeyPath,
+    };
   } catch (error: any) {
     if (error.code !== 'ENOENT') {
       console.warn('[settings] Failed to load settings:', error);
@@ -1096,12 +1109,16 @@ async function loadSettings(): Promise<CompanionSettings> {
   return { mode: 'show_control' };
 }
 
-async function saveSettings(settings: CompanionSettings): Promise<void> {
+async function saveSettings(settings: Partial<CompanionSettings>): Promise<void> {
   const settingsPath = getSettingsPath();
   try {
+    const existing = await fs.readFile(settingsPath, 'utf8').then((raw) => JSON.parse(raw)).catch(() => ({}));
+    const next = { ...existing, ...settings };
     await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-    console.log(`[settings] Saved settings: mode=${settings.mode}`);
+    await fs.writeFile(settingsPath, JSON.stringify(next, null, 2), 'utf8');
+    if (settings.mode) {
+      console.log(`[settings] Saved settings: mode=${settings.mode}`);
+    }
   } catch (error) {
     console.error('[settings] Failed to save settings:', error);
   }
@@ -1306,10 +1323,134 @@ function getLocalhostCertPaths() {
   };
 }
 
+type CustomTlsConfig = {
+  certPath: string;
+  keyPath: string;
+  source: 'env' | 'settings';
+};
+
+type TlsBundle = {
+  key: string;
+  cert: string;
+  source: 'self_signed' | 'custom';
+  certPath?: string;
+  keyPath?: string;
+};
+
 type CertMeta = {
   sans: string[];
   generatedAt: string;
 };
+
+function parseSubjectAltNames(subjectAltName?: string): string[] {
+  if (!subjectAltName) return [];
+  return subjectAltName
+    .split(',')
+    .map((entry) => entry.trim())
+    .map((entry) => {
+      if (!entry) return null;
+      if (entry.toLowerCase().startsWith('dns:')) {
+        const host = normalizeHostEntry(entry.slice(4));
+        if (!host) return null;
+        return `dns:${host}`;
+      }
+      if (entry.toLowerCase().startsWith('ip address:')) {
+        const host = normalizeHostEntry(entry.slice('ip address:'.length));
+        if (!host) return null;
+        return `ip:${host}`;
+      }
+      return null;
+    })
+    .filter(Boolean) as string[];
+}
+
+function getRequiredCustomSans() {
+  const requiredHosts = ['localhost', ...(LAN_ENABLED ? LAN_HOSTS : [])];
+  const required = requiredHosts
+    .map((host) => normalizeHostEntry(host))
+    .filter(Boolean)
+    .map((host) => (net.isIP(host!) ? `ip:${host}` : `dns:${host}`));
+  const optionalHosts = ['127.0.0.1', '::1'];
+  const optional = optionalHosts
+    .map((host) => normalizeHostEntry(host))
+    .filter(Boolean)
+    .map((host) => (net.isIP(host!) ? `ip:${host}` : `dns:${host}`))
+    .filter((host) => !required.includes(host));
+  return { required, optional };
+}
+
+function resolveCustomTlsConfig(settings: CompanionSettings): CustomTlsConfig | null {
+  const envCert = process.env.COMPANION_TLS_CERT;
+  const envKey = process.env.COMPANION_TLS_KEY;
+  if (envCert && envKey) {
+    return { certPath: envCert, keyPath: envKey, source: 'env' };
+  }
+
+  if (settings.tlsMode === 'self_signed') {
+    return null;
+  }
+
+  const certPath = settings.tlsCertPath;
+  const keyPath = settings.tlsKeyPath;
+  if (settings.tlsMode === 'custom' && certPath && keyPath) {
+    return { certPath, keyPath, source: 'settings' };
+  }
+  if (certPath && keyPath) {
+    return { certPath, keyPath, source: 'settings' };
+  }
+  return null;
+}
+
+function validateCustomTlsCert(certPem: string, keyPem: string): { warnings: string[] } {
+  const cert = new crypto.X509Certificate(certPem);
+  const certPublicKey = cert.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const keyPublicKey = crypto.createPublicKey(crypto.createPrivateKey(keyPem)).export({ type: 'spki', format: 'pem' }).toString();
+  if (certPublicKey.trim() !== keyPublicKey.trim()) {
+    throw new Error('Certificate does not match the provided private key.');
+  }
+
+  const warnings: string[] = [];
+  const altNames = new Set(parseSubjectAltNames(cert.subjectAltName));
+  const { required, optional } = getRequiredCustomSans();
+  const missingRequired = required.filter((entry) => !altNames.has(entry));
+  if (missingRequired.length > 0) {
+    throw new Error(`Certificate SANs missing required entries: ${missingRequired.join(', ')}`);
+  }
+  const missingOptional = optional.filter((entry) => !altNames.has(entry));
+  if (missingOptional.length > 0) {
+    warnings.push(`Certificate SANs missing optional entries: ${missingOptional.join(', ')}`);
+  }
+  if (isCertExpiring(certPem)) {
+    warnings.push('Certificate expires soon; replace it before it expires to avoid viewer interruptions.');
+  }
+  return { warnings };
+}
+
+async function loadCustomTlsBundle(settings: CompanionSettings): Promise<TlsBundle | null> {
+  const config = resolveCustomTlsConfig(settings);
+  if (!config) {
+    if (settings.tlsMode === 'custom') {
+      console.warn('[tls] Custom TLS mode set but cert/key paths are missing; using generated certificate.');
+    }
+    return null;
+  }
+
+  try {
+    const [cert, key] = await Promise.all([
+      fs.readFile(config.certPath, 'utf8'),
+      fs.readFile(config.keyPath, 'utf8'),
+    ]);
+    const { warnings } = validateCustomTlsCert(cert, key);
+    if (warnings.length > 0) {
+      warnings.forEach((warning) => console.warn(`[tls] ${warning}`));
+    }
+    console.log(`[tls] Using custom certificate (${config.source}) from ${config.certPath}`);
+    return { cert, key, source: 'custom', certPath: config.certPath, keyPath: config.keyPath };
+  } catch (error) {
+    console.warn('[tls] Custom certificate invalid, falling back to generated certificate.', error);
+    return null;
+  }
+}
 
 function buildSanEntries(hosts: string[]) {
   const entries = new Map<string, { type: number; value?: string; ip?: string }>();
@@ -1367,7 +1508,7 @@ function isCertExpiring(certPem: string, minMsRemaining = 30 * 24 * 60 * 60 * 10
   }
 }
 
-async function loadOrCreateLocalhostCert(): Promise<{ key: string; cert: string }> {
+async function loadOrCreateLocalhostCert(): Promise<TlsBundle> {
   const { certPath, keyPath, certMetaPath } = getLocalhostCertPaths();
   const desired = getDesiredCertSanEntries();
   try {
@@ -1381,7 +1522,7 @@ async function loadOrCreateLocalhostCert(): Promise<{ key: string; cert: string 
     const desiredSans = desired.sans.slice().sort();
     const sanMatch = metaSans.length === desiredSans.length && metaSans.every((value, index) => value === desiredSans[index]);
     if (cert && key && !isCertExpiring(cert) && sanMatch) {
-      return { cert, key };
+      return { cert, key, source: 'self_signed', certPath, keyPath };
     }
   } catch {
     // fall through to generate
@@ -1399,7 +1540,7 @@ async function loadOrCreateLocalhostCert(): Promise<{ key: string; cert: string 
   } else {
     console.log('[tls] Generated new localhost certificate for Companion HTTPS');
   }
-  return { cert: next.cert, key: next.key };
+  return { cert: next.cert, key: next.key, source: 'self_signed', certPath, keyPath };
 }
 
 async function installTrustIfNeeded(certPath: string): Promise<boolean> {
@@ -2288,9 +2429,14 @@ async function bootstrap() {
     console.warn('[auth] Failed to persist token', error);
   }
 
-  const tls = await loadOrCreateLocalhostCert();
-  const { certPath } = getLocalhostCertPaths();
-  await maybeHandleTrust(certPath);
+  const customTls = await loadCustomTlsBundle(settings);
+  const tls = customTls ?? await loadOrCreateLocalhostCert();
+  if (tls.source === 'self_signed') {
+    const { certPath } = getLocalhostCertPaths();
+    await maybeHandleTrust(certPath);
+  } else {
+    console.log('[tls] Custom certificate active; skipping automatic trust prompts.');
+  }
 
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
