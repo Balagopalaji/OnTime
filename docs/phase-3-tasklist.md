@@ -65,9 +65,9 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [x] Write the decision in `docs/phase-3-cert-trust-ux.md` and summarize in `docs/phase-3-decisions.md`.
 
 ### Pass B1: HTTPS/WSS + PNA/CORS (Self-signed)
-- [ ] Implement self-signed SAN cert generation, storage, and rotation.
-- [ ] Add PNA/CORS headers and LAN allowlist enforcement (RFC1918 + IPv4 link-local + IPv6 ULA/link-local).
-- [ ] Provide first-run trust guidance UX.
+- [x] Implement self-signed SAN cert generation, storage, and rotation.
+- [x] Add PNA/CORS headers and LAN allowlist enforcement (RFC1918 + IPv4 link-local + IPv6 ULA/link-local).
+- [x] Provide first-run trust guidance UX.
 
 ### Pass B2: HTTPS/WSS (BYO cert)
 - [ ] Add BYO cert/key import and validation.

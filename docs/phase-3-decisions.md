@@ -59,6 +59,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 ## Notes
 - Windows cert trust behavior: Edge/Chrome require Advanced → Proceed to localhost; no installable cert path confirmed.
 - Optional hardening: document Windows cert install path during Phase 3D if feasible; otherwise defer to Phase 4.
+- Phase 3B Pass B1 validation: verified self-signed SAN certs, LAN allowlist, and PNA/CORS on local + LAN scenarios.
 
 ## Locked Decisions (Addendum)
 - Mobile viewer apps (iOS/Android) deferred until after Phase 3 core; Phase 3 focuses on desktop viewers (web + viewer-only Electron).
