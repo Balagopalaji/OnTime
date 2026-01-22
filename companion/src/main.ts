@@ -30,6 +30,9 @@ let currentCompanionMode: CompanionMode = 'show_control';
 const COMPANION_VERSION = '0.1.0';
 const INTERFACE_VERSION = '1.2.0';
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const PAIRING_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const VIEWER_TOKEN_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const MAX_VIEWER_DEVICES_PER_ROOM = 20;
 const TOKEN_SERVICE = 'OnTime Companion Token';
 const TOKEN_ACCOUNT = 'default';
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -323,6 +326,8 @@ type RoomClientsState = {
     userId?: string;
     userName?: string;
     clientType: 'controller' | 'viewer';
+    role?: string;
+    tokenId?: string;
   }>;
   timestamp: number;
 };
@@ -768,6 +773,8 @@ const roomOwnerStore: Map<string, {
   updatedAt: number;
   setBy?: string;
 }> = new Map();
+const roomViewerTokenStore: Map<string, Map<string, ViewerTokenEntry>> = new Map();
+const roomPairingCodeStore: Map<string, PairingCodeEntry> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
@@ -797,6 +804,8 @@ function getRoomClients(roomId: string): Map<string, {
   userId?: string;
   userName?: string;
   clientType: 'controller' | 'viewer';
+  viewerRole?: string;
+  viewerTokenId?: string;
 }> {
   if (!roomClientStore.has(roomId)) {
     roomClientStore.set(roomId, new Map());
@@ -905,6 +914,8 @@ function emitRoomClientsState(roomId: string) {
     userId: entry.userId,
     userName: entry.userName,
     clientType: entry.clientType,
+    role: entry.viewerRole,
+    tokenId: entry.viewerTokenId,
   }));
   const payload: RoomClientsState = {
     type: 'ROOM_CLIENTS_STATE',
@@ -977,6 +988,39 @@ type EncryptedPayload = {
   data: string;
 };
 
+type CompanionTokenPayload = {
+  sub: 'companion';
+  exp: number;
+};
+
+type ViewerTokenPayload = {
+  sub: 'viewer';
+  roomId: string;
+  role: string;
+  tokenId: string;
+  exp: number;
+};
+
+type AuthTokenPayload = CompanionTokenPayload | ViewerTokenPayload;
+
+type ViewerTokenEntry = {
+  tokenId: string;
+  roomId: string;
+  role: string;
+  issuedAt: number;
+  expiresAt: number;
+  revokedAt?: number;
+  deviceName?: string;
+  lastSeen?: number;
+};
+
+type PairingCodeEntry = {
+  code: string;
+  roomId: string;
+  createdAt: number;
+  expiresAt: number;
+};
+
 function parseMajorVersion(version?: string): number | null {
   if (!version) return null;
   const [majorRaw] = version.split('.');
@@ -1001,6 +1045,115 @@ function generateJwt(secretOverride?: string): { token: string; secret: string; 
     secret,
   );
   return { token, secret, expiresAt };
+}
+
+const ALLOWED_VIEWER_ROLES = new Set(['all', 'lx', 'ax', 'vx', 'sm', 'foh', 'custom']);
+
+function normalizeViewerRole(input?: string | null): string | null {
+  if (!input) return 'all';
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return 'all';
+  if (!ALLOWED_VIEWER_ROLES.has(trimmed)) return null;
+  return trimmed;
+}
+
+function normalizePairingCode(input?: string | null): string | null {
+  if (!input) return null;
+  const normalized = input.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (normalized.length !== 8) return null;
+  return `${normalized.slice(0, 4)}-${normalized.slice(4)}`;
+}
+
+function generatePairingCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(8);
+  let code = '';
+  for (let i = 0; i < 8; i += 1) {
+    code += alphabet[bytes[i] % alphabet.length];
+  }
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+function getRoomViewerTokens(roomId: string): Map<string, ViewerTokenEntry> {
+  if (!roomViewerTokenStore.has(roomId)) {
+    roomViewerTokenStore.set(roomId, new Map());
+  }
+  return roomViewerTokenStore.get(roomId)!;
+}
+
+function pruneViewerTokens(roomId: string, now: number = Date.now()): void {
+  const tokens = getRoomViewerTokens(roomId);
+  let changed = false;
+  tokens.forEach((entry, tokenId) => {
+    if (entry.expiresAt <= now) {
+      tokens.delete(tokenId);
+      changed = true;
+    }
+  });
+  if (changed) {
+    scheduleRoomCacheWrite();
+  }
+}
+
+function countActiveViewerTokens(roomId: string, now: number = Date.now()): number {
+  pruneViewerTokens(roomId, now);
+  const tokens = getRoomViewerTokens(roomId);
+  let count = 0;
+  tokens.forEach((entry) => {
+    if (!entry.revokedAt && entry.expiresAt > now) count += 1;
+  });
+  return count;
+}
+
+function issueViewerToken(roomId: string, role: string, deviceName?: string): { token: string; entry: ViewerTokenEntry } {
+  if (!jwtSecret) {
+    throw new Error('Missing JWT secret');
+  }
+  const now = Date.now();
+  const tokenId = crypto.randomUUID();
+  const expiresAt = now + VIEWER_TOKEN_TTL_MS;
+  const payload: ViewerTokenPayload = {
+    sub: 'viewer',
+    roomId,
+    role,
+    tokenId,
+    exp: Math.floor(expiresAt / 1000),
+  };
+  const token = jwt.sign(payload, jwtSecret);
+  const entry: ViewerTokenEntry = {
+    tokenId,
+    roomId,
+    role,
+    issuedAt: now,
+    expiresAt,
+    deviceName,
+    lastSeen: now,
+  };
+  getRoomViewerTokens(roomId).set(tokenId, entry);
+  scheduleRoomCacheWrite();
+  return { token, entry };
+}
+
+function getPairingCode(roomId: string, now: number = Date.now()): PairingCodeEntry | null {
+  const existing = roomPairingCodeStore.get(roomId);
+  if (!existing) return null;
+  if (existing.expiresAt <= now) {
+    roomPairingCodeStore.delete(roomId);
+    return null;
+  }
+  return existing;
+}
+
+function createPairingCode(roomId: string, now: number = Date.now()): PairingCodeEntry {
+  const code = generatePairingCode();
+  const entry: PairingCodeEntry = {
+    roomId,
+    code,
+    createdAt: now,
+    expiresAt: now + PAIRING_CODE_TTL_MS,
+  };
+  roomPairingCodeStore.set(roomId, entry);
+  return entry;
 }
 
 async function saveTokenToKeychain(token: string, expiresAt: number): Promise<void> {
@@ -1080,6 +1233,7 @@ interface CompanionSettings {
   tlsMode?: 'self_signed' | 'custom';
   tlsCertPath?: string;
   tlsKeyPath?: string;
+  jwtSecret?: string;
 }
 
 async function loadSettings(): Promise<CompanionSettings> {
@@ -1093,12 +1247,16 @@ async function loadSettings(): Promise<CompanionSettings> {
     const tlsMode = parsed.tlsMode === 'custom' || parsed.tlsMode === 'self_signed' ? parsed.tlsMode : undefined;
     const tlsCertPath = typeof parsed.tlsCertPath === 'string' ? parsed.tlsCertPath : undefined;
     const tlsKeyPath = typeof parsed.tlsKeyPath === 'string' ? parsed.tlsKeyPath : undefined;
+    const jwtSecret = typeof parsed.jwtSecret === 'string' && parsed.jwtSecret.trim()
+      ? parsed.jwtSecret
+      : undefined;
     return {
       mode,
       headless: parsed.headless,
       tlsMode,
       tlsCertPath,
       tlsKeyPath,
+      jwtSecret,
     };
   } catch (error: any) {
     if (error.code !== 'ENOENT') {
@@ -1302,8 +1460,287 @@ function serveViewerRequest(req: any, res: any, allowLan: boolean): boolean {
   return true;
 }
 
+function handlePairingRequest(req: any, res: any, allowLan: boolean): boolean {
+  if (!req?.url) return false;
+  const requestUrl = new URL(req.url, 'http://localhost');
+  if (!requestUrl.pathname.startsWith('/api/pairing')) return false;
+
+  const method = (req.method || 'GET').toUpperCase();
+  const origin = getRequestOrigin(req);
+  const allowedOrigins = parseAllowedOrigins();
+  const originValid = validateOrigin(origin, allowedOrigins);
+  const corsOrigin = origin && originValid ? origin : undefined;
+  const remoteAddress = req.socket?.remoteAddress;
+
+  const sendCors = () => {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': corsOrigin ?? allowedOrigins[0],
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
+      'Access-Control-Allow-Private-Network': 'true',
+      Vary: 'Origin',
+    });
+    res.end();
+  };
+
+  if (method === 'OPTIONS') {
+    if (!originValid) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid origin' }));
+      return true;
+    }
+    sendCors();
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/pairing/create') {
+    const auth = authorizeRequest(req);
+    if (!auth.ok) {
+      sendJson(res, 401, { error: 'UNAUTHORIZED' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    if (method !== 'POST') {
+      sendJson(res, 405, { error: 'Method not allowed' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    if (!viewerBundleState) {
+      sendJson(res, 409, { error: 'VIEWER_BUNDLE_MISSING' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    const bundleState = viewerBundleState;
+    if (!LAN_ENABLED || LAN_HOSTS.length === 0) {
+      sendJson(res, 409, { error: 'LAN_DISABLED' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    void (async () => {
+      try {
+        const data = await readJsonBody(req);
+        const roomId = typeof (data as any)?.roomId === 'string' ? (data as any).roomId.trim() : '';
+        if (!roomId) {
+          sendJson(res, 400, { error: 'INVALID_ROOM' }, auth.origin ?? corsOrigin);
+          return;
+        }
+        const reuse =
+          typeof (data as any)?.reuse === 'boolean' ? (data as any).reuse : true;
+        const now = Date.now();
+        const entry = reuse ? (getPairingCode(roomId, now) ?? createPairingCode(roomId, now)) : createPairingCode(roomId, now);
+        const urls = LAN_HOSTS.map(
+          (host) =>
+            `https://${formatHostForOrigin(host)}:4440${bundleState.basePath}room/${roomId}/view?code=${encodeURIComponent(entry.code)}`
+        );
+        sendJson(res, 200, {
+          roomId,
+          code: entry.code,
+          expiresAt: entry.expiresAt,
+          urls,
+          maxDevices: MAX_VIEWER_DEVICES_PER_ROOM,
+        }, auth.origin ?? corsOrigin);
+      } catch (error) {
+        console.warn('[pairing] Failed to create pairing code', error);
+        sendJson(res, 500, { error: 'PAIRING_FAILED' }, auth.origin ?? corsOrigin);
+      }
+    })();
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/pairing/status') {
+    const auth = authorizeRequest(req);
+    if (!auth.ok) {
+      sendJson(res, 401, { error: 'UNAUTHORIZED' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    if (method !== 'GET') {
+      sendJson(res, 405, { error: 'Method not allowed' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    const roomId = requestUrl.searchParams.get('roomId')?.trim() ?? '';
+    if (!roomId) {
+      sendJson(res, 400, { error: 'INVALID_ROOM' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    const now = Date.now();
+    pruneViewerTokens(roomId, now);
+    const pairing = getPairingCode(roomId, now);
+    const tokens = [...getRoomViewerTokens(roomId).values()]
+      .filter((entry) => entry.expiresAt > now)
+      .map((entry) => ({
+        tokenId: entry.tokenId,
+        role: entry.role,
+        deviceName: entry.deviceName ?? null,
+        lastSeen: entry.lastSeen ?? null,
+        expiresAt: entry.expiresAt,
+        revokedAt: entry.revokedAt ?? null,
+      }))
+      .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0));
+    sendJson(res, 200, {
+      roomId,
+      pairing: pairing ? { code: pairing.code, expiresAt: pairing.expiresAt } : null,
+      tokens,
+    }, auth.origin ?? corsOrigin);
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/pairing/revoke') {
+    const auth = authorizeRequest(req);
+    if (!auth.ok) {
+      sendJson(res, 401, { error: 'UNAUTHORIZED' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    if (method !== 'POST') {
+      sendJson(res, 405, { error: 'Method not allowed' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    void (async () => {
+      try {
+        const data = await readJsonBody(req);
+        const roomId = typeof (data as any)?.roomId === 'string' ? (data as any).roomId.trim() : '';
+        const tokenId = typeof (data as any)?.tokenId === 'string' ? (data as any).tokenId.trim() : '';
+        if (!roomId || !tokenId) {
+          sendJson(res, 400, { error: 'INVALID_REQUEST' }, auth.origin ?? corsOrigin);
+          return;
+        }
+        const tokens = getRoomViewerTokens(roomId);
+        const entry = tokens.get(tokenId);
+        if (!entry) {
+          sendJson(res, 404, { error: 'NOT_FOUND' }, auth.origin ?? corsOrigin);
+          return;
+        }
+        if (!entry.revokedAt) {
+          entry.revokedAt = Date.now();
+          scheduleRoomCacheWrite();
+        }
+        const clients = getRoomClients(roomId);
+        clients.forEach((client, clientId) => {
+          if (client.viewerTokenId !== tokenId) return;
+          ioServers.forEach((server) => {
+            const target = server.sockets.sockets.get(client.socketId);
+            target?.disconnect(true);
+          });
+          clients.delete(clientId);
+        });
+        emitRoomClientsState(roomId);
+        sendJson(res, 200, { success: true }, auth.origin ?? corsOrigin);
+      } catch (error) {
+        console.warn('[pairing] Failed to revoke token', error);
+        sendJson(res, 500, { error: 'REVOKE_FAILED' }, auth.origin ?? corsOrigin);
+      }
+    })();
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/pairing/reset') {
+    const auth = authorizeRequest(req);
+    if (!auth.ok) {
+      sendJson(res, 401, { error: 'UNAUTHORIZED' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    if (method !== 'POST') {
+      sendJson(res, 405, { error: 'Method not allowed' }, auth.origin ?? corsOrigin);
+      return true;
+    }
+    void (async () => {
+      try {
+        const data = await readJsonBody(req);
+        const roomId = typeof (data as any)?.roomId === 'string' ? (data as any).roomId.trim() : '';
+        if (!roomId) {
+          sendJson(res, 400, { error: 'INVALID_ROOM' }, auth.origin ?? corsOrigin);
+          return;
+        }
+        const tokens = getRoomViewerTokens(roomId);
+        if (tokens.size > 0) {
+          const clients = getRoomClients(roomId);
+          clients.forEach((client) => {
+            if (!client.viewerTokenId) return;
+            ioServers.forEach((server) => {
+              const target = server.sockets.sockets.get(client.socketId);
+              target?.disconnect(true);
+            });
+          });
+          clients.clear();
+          tokens.clear();
+          scheduleRoomCacheWrite();
+        }
+        emitRoomClientsState(roomId);
+        sendJson(res, 200, { success: true }, auth.origin ?? corsOrigin);
+      } catch (error) {
+        console.warn('[pairing] Failed to reset viewer tokens', error);
+        sendJson(res, 500, { error: 'RESET_FAILED' }, auth.origin ?? corsOrigin);
+      }
+    })();
+    return true;
+  }
+
+  if (requestUrl.pathname === '/api/pairing/claim') {
+    if (!isAllowedCompanionAddress(remoteAddress, allowLan)) {
+      sendJson(res, 403, { error: 'Forbidden' }, corsOrigin);
+      return true;
+    }
+    if (!originValid) {
+      sendJson(res, 403, { error: 'Invalid origin' }, corsOrigin);
+      return true;
+    }
+    if (method !== 'POST') {
+      sendJson(res, 405, { error: 'Method not allowed' }, corsOrigin);
+      return true;
+    }
+    void (async () => {
+      try {
+        const data = await readJsonBody(req);
+        const roomId = typeof (data as any)?.roomId === 'string' ? (data as any).roomId.trim() : '';
+        const codeRaw = typeof (data as any)?.code === 'string' ? (data as any).code : '';
+        const role = normalizeViewerRole((data as any)?.role);
+        const deviceName = typeof (data as any)?.deviceName === 'string' ? (data as any).deviceName.trim().slice(0, 120) : undefined;
+        if (!roomId) {
+          sendJson(res, 400, { error: 'INVALID_ROOM' }, corsOrigin);
+          return;
+        }
+        const code = normalizePairingCode(codeRaw);
+        if (!code) {
+          sendJson(res, 400, { error: 'INVALID_CODE' }, corsOrigin);
+          return;
+        }
+        const now = Date.now();
+        const entry = getPairingCode(roomId, now);
+        if (!entry) {
+          sendJson(res, 400, { error: 'CODE_EXPIRED' }, corsOrigin);
+          return;
+        }
+        if (entry.code !== code) {
+          sendJson(res, 400, { error: 'INVALID_CODE' }, corsOrigin);
+          return;
+        }
+        if (!role) {
+          sendJson(res, 400, { error: 'INVALID_ROLE' }, corsOrigin);
+          return;
+        }
+        if (countActiveViewerTokens(roomId, now) >= MAX_VIEWER_DEVICES_PER_ROOM) {
+          sendJson(res, 403, { error: 'DEVICE_LIMIT' }, corsOrigin);
+          return;
+        }
+        const issued = issueViewerToken(roomId, role, deviceName);
+        sendJson(res, 200, {
+          roomId,
+          role: issued.entry.role,
+          token: issued.token,
+          expiresAt: issued.entry.expiresAt,
+        }, corsOrigin);
+      } catch (error) {
+        console.warn('[pairing] Failed to claim pairing code', error);
+        sendJson(res, 500, { error: 'PAIRING_FAILED' }, corsOrigin);
+      }
+    })();
+    return true;
+  }
+
+  sendJson(res, 404, { error: 'Not found' }, corsOrigin);
+  return true;
+}
+
 function createViewerRequestHandler({ allowLan }: { allowLan: boolean }) {
   return (req: any, res: any) => {
+    if (handlePairingRequest(req, res, allowLan)) {
+      return;
+    }
     if (serveViewerRequest(req, res, allowLan)) {
       return;
     }
@@ -2417,12 +2854,15 @@ async function bootstrap() {
     console.log(`[viewer] URL: https://localhost:4440${viewerBundleState.basePath}`);
   }
 
-  const envSecret = process.env.COMPANION_JWT_SECRET || undefined;
+  const envSecret = process.env.COMPANION_JWT_SECRET || settings.jwtSecret || undefined;
   const { token, secret, expiresAt } = generateJwt(envSecret);
   currentToken = token;
   currentTokenExpiresAt = expiresAt;
   jwtSecret = secret;
   console.log(`[auth] Generated Companion token (expires ${new Date(expiresAt).toISOString()})`);
+  if (!process.env.COMPANION_JWT_SECRET && settings.jwtSecret !== secret) {
+    void saveSettings({ jwtSecret: secret });
+  }
   try {
     await persistToken(token, expiresAt);
   } catch (error) {
@@ -2660,15 +3100,21 @@ function enforceControllerAccess(socket: Socket, roomId: string): boolean {
   return true;
 }
 
-function verifyToken(token: string | undefined): boolean {
-  if (!token || !jwtSecret) return false;
+function verifyTokenPayload(token: string | undefined): AuthTokenPayload | null {
+  if (!token || !jwtSecret) return null;
   try {
-    jwt.verify(token, jwtSecret);
-    return true;
+    const payload = jwt.verify(token, jwtSecret) as AuthTokenPayload;
+    if (!payload || typeof payload !== 'object') return null;
+    if (payload.sub !== 'companion' && payload.sub !== 'viewer') return null;
+    return payload;
   } catch (error) {
     console.warn('[auth] Token verification failed', error);
-    return false;
+    return null;
   }
+}
+
+function verifyToken(token: string | undefined): boolean {
+  return Boolean(verifyTokenPayload(token));
 }
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -2815,7 +3261,8 @@ function authorizeRequest(req: any): { ok: true; origin?: string; clientId?: str
   }
 
   const token = parseBearerToken(req);
-  if (!token || !verifyToken(token)) {
+  const tokenPayload = verifyTokenPayload(token ?? undefined);
+  if (!tokenPayload || tokenPayload.sub !== 'companion') {
     return { ok: false, origin: corsOrigin };
   }
 
@@ -4410,6 +4857,10 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   if (pending) {
     const age = Date.now() - pending.startedAt;
     if (age < PENDING_HANDSHAKE_TTL_MS) {
+      const stillConnected = ioServers.some((server) => server.sockets.sockets.has(pending.socketId));
+      if (!stillConnected) {
+        pendingHandshakeStore.delete(clientId);
+      } else {
       console.warn(`[ws] Duplicate pending handshake for clientId=${clientId}`);
       const error: HandshakeError = {
         type: 'HANDSHAKE_ERROR',
@@ -4419,11 +4870,13 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
       socket.emit('HANDSHAKE_ERROR', error);
       socket.disconnect(true);
       return;
+      }
     }
     pendingHandshakeStore.delete(clientId);
   }
 
-  if (!verifyToken(payload.token)) {
+  const tokenPayload = verifyTokenPayload(payload.token);
+  if (!tokenPayload) {
     console.warn(
       `[ws] Invalid token from socket=${socket.id}, room=${payload.roomId ?? 'unknown'}`
     );
@@ -4445,19 +4898,68 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     );
   }
 
-  pendingHandshakeStore.set(clientId, { socketId: socket.id, startedAt: Date.now() });
-  socket.data.clientId = clientId;
-  socket.data.clientType = payload.clientType === 'controller' ? 'controller' : 'viewer';
-  socket.data.roomId = payload.roomId;
-  socket.data.deviceName = typeof payload.deviceName === 'string' && payload.deviceName.trim()
+  const deviceName = typeof payload.deviceName === 'string' && payload.deviceName.trim()
     ? payload.deviceName.trim().slice(0, 120)
     : undefined;
+  const isViewerToken = tokenPayload.sub === 'viewer';
+  if (isViewerToken && tokenPayload.roomId !== payload.roomId) {
+    console.warn(`[ws] Viewer token room mismatch token=${tokenPayload.roomId} join=${payload.roomId}`);
+    const error: HandshakeError = {
+      type: 'HANDSHAKE_ERROR',
+      code: 'INVALID_TOKEN',
+      message: 'Token does not match room.'
+    };
+    socket.emit('HANDSHAKE_ERROR', error);
+    socket.disconnect(true);
+    return;
+  }
+  if (isViewerToken && payload.clientType === 'controller') {
+    console.warn(`[ws] Viewer token attempted controller join socket=${socket.id}`);
+    const error: HandshakeError = {
+      type: 'HANDSHAKE_ERROR',
+      code: 'INVALID_TOKEN',
+      message: 'Viewer token cannot control.'
+    };
+    socket.emit('HANDSHAKE_ERROR', error);
+    socket.disconnect(true);
+    return;
+  }
+
+  if (isViewerToken) {
+    const tokens = getRoomViewerTokens(payload.roomId);
+    const entry = tokens.get(tokenPayload.tokenId);
+    if (!entry || entry.revokedAt || entry.expiresAt <= Date.now()) {
+      console.warn(`[ws] Viewer token revoked/expired socket=${socket.id}`);
+      const error: HandshakeError = {
+        type: 'HANDSHAKE_ERROR',
+        code: 'INVALID_TOKEN',
+        message: 'Viewer token expired or revoked.'
+      };
+      socket.emit('HANDSHAKE_ERROR', error);
+      socket.disconnect(true);
+      return;
+    }
+    entry.lastSeen = Date.now();
+    if (deviceName) {
+      entry.deviceName = entry.deviceName ?? deviceName;
+    }
+    scheduleRoomCacheWrite();
+  }
+
+  pendingHandshakeStore.set(clientId, { socketId: socket.id, startedAt: Date.now() });
+
+  socket.data.clientId = clientId;
+  socket.data.clientType = isViewerToken ? 'viewer' : payload.clientType === 'controller' ? 'controller' : 'viewer';
+  socket.data.roomId = payload.roomId;
+  socket.data.deviceName = deviceName;
   socket.data.userId = typeof payload.userId === 'string' && payload.userId.trim()
     ? payload.userId.trim().slice(0, 120)
     : undefined;
   socket.data.userName = typeof payload.userName === 'string' && payload.userName.trim()
     ? payload.userName.trim().slice(0, 120)
     : undefined;
+  socket.data.viewerRole = isViewerToken ? tokenPayload.role : undefined;
+  socket.data.viewerTokenId = isViewerToken ? tokenPayload.tokenId : undefined;
   const payloadOwnerId = typeof payload.ownerId === 'string' && payload.ownerId.trim()
     ? payload.ownerId.trim().slice(0, 120)
     : undefined;
@@ -4479,6 +4981,8 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     userId: socket.data.userId,
     userName: socket.data.userName,
     clientType: socket.data.clientType,
+    viewerRole: socket.data.viewerRole,
+    viewerTokenId: socket.data.viewerTokenId,
   });
 
   const requestedType = socket.data.clientType as 'controller' | 'viewer';
@@ -4533,6 +5037,27 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   };
 
   socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
+
+  // Emit timers snapshot so newly joined viewers/controllers have full state.
+  const timers = listRoomTimers(payload.roomId);
+  timers.forEach((timer) => {
+    const created: TimerCreated = {
+      type: 'TIMER_CREATED',
+      roomId: payload.roomId,
+      timer,
+      timestamp: Date.now(),
+    };
+    socket.emit('TIMER_CREATED', created);
+  });
+  if (timers.length > 0) {
+    const reordered: TimersReordered = {
+      type: 'TIMERS_REORDERED',
+      roomId: payload.roomId,
+      timerIds: timers.map((timer) => timer.id),
+      timestamp: Date.now(),
+    };
+    socket.emit('TIMERS_REORDERED', reordered);
+  }
 
   // Send current live cues (including PPT cue with videos) so client has full state
   const roomCues = getRoomLiveCues(payload.roomId);
@@ -5997,6 +6522,7 @@ async function loadRoomCache() {
         updatedAt: number;
         setBy?: string;
       }>;
+      viewerTokens?: Record<string, ViewerTokenEntry[]>;
     };
     if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
       console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
@@ -6047,6 +6573,21 @@ async function loadRoomCache() {
             updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
             setBy: entry.setBy,
           });
+        }
+      });
+    }
+    if (parsed.viewerTokens) {
+      const now = Date.now();
+      Object.entries(parsed.viewerTokens).forEach(([roomId, entries]) => {
+        if (!Array.isArray(entries)) return;
+        const map = new Map<string, ViewerTokenEntry>();
+        entries.forEach((entry) => {
+          if (!entry || typeof entry.tokenId !== 'string') return;
+          if (entry.expiresAt <= now) return;
+          map.set(entry.tokenId, entry);
+        });
+        if (map.size) {
+          roomViewerTokenStore.set(roomId, map);
         }
       });
     }
@@ -6129,6 +6670,12 @@ async function writeRoomCache() {
       controlAudit: Object.fromEntries(roomControlAuditStore.entries()),
       pins: Object.fromEntries(roomPinStore.entries()),
       owners: Object.fromEntries(roomOwnerStore.entries()),
+      viewerTokens: Object.fromEntries(
+        [...roomViewerTokenStore.entries()].map(([roomId, tokenMap]) => [
+          roomId,
+          [...tokenMap.values()],
+        ])
+      ),
     };
     await fs.writeFile(cachePath, JSON.stringify(payload, null, 2), 'utf8');
     lastWriteTs = payload.lastWrite;
