@@ -63,6 +63,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Optional hardening: document Windows cert install path during Phase 3D if feasible; otherwise defer to Phase 4.
 - Phase 3B Pass B1 validation: verified self-signed SAN certs, LAN allowlist, and PNA/CORS on local + LAN scenarios.
 - Phase 3B Pass C validation: LAN pairing QR/local flow, role-bound tokens, and revocation persistence verified.
+- Phase 3B Pass D validation: viewer tokens cannot invoke REQUEST_CONTROL or FORCE_TAKEOVER; server returns PERMISSION_DENIED.
 
 ## Locked Decisions (Addendum)
 - Mobile viewer apps (iOS/Android) deferred until after Phase 3 core; Phase 3 focuses on desktop viewers (web + viewer-only Electron).

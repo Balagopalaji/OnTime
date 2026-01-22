@@ -79,9 +79,9 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [x] Defaults: pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours, max 20 devices per room, reusable until expiry unless revoked.
 
 ### Pass D: Role Enforcement + Read-Only Guards
-- [ ] Ensure viewer tokens cannot call control or file APIs.
-- [ ] Enforce viewer-only paths at socket and HTTP layers.
-- [ ] Keep token endpoint loopback-only; no LAN `/api/token` exposure.
+- [x] Ensure viewer tokens cannot call control or file APIs.
+- [x] Enforce viewer-only paths at socket and HTTP layers.
+- [x] Keep token endpoint loopback-only; no LAN `/api/token` exposure.
 
 ### Pass E: Offline QA + Recovery
 - [ ] Validate trust flow, revocation persistence, and cache versioning/migration.
