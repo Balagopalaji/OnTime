@@ -5197,6 +5197,9 @@ function handleRequestControl(socket: Socket, payload: unknown) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid REQUEST_CONTROL payload.');
     return;
   }
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
   const socketClientId = socket.data?.clientId as string | undefined;
   if (!socketClientId || socketClientId !== payload.clientId) {
     emitError(socket, 'INVALID_PAYLOAD', 'Mismatched client id.');
@@ -5258,6 +5261,9 @@ function handleRequestControl(socket: Socket, payload: unknown) {
 function handleForceTakeover(socket: Socket, payload: unknown) {
   if (!isValidForceTakeoverPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid FORCE_TAKEOVER payload.');
+    return;
+  }
+  if (!enforceControllerAccess(socket, payload.roomId)) {
     return;
   }
   const socketClientId = socket.data?.clientId as string | undefined;
