@@ -368,6 +368,8 @@ type RoomState = {
     visible?: boolean;
     color?: MessageColor;
   };
+  title?: string;
+  timezone?: string;
   activeLiveCueId?: string;
 };
 
@@ -5463,7 +5465,9 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
   const lastUpdateOk = typeof state.lastUpdate === 'number' && Number.isFinite(state.lastUpdate) && state.lastUpdate > 0;
   const showClockOk = state.showClock === undefined || typeof state.showClock === 'boolean';
   const messageOk = state.message === undefined || isValidMessagePatch(state.message);
-  if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk || !showClockOk || !messageOk) return false;
+  const titleOk = state.title === undefined || typeof state.title === 'string';
+  const timezoneOk = state.timezone === undefined || typeof state.timezone === 'string';
+  if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk || !showClockOk || !messageOk || !titleOk || !timezoneOk) return false;
   if (data.timers !== undefined && !Array.isArray(data.timers)) return false;
   if (Array.isArray(data.timers)) {
     const ok = data.timers.every((t) => {
@@ -5507,7 +5511,7 @@ function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePat
   if (!data.changes || typeof data.changes !== 'object') return false;
 
   const changes = data.changes as Partial<RoomState>;
-  const allowedKeys = new Set(['activeTimerId', 'isRunning', 'currentTime', 'lastUpdate', 'showClock', 'message']);
+  const allowedKeys = new Set(['activeTimerId', 'isRunning', 'currentTime', 'lastUpdate', 'showClock', 'message', 'title', 'timezone']);
   const keys = Object.keys(changes);
   if (!keys.every((key) => allowedKeys.has(key))) return false;
 
@@ -5516,6 +5520,8 @@ function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePat
   }
   if (changes.isRunning !== undefined && typeof changes.isRunning !== 'boolean') return false;
   if (changes.showClock !== undefined && typeof changes.showClock !== 'boolean') return false;
+  if (changes.title !== undefined && typeof changes.title !== 'string') return false;
+  if (changes.timezone !== undefined && typeof changes.timezone !== 'string') return false;
   if (changes.currentTime !== undefined) {
     if (typeof changes.currentTime !== 'number' || !Number.isFinite(changes.currentTime)) return false;
   }
@@ -5608,6 +5614,8 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
     lastUpdate: payload.state.lastUpdate,
     showClock: payload.state.showClock ?? existingState.showClock,
     message: nextMessage,
+    title: payload.state.title ?? existingState.title,
+    timezone: payload.state.timezone ?? existingState.timezone,
   };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
@@ -5676,7 +5684,13 @@ function handleRoomStatePatch(socket: Socket, payload: unknown) {
   const nextMessage = changes.message
     ? { ...(state.message ?? {}), ...changes.message }
     : state.message;
-  const nextState: RoomState = { ...state, ...changes, message: nextMessage };
+  const nextState: RoomState = {
+    ...state,
+    ...changes,
+    message: nextMessage,
+    title: changes.title ?? state.title,
+    timezone: changes.timezone ?? state.timezone,
+  };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
 
@@ -6119,6 +6133,8 @@ function getRoomState(roomId: string): RoomState {
       visible: false,
       color: 'green',
     },
+    title: undefined,
+    timezone: undefined,
   };
 
   roomStateStore.set(roomId, initial);
@@ -6583,6 +6599,8 @@ async function loadRoomCache() {
           color: 'green',
           ...(state.message ?? {}),
         },
+        title: state.title,
+        timezone: state.timezone,
       };
       roomStateStore.set(roomId, normalized);
     });
