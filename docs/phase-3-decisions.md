@@ -65,6 +65,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Phase 3B Pass B1 validation: verified self-signed SAN certs, LAN allowlist, and PNA/CORS on local + LAN scenarios.
 - Phase 3B Pass C validation: LAN pairing QR/local flow, role-bound tokens, and revocation persistence verified.
 - Phase 3B Pass D validation: viewer tokens cannot invoke REQUEST_CONTROL or FORCE_TAKEOVER; server returns PERMISSION_DENIED.
+- Phase 3C Pass A validation: Firestore rules tests passed (operator role match, blocked operator, owner override, unauthenticated read denial).
 
 ## Pass 3B E QA (Offline QA + Recovery)
 -- Status: manual QA executed for core items; edge-case QA still pending (IPv6-only, Docker/VM bridges, multi-NIC).
@@ -72,7 +73,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - LAN restrictions: confirmed allowlist blocks non-LAN access and allows RFC1918 LAN clients; PNA/CORS headers verified during LAN pairing and viewer loads.
 - Bridge recovery: validated remote viewers stall when offline and resume read-only after reconnect with fresh snapshot.
 - Cache/versioning: verified viewer bundle cache after Companion restart.
-- Edge-case QA: IPv4 + IPv6 LAN reachability validated; off-LAN access blocked (timeout as expected). Multi-NIC and Docker/VM bridge checks deferred pending hardware/daemon availability.
+- Edge-case QA: IPv4 + IPv6 LAN reachability validated; off-LAN access blocked (timeout/403 as expected). Multi-NIC (Wi-Fi + Ethernet) verified; Companion correctly binds and routes concurrent local interfaces. Docker/VM bridge checks deferred (low priority).
 - Observations (code review only): allowlist enforcement and cert SAN handling live in `companion/src/main.ts`; source arbitration/bridge sync live in `frontend/src/context/UnifiedDataContext.tsx`.
 
 ## Locked Decisions (Addendum)
