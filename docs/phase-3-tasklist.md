@@ -74,9 +74,9 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [x] Document operational guidance for cert renewal.
 
 ### Pass C: Pairing + Tokens
-- [ ] Implement pairing flow (QR/manual) using the Phase 3A pairing UX spec.
-- [ ] Enforce role-bound tokens, TTL, and revocation persistence.
-- [ ] Defaults: pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours, max 20 devices per room, reusable until expiry unless revoked.
+- [x] Implement pairing flow (QR/manual) using the Phase 3A pairing UX spec.
+- [x] Enforce role-bound tokens, TTL, and revocation persistence.
+- [x] Defaults: pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours, max 20 devices per room, reusable until expiry unless revoked.
 
 ### Pass D: Role Enforcement + Read-Only Guards
 - [ ] Ensure viewer tokens cannot call control or file APIs.
