@@ -2,7 +2,7 @@
 Type: Reference
 Status: draft
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-21
 Scope: Phase 3 scope locks, assumptions, and open questions.
 ---
 
@@ -47,6 +47,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Phase 3B Pass B2 validation: verified BYO cert loads and viewer URL renders over HTTPS with custom cert.
 
 ## Proposed Decisions (Pending Confirmation)
+- StageState payload (future/additive): add a compact “what’s on stage” payload (timer display + clock + message + connection flags) for viewers; operator viewers can embed StageState and layer role overlays later.
 - Timeline targets: 3A (1 week), 3B (2–3 weeks), 3C (2–3 weeks), 3D (1 week).
 
 ## Assumptions

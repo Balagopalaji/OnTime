@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-22
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -103,6 +103,7 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - LAN/offline viewer links are Phase 3 (see `docs/local-offline-lan-plan.md`).
 - Phase 3 UI should offer a "Local network viewer" option (only when Companion is connected), with a warning about certificate trust and a preference for the viewer-only Electron app when available.
 - LAN viewers require pairing (QR/manual), role-bound tokens, and read-only enforcement; tokens are short‑lived per `docs/local-offline-lan-plan.md`.
+- LAN pairing QR should be generated locally (no third-party QR service) to preserve offline reliability and privacy.
 - LAN viewer delivery is via Companion-served viewer bundle over HTTPS/WSS (no HTTP fallback) with a "Trust Required" screen on cert errors.
 - Pairing defaults: code TTL 10 min (not persisted across restart), viewer tokens TTL 8 hours, max 20 devices per room, reusable until expiry unless revoked.
 

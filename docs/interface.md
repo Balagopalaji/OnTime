@@ -2,7 +2,7 @@
 Type: Interface
 Status: current
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-22
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
@@ -407,6 +407,44 @@ See `docs/cloud-lock-design.md` for full design details.
 - Token retrieved from Companion HTTP endpoint (loopback by default).
 - Token is required for all WebSocket `JOIN_ROOM` calls.
 - Role is inferred from `clientType: 'controller' | 'viewer'`.
+- Viewer tokens are minted via pairing endpoints (LAN-safe), not `/api/token`.
+- Viewer token JWT claims (LAN pairing): `roomId`, `role`, `tokenId`, `exp`.
+
+### 3.1.1 Pairing HTTP Endpoints (loopback-only)
+**Note:** These endpoints require a controller bearer token and are not exposed on LAN.
+
+**`POST /api/pairing/create`**
+```json
+// Input
+{ "roomId": "abc123" }
+// Output
+{ "roomId": "abc123", "code": "ABCD-1234", "expiresAt": 1234567890, "urls": ["https://host/viewer/.../view?code=ABCD-1234"], "maxDevices": 20 }
+```
+
+**`GET /api/pairing/status?roomId=abc123`**
+```json
+// Output
+{ "roomId": "abc123", "pairing": { "code": "ABCD-1234", "expiresAt": 1234567890 }, "tokens": [ { "tokenId": "tok-1", "role": "lx", "deviceName": "MacIntel", "lastSeen": 1234567890, "expiresAt": 1234567890, "revokedAt": null } ] }
+```
+
+**`POST /api/pairing/revoke`**
+```json
+// Input (single)
+{ "roomId": "abc123", "tokenId": "tok-1" }
+// Output
+{ "success": true }
+```
+
+### 3.1.2 Pairing Claim Endpoint (LAN-safe)
+**Note:** This endpoint is accessible from LAN viewers (no controller token) but is LAN-restricted and origin-validated.
+
+**`POST /api/pairing/claim`**
+```json
+// Input
+{ "roomId": "abc123", "code": "ABCD-1234", "role": "lx", "deviceName": "MacIntel" }
+// Output
+{ "roomId": "abc123", "role": "lx", "token": "jwt...", "expiresAt": 1234567890 }
+```
 
 ### 3.2 WebSocket Events
 **Client → Server: `JOIN_ROOM`**

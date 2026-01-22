@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-22
 Scope: Companion local server requirements (Electron/Node).
 ---
 
@@ -43,6 +43,7 @@ Scope: Companion local server requirements (Electron/Node).
 - Pairing defaults: QR/manual pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours (persisted), max 20 devices per room; tokens are reusable until expiry unless revoked.
 - LAN exposure is opt-in, restricted to private subnets only, with PNA/CORS headers and allowlist enforcement (RFC1918 + IPv4 link-local + IPv6 ULA/link-local).
 - Token endpoint remains loopback-only; LAN pairing uses a separate pairing path (no `/api/token` on LAN).
+- Pairing endpoints require a controller bearer token and remain loopback-only.
 
 ## Build & Run Notes (Companion + Controller)
 - **Companion (local mode):**

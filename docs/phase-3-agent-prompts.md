@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-21
 Scope: RepoPrompt agent prompt list for Phase 3 implementation passes.
 ---
 
@@ -191,6 +191,7 @@ Before writing changes:
 ```
 
 ---
+---
 
 ## Phase 3C — Show Controller Build
 
@@ -266,6 +267,20 @@ Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance 
 Implement Phase 3C Pass F.
 Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
 Scope: tier gating + role permissions + operator invite flow + Cloud enforcement + tests.
+Before writing code:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+### Pass G: StageState Payload (Future, Additive, Read-Only)
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Implement Phase 3C Pass G.
+Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
+Scope: introduce StageState payload + events for viewers; keep controller sync intact and viewer read-only.
+Do not alter timer math, cue authority model, or controller write paths.
 Before writing code:
 1) List the files you will modify
 2) Confirm scope exclusions

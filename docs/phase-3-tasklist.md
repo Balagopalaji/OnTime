@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-21
 Scope: Phase 3 task list and implementation passes.
 ---
 
@@ -137,6 +137,12 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [ ] **Cloud/Firebase:** enforce operator access rules for invite/kick/unblock flows.
 - [ ] **Tests:** permission enforcement, kick/unblock flows.
 - [ ] **Acceptance:** owner-only TD/Director; operators limited to role-matching cues.
+
+### Pass G: StageState Payload (Future, Additive, Read-Only)
+- [ ] Define StageState payload schema + events in `docs/interface.md` (timer display + clock + message + connection flags).
+- [ ] Companion emits StageState on join and on relevant changes (timer display/clock/message) for viewers.
+- [ ] Viewers use StageState as the single source for the stage card; operator viewers embed StageState and layer role overlays.
+- [ ] Keep existing room/timer sync for controllers; no permission changes (viewer remains read-only).
 
 ---
 
