@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-21
+Last updated: 2026-01-22
 Scope: Phase 3 task list and implementation passes.
 ---
 
@@ -42,7 +42,7 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 ### Pass C: PRD + Plan Updates
 - [x] Update `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/cloud-server-prd.md` with Phase 3 requirements.
 - [x] Update `docs/phase-3-overview.md` if scope changes.
-- [ ] Update `docs/phase-3-decisions.md` with locked decisions; confirm or defer timeline targets.
+- [x] Update `docs/phase-3-decisions.md` with locked decisions; confirm or defer timeline targets.
 
 ---
 
@@ -84,10 +84,10 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [x] Keep token endpoint loopback-only; no LAN `/api/token` exposure.
 
 ### Pass E: Offline QA + Recovery
-- [ ] Validate trust flow, revocation persistence, and cache versioning/migration.
-- [ ] Verify LAN allowlist and private subnet restriction behavior.
+- [x] Validate trust flow, revocation persistence, and cache versioning/migration.
+- [x] Verify LAN allowlist and private subnet restriction behavior.
 - [ ] Add edge-case QA for IPv6, Docker/VM bridges, and multiple NICs.
-- [ ] Bridge validation: when internet drops, remote viewers stall; on reconnect, bridge pushes fresh snapshot and remote resumes read-only.
+- [x] Bridge validation: when internet drops, remote viewers stall; on reconnect, bridge pushes fresh snapshot and remote resumes read-only.
 
 ---
 

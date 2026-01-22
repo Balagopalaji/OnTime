@@ -2,7 +2,7 @@
 Type: Reference
 Status: draft
 Owner: KDB
-Last updated: 2026-01-21
+Last updated: 2026-01-22
 Scope: Phase 3 scope locks, assumptions, and open questions.
 ---
 
@@ -49,6 +49,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 ## Proposed Decisions (Pending Confirmation)
 - StageState payload (future/additive): add a compact “what’s on stage” payload (timer display + clock + message + connection flags) for viewers; operator viewers can embed StageState and layer role overlays later.
 - Timeline targets: 3A (1 week), 3B (2–3 weeks), 3C (2–3 weeks), 3D (1 week).
+  - Status: timeline targets remain proposed; confirmation deferred pending Phase 3B completion.
 
 ## Assumptions
 - Electron controller remains the operator surface for offline use.
@@ -64,6 +65,15 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Phase 3B Pass B1 validation: verified self-signed SAN certs, LAN allowlist, and PNA/CORS on local + LAN scenarios.
 - Phase 3B Pass C validation: LAN pairing QR/local flow, role-bound tokens, and revocation persistence verified.
 - Phase 3B Pass D validation: viewer tokens cannot invoke REQUEST_CONTROL or FORCE_TAKEOVER; server returns PERMISSION_DENIED.
+
+## Pass 3B E QA (Offline QA + Recovery)
+-- Status: manual QA executed for core items; edge-case QA still pending (IPv6-only, Docker/VM bridges, multi-NIC).
+- Trust flow: validated self-signed and BYO cert paths (LAN viewer loads after browser warning; no mixed content).
+- LAN restrictions: confirmed allowlist blocks non-LAN access and allows RFC1918 LAN clients; PNA/CORS headers verified during LAN pairing and viewer loads.
+- Bridge recovery: validated remote viewers stall when offline and resume read-only after reconnect with fresh snapshot.
+- Cache/versioning: verified viewer bundle cache after Companion restart.
+- Edge-case QA to run: IPv6-only LAN (ULA + link-local), Docker/VM bridge interfaces, and multi-NIC hosts (ensure cert SANs and allowlist accept chosen LAN host/IP).
+- Observations (code review only): allowlist enforcement and cert SAN handling live in `companion/src/main.ts`; source arbitration/bridge sync live in `frontend/src/context/UnifiedDataContext.tsx`.
 
 ## Locked Decisions (Addendum)
 - Mobile viewer apps (iOS/Android) deferred until after Phase 3 core; Phase 3 focuses on desktop viewers (web + viewer-only Electron).
