@@ -362,6 +362,12 @@ type RoomState = {
   lastUpdate: number;
   elapsedOffset?: number;
   progress?: Record<string, number>;
+  showClock?: boolean;
+  message?: {
+    text?: string;
+    visible?: boolean;
+    color?: MessageColor;
+  };
   activeLiveCueId?: string;
 };
 
@@ -496,6 +502,8 @@ type RoomStatePatchPayload = {
 };
 
 type TimerType = 'countdown' | 'countup' | 'timeofday';
+type MessageColor = 'green' | 'yellow' | 'red' | 'blue' | 'white' | 'none';
+const ALLOWED_MESSAGE_COLORS = new Set<MessageColor>(['green', 'yellow', 'red', 'blue', 'white', 'none']);
 
 type Timer = {
   id: string;
@@ -5453,7 +5461,9 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
   const runningOk = typeof state.isRunning === 'boolean';
   const currentTimeOk = typeof state.currentTime === 'number' && Number.isFinite(state.currentTime);
   const lastUpdateOk = typeof state.lastUpdate === 'number' && Number.isFinite(state.lastUpdate) && state.lastUpdate > 0;
-  if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk) return false;
+  const showClockOk = state.showClock === undefined || typeof state.showClock === 'boolean';
+  const messageOk = state.message === undefined || isValidMessagePatch(state.message);
+  if (!activeOk || !runningOk || !currentTimeOk || !lastUpdateOk || !showClockOk || !messageOk) return false;
   if (data.timers !== undefined && !Array.isArray(data.timers)) return false;
   if (Array.isArray(data.timers)) {
     const ok = data.timers.every((t) => {
@@ -5477,6 +5487,18 @@ function isValidSyncRoomStatePayload(payload: unknown): payload is SyncRoomState
   return true;
 }
 
+function isValidMessagePatch(message: unknown): message is RoomState['message'] {
+  if (!message || typeof message !== 'object') return false;
+  const data = message as Record<string, unknown>;
+  if (data.text !== undefined && typeof data.text !== 'string') return false;
+  if (data.visible !== undefined && typeof data.visible !== 'boolean') return false;
+  if (data.color !== undefined) {
+    if (typeof data.color !== 'string') return false;
+    if (!ALLOWED_MESSAGE_COLORS.has(data.color as MessageColor)) return false;
+  }
+  return true;
+}
+
 function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePatchPayload {
   if (!payload || typeof payload !== 'object') return false;
   const data = payload as Partial<RoomStatePatchPayload>;
@@ -5485,7 +5507,7 @@ function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePat
   if (!data.changes || typeof data.changes !== 'object') return false;
 
   const changes = data.changes as Partial<RoomState>;
-  const allowedKeys = new Set(['activeTimerId', 'isRunning', 'currentTime', 'lastUpdate']);
+  const allowedKeys = new Set(['activeTimerId', 'isRunning', 'currentTime', 'lastUpdate', 'showClock', 'message']);
   const keys = Object.keys(changes);
   if (!keys.every((key) => allowedKeys.has(key))) return false;
 
@@ -5493,12 +5515,14 @@ function isValidRoomStatePatchPayload(payload: unknown): payload is RoomStatePat
     return false;
   }
   if (changes.isRunning !== undefined && typeof changes.isRunning !== 'boolean') return false;
+  if (changes.showClock !== undefined && typeof changes.showClock !== 'boolean') return false;
   if (changes.currentTime !== undefined) {
     if (typeof changes.currentTime !== 'number' || !Number.isFinite(changes.currentTime)) return false;
   }
   if (changes.lastUpdate !== undefined) {
     if (typeof changes.lastUpdate !== 'number' || !Number.isFinite(changes.lastUpdate)) return false;
   }
+  if (changes.message !== undefined && !isValidMessagePatch(changes.message)) return false;
   return true;
 }
 
@@ -5572,11 +5596,18 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
   }
 
   // 2) Apply state snapshot
+  const existingState = getRoomState(roomId);
+  const nextMessage = payload.state.message
+    ? { ...(existingState.message ?? {}), ...payload.state.message }
+    : existingState.message;
   const nextState: RoomState = {
+    ...existingState,
     activeTimerId: payload.state.activeTimerId ?? null,
     isRunning: payload.state.isRunning,
     currentTime: payload.state.currentTime,
     lastUpdate: payload.state.lastUpdate,
+    showClock: payload.state.showClock ?? existingState.showClock,
+    message: nextMessage,
   };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
@@ -5642,14 +5673,22 @@ function handleRoomStatePatch(socket: Socket, payload: unknown) {
     changes.lastUpdate = now;
   }
 
-  const nextState: RoomState = { ...state, ...changes };
+  const nextMessage = changes.message
+    ? { ...(state.message ?? {}), ...changes.message }
+    : state.message;
+  const nextState: RoomState = { ...state, ...changes, message: nextMessage };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
+
+  const deltaChanges: Partial<RoomState> = { ...changes };
+  if (changes.message) {
+    deltaChanges.message = nextMessage;
+  }
 
   const delta: RoomStateDelta = {
     type: 'ROOM_STATE_DELTA',
     roomId,
-    changes,
+    changes: deltaChanges,
     clientId,
     timestamp: now
   };
@@ -6074,6 +6113,12 @@ function getRoomState(roomId: string): RoomState {
     currentTime: 0,
     lastUpdate: Date.now(),
     activeLiveCueId: undefined,
+    showClock: false,
+    message: {
+      text: '',
+      visible: false,
+      color: 'green',
+    },
   };
 
   roomStateStore.set(roomId, initial);
@@ -6529,7 +6574,17 @@ async function loadRoomCache() {
       return;
     }
     Object.entries(parsed.rooms).forEach(([roomId, state]) => {
-      roomStateStore.set(roomId, state);
+      const normalized: RoomState = {
+        ...state,
+        showClock: state.showClock ?? false,
+        message: {
+          text: '',
+          visible: false,
+          color: 'green',
+          ...(state.message ?? {}),
+        },
+      };
+      roomStateStore.set(roomId, normalized);
     });
     if (parsed.timers) {
       Object.entries(parsed.timers).forEach(([roomId, timers]) => {
