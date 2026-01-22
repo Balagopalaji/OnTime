@@ -72,7 +72,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - LAN restrictions: confirmed allowlist blocks non-LAN access and allows RFC1918 LAN clients; PNA/CORS headers verified during LAN pairing and viewer loads.
 - Bridge recovery: validated remote viewers stall when offline and resume read-only after reconnect with fresh snapshot.
 - Cache/versioning: verified viewer bundle cache after Companion restart.
-- Edge-case QA to run: IPv6-only LAN (ULA + link-local), Docker/VM bridge interfaces, and multi-NIC hosts (ensure cert SANs and allowlist accept chosen LAN host/IP).
+- Edge-case QA: IPv4 + IPv6 LAN reachability validated; off-LAN access blocked (timeout as expected). Multi-NIC and Docker/VM bridge checks deferred pending hardware/daemon availability.
 - Observations (code review only): allowlist enforcement and cert SAN handling live in `companion/src/main.ts`; source arbitration/bridge sync live in `frontend/src/context/UnifiedDataContext.tsx`.
 
 ## Locked Decisions (Addendum)
