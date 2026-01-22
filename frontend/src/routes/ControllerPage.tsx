@@ -10,6 +10,7 @@ import {
   SkipBack,
   SkipForward,
   QrCode,
+  Wifi,
 } from 'lucide-react'
 import { useDataContext } from '../context/DataProvider'
 import { useAuth } from '../context/AuthContext'
@@ -20,6 +21,7 @@ import { PresentationStatusPanel } from '../components/controller/PresentationSt
 import { useTimerEngine } from '../hooks/useTimerEngine'
 import { ShareLinkButton } from '../components/core/ShareLinkButton'
 import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
+import { LocalQrCode } from '../components/core/LocalQrCode'
 import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
@@ -29,6 +31,14 @@ import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useClock } from '../hooks/useClock'
 import { auth } from '../lib/firebase'
 import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth'
+import {
+  createLanPairing,
+  fetchLanPairingStatus,
+  resetLanViewers,
+  revokeLanViewer,
+  type LanPairingInfo,
+  type LanPairingStatus,
+} from '../lib/companion-pairing'
 import type { LiveCueRecord } from '../types'
 
 type PresentationEntry = {
@@ -96,7 +106,11 @@ export const ControllerPage = () => {
     getLiveCueDiagnostics,
   } = ctx
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
-    subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
+    subscribeToCompanionRoom?: (
+      roomId: string,
+      clientType: 'controller' | 'viewer',
+      tokenOverride?: string,
+    ) => void
   }).subscribeToCompanionRoom
   const registerCloudRoom = (ctx as typeof ctx & {
     registerCloudRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
@@ -381,6 +395,11 @@ export const ControllerPage = () => {
   const [qrOpen, setQrOpen] = useState(false)
   const [qrError, setQrError] = useState(false)
   const [qrModalOpen, setQrModalOpen] = useState(false)
+  const [lanModalOpen, setLanModalOpen] = useState(false)
+  const [lanPairing, setLanPairing] = useState<LanPairingInfo | null>(null)
+  const [lanPairingStatus, setLanPairingStatus] = useState<LanPairingStatus | null>(null)
+  const [lanPairingError, setLanPairingError] = useState<string | null>(null)
+  const [lanPairingLoading, setLanPairingLoading] = useState(false)
   const [isTitleEditing, setIsTitleEditing] = useState(false)
   const [titleInput, setTitleInput] = useState(room?.title ?? '')
   const titleInputRef = useRef<HTMLInputElement | null>(null)
@@ -1039,6 +1058,123 @@ export const ControllerPage = () => {
     }
   }
 
+  const formatLanTime = (timestamp?: number) => {
+    if (!timestamp) return 'Unknown'
+    return new Date(timestamp).toLocaleTimeString()
+  }
+
+  const getCompanionAuthToken = useCallback(async () => {
+    if (companion.token) return companion.token
+    return (await companion.fetchToken()) ?? null
+  }, [companion])
+
+  const loadLanPairing = useCallback(async () => {
+    if (!roomId) return
+    setLanPairingLoading(true)
+    setLanPairingError(null)
+    try {
+      const token = await getCompanionAuthToken()
+      if (!token) {
+        setLanPairingError('Companion token unavailable.')
+        return
+      }
+      const pairing = await createLanPairing(roomId, token, { reuse: true })
+      setLanPairing(pairing)
+      const status = await fetchLanPairingStatus(roomId, token)
+      setLanPairingStatus(status)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'LAN pairing unavailable.'
+      setLanPairingError(message)
+    } finally {
+      setLanPairingLoading(false)
+    }
+  }, [getCompanionAuthToken, roomId])
+
+  useEffect(() => {
+    if (!lanModalOpen) return
+    if (!companionReady) return
+    void loadLanPairing()
+  }, [companionReady, lanModalOpen, loadLanPairing])
+
+  const refreshLanStatus = useCallback(async () => {
+    if (!roomId) return
+    try {
+      const token = await getCompanionAuthToken()
+      if (!token) {
+        setLanPairingError('Companion token unavailable.')
+        return
+      }
+      const status = await fetchLanPairingStatus(roomId, token)
+      setLanPairingStatus(status)
+    } catch {
+      // ignore
+    }
+  }, [getCompanionAuthToken, roomId])
+
+  const refreshLanPairingCode = useCallback(async () => {
+    if (!roomId) return
+    setLanPairingLoading(true)
+    setLanPairingError(null)
+    try {
+      const token = await getCompanionAuthToken()
+      if (!token) {
+        setLanPairingError('Companion token unavailable.')
+        return
+      }
+      const pairing = await createLanPairing(roomId, token, { reuse: false })
+      setLanPairing(pairing)
+      const status = await fetchLanPairingStatus(roomId, token)
+      setLanPairingStatus(status)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'LAN pairing unavailable.'
+      setLanPairingError(message)
+    } finally {
+      setLanPairingLoading(false)
+    }
+  }, [getCompanionAuthToken, roomId])
+
+  const handleRevokeLanViewer = useCallback(
+    async (tokenId: string) => {
+      if (!roomId) return
+      try {
+        const token = await getCompanionAuthToken()
+        if (!token) {
+          setLanPairingError('Companion token unavailable.')
+          return
+        }
+        await revokeLanViewer(roomId, tokenId, token)
+        await refreshLanStatus()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Revoke failed.'
+        setLanPairingError(message)
+      }
+    },
+    [getCompanionAuthToken, refreshLanStatus, roomId],
+  )
+
+  const handleResetLanViewers = useCallback(async () => {
+    if (!roomId) return
+    const confirmReset = window.confirm('Reset all paired viewer tokens for this room?')
+    if (!confirmReset) return
+    setLanPairingLoading(true)
+    setLanPairingError(null)
+    try {
+      const token = await getCompanionAuthToken()
+      if (!token) {
+        setLanPairingError('Companion token unavailable.')
+        return
+      }
+      await resetLanViewers(roomId, token)
+      const status = await fetchLanPairingStatus(roomId, token)
+      setLanPairingStatus(status)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reset failed.'
+      setLanPairingError(message)
+    } finally {
+      setLanPairingLoading(false)
+    }
+  }, [getCompanionAuthToken, roomId])
+
   const handleAddSegment = () => {
     if (isReadOnly) {
       setControlBarCollapsed(false)
@@ -1102,8 +1238,8 @@ export const ControllerPage = () => {
 
   useEffect(() => {
     if (!currentRoomId) return
-    let repeatInterval: ReturnType<typeof window.setInterval> | null = null
-    let repeatTimeout: ReturnType<typeof window.setTimeout> | null = null
+    let repeatInterval: number | null = null
+    let repeatTimeout: number | null = null
 
     const stopRepeat = () => {
       if (repeatInterval) {
@@ -1265,6 +1401,7 @@ export const ControllerPage = () => {
   }
 
   const viewerUrl = getCloudViewerUrl(room.id)
+  const lanViewerUrl = lanPairing?.urls?.[0] ?? ''
 
   const messageKey = `${room.state.message.text}::${room.state.message.color}::${room.state.message.visible}`
 
@@ -2307,6 +2444,20 @@ export const ControllerPage = () => {
                   <Share2 size={20} />
                 </button>
               </Tooltip>
+              <Tooltip content={companionReady ? 'Share LAN viewer' : 'Connect Companion to share LAN viewer'}>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setLanModalOpen(true)
+                  }}
+                  disabled={!companionReady}
+                  className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-40`}
+                  aria-label="Share LAN viewer"
+                >
+                  <Wifi size={20} />
+                </button>
+              </Tooltip>
               <Tooltip content="Show QR Code">
                 <button
                   type="button"
@@ -2344,15 +2495,19 @@ export const ControllerPage = () => {
                           QR code unavailable. Copy the link instead.
                         </p>
                       ) : (
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                            viewerUrl,
-                          )}`}
-                          alt="Viewer QR"
-                          className="h-72 w-72 cursor-pointer object-contain"
-                          onError={() => setQrError(true)}
+                        <button
+                          type="button"
+                          className="h-72 w-72"
                           onClick={() => setQrModalOpen(true)}
-                        />
+                          aria-label="Open QR code"
+                        >
+                          <LocalQrCode
+                            value={viewerUrl}
+                            size={320}
+                            className="h-72 w-72 cursor-pointer object-contain"
+                            onError={() => setQrError(true)}
+                          />
+                        </button>
                       )
                     ) : (
                       <p className="text-xs text-slate-400">QR available once the app loads.</p>
@@ -2372,14 +2527,18 @@ export const ControllerPage = () => {
             className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                viewerUrl,
-              )}`}
-              alt="Viewer QR"
-              className="h-80 w-80 object-contain"
-              onError={() => setQrError(true)}
-            />
+            {qrError ? (
+              <p className="text-xs text-slate-400">QR code unavailable. Copy the link instead.</p>
+            ) : (
+              <div className="h-80 w-80">
+                <LocalQrCode
+                  value={viewerUrl}
+                  size={320}
+                  className="h-80 w-80 object-contain"
+                  onError={() => setQrError(true)}
+                />
+              </div>
+            )}
               <button
                 type="button"
                 className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/60"
@@ -2387,6 +2546,172 @@ export const ControllerPage = () => {
               >
                 Close
               </button>
+            </div>
+          </div>
+        )}
+        {lanModalOpen && (
+          <div
+            className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 px-4"
+            onClick={() => setLanModalOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-950 p-6 text-slate-100 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">LAN Viewers</p>
+                  <h2 className="mt-2 text-lg font-semibold text-white">Local network viewer</h2>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Share this link and pairing code with LAN viewers.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-700 p-2 text-slate-400 transition hover:border-slate-500 hover:text-white"
+                  onClick={() => setLanModalOpen(false)}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+              {!companionReady ? (
+                <div className="mt-5 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  Connect Companion to enable LAN viewers.
+                </div>
+              ) : lanPairingLoading ? (
+                <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+                  Generating LAN pairing info...
+                </div>
+              ) : lanPairingError ? (
+                <div className="mt-5 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                  {lanPairingError}
+                </div>
+              ) : (
+                <>
+                  <div className="mt-5 space-y-3">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">LAN URL</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="flex-1 truncate text-slate-200">{lanViewerUrl || 'Unavailable'}</span>
+                        {lanViewerUrl ? (
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-white/60"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(lanViewerUrl)
+                              } catch {
+                                window.prompt('Copy LAN viewer link', lanViewerUrl)
+                              }
+                            }}
+                          >
+                            Copy
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Pairing code</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <span className="text-lg font-semibold tracking-[0.3em] text-white">
+                          {lanPairing?.code ?? '----'}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          Expires {formatLanTime(lanPairing?.expiresAt)}
+                        </span>
+                        {lanPairing?.code ? (
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:border-white/60"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(lanPairing.code)
+                              } catch {
+                                window.prompt('Copy pairing code', lanPairing.code)
+                              }
+                            }}
+                          >
+                            Copy
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60"
+                        onClick={() => void refreshLanPairingCode()}
+                      >
+                        Refresh code
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-white/60"
+                        onClick={() => void refreshLanStatus()}
+                      >
+                        Refresh devices
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-rose-400/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-200"
+                        onClick={() => void handleResetLanViewers()}
+                      >
+                        Reset viewers
+                      </button>
+                    </div>
+                    {lanViewerUrl ? (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-center">
+                        <div className="mx-auto h-56 w-56">
+                          <LocalQrCode value={lanViewerUrl} size={240} className="h-56 w-56 object-contain" />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400">
+                          QR encodes the LAN URL and pairing code.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-6">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      Paired devices
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {lanPairingStatus?.tokens?.length ? (
+                        lanPairingStatus.tokens.map((entry) => (
+                          <div
+                            key={entry.tokenId}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-200"
+                          >
+                            <div>
+                              <p className="font-semibold">
+                                {entry.deviceName ?? 'Viewer device'}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {entry.role ? entry.role.toUpperCase() : 'ALL'} · Expires {formatLanTime(entry.expiresAt)}
+                              </p>
+                            </div>
+                            {entry.revokedAt ? (
+                              <span className="text-xs uppercase tracking-[0.2em] text-rose-300">Revoked</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="rounded-full border border-rose-400/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-200"
+                                onClick={() => void handleRevokeLanViewer(entry.tokenId)}
+                              >
+                                Revoke
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
+                          No paired viewers yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

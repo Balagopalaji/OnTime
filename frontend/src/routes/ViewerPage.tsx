@@ -13,16 +13,75 @@ import { useAppMode } from '../context/AppModeContext'
 import { useRoom } from '../hooks/useRoom'
 import { useTimers } from '../hooks/useTimers'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
+import { claimLanPairing } from '../lib/companion-pairing'
+
+type ViewerTokenState = {
+  token: string
+  expiresAt: number
+  role: string
+}
+
+const getViewerTokenKey = (roomId: string) => `ontime:viewerToken:${roomId}`
+
+const readViewerToken = (roomId?: string | null): ViewerTokenState | null => {
+  if (!roomId || typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(getViewerTokenKey(roomId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ViewerTokenState
+    if (!parsed?.token || typeof parsed.expiresAt !== 'number') return null
+    if (parsed.expiresAt <= Date.now()) {
+      window.localStorage.removeItem(getViewerTokenKey(roomId))
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const writeViewerToken = (roomId: string, payload: ViewerTokenState) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(getViewerTokenKey(roomId), JSON.stringify(payload))
+  } catch {
+    // ignore
+  }
+}
+
+const clearViewerToken = (roomId: string) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(getViewerTokenKey(roomId))
+  } catch {
+    // ignore
+  }
+}
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
   const { effectiveMode } = useAppMode()
   const ctx = useDataContext()
-  useCompanionConnection() // Keep connection active for viewers
-  
-  // Direct Firestore access for unauthenticated users
-  const { room: publicRoom, connectionStatus: publicRoomStatus } = useRoom(roomId)
-  const { timers: publicTimers } = useTimers(roomId)
+  const companion = useCompanionConnection()
+  const isCompanionHosted =
+    typeof window !== 'undefined' &&
+    (window.location.port === '4440' ||
+      window.location.port === '4000' ||
+      window.location.pathname.startsWith('/viewer/'))
+  const [viewerToken, setViewerToken] = useState<ViewerTokenState | null>(() => readViewerToken(roomId))
+  const [pairingCode, setPairingCode] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    const params = new URLSearchParams(window.location.search)
+    return params.get('code') ?? ''
+  })
+  const [pairingRole, setPairingRole] = useState('all')
+  const [pairingError, setPairingError] = useState<string | null>(null)
+  const [pairingBusy, setPairingBusy] = useState(false)
+
+  const publicRoomId = isCompanionHosted ? undefined : roomId
+  // Direct Firestore access for unauthenticated users (cloud viewer only)
+  const { room: publicRoom, connectionStatus: publicRoomStatus } = useRoom(publicRoomId)
+  const { timers: publicTimers } = useTimers(publicRoomId)
 
   const roomAuthority = roomId
     ? (ctx as typeof ctx & { getRoomAuthority?: (roomId: string) => { source: string; status: string } }).getRoomAuthority?.(roomId)
@@ -35,11 +94,69 @@ export const ViewerPage = () => {
   
   const connectionStatus = ctx.connectionStatus === 'online' ? 'online' : publicRoomStatus
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
-    subscribeToCompanionRoom?: (roomId: string, clientType: 'controller' | 'viewer') => void
+    subscribeToCompanionRoom?: (
+      roomId: string,
+      clientType: 'controller' | 'viewer',
+      tokenOverride?: string,
+    ) => void
   }).subscribeToCompanionRoom
   const lastJoinKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    setViewerToken(readViewerToken(roomId))
+  }, [roomId])
+
+  useEffect(() => {
+    const socket = companion.socket
+    if (!socket || !roomId) return
+    const handleHandshakeError = (err: { code?: string }) => {
+      if (err?.code !== 'INVALID_TOKEN') return
+      clearViewerToken(roomId)
+      setViewerToken(null)
+      setPairingError('Pairing expired or revoked. Request a new code.')
+    }
+    socket.on('HANDSHAKE_ERROR', handleHandshakeError)
+    return () => {
+      socket.off('HANDSHAKE_ERROR', handleHandshakeError)
+    }
+  }, [companion.socket, roomId])
   
   const isLoading = !room && connectionStatus !== 'offline'
+  const deviceName =
+    typeof navigator !== 'undefined' && navigator.platform ? navigator.platform : undefined
+
+  const handlePairingSubmit = async () => {
+    if (!roomId) return
+    const code = pairingCode.trim()
+    if (!code) {
+      setPairingError('Enter a pairing code.')
+      return
+    }
+    setPairingBusy(true)
+    setPairingError(null)
+    try {
+      const tokenResponse = await claimLanPairing({
+        roomId,
+        code,
+        role: pairingRole,
+        deviceName,
+      })
+      const nextToken: ViewerTokenState = {
+        token: tokenResponse.token,
+        expiresAt: tokenResponse.expiresAt,
+        role: tokenResponse.role,
+      }
+      writeViewerToken(roomId, nextToken)
+      setViewerToken(nextToken)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Pairing failed.'
+      setPairingError(message)
+    } finally {
+      setPairingBusy(false)
+    }
+  }
+
+  const roleOptions = ['all', 'lx', 'ax', 'vx', 'sm', 'foh', 'custom']
   const activeTimer =
     timers.find((timer) => timer.id === room?.state.activeTimerId) ?? timers[0]
 
@@ -76,17 +193,92 @@ export const ViewerPage = () => {
   useEffect(() => {
     if (!roomId) return
     if (!subscribeToCompanionRoom) return
-    const joinKey = `${roomId}::viewer::${effectiveMode}`
+    const tokenOverride = viewerToken?.token ?? null
+    const joinKey = `${roomId}::viewer::${effectiveMode}::${tokenOverride ?? 'public'}`
     if (lastJoinKeyRef.current === joinKey) return
     lastJoinKeyRef.current = joinKey
-    subscribeToCompanionRoom(roomId, 'viewer')
-  }, [effectiveMode, roomId, subscribeToCompanionRoom])
+    if (tokenOverride) {
+      subscribeToCompanionRoom(roomId, 'viewer', tokenOverride)
+      return
+    }
+    if (!isCompanionHosted) {
+      subscribeToCompanionRoom(roomId, 'viewer')
+    }
+  }, [effectiveMode, isCompanionHosted, roomId, subscribeToCompanionRoom, viewerToken?.token])
 
   const clockTime = useClock(room?.timezone ?? 'UTC', room?.state.clockMode ?? '24h')
   const [clockBody, clockSuffix] = clockTime.split(' ')
   const clockSegments = clockBody.split(':')
   const clockHours = clockSegments[0] ?? ''
   const clockMinutes = clockSegments[1] ?? ''
+
+  if (isCompanionHosted && !viewerToken) {
+    return (
+      <div className="flex min-h-[calc(100vh-80px)] items-center justify-center px-4 py-8">
+        <div className="w-full max-w-lg rounded-3xl border border-slate-900 bg-slate-950/80 p-6 text-slate-200 shadow-card">
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">LAN Viewer</p>
+            <h1 className="text-2xl font-semibold text-white">Connect to this room</h1>
+            <p className="text-sm text-slate-300">
+              Enter the pairing code from the controller to unlock read-only access.
+            </p>
+          </div>
+          {!roomId ? (
+            <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+              Missing room id. Ask the operator for a new LAN viewer link.
+            </div>
+          ) : (
+            <div className="mt-5 space-y-4">
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Pairing Code
+              </label>
+              <input
+                value={pairingCode}
+                onChange={(event) => setPairingCode(event.target.value.toUpperCase())}
+                placeholder="XXXX-XXXX"
+                className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-emerald-300/70"
+              />
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Role
+              </label>
+              <select
+                value={pairingRole}
+                onChange={(event) => setPairingRole(event.target.value)}
+                className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-emerald-300/70"
+              >
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {role === 'all' ? 'All roles' : role.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+              {pairingError ? (
+                <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                  {pairingError}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void handlePairingSubmit()}
+                disabled={pairingBusy}
+                className="w-full rounded-2xl border border-emerald-300/70 bg-emerald-500/20 px-4 py-3 text-sm font-semibold text-emerald-50 transition hover:border-emerald-200 disabled:opacity-60"
+              >
+                {pairingBusy ? 'Connecting...' : 'Connect'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (isCompanionHosted && viewerToken && roomAuthority?.source !== 'companion') {
+    return (
+      <div className="rounded-2xl border border-slate-900 bg-slate-900/50 p-8 text-center text-slate-400">
+        Connecting to Companion...
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (

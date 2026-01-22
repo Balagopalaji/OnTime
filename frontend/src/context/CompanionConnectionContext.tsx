@@ -113,19 +113,51 @@ const readStoredToken = (): string | null => {
 
 export const CompanionConnectionProvider = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
+  const locationInfo = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return {
+        origin: 'http://localhost:5173',
+        securePage: false,
+        isLoopbackHost: true,
+        isCompanionHosted: false,
+      }
+    }
+    const securePage = window.location.protocol === 'https:'
+    const hostname = window.location.hostname
+    const isLoopbackHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+    const isCompanionHosted =
+      window.location.port === '4440' ||
+      window.location.port === '4000' ||
+      window.location.pathname.startsWith('/viewer/')
+    return {
+      origin: window.location.origin,
+      securePage,
+      isLoopbackHost,
+      isCompanionHosted,
+    }
+  }, [])
+  const isLanViewer = locationInfo.isCompanionHosted && !locationInfo.isLoopbackHost
   const socket = useMemo<Socket | null>(() => {
     if (typeof window === 'undefined') return null
-    const securePage = window.location.protocol === 'https:'
-    const socketUrl = securePage ? 'https://localhost:4440' : 'http://localhost:4000'
-    // Browsers block ws:// upgrades from an https page; keep polling-only when served over HTTPS.
-    const transports = securePage ? ['polling'] : ['websocket', 'polling']
+    const socketUrl = locationInfo.isCompanionHosted
+      ? locationInfo.origin
+      : locationInfo.securePage
+        ? 'https://localhost:4440'
+        : 'http://localhost:4000'
+    const allowUpgrade = locationInfo.isCompanionHosted
+    // When hosted by Companion, prefer websocket directly to avoid polling handshake failures.
+    const transports = locationInfo.isCompanionHosted
+      ? ['websocket']
+      : locationInfo.securePage && !allowUpgrade
+        ? ['polling']
+        : ['websocket', 'polling']
     return io(socketUrl, {
       transports,
-      upgrade: !securePage,
+      upgrade: allowUpgrade || !locationInfo.securePage,
       autoConnect: false,
       reconnection: false,
     })
-  }, [])
+  }, [locationInfo])
   const [isConnected, setIsConnected] = useState(false)
   const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('idle')
   const [reconnectState, setReconnectState] = useState<ReconnectState>('idle')
@@ -148,7 +180,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const [capabilitiesUpdatedAt, setCapabilitiesUpdatedAt] = useState<number | null>(null)
   const [reconnectChurn, setReconnectChurn] = useState(false)
   const [systemInfo, setSystemInfo] = useState<CompanionConnectionContextValue['systemInfo']>(null)
-  const [token, setToken] = useState<string | null>(() => readStoredToken())
+  const [token, setToken] = useState<string | null>(() => (isLanViewer ? null : readStoredToken()))
   const [hasAttemptedDiscovery, setHasAttemptedDiscovery] = useState(false)
   const [lastSeenAt, setLastSeenAt] = useState<number | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
@@ -221,7 +253,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [])
 
   const fetchToken = useCallback(async () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'
+    if (isLanViewer) return null
+    const origin = locationInfo.origin
 
     const tryFetch = async (url: string) => {
       try {
@@ -240,8 +273,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       }
     }
 
-    const securePage = typeof window !== 'undefined' ? window.location.protocol === 'https:' : false
-    const endpoints = securePage
+    const endpoints = locationInfo.securePage
       ? [
           'https://localhost:4441/api/token',
           'https://127.0.0.1:4441/api/token',
@@ -287,13 +319,14 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       // ignore
     }
     return token
-  }, [socket])
+  }, [isLanViewer, locationInfo.origin, locationInfo.securePage, socket])
 
   const discoverCompanion = useCallback(async () => {
     setHasAttemptedDiscovery(true)
+    if (isLanViewer) return null
     const next = await fetchToken()
     return next
-  }, [fetchToken])
+  }, [fetchToken, isLanViewer])
 
   const scheduleReconnect = useCallback(
     function scheduleReconnect(reason?: string) {
@@ -321,6 +354,15 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       reconnectTimerRef.current = window.setTimeout(async () => {
         reconnectTimerRef.current = null
         if (reconnectStateRef.current === 'stopped') return
+        if (isLanViewer) {
+          if (!socket.connected) {
+            if (debugCompanion) {
+              console.info('[companion] reconnect attempt', { attempt: nextAttempt, reason })
+            }
+            socket.connect()
+          }
+          return
+        }
         const refreshedToken = await fetchToken()
         const nextToken = refreshedToken ?? token
         if (!nextToken) {
@@ -336,7 +378,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
         }
       }, delay)
     },
-    [debugCompanion, fetchToken, setReconnectStateSafe, socket, token],
+    [debugCompanion, fetchToken, isLanViewer, setReconnectStateSafe, socket, token],
   )
 
   const retryConnection = useCallback(() => {
@@ -367,14 +409,16 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
 
   useEffect(() => {
     if (!socket) return
+    if (isLanViewer) return
     if (!token) return
     if (!socket.connected) {
       socket.connect()
     }
-  }, [socket, token])
+  }, [isLanViewer, socket, token])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
+    if (isLanViewer) return
 
     const applyTokenUpdate = (nextToken: string | null) => {
       if (nextToken === token) return
@@ -410,11 +454,12 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
         channel.close()
       }
     }
-  }, [socket, token])
+  }, [isLanViewer, socket, token])
 
   useEffect(() => {
     if (!socket) return
     if (isConnected) return
+    if (isLanViewer) return
     let cancelled = false
     const interval = window.setInterval(async () => {
       if (cancelled) return
@@ -427,7 +472,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [fetchToken, isConnected, socket])
+  }, [fetchToken, isConnected, isLanViewer, socket])
 
   useEffect(() => {
     if (!socket) return

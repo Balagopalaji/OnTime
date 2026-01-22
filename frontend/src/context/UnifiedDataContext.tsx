@@ -341,19 +341,33 @@ type CachedRoomSnapshot = {
   source: 'companion' | 'cloud'
 }
 
-const readCachedSubscriptions = (): Record<string, { clientType: 'controller' | 'viewer'; token: string }> => {
+type CompanionSubscription = {
+  clientType: 'controller' | 'viewer'
+  token: string
+  tokenSource: 'controller' | 'viewer'
+}
+
+const readCachedSubscriptions = (): Record<string, CompanionSubscription> => {
   if (typeof localStorage === 'undefined') return {}
   try {
     const raw = localStorage.getItem(SUBS_CACHE_KEY)
     if (!raw) return {}
-    const parsed = JSON.parse(raw) as Record<string, { clientType: 'controller' | 'viewer'; token: string }>
-    return parsed ?? {}
+    const parsed = JSON.parse(raw) as Record<string, CompanionSubscription>
+    return Object.entries(parsed ?? {}).reduce<Record<string, CompanionSubscription>>((acc, [roomId, entry]) => {
+      if (!entry) return acc
+      acc[roomId] = {
+        clientType: entry.clientType === 'controller' ? 'controller' : 'viewer',
+        token: entry.token,
+        tokenSource: entry.tokenSource === 'viewer' ? 'viewer' : 'controller',
+      }
+      return acc
+    }, {})
   } catch {
     return {}
   }
 }
 
-const persistSubscriptions = (subs: Record<string, { clientType: 'controller' | 'viewer'; token: string }>) => {
+const persistSubscriptions = (subs: Record<string, CompanionSubscription>) => {
   if (typeof localStorage === 'undefined') return
   try {
     localStorage.setItem(SUBS_CACHE_KEY, JSON.stringify(subs))
@@ -636,9 +650,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     { takenAt: number; takenById: string; takenByName?: string; takenByUserId?: string; takenByUserName?: string } | null
   >>({})
   const [controlErrors, setControlErrors] = useState<Record<string, { code: string; message: string; receivedAt: number } | null>>({})
-  const [subscribedRooms, setSubscribedRooms] = useState<
-    Record<string, { clientType: 'controller' | 'viewer'; token: string }>
-  >({})
+  const [subscribedRooms, setSubscribedRooms] = useState<Record<string, CompanionSubscription>>({})
   const [cachedSnapshots, setCachedSnapshots] = useState<Record<string, CachedRoomSnapshot>>(() => readRoomCache())
   const [queueStatus, setQueueStatus] = useState<
     Record<string, { count: number; max: number; nearLimit: boolean; percent: number }>
@@ -673,9 +685,19 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const bootstrappedSubsRef = useRef(false)
   const isReplayingRef = useRef(false)
   const lastControllerWriteRef = useRef<Record<string, { source: 'cloud' | 'companion'; timestamp: number }>>({})
-  const joinQueueRef = useRef<Array<{ roomId: string; clientType: 'controller' | 'viewer'; token: string }>>([])
+  const joinQueueRef = useRef<Array<{
+    roomId: string
+    clientType: 'controller' | 'viewer'
+    token: string
+    tokenSource: 'controller' | 'viewer'
+  }>>([])
   const joinPendingRef = useRef(false)
-  const activeJoinRef = useRef<{ roomId: string; clientType: 'controller' | 'viewer'; token: string } | null>(null)
+  const activeJoinRef = useRef<{
+    roomId: string
+    clientType: 'controller' | 'viewer'
+    token: string
+    tokenSource: 'controller' | 'viewer'
+  } | null>(null)
   const lastCapabilitiesRevisionRef = useRef<number | null>(null)
   const lastTierSignatureRef = useRef<string | null>(null)
   const reconnectSyncPendingRef = useRef(false)
@@ -849,11 +871,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     if (joinPendingRef.current) return
     const next = joinQueueRef.current.shift()
     if (!next) return
-    if (!token) {
+    const joinToken = next.tokenSource === 'viewer' ? next.token : token ?? next.token
+    if (!joinToken) {
       joinQueueRef.current.unshift(next)
       return
     }
-    const joinToken = next.token !== token ? token : next.token
     if (!socket.connected && !socket.active) {
       joinQueueRef.current.unshift({ ...next, token: joinToken })
       socket.connect()
@@ -881,8 +903,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   }, [clientId, debugCompanion, deviceName, firebase, markHandshakePending, socket, token, user?.displayName, user?.uid])
 
   const enqueueJoin = useCallback(
-    (roomId: string, clientType: 'controller' | 'viewer', joinToken: string) => {
-      joinQueueRef.current.push({ roomId, clientType, token: joinToken })
+    (
+      roomId: string,
+      clientType: 'controller' | 'viewer',
+      joinToken: string,
+      tokenSource: 'controller' | 'viewer',
+    ) => {
+      joinQueueRef.current.push({ roomId, clientType, token: joinToken, tokenSource })
       processJoinQueue()
     },
     [processJoinQueue],
@@ -940,6 +967,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       let changed = false
       const next = { ...prev }
       Object.entries(prev).forEach(([roomId, sub]) => {
+        if (sub.tokenSource !== 'controller') return
         if (sub.token !== token) {
           next[roomId] = { ...sub, token }
           changed = true
@@ -953,7 +981,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     })
 
     entries.forEach(([roomId, sub]) => {
-      enqueueJoin(roomId, sub.clientType, token)
+      if (sub.tokenSource !== 'controller') return
+      enqueueJoin(roomId, sub.clientType, token, sub.tokenSource)
     })
   }, [enqueueJoin, token])
 
@@ -1357,14 +1386,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const subscribeToCompanionRoom = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', tokenOverride?: string) => {
       void (async () => {
-        const joinToken = token ?? (await fetchToken()) ?? tokenOverride ?? null
+        const tokenSource: 'controller' | 'viewer' = tokenOverride ? 'viewer' : 'controller'
+        const joinToken = tokenOverride ?? token ?? (await fetchToken()) ?? null
         if (!joinToken) {
           console.warn('[UnifiedDataContext] missing Companion token for room', roomId)
           return
         }
 
         setSubscribedRooms((prev) => {
-          const next = { ...prev, [roomId]: { clientType, token: joinToken } }
+          const next = { ...prev, [roomId]: { clientType, token: joinToken, tokenSource } }
           persistSubscriptions(next)
           return next
         })
@@ -1382,7 +1412,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           addPendingSyncRoom(roomId)
         }
 
-        enqueueJoin(roomId, clientType, joinToken)
+        enqueueJoin(roomId, clientType, joinToken, tokenSource)
       })()
     },
     [addPendingSyncRoom, enqueueJoin, fetchToken, token],
@@ -1423,9 +1453,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate cached subscriptions after handshake
     setSubscribedRooms(() => {
-      // Update tokens in saved subscriptions to match current token
-      const updated = Object.entries(saved).reduce<Record<string, { clientType: 'controller' | 'viewer'; token: string }>>((acc, [roomId, sub]) => {
-        acc[roomId] = { ...sub, token: token }
+      // Update controller subscriptions to use the current Companion token.
+      const updated = Object.entries(saved).reduce<Record<string, CompanionSubscription>>((acc, [roomId, sub]) => {
+        if (sub.tokenSource === 'controller') {
+          acc[roomId] = { ...sub, token }
+        } else {
+          acc[roomId] = sub
+        }
         return acc
       }, {})
       persistSubscriptions(updated)
@@ -1996,13 +2030,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const room = firebase.getRoom(roomId)
       if (!room) return
       const timers = firebase.getTimers(roomId)
+      const activeId = room.state.activeTimerId ?? null
+      const includeTimers = timers.length > 0 || !activeId
       const currentTime = computeCurrentTimeWithProgress(room)
       const payload: SyncRoomStatePayload = {
         type: 'SYNC_ROOM_STATE',
         roomId,
-        timers,
         state: {
-          activeTimerId: room.state.activeTimerId ?? null,
+          activeTimerId: activeId,
           isRunning: room.state.isRunning ?? false,
           currentTime,
           lastUpdate: Date.now(),
@@ -2010,10 +2045,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         sourceClientId: clientId,
         timestamp: Date.now(),
       }
+      if (includeTimers) {
+        payload.timers = timers
+      }
       if (debugCompanion) {
         console.info('[companion] SYNC_ROOM_STATE emit', {
           roomId,
-          timersCount: timers.length,
+          timersCount: includeTimers ? timers.length : 0,
+          includeTimers,
           currentTime,
         })
       }
@@ -2614,17 +2653,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const handleConnect = async () => {
       if (debugCompanion) console.info('[companion] connect')
 
-      const joinToken = token ?? (await fetchToken())
-      if (!joinToken) {
-        if (debugCompanion) console.warn('[companion] connect missing token, skipping JOIN replay')
-        return
+      const joinToken = token ?? (await fetchToken()) ?? null
+      if (!joinToken && debugCompanion) {
+        console.warn('[companion] connect missing token, skipping controller JOIN replay')
       }
 
       setSubscribedRooms((prev) => {
         let changed = false
         const next = { ...prev }
         Object.entries(prev).forEach(([roomId, sub]) => {
-          if (sub.token !== joinToken) {
+          if (sub.tokenSource !== 'controller') return
+          if (joinToken && sub.token !== joinToken) {
             next[roomId] = { ...sub, token: joinToken }
             changed = true
           }
@@ -2635,7 +2674,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       const rooms = subscribedRoomsRef.current
       Object.entries(rooms).forEach(([roomId, sub]) => {
-        enqueueJoin(roomId, sub.clientType, joinToken)
+        const tokenToUse = sub.tokenSource === 'controller' ? joinToken : sub.token
+        if (!tokenToUse) return
+        enqueueJoin(roomId, sub.clientType, tokenToUse, sub.tokenSource)
         if (sub.clientType === 'controller') {
           addPendingSyncRoom(roomId)
         }
@@ -2668,14 +2709,38 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleHandshakeError = (err: HandshakeError) => {
       joinPendingRef.current = false
-      if (activeJoinRef.current) {
-        joinQueueRef.current.unshift(activeJoinRef.current)
+      const failedJoin = activeJoinRef.current
+      if (failedJoin) {
+        joinQueueRef.current.unshift(failedJoin)
         activeJoinRef.current = null
       }
       if (err?.code === 'CONTROLLER_TAKEN') {
         return
       }
       if (err?.code !== 'INVALID_TOKEN') return
+      if (failedJoin?.tokenSource === 'viewer') {
+        const roomId = failedJoin.roomId
+        setSubscribedRooms((prev) => {
+          if (!prev[roomId]) return prev
+          const next = { ...prev }
+          delete next[roomId]
+          persistSubscriptions(next)
+          return next
+        })
+        setCompanionRooms((prev) => {
+          if (!prev[roomId]) return prev
+          const next = { ...prev }
+          delete next[roomId]
+          return next
+        })
+        setCompanionTimers((prev) => {
+          if (!prev[roomId]) return prev
+          const next = { ...prev }
+          delete next[roomId]
+          return next
+        })
+        return
+      }
       joinQueueRef.current = []
       clearToken()
       if (tokenRefreshInFlightRef.current) return
@@ -2689,12 +2754,17 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         setSubscribedRooms((prev) => {
           const next: typeof prev = {}
           Object.entries(prev).forEach(([roomId, sub]) => {
-            next[roomId] = { ...sub, token: nextToken }
+            if (sub.tokenSource === 'controller') {
+              next[roomId] = { ...sub, token: nextToken }
+            } else {
+              next[roomId] = sub
+            }
           })
           return next
         })
         Object.entries(subscribedRoomsRef.current).forEach(([roomId, sub]) => {
-          enqueueJoin(roomId, sub.clientType, nextToken)
+          if (sub.tokenSource !== 'controller') return
+          enqueueJoin(roomId, sub.clientType, nextToken, sub.tokenSource)
         })
         tokenRefreshInFlightRef.current = false
       })()
@@ -2758,18 +2828,32 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const activeTimer = activeId ? timers.find((timer) => timer.id === activeId) : undefined
       if (isSnapshotStale(translatedState, snapshotTs, Date.now(), activeTimer)) {
         if (debugCompanion) {
-          console.info('[companion] snapshot stale, ignoring', {
+          console.info('[companion] snapshot stale, accepting as degraded', {
             roomId: payload.roomId,
             age: Date.now() - snapshotTs,
             isRunning: translatedState.isRunning,
           })
         }
-        removePendingSyncRoom(payload.roomId)
+        const subscription = subscribedRoomsRef.current[payload.roomId]
+        if (subscription?.clientType === 'controller' && pendingSyncRoomsRef.current.has(payload.roomId)) {
+          emitSyncRoomState(payload.roomId)
+          removePendingSyncRoom(payload.roomId)
+        }
+        setCompanionRooms((prev) => ({
+          ...prev,
+          [payload.roomId]: {
+            activeTimerId: payload.state.activeTimerId ?? null,
+            isRunning: payload.state.isRunning ?? false,
+            currentTime: payload.state.currentTime ?? 0,
+            lastUpdate: payload.state.lastUpdate ?? snapshotTs,
+            activeLiveCueId: payload.state.activeLiveCueId,
+          },
+        }))
         setRoomAuthority((prev) => ({
           ...prev,
           [payload.roomId]: {
-            source: 'cloud',
-            status: 'ready',
+            source: 'companion',
+            status: 'degraded',
             lastSyncAt: Date.now(),
           },
         }))
@@ -3168,6 +3252,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
     })
   }, [companionRooms, confidenceWindowMs, emitSyncRoomState, firebase, isCompanionLive])
+
+  useEffect(() => {
+    if (!isCompanionLive()) return
+    Object.entries(subscribedRoomsRef.current).forEach(([roomId, subscription]) => {
+      if (subscription?.clientType !== 'controller') return
+      const firebaseTimers = firebase.getTimers(roomId)
+      if (firebaseTimers.length === 0) return
+      const companionList = companionTimersRef.current[roomId] ?? []
+      if (companionList.length > 0) return
+      emitSyncRoomState(roomId)
+    })
+  }, [companionTimers, emitSyncRoomState, firebase, isCompanionLive])
 
   const pickSource = useCallback(
     (roomId: string, firebaseTs: number, companionTs: number, authority: RoomAuthority) => {

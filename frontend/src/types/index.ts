@@ -139,4 +139,6 @@ export type ControllerClient = {
   userName?: string
   lastHeartbeat?: number
   clientType: 'controller' | 'viewer'
+  role?: string
+  tokenId?: string
 }

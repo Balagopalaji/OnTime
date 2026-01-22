@@ -7,6 +7,7 @@ import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
 import { useSortableList } from '../hooks/useSortableList'
 import { Tooltip } from '../components/core/Tooltip'
+import { LocalQrCode } from '../components/core/LocalQrCode'
 import { useAuth } from '../context/AuthContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataProvider'
@@ -1088,15 +1089,19 @@ export const DashboardPage = () => {
                             qrErrorId === room.id ? (
                               <p className="text-xs text-slate-400">QR code unavailable. Copy the link instead.</p>
                             ) : (
-                              <img
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                                  getCloudViewerUrl(room.id),
-                                )}`}
-                                alt="Viewer QR"
-                                className="h-72 w-72 cursor-pointer object-contain"
-                                onError={() => setQrErrorId(room.id)}
+                              <button
+                                type="button"
+                                className="h-72 w-72"
                                 onClick={() => setQrModalId(room.id)}
-                              />
+                                aria-label="Open QR code"
+                              >
+                                <LocalQrCode
+                                  value={getCloudViewerUrl(room.id)}
+                                  size={320}
+                                  className="h-72 w-72 cursor-pointer object-contain"
+                                  onError={() => setQrErrorId(room.id)}
+                                />
+                              </button>
                             )
                           ) : (
                             <p className="text-xs text-slate-400">QR available once loaded.</p>
@@ -1618,13 +1623,18 @@ export const DashboardPage = () => {
             className="rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
-                    getCloudViewerUrl(qrModalId),
-                  )}`}
-              alt="Viewer QR"
-              className="h-80 w-80 object-contain"
-            />
+            {qrErrorId === qrModalId ? (
+              <p className="text-xs text-slate-400">QR code unavailable. Copy the link instead.</p>
+            ) : (
+              <div className="h-80 w-80">
+                <LocalQrCode
+                  value={getCloudViewerUrl(qrModalId)}
+                  size={320}
+                  className="h-80 w-80 object-contain"
+                  onError={() => setQrErrorId(qrModalId)}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
