@@ -29,6 +29,8 @@ type CompanionRoomState = {
   lastUpdate: number
   showClock?: boolean
   message?: Partial<Room['state']['message']>
+  title?: string
+  timezone?: string
   activeLiveCueId?: string
 }
 
@@ -158,6 +160,8 @@ type SyncRoomStatePayload = {
     lastUpdate: number
     showClock?: boolean
     message?: Partial<Room['state']['message']>
+    title?: string
+    timezone?: string
   }
   sourceClientId?: string
   timestamp?: number
@@ -567,6 +571,8 @@ const buildRoomFromCompanion = (
 
   return {
     ...base,
+    title: companionState.title ?? base.title,
+    timezone: companionState.timezone ?? base.timezone,
     config: base.config ?? DEFAULT_ROOM_CONFIG,
     features: base.features ?? DEFAULT_FEATURES,
     state: translateCompanionStateToFirebase(companionState, base.state),
@@ -2056,6 +2062,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           lastUpdate: Date.now(),
           showClock: room.state.showClock ?? false,
           message: room.state.message,
+          title: room.title,
+          timezone: room.timezone,
         },
         sourceClientId: clientId,
         timestamp: Date.now(),
@@ -2863,6 +2871,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             lastUpdate: payload.state.lastUpdate ?? snapshotTs,
             showClock: payload.state.showClock,
             message: payload.state.message,
+            title: payload.state.title,
+            timezone: payload.state.timezone,
             activeLiveCueId: payload.state.activeLiveCueId,
           },
         }))
@@ -2886,6 +2896,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           lastUpdate: payload.state.lastUpdate ?? snapshotTs,
           showClock: payload.state.showClock,
           message: payload.state.message,
+          title: payload.state.title,
+          timezone: payload.state.timezone,
           activeLiveCueId: payload.state.activeLiveCueId,
         },
       }))
@@ -2958,6 +2970,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           ...existing,
           ...payload.changes,
           message: nextMessage,
+          title: payload.changes.title ?? existing.title,
+          timezone: payload.changes.timezone ?? existing.timezone,
           currentTime:
             payload.changes.currentTime ?? existing.currentTime ?? 0,
           lastUpdate:
@@ -3707,6 +3721,66 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     ],
   )
 
+  const updateRoomMeta = useCallback<DataContextValue['updateRoomMeta']>(
+    async (roomId, patch) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot update room meta', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot update room meta', roomId)
+        return
+      }
+      if (!shouldUseCompanion(roomId)) {
+        if (!ensureCloudWriteAllowed(roomId, 'updateRoomMeta')) return
+        markControllerWrite(roomId, 'cloud')
+        return firebase.updateRoomMeta(roomId, patch)
+      }
+
+      const now = Date.now()
+      const state = ensureCompanionRoomState(roomId)
+      setCompanionRooms((prev) => ({
+        ...prev,
+        [roomId]: {
+          ...state,
+          title: patch.title ?? state.title,
+          timezone: patch.timezone ?? state.timezone,
+          lastUpdate: now,
+        },
+      }))
+
+      const changes: Partial<CompanionRoomState> = { lastUpdate: now }
+      if (patch.title !== undefined) changes.title = patch.title
+      if (patch.timezone !== undefined) changes.timezone = patch.timezone
+
+      const patchPayload: RoomStatePatchPayload = {
+        type: 'ROOM_STATE_PATCH',
+        roomId,
+        changes,
+        timestamp: now,
+        clientId,
+      }
+      emitOrQueue(roomId, patchPayload)
+
+      if (firestore && canWriteThrough(roomId)) {
+        await firebase.updateRoomMeta(roomId, patch)
+      }
+    },
+    [
+      canWriteThrough,
+      clientId,
+      emitOrQueue,
+      ensureCloudWriteAllowed,
+      ensureCompanionRoomState,
+      firebase,
+      firestore,
+      isLockedOut,
+      markControllerWrite,
+      isViewerClient,
+      shouldUseCompanion,
+    ],
+  )
+
   const nudgeTimer = useCallback<DataContextValue['nudgeTimer']>(
     async (roomId, deltaMs) => {
       if (isViewerClient(roomId)) {
@@ -4434,6 +4508,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         getRoomAuthority,
         forceCloudAuthority,
         forceCompanionAuthority,
+        updateRoomMeta,
         controllerLocks,
         roomPins,
         roomClients,
@@ -4505,6 +4580,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       unregisterCloudRoom,
       updateTimer,
       updateMessage,
+      updateRoomMeta,
     ],
   )
 
