@@ -27,6 +27,8 @@ type CompanionRoomState = {
   isRunning: boolean
   currentTime: number
   lastUpdate: number
+  showClock?: boolean
+  message?: Partial<Room['state']['message']>
   activeLiveCueId?: string
 }
 
@@ -154,6 +156,8 @@ type SyncRoomStatePayload = {
     isRunning: boolean
     currentTime: number
     lastUpdate: number
+    showClock?: boolean
+    message?: Partial<Room['state']['message']>
   }
   sourceClientId?: string
   timestamp?: number
@@ -495,6 +499,7 @@ const translateCompanionStateToFirebase = (
   const base = fallbackState ?? DEFAULT_ROOM_STATE
   // Companion reports currentTime as elapsed-at-lastUpdate; align startedAt with lastUpdate for UI math.
   const startedAt = companion.isRunning ? companion.lastUpdate : null
+  const message = companion.message ? { ...base.message, ...companion.message } : base.message
   return {
     ...base,
     activeTimerId: companion.activeTimerId ?? null,
@@ -503,6 +508,8 @@ const translateCompanionStateToFirebase = (
     elapsedOffset: companion.currentTime,
     currentTime: companion.currentTime,
     lastUpdate: companion.lastUpdate,
+    showClock: companion.showClock ?? base.showClock,
+    message,
     activeLiveCueId: companion.activeLiveCueId ?? base.activeLiveCueId,
   }
 }
@@ -571,6 +578,12 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
   isRunning: false,
   currentTime: 0,
   lastUpdate: Date.now(),
+  showClock: false,
+  message: {
+    text: '',
+    visible: false,
+    color: 'green',
+  },
 })
 
 const toMillis = (value: unknown): number => {
@@ -2041,6 +2054,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           isRunning: room.state.isRunning ?? false,
           currentTime,
           lastUpdate: Date.now(),
+          showClock: room.state.showClock ?? false,
+          message: room.state.message,
         },
         sourceClientId: clientId,
         timestamp: Date.now(),
@@ -2846,6 +2861,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             isRunning: payload.state.isRunning ?? false,
             currentTime: payload.state.currentTime ?? 0,
             lastUpdate: payload.state.lastUpdate ?? snapshotTs,
+            showClock: payload.state.showClock,
+            message: payload.state.message,
             activeLiveCueId: payload.state.activeLiveCueId,
           },
         }))
@@ -2867,6 +2884,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           isRunning: payload.state.isRunning ?? false,
           currentTime: payload.state.currentTime ?? 0,
           lastUpdate: payload.state.lastUpdate ?? snapshotTs,
+          showClock: payload.state.showClock,
+          message: payload.state.message,
           activeLiveCueId: payload.state.activeLiveCueId,
         },
       }))
@@ -2932,9 +2951,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       setCompanionRooms((prev) => {
         const existing = prev[payload.roomId] ?? buildDefaultCompanionState()
+        const nextMessage = payload.changes.message
+          ? { ...(existing.message ?? DEFAULT_ROOM_STATE.message), ...payload.changes.message }
+          : existing.message
         const next: CompanionRoomState = {
           ...existing,
           ...payload.changes,
+          message: nextMessage,
           currentTime:
             payload.changes.currentTime ?? existing.currentTime ?? 0,
           lastUpdate:
@@ -3560,6 +3583,126 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       getRoom,
       isViewerClient,
       resolveElapsedForTimer,
+      shouldUseCompanion,
+    ],
+  )
+
+  const setClockMode = useCallback<DataContextValue['setClockMode']>(
+    async (roomId, enabled) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot set clock mode', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot set clock mode', roomId)
+        return
+      }
+      if (!shouldUseCompanion(roomId)) {
+        if (!ensureCloudWriteAllowed(roomId, 'setClockMode')) return
+        markControllerWrite(roomId, 'cloud')
+        return firebase.setClockMode(roomId, enabled)
+      }
+
+      const now = Date.now()
+      const state = ensureCompanionRoomState(roomId)
+      setCompanionRooms((prev) => ({
+        ...prev,
+        [roomId]: {
+          ...state,
+          showClock: enabled,
+          lastUpdate: now,
+        },
+      }))
+
+      const patch: RoomStatePatchPayload = {
+        type: 'ROOM_STATE_PATCH',
+        roomId,
+        changes: {
+          showClock: enabled,
+          lastUpdate: now,
+        },
+        timestamp: now,
+        clientId,
+      }
+      emitOrQueue(roomId, patch)
+
+      if (firestore && canWriteThrough(roomId)) {
+        await firebase.setClockMode(roomId, enabled)
+      }
+    },
+    [
+      canWriteThrough,
+      clientId,
+      emitOrQueue,
+      ensureCloudWriteAllowed,
+      ensureCompanionRoomState,
+      firebase,
+      firestore,
+      isLockedOut,
+      markControllerWrite,
+      isViewerClient,
+      shouldUseCompanion,
+    ],
+  )
+
+  const updateMessage = useCallback<DataContextValue['updateMessage']>(
+    async (roomId, message) => {
+      if (isViewerClient(roomId)) {
+        console.warn('[UnifiedDataContext] viewer cannot update message', roomId)
+        return
+      }
+      if (isLockedOut(roomId)) {
+        console.warn('[UnifiedDataContext] controller locked; cannot update message', roomId)
+        return
+      }
+      if (!shouldUseCompanion(roomId)) {
+        if (!ensureCloudWriteAllowed(roomId, 'updateMessage')) return
+        markControllerWrite(roomId, 'cloud')
+        return firebase.updateMessage(roomId, message)
+      }
+
+      const now = Date.now()
+      const state = ensureCompanionRoomState(roomId)
+      const nextMessage = {
+        ...(state.message ?? DEFAULT_ROOM_STATE.message),
+        ...message,
+      }
+      setCompanionRooms((prev) => ({
+        ...prev,
+        [roomId]: {
+          ...state,
+          message: nextMessage,
+          lastUpdate: now,
+        },
+      }))
+
+      const patch: RoomStatePatchPayload = {
+        type: 'ROOM_STATE_PATCH',
+        roomId,
+        changes: {
+          message,
+          lastUpdate: now,
+        },
+        timestamp: now,
+        clientId,
+      }
+      emitOrQueue(roomId, patch)
+
+      if (firestore && canWriteThrough(roomId)) {
+        await firebase.updateMessage(roomId, message)
+      }
+    },
+    [
+      canWriteThrough,
+      clientId,
+      emitOrQueue,
+      ensureCloudWriteAllowed,
+      ensureCompanionRoomState,
+      firebase,
+      firestore,
+      isLockedOut,
+      markControllerWrite,
+      isViewerClient,
       shouldUseCompanion,
     ],
   )
@@ -4281,6 +4424,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         reorderTimer,
         moveTimer,
         setActiveTimer,
+        setClockMode,
+        updateMessage,
         startTimer,
         pauseTimer,
         resetTimer,
@@ -4351,6 +4496,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       roomAuthority,
       sendHeartbeat,
       setActiveTimer,
+      setClockMode,
       setRoomPin,
       startTimer,
       subscribeToCompanionRoom,
@@ -4358,6 +4504,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       registerCloudRoom,
       unregisterCloudRoom,
       updateTimer,
+      updateMessage,
     ],
   )
 
