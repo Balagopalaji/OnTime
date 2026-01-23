@@ -7,6 +7,7 @@ import {
   requestControl,
   updateHeartbeat,
 } from './lock';
+import { joinAsOperator } from './operators';
 
 export {
   acquireLock,
@@ -16,4 +17,5 @@ export {
   releaseLock,
   requestControl,
   updateHeartbeat,
+  joinAsOperator,
 };
