@@ -3186,7 +3186,7 @@ function startSecureSocketServer(tls: { key: string; cert: string }) {
   });
 }
 
-function enforceControllerAccess(socket: Socket, roomId: string): boolean {
+function verifyControllerClient(socket: Socket): boolean {
   const clientType = socket.data?.clientType as 'controller' | 'viewer' | undefined;
   if (clientType !== 'controller') {
     socket.emit('ERROR', {
@@ -3203,6 +3203,17 @@ function enforceControllerAccess(socket: Socket, roomId: string): boolean {
       code: 'INVALID_PAYLOAD',
       message: 'Missing client id.',
     });
+    return false;
+  }
+  return true;
+}
+
+function enforceControllerAccess(socket: Socket, roomId: string): boolean {
+  if (!verifyControllerClient(socket)) {
+    return false;
+  }
+  const clientId = socket.data?.clientId as string | undefined;
+  if (!clientId) {
     return false;
   }
   const current = roomControllerStore.get(roomId);
@@ -5339,7 +5350,7 @@ function handleRequestControl(socket: Socket, payload: unknown) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid REQUEST_CONTROL payload.');
     return;
   }
-  if (!enforceControllerAccess(socket, payload.roomId)) {
+  if (!verifyControllerClient(socket)) {
     return;
   }
   const socketClientId = socket.data?.clientId as string | undefined;
@@ -5405,7 +5416,7 @@ function handleForceTakeover(socket: Socket, payload: unknown) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid FORCE_TAKEOVER payload.');
     return;
   }
-  if (!enforceControllerAccess(socket, payload.roomId)) {
+  if (!verifyControllerClient(socket)) {
     return;
   }
   const socketClientId = socket.data?.clientId as string | undefined;
