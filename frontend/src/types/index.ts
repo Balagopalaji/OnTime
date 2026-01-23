@@ -21,6 +21,12 @@ export type TimerAdjustment = {
   reason: 'manual' | 'sync' | 'migration'
 }
 
+export type OperatorRole = 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom'
+
+export type CueTriggerType = 'timed' | 'fixed_time' | 'sequential' | 'follow' | 'floating'
+
+export type CueAckState = 'pending' | 'done' | 'skipped'
+
 // Legacy types remain exported for backward compatibility.
 export type RoomConfig = {
   warningSec: number
@@ -62,10 +68,102 @@ export type RoomFeatures = {
   externalVideo: boolean
 }
 
+export type InviteConfig = {
+  code: string
+  enabled: boolean
+  generatedAt: number
+  generatedBy: string
+}
+
+export type Operator = {
+  odUserId: string
+  displayName?: string
+  email?: string
+  odRole: OperatorRole
+  odRoleLabel?: string
+  approvedAt: number
+  approvedVia: 'invite_code' | 'direct'
+}
+
+export type BlockedUser = {
+  odUserId: string
+  blockedAt: number
+  blockedBy: string
+  reason?: string
+}
+
 export type RoomState = RoomStateLegacy & {
   currentTime?: number
   lastUpdate?: number
   activeLiveCueId?: string
+}
+
+export type Section = {
+  id: string
+  roomId: string
+  title: string
+  order: number
+  notes?: string
+  plannedDurationSec?: number
+  plannedStartAt?: number
+  createdAt?: number
+  updatedAt?: number
+}
+
+export type Segment = {
+  id: string
+  roomId: string
+  sectionId?: string
+  title: string
+  order: number
+  plannedStartAt?: number
+  plannedDurationSec?: number
+  primaryTimerId?: string
+  notes?: string
+  createdAt?: number
+  updatedAt?: number
+}
+
+export type Cue = {
+  id: string
+  roomId: string
+  role: OperatorRole
+  title: string
+  notes?: string
+  sectionId?: string
+  segmentId?: string
+  order?: number
+  triggerType: CueTriggerType
+  offsetMs?: number
+  timeBase?: 'actual' | 'planned'
+  targetTimeMs?: number
+  afterCueId?: string
+  approximatePosition?: number
+  triggerNote?: string
+  ackState?: CueAckState
+  ackAt?: number
+  ackBy?: string
+  createdBy: string
+  createdAt?: number
+  updatedAt?: number
+  editedBy?: string
+  createdByRole?: OperatorRole
+  editedByRole?: OperatorRole
+  editNote?: string
+}
+
+export type CrewChatMessage = {
+  id: string
+  roomId: string
+  senderId: string
+  senderName?: string
+  senderRole?: string
+  message: string
+  audience: 'all' | 'roles'
+  roles?: string[]
+  type?: 'text' | 'preset'
+  presetId?: string
+  createdAt: number
 }
 
 export type LiveCue = {

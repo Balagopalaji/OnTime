@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getConfidenceWindowMs, resolveControllerLockState, resolveRoomSource } from './UnifiedDataContext'
+import { getConfidenceWindowMs, resolveControllerLockState, resolveRoomSource, mergeCueQueueEvents, type CueQueuedEvent } from './UnifiedDataContext'
 
 const baseArgs = {
   roomId: 'room-1',
@@ -89,5 +89,82 @@ describe('resolveRoomSource', () => {
 
   it('prefers controller-originated cloud changes on equal timestamps', () => {
     expect(resolveRoomSource({ ...baseArgs, controllerTieBreaker: 'cloud' })).toBe('cloud')
+  })
+})
+
+describe('mergeCueQueueEvents', () => {
+  const baseCue = {
+    id: 'cue-1',
+    roomId: 'room-1',
+    role: 'lx' as const,
+    title: 'Lights',
+    triggerType: 'timed' as const,
+    createdBy: 'user-1',
+  }
+
+  it('merges update into create', () => {
+    const queue: CueQueuedEvent[] = [
+      {
+        type: 'CREATE_CUE',
+        roomId: 'room-1',
+        cue: baseCue,
+        timestamp: 100,
+        clientId: 'client-a',
+      },
+      {
+        type: 'UPDATE_CUE',
+        roomId: 'room-1',
+        cueId: 'cue-1',
+        changes: { title: 'LX Go' },
+        timestamp: 200,
+        clientId: 'client-a',
+      },
+    ]
+
+    const merged = mergeCueQueueEvents(queue)
+    expect(merged).toHaveLength(1)
+    expect(merged[0].type).toBe('CREATE_CUE')
+    if (merged[0].type === 'CREATE_CUE') {
+      expect(merged[0].cue.title).toBe('LX Go')
+    }
+  })
+
+  it('keeps delete as the final action', () => {
+    const queue: CueQueuedEvent[] = [
+      {
+        type: 'CREATE_CUE',
+        roomId: 'room-1',
+        cue: baseCue,
+        timestamp: 100,
+        clientId: 'client-a',
+      },
+      {
+        type: 'DELETE_CUE',
+        roomId: 'room-1',
+        cueId: 'cue-1',
+        timestamp: 200,
+        clientId: 'client-a',
+      },
+    ]
+
+    const merged = mergeCueQueueEvents(queue)
+    expect(merged).toHaveLength(1)
+    expect(merged[0].type).toBe('DELETE_CUE')
+  })
+
+  it('retains reorder events', () => {
+    const queue: CueQueuedEvent[] = [
+      {
+        type: 'REORDER_CUES',
+        roomId: 'room-1',
+        cueIds: ['cue-1', 'cue-2'],
+        timestamp: 300,
+        clientId: 'client-a',
+      },
+    ]
+
+    const merged = mergeCueQueueEvents(queue)
+    expect(merged).toHaveLength(1)
+    expect(merged[0].type).toBe('REORDER_CUES')
   })
 })

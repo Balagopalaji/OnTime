@@ -7,6 +7,9 @@ import type {
   Timer,
   LiveCue,
   LiveCueRecord,
+  Cue,
+  CueTriggerType,
+  OperatorRole,
   MessageColor,
   ControllerLock,
   ControllerLockState,
@@ -23,6 +26,23 @@ type CreateTimerInput = {
   title: string
   duration: number
   speaker?: string
+}
+
+type CreateCueInput = {
+  title: string
+  role: OperatorRole
+  triggerType: CueTriggerType
+  sectionId?: string
+  segmentId?: string
+  order?: number
+  offsetMs?: number
+  timeBase?: 'actual' | 'planned'
+  targetTimeMs?: number
+  afterCueId?: string
+  approximatePosition?: number
+  triggerNote?: string
+  notes?: string
+  createdByRole?: OperatorRole
 }
 
 type QueueStatus = {
@@ -90,6 +110,7 @@ export type DataContextValue = {
   clearUndoStacks: () => Promise<void>
   getRoom: (roomId: string) => Room | undefined
   getTimers: (roomId: string) => Timer[]
+  getCues: (roomId: string) => Cue[]
   getLiveCues: (roomId: string) => LiveCue[]
   getLiveCueRecords: (roomId: string) => LiveCueRecord[]
   getLiveCueDiagnostics?: (roomId: string) => {
@@ -102,10 +123,16 @@ export type DataContextValue = {
   createRoom: (input: CreateRoomInput) => Promise<Room>
   deleteRoom: (roomId: string) => Promise<void>
   createTimer: (roomId: string, input: CreateTimerInput) => Promise<Timer | undefined>
+  createCue: (roomId: string, input: CreateCueInput) => Promise<Cue | undefined>
   updateTimer: (
     roomId: string,
     timerId: string,
     patch: Partial<Omit<Timer, 'id' | 'roomId'>>,
+  ) => Promise<void>
+  updateCue: (
+    roomId: string,
+    cueId: string,
+    patch: Partial<Omit<Cue, 'id' | 'roomId' | 'createdBy' | 'createdAt'>>,
   ) => Promise<void>
   updateRoomMeta: (
     roomId: string,
@@ -116,12 +143,14 @@ export type DataContextValue = {
   restoreTimer: (roomId: string, timer: Timer) => Promise<void>
   resetTimerProgress: (roomId: string, timerId: string) => Promise<void>
   deleteTimer: (roomId: string, timerId: string) => Promise<void>
+  deleteCue: (roomId: string, cueId: string) => Promise<void>
   moveTimer: (
     roomId: string,
     timerId: string,
     direction: 'up' | 'down',
   ) => Promise<void>
   reorderTimer: (roomId: string, timerId: string, targetIndex: number) => Promise<void>
+  reorderCues: (roomId: string, cueIds: string[]) => Promise<void>
   setActiveTimer: (roomId: string, timerId: string) => Promise<void>
   startTimer: (roomId: string, timerId?: string) => Promise<void>
   pauseTimer: (roomId: string) => Promise<void>

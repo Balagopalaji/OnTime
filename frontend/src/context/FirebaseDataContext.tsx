@@ -18,7 +18,7 @@ import {
   type FirestoreError,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, ControllerClient } from '../types'
+import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerClient } from '../types'
 import { DataProviderBoundary, type DataContextValue } from './DataContext'
 import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
@@ -222,6 +222,91 @@ const mapLiveCue = (id: string, data: LiveCueDoc): LiveCue => {
   }
 }
 
+type CueDoc = {
+  roomId?: string
+  role?: string
+  title?: string
+  notes?: string
+  sectionId?: string
+  segmentId?: string
+  order?: number
+  triggerType?: string
+  offsetMs?: number
+  timeBase?: string
+  targetTimeMs?: number
+  afterCueId?: string
+  approximatePosition?: number
+  triggerNote?: string
+  ackState?: string
+  ackAt?: number
+  ackBy?: string
+  createdBy?: string
+  createdAt?: number | { seconds: number; nanoseconds: number }
+  updatedAt?: number | { seconds: number; nanoseconds: number }
+  editedBy?: string
+  createdByRole?: string
+  editedByRole?: string
+  editNote?: string
+}
+
+const mapCue = (id: string, roomId: string, data: CueDoc): Cue => {
+  const createdAt = toMillis(data.createdAt, undefined)
+  const updatedAt = toMillis(data.updatedAt, undefined)
+  const role =
+    data.role === 'lx' ||
+    data.role === 'ax' ||
+    data.role === 'vx' ||
+    data.role === 'sm' ||
+    data.role === 'foh' ||
+    data.role === 'custom'
+      ? data.role
+      : 'custom'
+  const triggerType =
+    data.triggerType === 'timed' ||
+    data.triggerType === 'fixed_time' ||
+    data.triggerType === 'sequential' ||
+    data.triggerType === 'follow' ||
+    data.triggerType === 'floating'
+      ? data.triggerType
+      : 'timed'
+  const ackState =
+    data.ackState === 'pending' || data.ackState === 'done' || data.ackState === 'skipped'
+      ? data.ackState
+      : undefined
+  const timeBase = data.timeBase === 'planned' ? 'planned' : data.timeBase === 'actual' ? 'actual' : undefined
+  return {
+    id,
+    roomId,
+    role,
+    title: typeof data.title === 'string' ? data.title : '',
+    notes: typeof data.notes === 'string' ? data.notes : undefined,
+    sectionId: typeof data.sectionId === 'string' ? data.sectionId : undefined,
+    segmentId: typeof data.segmentId === 'string' ? data.segmentId : undefined,
+    order: typeof data.order === 'number' ? data.order : undefined,
+    triggerType,
+    offsetMs: typeof data.offsetMs === 'number' ? data.offsetMs : undefined,
+    timeBase,
+    targetTimeMs: typeof data.targetTimeMs === 'number' ? data.targetTimeMs : undefined,
+    afterCueId: typeof data.afterCueId === 'string' ? data.afterCueId : undefined,
+    approximatePosition: typeof data.approximatePosition === 'number' ? data.approximatePosition : undefined,
+    triggerNote: typeof data.triggerNote === 'string' ? data.triggerNote : undefined,
+    ackState,
+    ackAt: typeof data.ackAt === 'number' ? data.ackAt : undefined,
+    ackBy: typeof data.ackBy === 'string' ? data.ackBy : undefined,
+    createdBy: typeof data.createdBy === 'string' ? data.createdBy : '',
+    createdAt: createdAt ?? undefined,
+    updatedAt: updatedAt ?? undefined,
+    editedBy: typeof data.editedBy === 'string' ? data.editedBy : undefined,
+    createdByRole: data.createdByRole === 'custom' || data.createdByRole === 'lx' || data.createdByRole === 'ax' || data.createdByRole === 'vx' || data.createdByRole === 'sm' || data.createdByRole === 'foh'
+      ? data.createdByRole
+      : undefined,
+    editedByRole: data.editedByRole === 'custom' || data.editedByRole === 'lx' || data.editedByRole === 'ax' || data.editedByRole === 'vx' || data.editedByRole === 'sm' || data.editedByRole === 'foh'
+      ? data.editedByRole
+      : undefined,
+    editNote: typeof data.editNote === 'string' ? data.editNote : undefined,
+  }
+}
+
 const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
 
 // Use shared timer-utils for elapsed calculations
@@ -249,6 +334,7 @@ export const FirebaseDataProvider = ({
   const [rooms, setRooms] = useState<Room[]>([])
   const [timers, setTimers] = useState<Record<string, Timer[]>>({})
   const [liveCueRecords, setLiveCueRecords] = useState<Record<string, LiveCueRecord[]>>({})
+  const [cues, setCues] = useState<Record<string, Cue[]>>({})
   const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(() =>
     typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
   )
@@ -422,10 +508,36 @@ export const FirebaseDataProvider = ({
           setConnectionStatus('offline')
         },
       )
+
+      const cuesRef = collection(firestore, 'rooms', room.id, 'cues')
+      const cuesUnsub = onSnapshot(
+        cuesRef,
+        (snapshot) => {
+          const cuesForRoom: Cue[] = []
+          snapshot.forEach((docSnap) => {
+            cuesForRoom.push(mapCue(docSnap.id, room.id, docSnap.data() as CueDoc))
+          })
+          cuesForRoom.sort((a, b) => {
+            const left = a.order ?? a.createdAt ?? 0
+            const right = b.order ?? b.createdAt ?? 0
+            return left - right
+          })
+          setCues((prev) => ({ ...prev, [room.id]: cuesForRoom }))
+          setConnectionStatus('online')
+        },
+        (error: FirestoreError) => {
+          console.error('cues snapshot error', error)
+          if (error.code === 'permission-denied') {
+            return
+          }
+          setConnectionStatus('offline')
+        },
+      )
       return () => {
         stateUnsub()
         timersUnsub()
         liveCuesUnsub()
+        cuesUnsub()
       }
     })
     return () => {
@@ -464,6 +576,11 @@ export const FirebaseDataProvider = ({
         .sort((a, b) => a.order - b.order)
     },
     [pendingTimers, timers],
+  )
+
+  const getCues = useCallback(
+    (roomId: string) => [...(cues[roomId] ?? [])],
+    [cues],
   )
 
   const getLiveCueRecords = useCallback(
@@ -611,6 +728,43 @@ export const FirebaseDataProvider = ({
     return timer
   }, [firestore, getRoom])
 
+  const createCue: DataContextValue['createCue'] = useCallback(async (roomId, input) => {
+    if (!firestore) throw new Error('firebase_unavailable')
+    if (!user?.uid) throw new Error('auth_required')
+    const cueRef = doc(collection(firestore, 'rooms', roomId, 'cues'))
+    const existing = cues[roomId] ?? []
+    const nextOrder =
+      typeof input.order === 'number' && Number.isFinite(input.order)
+        ? input.order
+        : existing.length
+          ? Math.max(...existing.map((cue) => cue.order ?? 0)) + 10
+          : 10
+    const now = Date.now()
+    const cue: Cue = {
+      id: cueRef.id,
+      roomId,
+      title: input.title.trim(),
+      role: input.role,
+      triggerType: input.triggerType,
+      notes: input.notes,
+      sectionId: input.sectionId,
+      segmentId: input.segmentId,
+      order: nextOrder,
+      offsetMs: input.offsetMs,
+      timeBase: input.timeBase,
+      targetTimeMs: input.targetTimeMs,
+      afterCueId: input.afterCueId,
+      approximatePosition: input.approximatePosition,
+      triggerNote: input.triggerNote,
+      createdBy: user.uid,
+      createdByRole: input.createdByRole,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await setDoc(cueRef, cue)
+    return cue
+  }, [cues, firestore, user?.uid])
+
   const updateTimer: DataContextValue['updateTimer'] = useCallback(
     async (roomId, timerId, patch) => {
       if (migratingRoomsRef.current.has(roomId) || !firestore) return
@@ -644,6 +798,22 @@ export const FirebaseDataProvider = ({
       }
     },
     [firestore, getRoom],
+  )
+
+  const updateCue: DataContextValue['updateCue'] = useCallback(
+    async (roomId, cueId, patch) => {
+      if (!firestore) return
+      const now = Date.now()
+      const payload: Record<string, unknown> = {
+        ...patch,
+        updatedAt: now,
+      }
+      if (user?.uid) {
+        payload.editedBy = user.uid
+      }
+      await updateDoc(doc(firestore, 'rooms', roomId, 'cues', cueId), payload)
+    },
+    [firestore, user?.uid],
   )
 
   const updateRoomMeta: DataContextValue['updateRoomMeta'] = useCallback(
@@ -701,6 +871,30 @@ export const FirebaseDataProvider = ({
       await updateDocFs(stateRef, { [key]: 0 })
     },
     [firestore, getRoom, user],
+  )
+
+  const deleteCue: DataContextValue['deleteCue'] = useCallback(
+    async (roomId, cueId) => {
+      if (!user || !firestore) return
+      await deleteDoc(doc(firestore, 'rooms', roomId, 'cues', cueId))
+    },
+    [firestore, user],
+  )
+
+  const reorderCues: DataContextValue['reorderCues'] = useCallback(
+    async (roomId, cueIds) => {
+      if (!user || !firestore) return
+      const batch = writeBatch(firestore)
+      const now = Date.now()
+      cueIds.forEach((cueId, idx) => {
+        batch.update(doc(firestore, 'rooms', roomId, 'cues', cueId), {
+          order: (idx + 1) * 10,
+          updatedAt: now,
+        })
+      })
+      await batch.commit()
+    },
+    [firestore, user],
   )
 
   // Undo/Redo Stubs
@@ -1091,20 +1285,25 @@ export const FirebaseDataProvider = ({
       clearUndoStacks,
       getRoom,
       getTimers,
+      getCues,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
+      createCue,
       updateTimer,
+      updateCue,
       updateRoomMeta,
       moveRoom,
       reorderRoom,
       restoreTimer,
       resetTimerProgress,
       deleteTimer,
+      deleteCue,
       moveTimer,
       reorderTimer,
+      reorderCues,
       setActiveTimer,
       startTimer,
       pauseTimer,
@@ -1149,20 +1348,25 @@ export const FirebaseDataProvider = ({
       clearUndoStacks,
       getRoom,
       getTimers,
+      getCues,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
+      createCue,
       updateTimer,
+      updateCue,
       updateRoomMeta,
       moveRoom,
       reorderRoom,
       restoreTimer,
       resetTimerProgress,
       deleteTimer,
+      deleteCue,
       moveTimer,
       reorderTimer,
+      reorderCues,
       setActiveTimer,
       startTimer,
       pauseTimer,

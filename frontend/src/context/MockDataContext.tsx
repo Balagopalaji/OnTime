@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
-import type { Room, Timer, LiveCue, LiveCueRecord, MessageColor, ConnectionStatus, ControllerClient } from '../types'
+import type { Room, Timer, LiveCue, LiveCueRecord, Cue, MessageColor, ConnectionStatus, ControllerClient } from '../types'
 import {
   clearStack,
   loadStack,
@@ -565,6 +565,11 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [pendingTimers, state.timers],
   )
 
+  const getCues = useCallback((_roomId: string): Cue[] => {
+    void _roomId
+    return []
+  }, [])
+
   const getLiveCueRecords = useCallback((_roomId: string): LiveCueRecord[] => {
     void _roomId
     return []
@@ -853,6 +858,12 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [getRoom, persistTimerStack, syncPendingState, updateTimers],
   )
 
+  const createCue = useCallback(async (_roomId: string) => {
+    void _roomId
+    await safeDelayRef.current?.()
+    return undefined
+  }, [])
+
   const updateTimer = useCallback(
     async (
       roomId: string,
@@ -963,6 +974,24 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     },
     [persistTimerStack, state.rooms, state.timers, syncPendingState, updateTimers, user],
   )
+
+  const updateCue: DataContextValue['updateCue'] = useCallback(async (_roomId, _cueId) => {
+    void _roomId
+    void _cueId
+    await safeDelayRef.current?.()
+  }, [])
+
+  const deleteCue: DataContextValue['deleteCue'] = useCallback(async (_roomId, _cueId) => {
+    void _roomId
+    void _cueId
+    await safeDelayRef.current?.()
+  }, [])
+
+  const reorderCues: DataContextValue['reorderCues'] = useCallback(async (_roomId, _cueIds) => {
+    void _roomId
+    void _cueIds
+    await safeDelayRef.current?.()
+  }, [])
 
   const undoRoomDelete: DataContextValue['undoRoomDelete'] = useCallback(async () => {
     if (!user) return
@@ -1567,12 +1596,15 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       clearUndoStacks,
       getRoom,
       getTimers,
+      getCues,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
+      createCue,
       updateTimer,
+      updateCue,
       updateRoomMeta,
       moveRoom,
       reorderRoom,
@@ -1580,7 +1612,9 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       resetTimerProgress,
       reorderTimer,
       deleteTimer,
+      deleteCue,
       moveTimer,
+      reorderCues,
       setActiveTimer,
       startTimer,
       pauseTimer,
@@ -1624,12 +1658,15 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       clearUndoStacks,
       getRoom,
       getTimers,
+      getCues,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
       deleteRoom,
       createTimer,
+      createCue,
       updateTimer,
+      updateCue,
       updateRoomMeta,
       moveRoom,
       reorderRoom,
@@ -1637,7 +1674,9 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       resetTimerProgress,
       reorderTimer,
       deleteTimer,
+      deleteCue,
       moveTimer,
+      reorderCues,
       setActiveTimer,
       startTimer,
       pauseTimer,

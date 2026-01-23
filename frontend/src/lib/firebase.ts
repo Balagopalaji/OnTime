@@ -52,4 +52,9 @@ if (useEmulator && functions) {
   }
 }
 
+// For debugging and console tests
+if (typeof window !== 'undefined') {
+  (window as any).firebase = { app, auth, db, functions };
+}
+
 export { app, auth, db, functions }
