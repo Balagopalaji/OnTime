@@ -17,6 +17,28 @@ service cloud.firestore {
       return isSignedIn()
         && get(/databases/$(database)/documents/rooms/$(roomId)).data.features.showControl == true;
     }
+    function hasShowControlTier(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data.features.showControl == true;
+    }
+    function isBlocked(roomId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/blocked/$(request.auth.uid));
+    }
+    function isOperator(roomId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/operators/$(request.auth.uid));
+    }
+    function operatorRole(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/operators/$(request.auth.uid)).data.odRole;
+    }
+    function operatorRoleMatches(roomId) {
+      return isOperator(roomId)
+        && request.resource.data.role == operatorRole(roomId);
+    }
+    function operatorRoleMatchesExisting(roomId) {
+      return isOperator(roomId)
+        && resource.data.role == operatorRole(roomId);
+    }
     function isLockHolderByUserId(roomId) {
       return !exists(/databases/$(database)/documents/rooms/$(roomId)/lock/current)
         || get(/databases/$(database)/documents/rooms/$(roomId)/lock/current).data.userId == request.auth.uid;
@@ -37,6 +59,52 @@ service cloud.firestore {
         // Public read for viewers; owner-only writes.
         allow read: if true;
         allow create, update, delete: if isSignedIn() && isLockHolderByUserId(roomId);
+      }
+
+      // Phase 3: Sections and segments (Show Planner)
+      match /sections/{sectionId} {
+        allow read: if isSignedIn() && hasShowControlTier(roomId);
+        allow create, update, delete: if isOwner(roomId);
+      }
+
+      match /segments/{segmentId} {
+        allow read: if isSignedIn() && hasShowControlTier(roomId);
+        allow create, update, delete: if isOwner(roomId);
+      }
+
+      // Phase 3: Manual cues (Show Planner)
+      match /cues/{cueId} {
+        allow read: if isSignedIn() && hasShowControlTier(roomId);
+        allow create: if isSignedIn()
+          && !isBlocked(roomId)
+          && (isOwner(roomId) || operatorRoleMatches(roomId));
+        allow update: if isSignedIn()
+          && !isBlocked(roomId)
+          && (
+            isOwner(roomId)
+            || (
+              operatorRoleMatchesExisting(roomId)
+              && request.resource.data.role == resource.data.role
+            )
+          );
+        allow delete: if isSignedIn()
+          && !isBlocked(roomId)
+          && (isOwner(roomId) || operatorRoleMatchesExisting(roomId));
+      }
+
+      // Phase 3: Crew chat
+      match /crewChat/{messageId} {
+        allow read: if isSignedIn()
+          && hasShowControlTier(roomId)
+          && (isOwner(roomId) || isOperator(roomId));
+        allow create: if isSignedIn()
+          && hasShowControlTier(roomId)
+          && !isBlocked(roomId)
+          && (isOwner(roomId) || isOperator(roomId));
+        allow update, delete: if isSignedIn()
+          && hasShowControlTier(roomId)
+          && !isBlocked(roomId)
+          && (isOwner(roomId) || resource.data.senderId == request.auth.uid);
       }
 
       // Live cues (Show Control tier+ only)
@@ -65,6 +133,23 @@ service cloud.firestore {
 
       match /config/pin {
         allow read: if isSignedIn();
+        allow create, update, delete: if isOwner(roomId);
+      }
+
+      match /config/invite {
+        allow read: if isOwner(roomId);
+        allow create, update, delete: if isOwner(roomId);
+      }
+
+      match /operators/{odUserId} {
+        allow read: if isOwner(roomId) || (isSignedIn() && request.auth.uid == odUserId);
+        allow create: if isOwner(roomId);
+        allow update: if isOwner(roomId) || (isSignedIn() && request.auth.uid == odUserId);
+        allow delete: if isOwner(roomId);
+      }
+
+      match /blocked/{odUserId} {
+        allow read: if isOwner(roomId) || (isSignedIn() && request.auth.uid == odUserId);
         allow create, update, delete: if isOwner(roomId);
       }
 

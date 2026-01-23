@@ -1,0 +1,13 @@
+{
+  "name": "ontime-firebase-rules",
+  "private": true,
+  "scripts": {
+    "test:rules": "firebase emulators:exec --config ../firebase.json --only firestore \"node ./tests/firestore.rules.test.js\"",
+    "test:join-operator": "firebase emulators:exec --config ../firebase.json --only firestore,functions,auth \"node ./tests/joinAsOperator.emu.js\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.0",
+    "firebase": "^10.12.5",
+    "firebase-tools": "^13.11.2"
+  }
+}
