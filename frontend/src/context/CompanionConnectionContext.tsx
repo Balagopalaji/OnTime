@@ -165,6 +165,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const [nextRetryAt, setNextRetryAt] = useState<number | null>(null)
   const [reconnectStartedAt, setReconnectStartedAt] = useState<number | null>(null)
   const [lastErrorCode, setLastErrorCode] = useState<string | null>(null)
+  const lastErrorCodeRef = useRef<string | null>(null)
   const [protocolStatus, setProtocolStatus] = useState<CompanionConnectionContextValue['protocolStatus']>({
     clientVersion: INTERFACE_VERSION,
     serverVersion: null,
@@ -503,7 +504,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       if (reason !== 'io server disconnect') {
         setHandshakeStatus('idle')
       }
-      if (reason) {
+      const stickyError = lastErrorCodeRef.current
+      if (reason && stickyError !== 'INVALID_TOKEN' && stickyError !== 'TOKEN_MISSING') {
         setLastErrorCode(reason)
       }
       scheduleReconnect('disconnect')
@@ -565,6 +567,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       setLastErrorCode(code)
       if (code === 'INVALID_TOKEN') {
         clearToken()
+        void fetchToken()
       }
       setHandshakeStatus('error')
       if (code === 'CONTROLLER_TAKEN') {
@@ -614,11 +617,15 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       clearReconnectTimer()
       socket.disconnect()
     }
-  }, [clearReconnectTimer, clearToken, debugCompanion, recordReconnectEvent, scheduleReconnect, setReconnectStateSafe, socket])
+  }, [clearReconnectTimer, clearToken, debugCompanion, fetchToken, recordReconnectEvent, scheduleReconnect, setReconnectStateSafe, socket])
 
   useEffect(() => {
     if (!lastErrorCode) return
     console.warn('[companion] last error code', lastErrorCode)
+  }, [lastErrorCode])
+
+  useEffect(() => {
+    lastErrorCodeRef.current = lastErrorCode
   }, [lastErrorCode])
 
   const value = useMemo(

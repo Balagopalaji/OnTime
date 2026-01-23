@@ -338,6 +338,13 @@ export const FirebaseDataProvider = ({
   const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(() =>
     typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
   )
+  const setConnectionStatusFromSnapshot = useCallback((fromCache?: boolean) => {
+    if (fromCache) {
+      setConnectionStatus('offline')
+      return
+    }
+    setConnectionStatus('online')
+  }, [])
   const [pendingRooms] = useState<Set<string>>(new Set())
   const [pendingRoomPlaceholders] = useState<
     Array<{ roomId: string; title: string; expiresAt: number; createdAt: number; order?: number }>
@@ -383,7 +390,7 @@ export const FirebaseDataProvider = ({
         next.forEach((room) => {
           pendingNudgeRef.current[room.id] = 0
         })
-        setConnectionStatus('online')
+        setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
       },
       (error: FirestoreError) => {
         console.error('rooms snapshot error', error)
@@ -391,7 +398,7 @@ export const FirebaseDataProvider = ({
       },
     )
     return unsubscribe
-  }, [fallbackToMock, firestore, subscriptionEpoch, user])
+  }, [fallbackToMock, firestore, setConnectionStatusFromSnapshot, subscriptionEpoch, user])
 
   useEffect(() => {
     if (fallbackToMock || !user || !firestore) return undefined
@@ -454,7 +461,7 @@ export const FirebaseDataProvider = ({
           }))
           // Clear any optimistic nudge accumulator once Firestore has acknowledged a state update.
           pendingNudgeRef.current[room.id] = 0
-          setConnectionStatus('online')
+          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
         },
         (error: FirestoreError) => {
           console.error('room state snapshot error', error)
@@ -472,7 +479,7 @@ export const FirebaseDataProvider = ({
             ...prev,
             [room.id]: timersForRoom.sort((a, b) => a.order - b.order),
           }))
-          setConnectionStatus('online')
+          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
         },
         (error: FirestoreError) => {
           console.error('timers snapshot error', error)
@@ -498,7 +505,7 @@ export const FirebaseDataProvider = ({
             ...prev,
             [room.id]: records,
           }))
-          setConnectionStatus('online')
+          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
         },
         (error: FirestoreError) => {
           console.error('live cues snapshot error', error)
@@ -523,7 +530,7 @@ export const FirebaseDataProvider = ({
             return left - right
           })
           setCues((prev) => ({ ...prev, [room.id]: cuesForRoom }))
-          setConnectionStatus('online')
+          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
         },
         (error: FirestoreError) => {
           console.error('cues snapshot error', error)
@@ -543,7 +550,7 @@ export const FirebaseDataProvider = ({
     return () => {
       unsubs.forEach((unsub) => unsub && unsub())
     }
-  }, [fallbackToMock, firestore, subscriptionEpoch, user, rooms])
+  }, [fallbackToMock, firestore, rooms, setConnectionStatusFromSnapshot, subscriptionEpoch, user])
 
   const visibleRooms = useMemo(
     () =>

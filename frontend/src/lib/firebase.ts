@@ -1,7 +1,7 @@
-import { getApps, initializeApp, getApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence } from 'firebase/auth'
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
-import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
+import { getApps, initializeApp, getApp, type FirebaseApp } from 'firebase/app'
+import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence, type Auth } from 'firebase/auth'
+import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase/firestore'
+import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -22,6 +22,17 @@ let app: ReturnType<typeof initializeApp> | null = null
 let auth: ReturnType<typeof getAuth> | null = null
 let db: ReturnType<typeof getFirestore> | null = null
 let functions: ReturnType<typeof getFunctions> | null = null
+
+declare global {
+  interface Window {
+    firebase?: {
+      app: FirebaseApp | null
+      auth: Auth | null
+      db: Firestore | null
+      functions: Functions | null
+    }
+  }
+}
 
 if (hasConfig) {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig)
@@ -54,7 +65,7 @@ if (useEmulator && functions) {
 
 // For debugging and console tests
 if (typeof window !== 'undefined') {
-  (window as any).firebase = { app, auth, db, functions };
+  window.firebase = { app, auth, db, functions }
 }
 
 export { app, auth, db, functions }
