@@ -96,13 +96,13 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 **Goal:** Deliver manual show planning and cueing workflows.
 
 ### Pass A: Data + Rules
-- [ ] **Cloud/Firebase:** Add Firestore rules and validation for sections, segments, cues, crew chat.
-- [ ] **Cloud/Firebase:** Add Firestore rules for operator access: `config/invite`, `operators`, `blocked` (include blocklist checks).
-- [ ] **Cloud/Firebase:** Add Cloud Function `joinAsOperator` for invite validation and operator creation.
-- [ ] **Frontend:** Add client types for Phase 3 entities (including `Operator`, `InviteConfig`, `BlockedUser`).
-- [ ] **Frontend:** Implement cue sync behavior per the locked authority model.
-- [ ] **Companion:** Implement dedicated cue queue (cap: 150, key: `ontime:cueQueue:{roomId}`).
-- [ ] **Tests:** rules/unit coverage for operator access and cue writes.
+- [x] **Cloud/Firebase:** Add Firestore rules and validation for sections, segments, cues, crew chat.
+- [x] **Cloud/Firebase:** Add Firestore rules for operator access: `config/invite`, `operators`, `blocked` (include blocklist checks).
+- [x] **Cloud/Firebase:** Add Cloud Function `joinAsOperator` for invite validation and operator creation.
+- [x] **Frontend:** Add client types for Phase 3 entities (including `Operator`, `InviteConfig`, `BlockedUser`).
+- [x] **Frontend:** Implement cue sync behavior per the locked authority model.
+- [x] **Companion:** Implement dedicated cue queue (cap: 150, key: `ontime:cueQueue:{roomId}`).
+- [x] **Tests:** rules/unit coverage for operator access and cue writes.
 - [ ] **Acceptance:** operators can join via invite; blocked users cannot write cues; cue queue persists and replays.
 
 ### Pass B: Sections + Segments UI
