@@ -506,6 +506,15 @@ type RoomStatePatchPayload = {
 type TimerType = 'countdown' | 'countup' | 'timeofday';
 type MessageColor = 'green' | 'yellow' | 'red' | 'blue' | 'white' | 'none';
 const ALLOWED_MESSAGE_COLORS = new Set<MessageColor>(['green', 'yellow', 'red', 'blue', 'white', 'none']);
+const ALLOWED_CUE_ROLES = new Set<OperatorRole>(['lx', 'ax', 'vx', 'sm', 'foh', 'custom']);
+const ALLOWED_CUE_TRIGGER_TYPES = new Set<CueTriggerType>([
+  'timed',
+  'fixed_time',
+  'sequential',
+  'follow',
+  'floating',
+]);
+const ALLOWED_CUE_ACK_STATES = new Set<CueAckState>(['pending', 'done', 'skipped']);
 
 type Timer = {
   id: string;
@@ -602,6 +611,113 @@ type TimersReordered = {
   timestamp: number;
 };
 
+type OperatorRole = 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom';
+type CueTriggerType = 'timed' | 'fixed_time' | 'sequential' | 'follow' | 'floating';
+type CueAckState = 'pending' | 'done' | 'skipped';
+
+type Cue = {
+  id: string;
+  roomId: string;
+  role: OperatorRole;
+  title: string;
+  notes?: string;
+  sectionId?: string;
+  segmentId?: string;
+  order?: number;
+  triggerType: CueTriggerType;
+  offsetMs?: number;
+  timeBase?: 'actual' | 'planned';
+  targetTimeMs?: number;
+  afterCueId?: string;
+  approximatePosition?: number;
+  triggerNote?: string;
+  ackState?: CueAckState;
+  ackAt?: number;
+  ackBy?: string;
+  createdBy: string;
+  createdAt?: number;
+  updatedAt?: number;
+  editedBy?: string;
+  createdByRole?: OperatorRole;
+  editedByRole?: OperatorRole;
+  editNote?: string;
+};
+
+type CreateCuePayload = {
+  type: 'CREATE_CUE';
+  roomId: string;
+  cue: Partial<Cue>;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type UpdateCuePayload = {
+  type: 'UPDATE_CUE';
+  roomId: string;
+  cueId: string;
+  changes: Partial<Cue>;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type DeleteCuePayload = {
+  type: 'DELETE_CUE';
+  roomId: string;
+  cueId: string;
+  clientId?: string;
+  timestamp?: number;
+};
+
+type ReorderCuesPayload = {
+  type: 'REORDER_CUES';
+  roomId: string;
+  cueIds: string[];
+  clientId?: string;
+  timestamp?: number;
+};
+
+type CueError = {
+  type: 'CUE_ERROR';
+  roomId: string;
+  code: 'INVALID_PAYLOAD' | 'INVALID_FIELDS' | 'NOT_FOUND';
+  message: string;
+  clientId?: string;
+  timestamp: number;
+};
+
+type CueCreated = {
+  type: 'CUE_CREATED';
+  roomId: string;
+  cue: Cue;
+  clientId?: string;
+  timestamp: number;
+};
+
+type CueUpdated = {
+  type: 'CUE_UPDATED';
+  roomId: string;
+  cueId: string;
+  changes: Partial<Cue>;
+  clientId?: string;
+  timestamp: number;
+};
+
+type CueDeleted = {
+  type: 'CUE_DELETED';
+  roomId: string;
+  cueId: string;
+  clientId?: string;
+  timestamp: number;
+};
+
+type CuesReordered = {
+  type: 'CUES_REORDERED';
+  roomId: string;
+  cueIds: string[];
+  clientId?: string;
+  timestamp: number;
+};
+
 let io: SocketIOServer | null = null;
 let ioSecure: SocketIOServer | null = null;
 let httpServer: HttpServer | null = null;
@@ -619,6 +735,7 @@ function emitToRoom(roomId: string, event: string, payload: unknown) {
 }
 const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
+const roomCuesStore: Map<string, Map<string, Cue>> = new Map();
 const liveCuesStore: Map<string, Map<string, { cue: LiveCue; updatedAt: number }>> = new Map();
 
 function getRoomLiveCues(roomId: string): Map<string, { cue: LiveCue; updatedAt: number }> {
@@ -2969,6 +3086,10 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
     socket.on('UPDATE_TIMER', (payload) => handleUpdateTimer(socket, payload));
     socket.on('DELETE_TIMER', (payload) => handleDeleteTimer(socket, payload));
     socket.on('REORDER_TIMERS', (payload) => handleReorderTimers(socket, payload));
+    socket.on('CREATE_CUE', (payload) => handleCreateCue(socket, payload));
+    socket.on('UPDATE_CUE', (payload) => handleUpdateCue(socket, payload));
+    socket.on('DELETE_CUE', (payload) => handleDeleteCue(socket, payload));
+    socket.on('REORDER_CUES', (payload) => handleReorderCues(socket, payload));
     socket.on('HEARTBEAT', (payload) => handleHeartbeat(socket, payload));
     socket.on('REQUEST_CONTROL', (payload) => handleRequestControl(socket, payload));
     socket.on('FORCE_TAKEOVER', (payload) => handleForceTakeover(socket, payload));
@@ -5069,6 +5190,27 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     socket.emit('TIMERS_REORDERED', reordered);
   }
 
+  // Emit cue snapshot so newly joined clients have current manual cues.
+  const cues = listRoomCues(payload.roomId);
+  cues.forEach((cue) => {
+    const created: CueCreated = {
+      type: 'CUE_CREATED',
+      roomId: payload.roomId,
+      cue,
+      timestamp: Date.now(),
+    };
+    socket.emit('CUE_CREATED', created);
+  });
+  if (cues.length > 0) {
+    const reordered: CuesReordered = {
+      type: 'CUES_REORDERED',
+      roomId: payload.roomId,
+      cueIds: cues.map((cue) => cue.id),
+      timestamp: Date.now(),
+    };
+    socket.emit('CUES_REORDERED', reordered);
+  }
+
   // Send current live cues (including PPT cue with videos) so client has full state
   const roomCues = getRoomLiveCues(payload.roomId);
   roomCues.forEach(({ cue, updatedAt }) => {
@@ -5808,6 +5950,29 @@ function handleTimerAction(socket: Socket, payload: unknown) {
 
 const TIMER_TITLE_MAX_LEN = 120;
 const ALLOWED_TIMER_PATCH_KEYS = new Set(['title', 'duration', 'speaker', 'type']);
+const CUE_TITLE_MAX_LEN = 160;
+const ALLOWED_CUE_PATCH_KEYS = new Set([
+  'role',
+  'title',
+  'notes',
+  'sectionId',
+  'segmentId',
+  'order',
+  'triggerType',
+  'offsetMs',
+  'timeBase',
+  'targetTimeMs',
+  'afterCueId',
+  'approximatePosition',
+  'triggerNote',
+  'ackState',
+  'ackAt',
+  'ackBy',
+  'editedBy',
+  'createdByRole',
+  'editedByRole',
+  'editNote',
+]);
 
 function getRoomTimers(roomId: string): Map<string, Timer> {
   if (roomTimersStore.has(roomId)) return roomTimersStore.get(roomId)!;
@@ -5855,6 +6020,79 @@ function normalizeTimerOrder(roomId: string, orderedTimerIds?: string[]) {
   return finalOrder;
 }
 
+function getRoomCues(roomId: string): Map<string, Cue> {
+  if (roomCuesStore.has(roomId)) return roomCuesStore.get(roomId)!;
+  const map = new Map<string, Cue>();
+  roomCuesStore.set(roomId, map);
+  scheduleRoomCacheWrite();
+  return map;
+}
+
+function listRoomCues(roomId: string): Cue[] {
+  return [...getRoomCues(roomId).values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+function normalizeCueTitle(title: string): string {
+  return title.trim().slice(0, CUE_TITLE_MAX_LEN);
+}
+
+function normalizeCueRole(input: unknown): OperatorRole {
+  if (typeof input === 'string' && ALLOWED_CUE_ROLES.has(input as OperatorRole)) {
+    return input as OperatorRole;
+  }
+  return 'custom';
+}
+
+function normalizeCueTriggerType(input: unknown): CueTriggerType {
+  if (typeof input === 'string' && ALLOWED_CUE_TRIGGER_TYPES.has(input as CueTriggerType)) {
+    return input as CueTriggerType;
+  }
+  return 'timed';
+}
+
+function normalizeCueAckState(input: unknown): CueAckState | undefined {
+  if (typeof input === 'string' && ALLOWED_CUE_ACK_STATES.has(input as CueAckState)) {
+    return input as CueAckState;
+  }
+  return undefined;
+}
+
+function normalizeCueOrder(roomId: string, orderedCueIds?: string[]) {
+  const existing = listRoomCues(roomId);
+  const existingIds = new Set(existing.map((cue) => cue.id));
+
+  const explicit: string[] = [];
+  if (orderedCueIds) {
+    orderedCueIds.forEach((id) => {
+      if (existingIds.has(id)) explicit.push(id);
+    });
+  }
+
+  const remainder = existing.map((cue) => cue.id).filter((id) => !explicit.includes(id));
+  const finalOrder = [...explicit, ...remainder];
+
+  finalOrder.forEach((id, index) => {
+    const cue = getRoomCues(roomId).get(id);
+    if (cue) {
+      cue.order = (index + 1) * 10;
+    }
+  });
+  scheduleRoomCacheWrite();
+  return finalOrder;
+}
+
+function emitCueError(socket: Socket, roomId: string, code: CueError['code'], message: string, clientId?: string) {
+  const payload: CueError = {
+    type: 'CUE_ERROR',
+    roomId,
+    code,
+    message,
+    clientId,
+    timestamp: Date.now(),
+  };
+  socket.emit('CUE_ERROR', payload);
+}
+
 function emitTimerError(socket: Socket, roomId: string, code: TimerError['code'], message: string, clientId?: string) {
   const payload: TimerError = {
     type: 'TIMER_ERROR',
@@ -5893,6 +6131,35 @@ function isValidReorderTimersPayload(payload: unknown): payload is ReorderTimers
     typeof data.roomId === 'string' &&
     Array.isArray(data.timerIds) &&
     data.timerIds.every((id) => typeof id === 'string')
+  );
+}
+
+function isValidCreateCuePayload(payload: unknown): payload is CreateCuePayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<CreateCuePayload>;
+  return data.type === 'CREATE_CUE' && typeof data.roomId === 'string' && !!data.cue && typeof data.cue === 'object';
+}
+
+function isValidUpdateCuePayload(payload: unknown): payload is UpdateCuePayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<UpdateCuePayload>;
+  return data.type === 'UPDATE_CUE' && typeof data.roomId === 'string' && typeof data.cueId === 'string' && !!data.changes && typeof data.changes === 'object';
+}
+
+function isValidDeleteCuePayload(payload: unknown): payload is DeleteCuePayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<DeleteCuePayload>;
+  return data.type === 'DELETE_CUE' && typeof data.roomId === 'string' && typeof data.cueId === 'string';
+}
+
+function isValidReorderCuesPayload(payload: unknown): payload is ReorderCuesPayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = payload as Partial<ReorderCuesPayload>;
+  return (
+    data.type === 'REORDER_CUES' &&
+    typeof data.roomId === 'string' &&
+    Array.isArray(data.cueIds) &&
+    data.cueIds.every((id) => typeof id === 'string')
   );
 }
 
@@ -6110,6 +6377,281 @@ function handleReorderTimers(socket: Socket, payload: unknown) {
 
   emitToRoom(roomId, 'TIMERS_REORDERED', event);
   console.log(`[ws] TIMERS_REORDERED room=${roomId} by=${clientId ?? socket.id} count=${finalOrder.length}`);
+}
+
+function handleCreateCue(socket: Socket, payload: unknown) {
+  if (!isValidCreateCuePayload(payload)) {
+    emitCueError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid CREATE_CUE payload.', socket.data.clientId);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+
+  const title = typeof payload.cue.title === 'string' ? normalizeCueTitle(payload.cue.title) : '';
+  const createdBy = typeof payload.cue.createdBy === 'string' ? payload.cue.createdBy.trim() : '';
+  if (!title || !createdBy) {
+    emitCueError(socket, roomId, 'INVALID_FIELDS', 'Cue requires title and createdBy.', clientId);
+    return;
+  }
+
+  const cueId = typeof payload.cue.id === 'string' && payload.cue.id.trim()
+    ? payload.cue.id.trim()
+    : crypto.randomUUID();
+  const role = normalizeCueRole(payload.cue.role);
+  const triggerType = normalizeCueTriggerType(payload.cue.triggerType);
+
+  const existing = listRoomCues(roomId);
+  const nextOrder = typeof payload.cue.order === 'number' && Number.isFinite(payload.cue.order)
+    ? payload.cue.order
+    : existing.length
+      ? Math.max(...existing.map((cue) => cue.order ?? 0)) + 10
+      : 10;
+
+  const cue: Cue = {
+    id: cueId,
+    roomId,
+    role,
+    title,
+    notes: typeof payload.cue.notes === 'string' ? payload.cue.notes : undefined,
+    sectionId: typeof payload.cue.sectionId === 'string' ? payload.cue.sectionId : undefined,
+    segmentId: typeof payload.cue.segmentId === 'string' ? payload.cue.segmentId : undefined,
+    order: nextOrder,
+    triggerType,
+    offsetMs: typeof payload.cue.offsetMs === 'number' ? payload.cue.offsetMs : undefined,
+    timeBase: payload.cue.timeBase === 'planned' ? 'planned' : 'actual',
+    targetTimeMs: typeof payload.cue.targetTimeMs === 'number' ? payload.cue.targetTimeMs : undefined,
+    afterCueId: typeof payload.cue.afterCueId === 'string' ? payload.cue.afterCueId : undefined,
+    approximatePosition: typeof payload.cue.approximatePosition === 'number' ? payload.cue.approximatePosition : undefined,
+    triggerNote: typeof payload.cue.triggerNote === 'string' ? payload.cue.triggerNote : undefined,
+    ackState: normalizeCueAckState(payload.cue.ackState),
+    ackAt: typeof payload.cue.ackAt === 'number' ? payload.cue.ackAt : undefined,
+    ackBy: typeof payload.cue.ackBy === 'string' ? payload.cue.ackBy : undefined,
+    createdBy,
+    createdAt: typeof payload.cue.createdAt === 'number' ? payload.cue.createdAt : now,
+    updatedAt: now,
+    editedBy: typeof payload.cue.editedBy === 'string' ? payload.cue.editedBy : undefined,
+    createdByRole: payload.cue.createdByRole ? normalizeCueRole(payload.cue.createdByRole) : undefined,
+    editedByRole: payload.cue.editedByRole ? normalizeCueRole(payload.cue.editedByRole) : undefined,
+    editNote: typeof payload.cue.editNote === 'string' ? payload.cue.editNote : undefined,
+  };
+
+  const cues = getRoomCues(roomId);
+  if (cues.has(cueId)) {
+    emitCueError(socket, roomId, 'INVALID_FIELDS', 'Cue id already exists.', clientId);
+    return;
+  }
+
+  cues.set(cueId, cue);
+  normalizeCueOrder(roomId);
+
+  const event: CueCreated = {
+    type: 'CUE_CREATED',
+    roomId,
+    cue,
+    clientId,
+    timestamp: now,
+  };
+
+  if (!socket.rooms.has(roomId)) {
+    socket.join(roomId);
+  }
+
+  emitToRoom(roomId, 'CUE_CREATED', event);
+  console.log(`[ws] CUE_CREATED room=${roomId} cue=${cueId} by=${clientId ?? socket.id}`);
+}
+
+function handleUpdateCue(socket: Socket, payload: unknown) {
+  if (!isValidUpdateCuePayload(payload)) {
+    emitCueError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid UPDATE_CUE payload.', socket.data.clientId);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+  const cueId = payload.cueId;
+
+  const cues = getRoomCues(roomId);
+  const cue = cues.get(cueId);
+  if (!cue) {
+    emitCueError(socket, roomId, 'NOT_FOUND', 'Cue not found.', clientId);
+    return;
+  }
+
+  const keys = Object.keys(payload.changes as Record<string, unknown>);
+  const invalidKey = keys.find((key) => !ALLOWED_CUE_PATCH_KEYS.has(key));
+  if (invalidKey) {
+    emitCueError(socket, roomId, 'INVALID_FIELDS', `Unsupported change key: ${invalidKey}`, clientId);
+    return;
+  }
+
+  const changes: Partial<Cue> = {};
+  if (typeof payload.changes.title === 'string') {
+    const nextTitle = normalizeCueTitle(payload.changes.title);
+    if (!nextTitle) {
+      emitCueError(socket, roomId, 'INVALID_FIELDS', 'Title cannot be empty.', clientId);
+      return;
+    }
+    changes.title = nextTitle;
+  }
+  if (payload.changes.role !== undefined) {
+    changes.role = normalizeCueRole(payload.changes.role);
+  }
+  if (payload.changes.triggerType !== undefined) {
+    changes.triggerType = normalizeCueTriggerType(payload.changes.triggerType);
+  }
+  if (payload.changes.notes !== undefined) {
+    changes.notes = typeof payload.changes.notes === 'string' ? payload.changes.notes : undefined;
+  }
+  if (payload.changes.sectionId !== undefined) {
+    changes.sectionId = typeof payload.changes.sectionId === 'string' ? payload.changes.sectionId : undefined;
+  }
+  if (payload.changes.segmentId !== undefined) {
+    changes.segmentId = typeof payload.changes.segmentId === 'string' ? payload.changes.segmentId : undefined;
+  }
+  if (payload.changes.order !== undefined) {
+    const nextOrder = payload.changes.order;
+    if (typeof nextOrder !== 'number' || !Number.isFinite(nextOrder)) {
+      emitCueError(socket, roomId, 'INVALID_FIELDS', 'Order must be a number.', clientId);
+      return;
+    }
+    changes.order = nextOrder;
+  }
+  if (payload.changes.offsetMs !== undefined) {
+    changes.offsetMs = typeof payload.changes.offsetMs === 'number' ? payload.changes.offsetMs : undefined;
+  }
+  if (payload.changes.timeBase !== undefined) {
+    changes.timeBase = payload.changes.timeBase === 'planned' ? 'planned' : 'actual';
+  }
+  if (payload.changes.targetTimeMs !== undefined) {
+    changes.targetTimeMs = typeof payload.changes.targetTimeMs === 'number' ? payload.changes.targetTimeMs : undefined;
+  }
+  if (payload.changes.afterCueId !== undefined) {
+    changes.afterCueId = typeof payload.changes.afterCueId === 'string' ? payload.changes.afterCueId : undefined;
+  }
+  if (payload.changes.approximatePosition !== undefined) {
+    changes.approximatePosition = typeof payload.changes.approximatePosition === 'number' ? payload.changes.approximatePosition : undefined;
+  }
+  if (payload.changes.triggerNote !== undefined) {
+    changes.triggerNote = typeof payload.changes.triggerNote === 'string' ? payload.changes.triggerNote : undefined;
+  }
+  if (payload.changes.ackState !== undefined) {
+    changes.ackState = normalizeCueAckState(payload.changes.ackState);
+  }
+  if (payload.changes.ackAt !== undefined) {
+    changes.ackAt = typeof payload.changes.ackAt === 'number' ? payload.changes.ackAt : undefined;
+  }
+  if (payload.changes.ackBy !== undefined) {
+    changes.ackBy = typeof payload.changes.ackBy === 'string' ? payload.changes.ackBy : undefined;
+  }
+  if (payload.changes.editedBy !== undefined) {
+    changes.editedBy = typeof payload.changes.editedBy === 'string' ? payload.changes.editedBy : undefined;
+  }
+  if (payload.changes.createdByRole !== undefined) {
+    changes.createdByRole = normalizeCueRole(payload.changes.createdByRole);
+  }
+  if (payload.changes.editedByRole !== undefined) {
+    changes.editedByRole = normalizeCueRole(payload.changes.editedByRole);
+  }
+  if (payload.changes.editNote !== undefined) {
+    changes.editNote = typeof payload.changes.editNote === 'string' ? payload.changes.editNote : undefined;
+  }
+
+  const updated = { ...cue, ...changes, updatedAt: now };
+  cues.set(cueId, updated);
+  scheduleRoomCacheWrite();
+
+  const event: CueUpdated = {
+    type: 'CUE_UPDATED',
+    roomId,
+    cueId,
+    changes: { ...changes, updatedAt: now },
+    clientId,
+    timestamp: now,
+  };
+
+  if (!socket.rooms.has(roomId)) {
+    socket.join(roomId);
+  }
+
+  emitToRoom(roomId, 'CUE_UPDATED', event);
+  console.log(`[ws] CUE_UPDATED room=${roomId} cue=${cueId} by=${clientId ?? socket.id}`);
+}
+
+function handleDeleteCue(socket: Socket, payload: unknown) {
+  if (!isValidDeleteCuePayload(payload)) {
+    emitCueError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid DELETE_CUE payload.', socket.data.clientId);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+  const cueId = payload.cueId;
+
+  const cues = getRoomCues(roomId);
+  if (!cues.has(cueId)) {
+    emitCueError(socket, roomId, 'NOT_FOUND', 'Cue not found.', clientId);
+    return;
+  }
+
+  cues.delete(cueId);
+  scheduleRoomCacheWrite();
+
+  const deleted: CueDeleted = {
+    type: 'CUE_DELETED',
+    roomId,
+    cueId,
+    clientId,
+    timestamp: now,
+  };
+  emitToRoom(roomId, 'CUE_DELETED', deleted);
+  console.log(`[ws] CUE_DELETED room=${roomId} cue=${cueId} by=${clientId ?? socket.id}`);
+}
+
+function handleReorderCues(socket: Socket, payload: unknown) {
+  if (!isValidReorderCuesPayload(payload)) {
+    emitCueError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid REORDER_CUES payload.', socket.data.clientId);
+    return;
+  }
+
+  if (!enforceControllerAccess(socket, payload.roomId)) {
+    return;
+  }
+
+  const now = payload.timestamp ?? Date.now();
+  const clientId = socket.data.clientId ?? payload.clientId;
+  const roomId = payload.roomId;
+
+  const finalOrder = normalizeCueOrder(roomId, payload.cueIds);
+  const event: CuesReordered = {
+    type: 'CUES_REORDERED',
+    roomId,
+    cueIds: finalOrder,
+    clientId,
+    timestamp: now,
+  };
+
+  if (!socket.rooms.has(roomId)) {
+    socket.join(roomId);
+  }
+
+  emitToRoom(roomId, 'CUES_REORDERED', event);
+  console.log(`[ws] CUES_REORDERED room=${roomId} by=${clientId ?? socket.id} count=${finalOrder.length}`);
 }
 
 function isValidTimerActionPayload(payload: unknown): payload is TimerActionPayload {
@@ -6566,6 +7108,7 @@ async function loadRoomCache() {
       lastWrite?: number;
       rooms?: Record<string, RoomState>;
       timers?: Record<string, Timer[]>;
+      cues?: Record<string, Cue[]>;
       controlAudit?: Record<string, Array<{
         action: 'request' | 'force' | 'handover' | 'deny';
         actorId: string;
@@ -6620,6 +7163,19 @@ async function loadRoomCache() {
         });
         if (map.size) {
           roomTimersStore.set(roomId, map);
+        }
+      });
+    }
+    if (parsed.cues) {
+      Object.entries(parsed.cues).forEach(([roomId, cues]) => {
+        const map = new Map<string, Cue>();
+        (cues ?? []).forEach((cue) => {
+          if (cue && typeof cue.id === 'string') {
+            map.set(cue.id, cue);
+          }
+        });
+        if (map.size) {
+          roomCuesStore.set(roomId, map);
         }
       });
     }
@@ -6744,6 +7300,12 @@ async function writeRoomCache() {
         [...roomTimersStore.entries()].map(([roomId, timerMap]) => [
           roomId,
           [...timerMap.values()].sort((a, b) => a.order - b.order),
+        ])
+      ),
+      cues: Object.fromEntries(
+        [...roomCuesStore.entries()].map(([roomId, cueMap]) => [
+          roomId,
+          [...cueMap.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
         ])
       ),
       controlAudit: Object.fromEntries(roomControlAuditStore.entries()),
