@@ -117,6 +117,7 @@ Wire arbitrate() into room state: resolveRoomSource, pickSource, and handleRoomS
 </task>
 <context>
 - Keep hold per-room (Option B).
+- Remove global hold key usage: `companionHoldUntilRef.current['*']` must be replaced with per-room keys.
 - No timer math changes.
 - Do not alter lock logic.
 - Use getConfidenceWindowMs(reconnectChurn) as confidenceWindowMs.
@@ -174,6 +175,7 @@ Apply arbitrate() to PIN merge. Remove cloud-preferred short‑circuit, keep own
 <context>
 - Arbitration is not authorization.
 - No changes to lock semantics.
+- Timeout: reset cloudToCompanionInFlight after 30 seconds if no companion echo.
 </context>
 ```
 
