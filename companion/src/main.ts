@@ -526,6 +526,7 @@ type Timer = {
   speaker?: string;
   type: TimerType;
   order: number;
+  updatedAt?: number;
 };
 
 type CreateTimerPayload = {
@@ -5971,7 +5972,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
 }
 
 const TIMER_TITLE_MAX_LEN = 120;
-const ALLOWED_TIMER_PATCH_KEYS = new Set(['title', 'duration', 'speaker', 'type']);
+const ALLOWED_TIMER_PATCH_KEYS = new Set(['title', 'duration', 'speaker', 'type', 'updatedAt']);
 const CUE_TITLE_MAX_LEN = 160;
 const ALLOWED_CUE_PATCH_KEYS = new Set([
   'role',
@@ -5994,6 +5995,7 @@ const ALLOWED_CUE_PATCH_KEYS = new Set([
   'createdByRole',
   'editedByRole',
   'editNote',
+  'updatedAt',
 ]);
 
 function getRoomTimers(roomId: string): Map<string, Timer> {
@@ -6035,7 +6037,11 @@ function normalizeTimerOrder(roomId: string, orderedTimerIds?: string[]) {
   finalOrder.forEach((id, index) => {
     const timer = getRoomTimers(roomId).get(id);
     if (timer) {
-      timer.order = (index + 1) * 10;
+      const newOrder = (index + 1) * 10;
+      if (timer.order !== newOrder) {
+        timer.order = newOrder;
+        timer.updatedAt = Date.now();
+      }
     }
   });
   scheduleRoomCacheWrite();
@@ -6096,7 +6102,11 @@ function normalizeCueOrder(roomId: string, orderedCueIds?: string[]) {
   finalOrder.forEach((id, index) => {
     const cue = getRoomCues(roomId).get(id);
     if (cue) {
-      cue.order = (index + 1) * 10;
+      const newOrder = (index + 1) * 10;
+      if (cue.order !== newOrder) {
+        cue.order = newOrder;
+        cue.updatedAt = Date.now();
+      }
     }
   });
   scheduleRoomCacheWrite();
@@ -6224,6 +6234,7 @@ function handleCreateTimer(socket: Socket, payload: unknown) {
     speaker,
     type,
     order,
+    updatedAt: now,
   };
 
   const timers = getRoomTimers(roomId);
@@ -6303,6 +6314,7 @@ function handleUpdateTimer(socket: Socket, payload: unknown) {
   if (payload.changes.type !== undefined) {
     changes.type = normalizeTimerType(payload.changes.type);
   }
+  changes.updatedAt = now;
 
   timers.set(timerId, { ...timer, ...changes });
   scheduleRoomCacheWrite();
