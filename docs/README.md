@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-27
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -17,6 +17,9 @@ This index lists canonical documentation by type and links to the feature matrix
 - **Reference**: Authoritative logic or decisions.
 - **Tasklist**: Execution tracking.
 - **Index**: Doc indexes and matrices.
+
+## Core Architecture
+- **Parallel sync:** Dual-channel Cloud + Companion with timestamp-based conflict resolution and safe reconnect.
 
 ## Doc Creation Rules
 - Prefer updating an existing doc when the scope fits (avoid new files by default).

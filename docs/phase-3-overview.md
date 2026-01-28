@@ -2,7 +2,7 @@
 Type: Plan
 Status: planned
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-27
 Scope: Phase 3 plan for Show Controller definition, LAN offline viewers, and Show Planner build.
 ---
 
@@ -17,6 +17,7 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - Deliver LAN offline viewers with secure pairing, trusted HTTPS, and role-bound tokens.
 - Ship Show Controller/Planner features (sections, segments, cues, crew chat) with role-based viewer panels.
 - Preserve timer logic invariants and parallel sync stability.
+- Reinforce parallel sync principles (no single primary; timestamp arbitration with confidence window).
 
 ## Key Dependencies
 - `docs/local-offline-lan-plan.md` (LAN viewer constraints and security).

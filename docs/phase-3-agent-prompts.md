@@ -2,11 +2,13 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-21
+Last updated: 2026-01-27
 Scope: RepoPrompt agent prompt list for Phase 3 implementation passes.
 ---
 
-# Phase 3 Agent Prompts (RepoPrompt)
+# Phase 3 Agent Prompts
+
+**Parallel sync guardrail:** Dual-write always; timestamp arbitration with confidence window; never assume Cloud or Companion is primary.
 
 Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a single pass in
 `docs/phase-3-tasklist.md`. Keep each agent run small, scoped, and verifiable.

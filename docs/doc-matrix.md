@@ -2,7 +2,7 @@
 Type: Index
 Status: draft
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-27
 Scope: Feature-to-document mapping with implementation verification status.
 ---
 
@@ -23,6 +23,7 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Companion connection + token flow | `docs/local-server-prd.md` | PRD | current | `frontend/src/context/CompanionConnectionContext.tsx`, `companion/src/main.ts` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | Companion controller lock + takeover | `docs/local-server-prd.md` | PRD | current | `companion/src/main.ts` |  |  |  |
 | Cloud controller lock enforcement (Milestone 5) | `docs/cloud-lock-design.md` | Reference | planned | `firebase/firestore.rules`, `firebase/functions/*` (planned), `frontend/src/context/UnifiedDataContext.tsx` |  |  | `docs/phase-2-tasklist.md` |
+| Parallel sync principles | `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-mode.md` | PRD/Reference | current | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Parallel sync queue + replay | `docs/local-mode.md` | Reference | current | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Bridge sync (Local ↔ Cloud) | `docs/local-mode.md` | Reference | planned | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Firestore schema + rules | `docs/cloud-server-prd.md` | PRD | current | `firebase/firestore.rules` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
@@ -49,6 +50,7 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Phase 3 pairing UX | `docs/phase-3-pairing-ux.md` | Reference | draft | n/a |  |  |  |
 | Phase 3 bundle strategy | `docs/phase-3-bundle-strategy.md` | Reference | draft | n/a |  |  |  |
 | Phase 3 cert trust UX | `docs/phase-3-cert-trust-ux.md` | Reference | draft | n/a |  |  |  |
+| Phase 3 troubleshooting log | `docs/phase-3-troubleshooting.md` | Reference | draft | n/a |  |  |  |
 | Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |
 | PowerPoint video timing debug notes (Windows, dev-only) | `docs/ppt-video-debug.md` | Reference | current | `companion/src/main.ts` |  |  |  |
 | Standalone PowerPoint video timer app | `docs/phase-3-standalone-ppt-timer.md` | Plan | draft | `companion/ppt-probe/Program.cs` |  |  |  |

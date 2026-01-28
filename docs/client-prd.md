@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-22
+Last updated: 2026-01-27
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -37,6 +37,13 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Timer math and transitions follow `docs/timer-logic.md`.
 - Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
 - Room tier defaults to `basic` on creation; tier selection UI is deferred to Phase 3.
+
+### Parallel Sync Principles (Core Architecture)
+- **No single primary:** Firebase and Companion are equal sources of truth.
+- **Dual-write always:** If a channel is available, we write to it. We do not switch write targets.
+- **Timestamp arbitration:** Readers pick the freshest `lastUpdate`.
+- **Confidence window:** Mode is only a tie-breaker when timestamps are within ~2s.
+- **Safe reconnect:** A returning source must sync before it can override state.
 
 ## Phase 2 UX (Electron Controller + Transport)
 **Mode selector + status**

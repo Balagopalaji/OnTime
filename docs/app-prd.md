@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-19
+Last updated: 2026-01-27
 Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 ---
 
@@ -37,6 +37,13 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - Public viewer route is accessible without authentication.
 - Timer math is anchored to shared rules in `docs/timer-logic.md`.
 - Local mode flows and edge cases are documented in `docs/local-mode.md` and `docs/edge-cases.md`.
+
+### Parallel Sync Principles (Core Architecture)
+- **No single primary:** Firebase and Companion are equal sources of truth.
+- **Dual-write always:** If a channel is available, we write to it. We do not switch write targets.
+- **Timestamp arbitration:** Readers pick the freshest `lastUpdate`.
+- **Confidence window:** Mode is only a tie-breaker when timestamps are within ~2s.
+- **Safe reconnect:** A returning source must sync before it can override state.
 
 ## Controller Lock Enforcement (Target: Milestone 5)
 

@@ -67,6 +67,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Phase 3B Pass D validation: viewer tokens cannot invoke REQUEST_CONTROL or FORCE_TAKEOVER; server returns PERMISSION_DENIED.
 - Phase 3C Pass A validation: Firestore rules tests passed (operator role match, blocked operator, owner override, unauthenticated read denial).
 - Phase 3C Pass A validation: joinAsOperator emulator test passed (invite code + auth path).
+- Troubleshooting notes: see `docs/phase-3-troubleshooting.md` for ongoing Phase 3C issues.
 
 ## Pass 3B E QA (Offline QA + Recovery)
 -- Status: manual QA executed for core items; edge-case QA still pending (IPv6-only, Docker/VM bridges, multi-NIC).
