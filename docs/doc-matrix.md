@@ -2,7 +2,7 @@
 Type: Index
 Status: draft
 Owner: KDB
-Last updated: 2026-01-27
+Last updated: 2026-01-28
 Scope: Feature-to-document mapping with implementation verification status.
 ---
 
@@ -23,7 +23,11 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Companion connection + token flow | `docs/local-server-prd.md` | PRD | current | `frontend/src/context/CompanionConnectionContext.tsx`, `companion/src/main.ts` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | Companion controller lock + takeover | `docs/local-server-prd.md` | PRD | current | `companion/src/main.ts` |  |  |  |
 | Cloud controller lock enforcement (Milestone 5) | `docs/cloud-lock-design.md` | Reference | planned | `firebase/firestore.rules`, `firebase/functions/*` (planned), `frontend/src/context/UnifiedDataContext.tsx` |  |  | `docs/phase-2-tasklist.md` |
-| Parallel sync principles | `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-mode.md` | PRD/Reference | current | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
+| Parallel sync principles | `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-mode.md`, `docs/phase-3-unified-arbitration-plan.md` | PRD/Reference/Plan | current | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
+| Unified arbitration plan | `docs/phase-3-unified-arbitration-plan.md` | Plan | draft | n/a |  |  |  |
+| Arbitration roadmap | `docs/phase-3-arbitration-roadmap.md` | Plan | draft | n/a |  |  |  |
+| Arbitration agent guide | `docs/phase-3-arbitration-agent-guide.md` | Reference | draft | n/a |  |  |  |
+| Arbitration research summary | `docs/phase-3-arbitration-research.md` | Reference | draft | n/a |  |  |  |
 | Parallel sync queue + replay | `docs/local-mode.md` | Reference | current | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Bridge sync (Local ↔ Cloud) | `docs/local-mode.md` | Reference | planned | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Firestore schema + rules | `docs/cloud-server-prd.md` | PRD | current | `firebase/firestore.rules` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |

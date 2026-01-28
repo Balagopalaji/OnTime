@@ -1,7 +1,15 @@
+---
+Type: Plan
+Status: draft
+Owner: KDB
+Last updated: 2026-01-28
+Scope: Unified arbitration rules + phased rollout plan.
+---
+
 # Phase 3 Unified Arbitration Plan
 
-Date: 2026-01-27
-Branch: fix/companion-cloud-issues
+Date: 2026-01-28
+Branch: phase-3-arbitration
 
 ## Intent
 Unify all cross-source arbitration (Cloud + Companion) under a single helper so authority, pin, locks, timers, cues, and live cues follow the same freshness rules. This directly implements the Parallel Sync philosophy: dual write, read by freshness, no hard master.
@@ -58,7 +66,7 @@ export type ArbitrationDomain = 'room' | 'lock' | 'pin' | 'timer' | 'cue' | 'liv
 export type ArbitrationInput = {
   roomId: string
   domain: ArbitrationDomain
-  resourceId?: string // future shared control / per-item arbitration
+  resourceId?: string // future shared control / per-item arbitration (room/lock/pin: roomId; timer/cue/liveCue: item id)
   cloudTs?: number | null
   companionTs?: number | null
   authoritySource?: 'cloud' | 'companion'
@@ -67,6 +75,7 @@ export type ArbitrationInput = {
   isCompanionLive: boolean
   cloudOnline: boolean
   confidenceWindowMs: number
+  skewThreshold?: number // default 10 * 60 * 1000 (10 minutes)
   controllerTieBreaker?: 'cloud' | 'companion'
   viewerSyncGuard?: boolean
   holdActive?: boolean
@@ -95,8 +104,8 @@ Suggested rule order (refined):
 2) If !isCompanionLive → cloud.
 3) If !cloudOnline → companion.
 4) Viewer guard (viewerSyncGuard boolean = authority.status === 'syncing' && isViewerClient(roomId)) → cloud.
-5) If holdActive and timestamp delta within confidence window → keep authoritySource/preferSource (reason: hold active).
-6) If abs(cloudTs - companionTs) > skewThreshold and both sources are online with timestamps → choose cloud (reason: skew guard).
+5) If holdActive AND abs(cloudTs - companionTs) <= confidenceWindowMs → keep authoritySource/preferSource (reason: hold active).
+6) If abs(cloudTs - companionTs) > skewThreshold (10 minutes) and both sources are online with timestamps → choose cloud (reason: skew guard).
 7) If both sides are online but **no data on either side** → return last accepted source or cached (reason: no data - both empty).
 8) If one side has no data → accept the other (reason: no data).
 9) If cloudTs/companionTs missing → fallback to mode or preferSource.
@@ -182,6 +191,9 @@ Add the helper in `frontend/src/context/UnifiedDataContext.tsx` or `frontend/src
 - Clarify implementation:
   - If companion has a PPT record and cloud does not, keep companion.
   - If both exist, use helper to choose version (or merge videos), but never drop companion PPT solely due to room-level arbitration.
+  - If cloud has a PPT record and companion does not:
+    - If companion is live and expected to own PPT, treat as companion-cleared (do not resurrect unless newer).
+    - If companion is not live, keep cloud record until companion reconnects.
   - For PPT video metadata, record-level merge wins over room-level arbitration (keep richer companion metadata when newer/equal).
 - Live cues are record-level arbitration; room-level source should not suppress companion-only records.
 
@@ -212,4 +224,3 @@ if (import.meta.env.VITE_DEBUG_ARBITRATION === 'true') {
 ## Raw reports
 
 See `docs/phase-3-arbitration-research.md` for verbatim research outputs.
-

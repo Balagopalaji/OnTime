@@ -44,7 +44,7 @@ DataProvider
 ```
 
 `UnifiedDataContext` is the critical orchestration layer that:
-- Tracks room authority (cloud/companion/pending)
+- Tracks room authority (cloud/companion)
 - Caches room snapshots in localStorage (max 20 items)
 - Queues events for offline support (max 100 items)
 - Handles Socket.IO events from Companion
@@ -98,6 +98,7 @@ elapsedOffset: number  // base elapsed ms for paused state
 - Interface contract: `docs/interface.md`
 - Product requirements: `docs/app-prd.md`, `docs/client-prd.md`, `docs/cloud-server-prd.md`, `docs/local-server-prd.md`
 - Local mode design: `docs/local-mode.md`, `docs/local-offline-lan-plan.md`
+- Arbitration plan: `docs/phase-3-unified-arbitration-plan.md`, `docs/phase-3-arbitration-roadmap.md`
 - Phase 3 planning: `docs/phase-3-tasklist.md`, `docs/phase-3-decisions.md`, `docs/phase-3-pairing-ux.md`, `docs/phase-3-bundle-strategy.md`, `docs/phase-3-cert-trust-ux.md`
 
 ## Environment Variables

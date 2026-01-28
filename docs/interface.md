@@ -2,7 +2,7 @@
 Type: Interface
 Status: current
 Owner: KDB
-Last updated: 2026-01-22
+Last updated: 2026-01-28
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
@@ -171,7 +171,7 @@ Notes:
 - `ackBy?: string`
 - `createdBy: string`
 - `createdAt?: number`
-- `updatedAt?: number`
+- `updatedAt?: number` (required for cross-source arbitration)
 - `editedBy?: string`
 - `createdByRole?: string` (roleKey)
 - `editedByRole?: string` (roleKey)

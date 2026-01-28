@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: draft
+Owner: KDB
+Last updated: 2026-01-28
+Scope: Curated summary of arbitration research and raw reports.
+---
+
 # Phase 3 Arbitration Research Summary
 
 Date: 2026-01-27

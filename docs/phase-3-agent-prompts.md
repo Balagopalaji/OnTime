@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-27
+Last updated: 2026-01-28
 Scope: RepoPrompt agent prompt list for Phase 3 implementation passes.
 ---
 
@@ -15,7 +15,7 @@ Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a singl
 
 ## Global Guidance (include in every prompt)
 - Read `docs/phase-3-tasklist.md` and the relevant pass before coding.
-- Also read: `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/cloud-server-prd.md`, `docs/local-offline-lan-plan.md`, `docs/interface.md`, `docs/local-mode.md`, `docs/edge-cases.md`.
+- Also read: `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/cloud-server-prd.md`, `docs/local-offline-lan-plan.md`, `docs/interface.md`, `docs/local-mode.md`, `docs/edge-cases.md`, `docs/phase-3-unified-arbitration-plan.md`, `docs/phase-3-arbitration-agent-guide.md`.
 - Respect scope exclusions for the milestone.
 - Avoid touching parallel sync logic unless the pass explicitly requires it.
 - Default feature flags off until QA signoff.

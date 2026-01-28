@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2026-01-27
+Last updated: 2026-01-28
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -51,6 +51,8 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/phase-2-overview.md`
 - `docs/phase-3-overview.md`
 - `docs/phase-4-overview.md`
+- `docs/phase-3-unified-arbitration-plan.md` (parallel sync arbitration plan)
+- `docs/phase-3-arbitration-roadmap.md` (arbitration implementation roadmap)
 - `docs/phase-3-standalone-ppt-timer.md` (standalone PowerPoint video timer draft)
 
 ## References
@@ -64,6 +66,9 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/phase-3-pairing-ux.md` (Phase 3 LAN viewer pairing UX)
 - `docs/phase-3-bundle-strategy.md` (Phase 3 LAN viewer bundle strategy)
 - `docs/phase-3-cert-trust-ux.md` (Phase 3 LAN viewer cert trust UX)
+- `docs/phase-3-unified-arbitration-plan.md` (arbitration source of truth)
+- `docs/phase-3-arbitration-research.md` (arbitration research summary)
+- `docs/phase-3-arbitration-agent-guide.md` (arbitration agent guide)
 
 ## Tasklists
 - `docs/tasks.md`
