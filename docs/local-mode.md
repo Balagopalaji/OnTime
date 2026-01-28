@@ -124,6 +124,7 @@ The frontend uses a Unified Data Provider architecture where Firebase and Compan
    - Sync orchestration: sends `SYNC_ROOM_STATE` when controller joins Companion room
 
 ### 3.3 Parallel Sync & Flawless Fallback Architecture
+> ⚠️ **SUPERSEDED (Arbitration Rules):** The arbitration rule order and confidence-window logic in this section are superseded by `docs/phase-3-unified-arbitration-plan.md`. Use that plan as the authoritative source of truth for cross-source arbitration.
 
 **Target behavior:** This section describes intended behavior. Items marked "TO BE IMPLEMENTED" are not yet in code.
 

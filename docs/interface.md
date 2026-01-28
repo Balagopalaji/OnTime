@@ -98,6 +98,7 @@ Notes:
 - `segmentId?: string` (optional link to segment)
 - `segmentOrder?: number` (sequence within segment; 0 = primary timer)
 - `adjustmentLog?: Array<{ timestamp: number; delta: number; deviceId: string; reason: 'manual' | 'sync' | 'migration' }>`
+- `updatedAt?: number` (write-through timestamp; required for cross-source arbitration)
 Notes:
 - Timers with the same `segmentId` are sequential; `segmentOrder` controls display/order.
 - Parallel timers are not supported in Phase 3; use a second room for truly concurrent timers.
