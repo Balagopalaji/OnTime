@@ -11,6 +11,7 @@ export type Timer = {
   speaker?: string
   type: TimerType
   order: number
+  updatedAt?: number
   adjustmentLog?: TimerAdjustment[]
 }
 

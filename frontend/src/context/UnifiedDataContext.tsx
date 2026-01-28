@@ -3607,6 +3607,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleTimersReordered = (payload: TimersReorderedPayload) => {
       if (payload.clientId && payload.clientId === clientId) return
+      const updatedAt = payload.timestamp ?? Date.now()
       setCompanionTimers((prev) => {
         const list = prev[payload.roomId] ?? []
         const byId = new Map(list.map((timer) => [timer.id, timer] as const))
@@ -3614,7 +3615,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         payload.timerIds.forEach((id, idx) => {
           const timer = byId.get(id)
           if (!timer) return
-          ordered.push({ ...timer, order: (idx + 1) * 10 })
+          const newOrder = (idx + 1) * 10
+          if (timer.order === newOrder) {
+            ordered.push(timer)
+          } else {
+            ordered.push({ ...timer, order: newOrder, updatedAt })
+          }
           byId.delete(id)
         })
         const remainder = [...byId.values()].sort((a, b) => a.order - b.order)
@@ -3709,6 +3715,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleCuesReordered = (payload: CuesReorderedPayload) => {
       if (payload.clientId && payload.clientId === clientId) return
+      const updatedAt = payload.timestamp ?? Date.now()
       setCompanionCues((prev) => {
         const list = prev[payload.roomId] ?? []
         const byId = new Map(list.map((cue) => [cue.id, cue] as const))
@@ -3716,7 +3723,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         payload.cueIds.forEach((id, idx) => {
           const cue = byId.get(id)
           if (!cue) return
-          ordered.push({ ...cue, order: (idx + 1) * 10 })
+          const newOrder = (idx + 1) * 10
+          if (cue.order === newOrder) {
+            ordered.push(cue)
+          } else {
+            ordered.push({ ...cue, order: newOrder, updatedAt })
+          }
           byId.delete(id)
         })
         const remainder = [...byId.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -4558,7 +4570,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         const newDuration = Math.max(0, activeTimer.duration + deltaSec)
         // Set originalDuration on first nudge so reset can restore it
         const originalDuration = activeTimer.originalDuration ?? activeTimer.duration
-        const changes: Partial<Timer> = { duration: newDuration }
+        const changes: Partial<Timer> = { duration: newDuration, updatedAt: Date.now() }
         if (activeTimer.originalDuration === undefined) {
           changes.originalDuration = originalDuration
         }
@@ -4639,6 +4651,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         speaker: input.speaker ?? '',
         type: 'countdown',
         order: nextOrder,
+        updatedAt: Date.now(),
       }
 
       setCompanionTimers((prev) => {
@@ -4780,6 +4793,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
       const state = ensureCompanionRoomState(roomId)
       const now = Date.now()
+      const patchWithUpdatedAt = { ...(patch as Partial<Timer>), updatedAt: now }
 
       setCompanionTimers((prev) => {
         // Use cached timers as base if companion timers don't exist yet
@@ -4789,7 +4803,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return {
           ...prev,
           [roomId]: list
-            .map((timer) => (timer.id === timerId ? { ...timer, ...(patch as Partial<Timer>) } : timer))
+            .map((timer) => (timer.id === timerId ? { ...timer, ...patchWithUpdatedAt } : timer))
             .sort((a, b) => a.order - b.order),
         }
       })
@@ -4857,14 +4871,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         type: 'UPDATE_TIMER',
         roomId,
         timerId,
-        changes: patch,
-        timestamp: Date.now(),
+        changes: patchWithUpdatedAt,
+        timestamp: now,
         clientId,
       })
 
       if (firestore && canWriteThrough(roomId)) {
         const timerRef = doc(firestore, 'rooms', roomId, 'timers', timerId)
-        await setDoc(timerRef, { ...patch, updatedAt: Date.now() } as Record<string, unknown>, { merge: true }).catch(
+        await setDoc(timerRef, { ...patchWithUpdatedAt } as Record<string, unknown>, { merge: true }).catch(
           () => undefined,
         )
 
@@ -5151,7 +5165,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const [moved] = ordered.splice(fromIndex, 1)
       const clampedIndex = Math.max(0, Math.min(targetIndex, ordered.length))
       ordered.splice(clampedIndex, 0, moved)
-      const next = ordered.map((timer, idx) => ({ ...timer, order: (idx + 1) * 10 }))
+      const now = Date.now()
+      const next = ordered.map((timer, idx) => {
+        const newOrder = (idx + 1) * 10
+        if (timer.order === newOrder) return timer
+        return { ...timer, order: newOrder, updatedAt: now }
+      })
 
       setCompanionTimers((prev) => ({ ...prev, [roomId]: next }))
 
@@ -5159,16 +5178,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         type: 'REORDER_TIMERS',
         roomId,
         timerIds: next.map((timer) => timer.id),
-        timestamp: Date.now(),
+        timestamp: now,
         clientId,
       })
 
       if (firestore && canWriteThrough(roomId)) {
         const batch = writeBatch(firestore)
         next.forEach((timer) => {
-          batch.set(doc(firestore, 'rooms', roomId, 'timers', timer.id), { order: timer.order } as Record<string, unknown>, {
-            merge: true,
-          })
+          const updates: Record<string, unknown> = { order: timer.order }
+          if (timer.updatedAt) updates.updatedAt = timer.updatedAt
+          batch.set(doc(firestore, 'rooms', roomId, 'timers', timer.id), updates, { merge: true })
         })
         await batch.commit().catch(() => undefined)
       }
@@ -5456,7 +5475,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           return {
             ...prev,
             [roomId]: existing
-              .map((timer) => (timer.id === targetId ? { ...timer, duration: restoredDuration, originalDuration: undefined } : timer))
+              .map((timer) =>
+                timer.id === targetId
+                  ? { ...timer, duration: restoredDuration, originalDuration: undefined, updatedAt: now }
+                  : timer,
+              )
               .sort((a, b) => a.order - b.order),
           }
         })
@@ -5465,7 +5488,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           type: 'UPDATE_TIMER',
           roomId,
           timerId: targetId,
-          changes: { duration: restoredDuration },
+          changes: { duration: restoredDuration, updatedAt: now },
           timestamp: now,
           clientId,
         })

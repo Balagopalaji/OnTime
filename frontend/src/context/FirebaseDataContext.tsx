@@ -746,6 +746,7 @@ export const FirebaseDataProvider = ({
       speaker: input.speaker ?? '',
       type: 'countdown',
       order: Date.now(),
+      updatedAt: Date.now(),
     }
     await setDoc(timerRef, timer)
     const room = getRoom(roomId)
@@ -811,7 +812,7 @@ export const FirebaseDataProvider = ({
       if (migratingRoomsRef.current.has(roomId) || !firestore) return
       const room = getRoom(roomId)
       try {
-        await updateDoc(doc(firestore, 'rooms', roomId, 'timers', timerId), patch)
+        await updateDoc(doc(firestore, 'rooms', roomId, 'timers', timerId), { ...patch, updatedAt: Date.now() })
         if (patch.duration !== undefined && room) {
           const stateUpdates: Record<string, unknown> =
             (room._version ?? 1) === 2
@@ -1017,8 +1018,14 @@ export const FirebaseDataProvider = ({
     if (index === -1 || swapIndex < 0 || swapIndex >= ordered.length) return
       ;[ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]]
     const batch = writeBatch(firestore)
+    const now = Date.now()
     ordered.forEach((timer, idx) => {
-      batch.update(doc(firestore, 'rooms', roomId, 'timers', timer.id), { order: (idx + 1) * 10 })
+      const newOrder = (idx + 1) * 10
+      const updates: Record<string, unknown> = { order: newOrder }
+      if (timer.order !== newOrder) {
+        updates.updatedAt = now
+      }
+      batch.update(doc(firestore, 'rooms', roomId, 'timers', timer.id), updates)
     })
     await batch.commit()
   }, [firestore, getTimers])
@@ -1032,8 +1039,14 @@ export const FirebaseDataProvider = ({
     const clampedIndex = Math.max(0, Math.min(targetIndex, ordered.length))
     ordered.splice(clampedIndex, 0, moved)
     const batch = writeBatch(firestore)
+    const now = Date.now()
     ordered.forEach((timer, idx) => {
-      batch.update(doc(firestore, 'rooms', roomId, 'timers', timer.id), { order: (idx + 1) * 10 })
+      const newOrder = (idx + 1) * 10
+      const updates: Record<string, unknown> = { order: newOrder }
+      if (timer.order !== newOrder) {
+        updates.updatedAt = now
+      }
+      batch.update(doc(firestore, 'rooms', roomId, 'timers', timer.id), updates)
     })
     await batch.commit()
   }, [firestore, getTimers])
@@ -1139,6 +1152,7 @@ export const FirebaseDataProvider = ({
         await updateDoc(doc(firestore, 'rooms', roomId, 'timers', activeId), {
           duration: activeTimer.originalDuration,
           originalDuration: deleteField(),
+          updatedAt: Date.now(),
         })
       }
     }
@@ -1157,7 +1171,7 @@ export const FirebaseDataProvider = ({
       const deltaSec = Math.round(deltaMs / 1000)
       const newDuration = Math.max(0, activeTimer.duration + deltaSec)
       // Set originalDuration on first nudge so reset can restore it
-      const updates: Record<string, unknown> = { duration: newDuration }
+    const updates: Record<string, unknown> = { duration: newDuration, updatedAt: Date.now() }
       if (activeTimer.originalDuration === undefined) {
         updates.originalDuration = activeTimer.duration
       }
