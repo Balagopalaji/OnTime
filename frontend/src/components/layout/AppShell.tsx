@@ -229,22 +229,23 @@ export const AppShell = () => {
 
   const cloudBanner = useMemo(() => {
     if (cloudBannerDismissed) return null
+    const companionNote = connection.isConnected ? '' : ' Companion is not connected.'
     if (data.connectionStatus === 'offline') {
       return {
         tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
         title: 'Cloud offline',
-        detail: 'Cloud sync is down. Local Companion changes still apply if connected.',
+        detail: `Cloud sync is down. Local Companion changes still apply if connected.${companionNote}`,
       }
     }
     if (data.connectionStatus === 'reconnecting') {
       return {
         tone: 'border-amber-800/50 bg-amber-950/80 text-amber-200',
         title: 'Reconnecting to cloud',
-        detail: 'We will resync as soon as cloud returns.',
+        detail: `We will resync as soon as cloud returns.${companionNote}`,
       }
     }
     return null
-  }, [cloudBannerDismissed, data.connectionStatus])
+  }, [cloudBannerDismissed, connection.isConnected, data.connectionStatus])
 
   const capabilityBanner = useMemo(() => {
     if (capabilityBannerDismissed) return null
@@ -280,12 +281,13 @@ export const AppShell = () => {
     const tokenError =
       connection.lastErrorCode === 'INVALID_TOKEN' || connection.lastErrorCode === 'TOKEN_MISSING'
     if (!tokenError) return null
+    if (connection.reconnectState !== 'stopped') return null
     return {
       tone: 'border-rose-800/50 bg-rose-950/80 text-rose-200',
       title: 'Companion needs a new token',
       detail: 'Reconnect to refresh the Companion token and restore local features.',
     }
-  }, [connection.lastErrorCode, tokenBannerDismissed])
+  }, [connection.lastErrorCode, connection.reconnectState, tokenBannerDismissed])
 
   const reconnectBanner = useMemo(() => {
     const isCompanionReady = connection.isConnected && connection.handshakeStatus === 'ack'
@@ -479,7 +481,12 @@ export const AppShell = () => {
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${modeTone}`}
                 >
                   <option value="cloud">Cloud</option>
-                  <option value="auto">Auto{mode === 'auto' ? ` (${effectiveMode})` : ''}</option>
+                  <option value="auto">
+                    Auto
+                    {mode === 'auto'
+                      ? ` (${effectiveMode === 'local' && !connection.isConnected && data.connectionStatus !== 'online' ? 'offline' : effectiveMode})`
+                      : ''}
+                  </option>
                   <option value="local">Local</option>
                 </select>
               </div>

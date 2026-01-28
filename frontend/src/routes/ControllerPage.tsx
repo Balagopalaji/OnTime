@@ -39,7 +39,7 @@ import {
   type LanPairingInfo,
   type LanPairingStatus,
 } from '../lib/companion-pairing'
-import type { LiveCueRecord } from '../types'
+import type { LiveCueRecord, ControllerClient } from '../types'
 
 type PresentationEntry = {
   key: string
@@ -52,6 +52,124 @@ const buildPresentationKey = (record: LiveCueRecord) => {
   const slideNumber = record.cue.metadata?.slideNumber
   if (!filename && slideNumber === undefined) return record.cue.id
   return `${filename ?? 'unknown'}::${slideNumber ?? 'unknown'}`
+}
+
+const ROOM_CLIENT_IDLE_MS = {
+  cloud: 300_000,
+  companion: 300_000,
+}
+
+const ROOM_CLIENT_MAX_AGE_MS = {
+  cloud: 900_000,
+  companion: 900_000,
+}
+
+const getClientPresenceThresholds = (source?: 'cloud' | 'companion') => {
+  if (source === 'cloud') {
+    return { idleMs: ROOM_CLIENT_IDLE_MS.cloud, maxAgeMs: ROOM_CLIENT_MAX_AGE_MS.cloud }
+  }
+  if (source === 'companion') {
+    return { idleMs: ROOM_CLIENT_IDLE_MS.companion, maxAgeMs: ROOM_CLIENT_MAX_AGE_MS.companion }
+  }
+  return { idleMs: ROOM_CLIENT_IDLE_MS.companion, maxAgeMs: ROOM_CLIENT_MAX_AGE_MS.companion }
+}
+
+const getClientPresenceState = (
+  client: { lastHeartbeat?: number; source?: 'cloud' | 'companion' },
+  now: number,
+): 'active' | 'idle' | 'stale' => {
+  if (typeof client.lastHeartbeat !== 'number') return 'active'
+  const { idleMs, maxAgeMs } = getClientPresenceThresholds(client.source)
+  const age = now - client.lastHeartbeat
+  if (age <= idleMs) return 'active'
+  if (age <= maxAgeMs) return 'idle'
+  return 'stale'
+}
+
+type MergedClientRow = {
+  key: string
+  displayName: string
+  sources: Array<'cloud' | 'companion'>
+  lastHeartbeat?: number
+  targetClientId: string
+  preferredSource: 'cloud' | 'companion'
+}
+
+type RoomPinMeta = { value: string | null; updatedAt: number; source: 'cloud' | 'companion' }
+
+const buildClientDisplayName = (client: ControllerClient) => {
+  if (client.userName && client.deviceName) return `${client.userName} · ${client.deviceName}`
+  return client.userName ?? client.deviceName ?? 'Controller'
+}
+
+const mergeClientSourcesForDisplay = (
+  clients: ControllerClient[],
+  preferredSource?: 'cloud' | 'companion',
+): MergedClientRow[] => {
+  const grouped = new Map<
+    string,
+    { clients: ControllerClient[]; sources: Set<'cloud' | 'companion'> }
+  >()
+
+  clients.forEach((client) => {
+    const deviceKey = client.deviceName?.trim()
+    const userKey = client.userId?.trim()
+    const groupKey = deviceKey
+      ? `device:${deviceKey}`
+      : userKey
+      ? `user:${userKey}`
+      : `client:${client.clientId}`
+    const bucket = grouped.get(groupKey) ?? { clients: [], sources: new Set() }
+    bucket.clients.push(client)
+    if (client.source === 'cloud' || client.source === 'companion') {
+      bucket.sources.add(client.source)
+    }
+    grouped.set(groupKey, bucket)
+  })
+
+  return [...grouped.entries()].map(([key, bucket]) => {
+    const sources = [...bucket.sources.values()]
+    const sorted = [...bucket.clients].sort(
+      (a, b) => (b.lastHeartbeat ?? 0) - (a.lastHeartbeat ?? 0),
+    )
+    const primary = sorted[0]
+    const clientIdsBySource: Partial<Record<'cloud' | 'companion', string>> = {}
+    bucket.clients.forEach((client) => {
+      if (client.source === 'cloud' && !clientIdsBySource.cloud) {
+        clientIdsBySource.cloud = client.clientId
+      }
+      if (client.source === 'companion' && !clientIdsBySource.companion) {
+        clientIdsBySource.companion = client.clientId
+      }
+    })
+    const preferred =
+      (preferredSource && clientIdsBySource[preferredSource]) ||
+      (clientIdsBySource.companion ? 'companion' : clientIdsBySource.cloud ? 'cloud' : undefined)
+    const preferredSourceResolved =
+      preferred === 'cloud' || preferred === 'companion'
+        ? preferred
+        : primary.source === 'cloud'
+          ? 'cloud'
+          : 'companion'
+    const lastHeartbeat = bucket.clients.reduce((max, client) => {
+      const ts = client.lastHeartbeat ?? 0
+      return ts > max ? ts : max
+    }, 0)
+    const heartbeatValue = lastHeartbeat > 0 ? lastHeartbeat : undefined
+    const targetClientId =
+      preferredSourceResolved === 'cloud'
+        ? clientIdsBySource.cloud ?? primary.clientId
+        : clientIdsBySource.companion ?? primary.clientId
+
+    return {
+      key,
+      displayName: buildClientDisplayName(primary),
+      sources,
+      lastHeartbeat: heartbeatValue,
+      targetClientId,
+      preferredSource: preferredSourceResolved,
+    }
+  })
 }
 
 export const ControllerPage = () => {
@@ -178,7 +296,8 @@ export const ControllerPage = () => {
     (roomAuthority?.source === 'companion' || roomAuthority?.source === 'cloud') && !isCloudOffline
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
   const isReadOnly = lockState !== 'authoritative' || isCloudOffline
-  const roomPin = roomId ? getRoomPin(roomId) : null
+  const roomPinMeta = roomId ? (getRoomPin(roomId) as RoomPinMeta | null) : null
+  const roomPin = roomPinMeta?.value ?? null
   const isOwner = Boolean(room?.ownerId && user?.uid && room.ownerId === user.uid)
   const canEditPin = Boolean(room && isOwner)
   const pinPermissionLabel = user ? 'Owner only' : 'Sign in to edit'
@@ -264,10 +383,19 @@ export const ControllerPage = () => {
   const [controlNow, setControlNow] = useState(() => Date.now())
   const activeRoomClients = useMemo(() => {
     const now = controlNow
-    return roomClientList.filter(
-      (client) => typeof client.lastHeartbeat === 'number' && now - client.lastHeartbeat < 30_000,
-    )
+    return roomClientList.filter((client) => {
+      if (typeof client.lastHeartbeat !== 'number') return true
+      const { maxAgeMs } = getClientPresenceThresholds(client.source)
+      return now - client.lastHeartbeat < maxAgeMs
+    })
   }, [controlNow, roomClientList])
+  const displayRoomClients = useMemo(() => {
+    const source =
+      roomAuthority?.source === 'cloud' || roomAuthority?.source === 'companion'
+        ? roomAuthority.source
+        : undefined
+    return mergeClientSourcesForDisplay(activeRoomClients, source)
+  }, [activeRoomClients, roomAuthority?.source])
   const [ignoredRequestTs, setIgnoredRequestTs] = useState<number | null>(null)
   const [dismissedDenialTs, setDismissedDenialTs] = useState<number | null>(null)
   const [dismissedDisplacementTs, setDismissedDisplacementTs] = useState<number | null>(null)
@@ -285,6 +413,8 @@ export const ControllerPage = () => {
   const [forcePromptOpen, setForcePromptOpen] = useState(false)
   const [forcePromptMode, setForcePromptMode] = useState<'pin' | 'confirm'>('pin')
   const [forcePinDraft, setForcePinDraft] = useState('')
+  const [forceTakeoverInFlight, setForceTakeoverInFlight] = useState(false)
+  const forceTakeoverTimeoutRef = useRef<number | null>(null)
   const forcePinInputRef = useRef<HTMLInputElement | null>(null)
   const pinInputRef = useRef<HTMLInputElement | null>(null)
   const [handoverOpen, setHandoverOpen] = useState(false)
@@ -323,10 +453,10 @@ export const ControllerPage = () => {
       : controllerLock?.userName ?? controllerLock?.deviceName ?? 'another device'
   const availableHandoverTargets = useMemo(
     () =>
-      activeRoomClients.filter(
-        (client) => client.clientType === 'controller' && client.clientId !== controllerLock?.clientId,
+      displayRoomClients.filter(
+        (client) => client.targetClientId !== controllerLock?.clientId,
       ),
-    [activeRoomClients, controllerLock?.clientId],
+    [controllerLock?.clientId, displayRoomClients],
   )
   const canForceNow = true
   const visibleDenial = denial && dismissedDenialTs !== denial.deniedAt ? denial : null
@@ -509,13 +639,13 @@ export const ControllerPage = () => {
 
   useEffect(() => {
     if (!roomId) return
-    if (lockState !== 'authoritative') return
     if (!sendHeartbeat) return
+    if (roomAuthority?.source === 'cloud') return
     const beat = () => sendHeartbeat(roomId)
     beat()
     const id = window.setInterval(beat, 30_000)
     return () => window.clearInterval(id)
-  }, [lockState, roomId, sendHeartbeat])
+  }, [roomAuthority?.source, roomId, sendHeartbeat])
 
   useEffect(() => {
     if (!denial) return
@@ -620,6 +750,10 @@ export const ControllerPage = () => {
       return
     }
     if (!currentRoomId || !controlTargetTimerId) return
+    if (controlTargetTimerId !== room?.state.activeTimerId) {
+      setSelectedTimerId(controlTargetTimerId)
+      setShortcutScope('rundown')
+    }
     bumpCompanionOnActivity('play')
     void startTimer(currentRoomId, controlTargetTimerId)
   }
@@ -630,6 +764,10 @@ export const ControllerPage = () => {
       return
     }
     if (!currentRoomId || !controlTargetTimerId) return
+    if (controlTargetTimerId !== room?.state.activeTimerId) {
+      setSelectedTimerId(controlTargetTimerId)
+      setShortcutScope('rundown')
+    }
     bumpCompanionOnActivity('pause')
     if (controlTargetTimerId !== room.state.activeTimerId) {
       void setActiveTimer(room.id, controlTargetTimerId)
@@ -643,6 +781,10 @@ export const ControllerPage = () => {
       return
     }
     if (!currentRoomId || !controlTargetTimerId) return
+    if (controlTargetTimerId !== room?.state.activeTimerId) {
+      setSelectedTimerId(controlTargetTimerId)
+      setShortcutScope('rundown')
+    }
     bumpCompanionOnActivity('reset')
     if (controlTargetTimerId === room.state.activeTimerId) {
       void resetTimer(currentRoomId)
@@ -895,6 +1037,28 @@ export const ControllerPage = () => {
     return digits
   }, [])
 
+  const startForceTakeoverRequest = useCallback(() => {
+    setForceTakeoverInFlight(true)
+    if (forceTakeoverTimeoutRef.current !== null) {
+      window.clearTimeout(forceTakeoverTimeoutRef.current)
+    }
+    forceTakeoverTimeoutRef.current = window.setTimeout(() => {
+      setForceTakeoverInFlight(false)
+      forceTakeoverTimeoutRef.current = null
+    }, 12_000)
+  }, [])
+
+  useEffect(() => {
+    if (!forceTakeoverInFlight) return
+    if (controlError || denial || displacement) {
+      setForceTakeoverInFlight(false)
+      if (forceTakeoverTimeoutRef.current !== null) {
+        window.clearTimeout(forceTakeoverTimeoutRef.current)
+        forceTakeoverTimeoutRef.current = null
+      }
+    }
+  }, [controlError, denial, displacement, forceTakeoverInFlight])
+
   const handleForceTakeover = useCallback(() => {
     if (!room) return
     setForcePromptMode(forceTakeoverReady ? 'confirm' : 'pin')
@@ -911,6 +1075,7 @@ export const ControllerPage = () => {
   const submitForceTakeover = useCallback(async () => {
     if (!room) return
     if (forcePromptMode === 'confirm') {
+      startForceTakeoverRequest()
       forceTakeover(room.id)
       setForcePromptOpen(false)
       return
@@ -922,15 +1087,17 @@ export const ControllerPage = () => {
         window.alert('PIN must be 4-8 digits.')
         return
       }
+      startForceTakeoverRequest()
       forceTakeover(room.id, { pin: normalized })
       setForcePromptOpen(false)
       return
     }
     const ok = await attemptReauth()
     if (!ok) return
+    startForceTakeoverRequest()
     forceTakeover(room.id, { reauthenticated: true })
     setForcePromptOpen(false)
-  }, [attemptReauth, forcePinDraft, forcePromptMode, forceTakeover, normalizePin, room])
+  }, [attemptReauth, forcePinDraft, forcePromptMode, forceTakeover, normalizePin, room, startForceTakeoverRequest])
 
   const handleSetPin = useCallback(() => {
     if (!room) return
@@ -1001,12 +1168,14 @@ export const ControllerPage = () => {
 
   const handleConfirmHandover = useCallback(() => {
     if (!room || !handoverTargetId) return
-    const target = activeRoomClients.find((client) => client.clientId === handoverTargetId)
+    const target = availableHandoverTargets.find(
+      (client) => client.targetClientId === handoverTargetId,
+    )
     if (!target) return
-    handOverControl(room.id, target.clientId)
+    handOverControl(room.id, handoverTargetId)
     setHandoverOpen(false)
     setHandoverTargetId(null)
-  }, [activeRoomClients, handOverControl, handoverTargetId, room])
+  }, [availableHandoverTargets, handOverControl, handoverTargetId, room])
 
   const handleTimezoneSave = () => {
     if (isReadOnly) {
@@ -1467,9 +1636,10 @@ export const ControllerPage = () => {
               <button
                 type="button"
                 onClick={() => void submitForceTakeover()}
-                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200"
+                disabled={forceTakeoverInFlight}
+                className="rounded-full border border-rose-300/70 bg-rose-500/15 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
               >
-                Force takeover
+                {forceTakeoverInFlight ? 'Requesting...' : 'Force takeover'}
               </button>
             </div>
           </div>
@@ -1508,23 +1678,35 @@ export const ControllerPage = () => {
                 </div>
               ) : (
                 availableHandoverTargets.map((client) => {
-                  const label =
-                    client.userName && client.deviceName
-                      ? `${client.userName} · ${client.deviceName}`
-                      : client.userName ?? client.deviceName ?? 'Controller'
-                  const selected = handoverTargetId === client.clientId
+                  const sourceLabel =
+                    client.sources.length > 1
+                      ? 'Cloud+Companion'
+                      : client.sources[0] === 'companion'
+                        ? 'Companion'
+                        : client.sources[0] === 'cloud'
+                          ? 'Cloud'
+                          : null
+                  const presenceState = getClientPresenceState(
+                    { lastHeartbeat: client.lastHeartbeat, source: client.preferredSource },
+                    controlNow,
+                  )
+                  const presenceLabel = presenceState === 'idle' ? 'Idle' : null
+                  const displayLabel = [client.displayName, sourceLabel, presenceLabel]
+                    .filter(Boolean)
+                    .join(' · ')
+                  const selected = handoverTargetId === client.targetClientId
                   return (
                     <button
-                      key={client.clientId}
+                      key={client.key}
                       type="button"
-                      onClick={() => setHandoverTargetId(client.clientId)}
+                      onClick={() => setHandoverTargetId(client.targetClientId)}
                       className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition ${
                         selected
                           ? 'border-rose-300/70 bg-rose-500/10 text-rose-100'
                           : 'border-slate-800 bg-slate-900/60 text-slate-200 hover:border-slate-600'
                       }`}
                     >
-                      <span className="font-semibold">{label}</span>
+                      <span className="font-semibold">{displayLabel}</span>
                       {selected ? <span className="text-xs uppercase tracking-[0.2em]">Selected</span> : null}
                     </button>
                   )
@@ -1782,13 +1964,13 @@ export const ControllerPage = () => {
                   ↻
                 </button>
               </Tooltip>
-              {roomId && lockState === 'authoritative' && !isReadOnly && availableHandoverTargets.length > 0 ? (
+              {roomId && lockState === 'authoritative' && !isReadOnly ? (
                 <Tooltip content="Hand over control">
                   <button
                     type="button"
                     onClick={() => {
                       if (!handoverTargetId && availableHandoverTargets[0]) {
-                        setHandoverTargetId(availableHandoverTargets[0].clientId)
+                        setHandoverTargetId(availableHandoverTargets[0].targetClientId)
                       }
                       setHandoverOpen(true)
                     }}
@@ -2190,10 +2372,16 @@ export const ControllerPage = () => {
                   <button
                     type="button"
                     onClick={handleForceTakeover}
-                    disabled={!forceTakeoverReady && !canForceNow}
+                    disabled={forceTakeoverInFlight || (!forceTakeoverReady && !canForceNow)}
                     className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
                   >
-                    {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
+                    {forceTakeoverInFlight
+                      ? 'Requesting...'
+                      : forceTakeoverReady
+                      ? 'Force'
+                      : canForceNow
+                      ? 'Force now'
+                      : 'Force (PIN)'}
                   </button>
                   <button
                     type="button"
@@ -2230,7 +2418,7 @@ export const ControllerPage = () => {
                   <button
                     type="button"
                     onClick={handleForceTakeover}
-                    disabled={!forceTakeoverReady && !canForceNow}
+                    disabled={forceTakeoverInFlight || (!forceTakeoverReady && !canForceNow)}
                     title={
                       forceTakeoverReady
                         ? 'Force takeover now'
@@ -2240,7 +2428,13 @@ export const ControllerPage = () => {
                     }
                     className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
                   >
-                    {forceTakeoverReady ? 'Force' : canForceNow ? 'Force now' : 'Force (PIN)'}
+                    {forceTakeoverInFlight
+                      ? 'Requesting...'
+                      : forceTakeoverReady
+                      ? 'Force'
+                      : canForceNow
+                      ? 'Force now'
+                      : 'Force (PIN)'}
                   </button>
                   <button
                     type="button"

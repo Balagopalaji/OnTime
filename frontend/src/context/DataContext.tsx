@@ -83,6 +83,8 @@ type ControlError = {
   receivedAt: number
 }
 
+export type RoomPinMeta = { value: string | null; updatedAt: number; source: 'cloud' | 'companion' }
+
 export type DataContextValue = {
   rooms: Room[]
   connectionStatus: ConnectionStatus
@@ -163,7 +165,7 @@ export type DataContextValue = {
     message: Partial<{ text: string; color: MessageColor; visible: boolean }>,
   ) => Promise<void>
   controllerLocks: Record<string, ControllerLock | null>
-  roomPins: Record<string, string | null>
+  roomPins: Record<string, RoomPinMeta | null>
   roomClients: Record<string, ControllerClient[]>
   controlRequests: Record<string, ControlRequest | null>
   pendingControlRequests: Record<string, ControlRequest | null>
@@ -172,7 +174,7 @@ export type DataContextValue = {
   controlErrors: Record<string, ControlError | null>
   getControllerLock: (roomId: string) => ControllerLock | null
   getControllerLockState: (roomId: string) => ControllerLockState
-  getRoomPin: (roomId: string) => string | null
+  getRoomPin: (roomId: string) => RoomPinMeta | null
   setRoomPin: (roomId: string, pin: string | null) => void
   requestControl: (roomId: string, deviceName?: string) => void
   forceTakeover: (roomId: string, options?: { pin?: string; reauthenticated?: boolean }) => void

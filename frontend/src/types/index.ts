@@ -239,4 +239,5 @@ export type ControllerClient = {
   clientType: 'controller' | 'viewer'
   role?: string
   tokenId?: string
+  source?: 'cloud' | 'companion'
 }

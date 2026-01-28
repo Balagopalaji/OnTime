@@ -100,6 +100,26 @@ const parseMajorVersion = (version: string | null | undefined) => {
   return Number.isFinite(major) ? major : null
 }
 
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  const raw = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+  const padded = raw.padEnd(Math.ceil(raw.length / 4) * 4, '=')
+  try {
+    const json = atob(padded)
+    return JSON.parse(json) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+export const getTokenExpiryMs = (token: string): number | null => {
+  const payload = decodeJwtPayload(token)
+  const exp = payload?.exp
+  if (typeof exp !== 'number') return null
+  return exp * 1000
+}
+
 const CompanionConnectionContext = createContext<CompanionConnectionContextValue | undefined>(undefined)
 
 const readStoredToken = (): string | null => {
@@ -185,6 +205,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   const [hasAttemptedDiscovery, setHasAttemptedDiscovery] = useState(false)
   const [lastSeenAt, setLastSeenAt] = useState<number | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
+  const tokenRefreshTimerRef = useRef<number | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectStateRef = useRef<ReconnectState>('idle')
   const capabilitiesSignatureRef = useRef(JSON.stringify({
@@ -253,6 +274,13 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
   }, [])
 
+  const clearTokenRefreshTimer = useCallback(() => {
+    if (tokenRefreshTimerRef.current) {
+      window.clearTimeout(tokenRefreshTimerRef.current)
+      tokenRefreshTimerRef.current = null
+    }
+  }, [])
+
   const fetchToken = useCallback(async () => {
     if (isLanViewer) return null
     const origin = locationInfo.origin
@@ -303,6 +331,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
 
     setToken(token)
     setLastSeenAt(Date.now())
+    setLastErrorCode(null)
     if (socket && !socket.connected) {
       socket.connect()
     }
@@ -476,6 +505,22 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [fetchToken, isConnected, isLanViewer, socket])
 
   useEffect(() => {
+    if (isLanViewer) return undefined
+    clearTokenRefreshTimer()
+    if (!token) return undefined
+    const expAt = getTokenExpiryMs(token)
+    if (!expAt) return undefined
+    const refreshAt = expAt - 60_000
+    const delay = Math.max(1000, refreshAt - Date.now())
+    tokenRefreshTimerRef.current = window.setTimeout(() => {
+      void fetchToken()
+    }, delay)
+    return () => {
+      clearTokenRefreshTimer()
+    }
+  }, [clearTokenRefreshTimer, fetchToken, isLanViewer, token])
+
+  useEffect(() => {
     if (!socket) return
     const handleConnect = () => {
       if (debugCompanion) console.info('[companion] connect')
@@ -623,6 +668,11 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     if (!lastErrorCode) return
     console.warn('[companion] last error code', lastErrorCode)
   }, [lastErrorCode])
+
+  useEffect(() => {
+    if (lastErrorCode !== 'TOKEN_MISSING') return
+    void fetchToken()
+  }, [fetchToken, lastErrorCode])
 
   useEffect(() => {
     lastErrorCodeRef.current = lastErrorCode

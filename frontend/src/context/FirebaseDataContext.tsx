@@ -19,7 +19,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerClient } from '../types'
-import { DataProviderBoundary, type DataContextValue } from './DataContext'
+import { DataProviderBoundary, type DataContextValue, type RoomPinMeta } from './DataContext'
 import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
 import { useAuth } from './AuthContext'
@@ -338,9 +338,12 @@ export const FirebaseDataProvider = ({
   const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(() =>
     typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
   )
+  const connectionStatusRef = useRef(connectionStatus)
   const setConnectionStatusFromSnapshot = useCallback((fromCache?: boolean) => {
     if (fromCache) {
-      setConnectionStatus('offline')
+      if (connectionStatusRef.current === 'reconnecting') return
+      const online = typeof navigator !== 'undefined' && navigator.onLine
+      setConnectionStatus(online ? 'reconnecting' : 'offline')
       return
     }
     setConnectionStatus('online')
@@ -367,18 +370,45 @@ export const FirebaseDataProvider = ({
       setSubscriptionEpoch((prev) => prev + 1)
     }
     const handleOffline = () => setConnectionStatus('offline')
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      if (connectionStatus === 'online') return
+      setSubscriptionEpoch((prev) => prev + 1)
+    }
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    document.addEventListener('visibilitychange', handleVisibility)
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [])
+  }, [connectionStatus])
+
+  useEffect(() => {
+    if (connectionStatus !== 'reconnecting') return undefined
+    const interval = window.setInterval(() => {
+      setSubscriptionEpoch((prev) => prev + 1)
+    }, 10_000)
+    return () => window.clearInterval(interval)
+  }, [connectionStatus])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(
+      new CustomEvent('ontime:cloud-status', { detail: connectionStatus }),
+    )
+  }, [connectionStatus])
+
+  useEffect(() => {
+    connectionStatusRef.current = connectionStatus
+  }, [connectionStatus])
 
   useEffect(() => {
     if (fallbackToMock || !user || !firestore) return undefined
     const unsubscribe = onSnapshot(
       collection(firestore, 'rooms'),
+      { includeMetadataChanges: true },
       (snapshot) => {
         const next = snapshot.docs
           .map((docSnap) => mapRoom(docSnap.id, docSnap.data() as RoomDoc))
@@ -412,6 +442,7 @@ export const FirebaseDataProvider = ({
 
       const stateUnsub = onSnapshot(
         stateDocRef,
+        { includeMetadataChanges: true },
         (docSnap) => {
           if (!docSnap.exists()) return
           const raw = docSnap.data()
@@ -461,7 +492,7 @@ export const FirebaseDataProvider = ({
           }))
           // Clear any optimistic nudge accumulator once Firestore has acknowledged a state update.
           pendingNudgeRef.current[room.id] = 0
-          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
+          setConnectionStatusFromSnapshot(docSnap.metadata?.fromCache)
         },
         (error: FirestoreError) => {
           console.error('room state snapshot error', error)
@@ -470,6 +501,7 @@ export const FirebaseDataProvider = ({
 
       const timersUnsub = onSnapshot(
         timersQuery,
+        { includeMetadataChanges: true },
         (snapshot) => {
           const timersForRoom: Timer[] = []
           snapshot.forEach((docSnap) => {
@@ -490,6 +522,7 @@ export const FirebaseDataProvider = ({
       const liveCuesRef = collection(firestore, 'rooms', room.id, 'liveCues')
       const liveCuesUnsub = onSnapshot(
         liveCuesRef,
+        { includeMetadataChanges: true },
         (snapshot) => {
           const records: LiveCueRecord[] = []
           snapshot.forEach((docSnap) => {
@@ -519,6 +552,7 @@ export const FirebaseDataProvider = ({
       const cuesRef = collection(firestore, 'rooms', room.id, 'cues')
       const cuesUnsub = onSnapshot(
         cuesRef,
+        { includeMetadataChanges: true },
         (snapshot) => {
           const cuesForRoom: Cue[] = []
           snapshot.forEach((docSnap) => {
@@ -1254,7 +1288,7 @@ export const FirebaseDataProvider = ({
   )
 
   const controllerLocks = useMemo<Record<string, null>>(() => ({}), [])
-  const roomPins = useMemo<Record<string, null>>(() => ({}), [])
+  const roomPins = useMemo<Record<string, RoomPinMeta | null>>(() => ({}), [])
   const roomClients = useMemo<Record<string, ControllerClient[]>>(() => ({}), [])
   const controlRequests = useMemo<Record<string, null>>(() => ({}), [])
   const pendingControlRequests = useMemo<Record<string, null>>(() => ({}), [])

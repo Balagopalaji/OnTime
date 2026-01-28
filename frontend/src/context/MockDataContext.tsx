@@ -27,6 +27,7 @@ import {
   DataProviderBoundary,
   useDataContext,
   type DataContextValue,
+  type RoomPinMeta,
 } from './DataContext'
 import { useAuth } from './AuthContext'
 
@@ -1560,7 +1561,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   )
 
   const controllerLocks = useMemo<Record<string, null>>(() => ({}), [])
-  const roomPins = useMemo<Record<string, null>>(() => ({}), [])
+  const roomPins = useMemo<Record<string, RoomPinMeta | null>>(() => ({}), [])
   const roomClients = useMemo<Record<string, ControllerClient[]>>(() => ({}), [])
   const controlRequests = useMemo<Record<string, null>>(() => ({}), [])
   const pendingControlRequests = useMemo<Record<string, null>>(() => ({}), [])

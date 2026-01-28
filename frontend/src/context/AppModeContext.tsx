@@ -35,12 +35,16 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   const { isConnected, socket, handshakeStatus } = useCompanionConnection()
   const [mode, setModeState] = useState<AppMode>(() => readInitialMode())
   const [isDegraded, setIsDegraded] = useState(false)
+  const [cloudStatus, setCloudStatus] = useState<'online' | 'offline' | 'reconnecting'>(() =>
+    typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
+  )
 
   const effectiveMode = useMemo<EffectiveAppMode>(() => {
     if (isDegraded) return 'cloud'
     if (mode !== 'auto') return mode
-    return isConnected ? 'local' : 'cloud'
-  }, [isConnected, isDegraded, mode])
+    if (isConnected) return 'local'
+    return cloudStatus === 'online' ? 'cloud' : 'local'
+  }, [cloudStatus, isConnected, isDegraded, mode])
 
   const setMode = useCallback((next: AppMode) => {
     setModeState(next)
@@ -63,15 +67,14 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
     const usingCompanion = mode === 'local' || (mode === 'auto' && effectiveMode === 'local')
     if (!usingCompanion) return
 
-    const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
-    if (isOnline) {
+    if (cloudStatus === 'online') {
       console.warn('[AppMode] Companion dropped, falling back to Cloud (degraded)')
       setIsDegraded(true)
     } else {
       // Offline entirely - can't fallback to Cloud, stay in current mode (frozen view)
       console.warn('[AppMode] Companion dropped but offline, staying in current mode')
     }
-  }, [effectiveMode, mode])
+  }, [cloudStatus, effectiveMode, mode])
 
   useEffect(() => {
     if (!socket) return
@@ -102,6 +105,13 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   }, [])
 
   useEffect(() => {
+    const handleCloudStatus = (event: Event) => {
+      const detail = (event as CustomEvent<'online' | 'offline' | 'reconnecting'>).detail
+      if (!detail) return
+      setCloudStatus(detail)
+    }
+    window.addEventListener('ontime:cloud-status', handleCloudStatus)
+
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY || !event.newValue) return
       const next = (event.newValue === 'hybrid' ? 'local' : event.newValue) as AppMode
@@ -125,6 +135,7 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
 
     window.addEventListener('storage', handleStorage)
     return () => {
+      window.removeEventListener('ontime:cloud-status', handleCloudStatus)
       window.removeEventListener('storage', handleStorage)
       if (channel) {
         channel.onmessage = null

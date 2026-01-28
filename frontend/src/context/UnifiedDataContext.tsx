@@ -14,7 +14,7 @@ import {
 import { FirebaseDataProvider } from './FirebaseDataContext'
 import { useAppMode } from './AppModeContext'
 import { useAuth } from './AuthContext'
-import { INTERFACE_VERSION, useCompanionConnection } from './CompanionConnectionContext'
+import { INTERFACE_VERSION, getTokenExpiryMs, useCompanionConnection } from './CompanionConnectionContext'
 
 type RoomAuthority = {
   source: 'cloud' | 'companion' | 'pending'
@@ -240,6 +240,8 @@ type RoomPinStatePayload = {
   pin: string | null
   updatedAt: number
 }
+
+type RoomPinMeta = { value: string | null; updatedAt: number; source: 'cloud' | 'companion' }
 
 type RoomClientsStatePayload = {
   type: 'ROOM_CLIENTS_STATE'
@@ -769,6 +771,74 @@ const normalizeControllerClient = (
   }
 }
 
+const ROOM_CLIENT_MAX_AGE_MS = {
+  cloud: 900_000,
+  companion: 900_000,
+}
+
+const getRoomClientMaxAgeMs = (source?: ControllerClient['source']) => {
+  if (source === 'cloud') return ROOM_CLIENT_MAX_AGE_MS.cloud
+  if (source === 'companion') return ROOM_CLIENT_MAX_AGE_MS.companion
+  return ROOM_CLIENT_MAX_AGE_MS.companion
+}
+
+const normalizeClientWithSource = (
+  client: ControllerClient,
+  source?: ControllerClient['source'],
+  fallbackHeartbeat?: number,
+): ControllerClient => {
+  const next: ControllerClient = { ...client }
+  if (source && !next.source) {
+    next.source = source
+  }
+  if (typeof next.lastHeartbeat !== 'number' && typeof fallbackHeartbeat === 'number') {
+    next.lastHeartbeat = fallbackHeartbeat
+  }
+  return next
+}
+
+const mergeControllerClients = (
+  existing: ControllerClient[],
+  incoming: ControllerClient[],
+): ControllerClient[] => {
+  const now = Date.now()
+  const byId = new Map<string, ControllerClient>()
+  const keyFor = (client: ControllerClient) => `${client.clientId}:${client.source ?? 'unknown'}`
+  const unknownKeyFor = (client: ControllerClient) => `${client.clientId}:unknown`
+  existing.forEach((client) => {
+    byId.set(keyFor(client), client)
+  })
+  incoming.forEach((client) => {
+    const normalized = client
+    const key = keyFor(normalized)
+    const fallbackKey = normalized.source ? unknownKeyFor(normalized) : key
+    const previous = byId.get(key) ?? (key !== fallbackKey ? byId.get(fallbackKey) : undefined)
+    if (!previous) {
+      byId.set(key, normalized)
+      return
+    }
+    if (key !== fallbackKey && byId.has(fallbackKey)) {
+      byId.delete(fallbackKey)
+    }
+    const prevTs = previous.lastHeartbeat ?? 0
+    const nextTs = normalized.lastHeartbeat ?? 0
+    if (nextTs >= prevTs) {
+      byId.set(key, {
+        ...previous,
+        ...normalized,
+        source: normalized.source ?? previous.source,
+      })
+    } else if (normalized.source && !previous.source) {
+      byId.set(key, { ...previous, source: normalized.source })
+    }
+  })
+  return [...byId.values()].filter((client) => {
+    if (typeof client.lastHeartbeat !== 'number') return true
+    const maxAgeMs = getRoomClientMaxAgeMs(client.source)
+    return now - client.lastHeartbeat <= maxAgeMs
+  })
+}
+
 const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const debugCompanion = import.meta.env.VITE_DEBUG_COMPANION === 'true'
   const firebase = useDataContext()
@@ -791,7 +861,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const [companionCues, setCompanionCues] = useState<Record<string, Cue[]>>({})
   const [companionLiveCues, setCompanionLiveCues] = useState<Record<string, Record<string, LiveCueRecord>>>({})
   const [controllerLocks, setControllerLocks] = useState<Record<string, ControllerLock | null>>({})
-  const [roomPins, setRoomPins] = useState<Record<string, string | null>>({})
+  const [roomPins, setRoomPins] = useState<Record<string, RoomPinMeta | null>>({})
   const [roomClients, setRoomClients] = useState<Record<string, ControllerClient[]>>({})
   const [cloudSubscribedRooms, setCloudSubscribedRooms] = useState<Record<string, { clientType: 'controller' | 'viewer' }>>({})
   const [controlRequests, setControlRequests] = useState<Record<string, ControlRequest | null>>({})
@@ -830,6 +900,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const controlRequestSubscriptionsRef = useRef<Record<string, () => void>>({})
   const roomPinSubscriptionsRef = useRef<Record<string, () => void>>({})
   const roomClientSubscriptionsRef = useRef<Record<string, () => void>>({})
+  const roomPinSyncStatusRef = useRef<Record<string, { attempted: boolean; pending: boolean }>>({})
+  const roomPinSyncRef = useRef<Record<string, {
+    cloudToCompanionInFlight?: boolean
+    pendingCloudPin?: string | null
+    pendingCloudUpdatedAt?: number
+    lastCloudSyncedAt?: number
+  }>>({})
   const heartbeatIntervalsRef = useRef<Record<string, number>>({})
   const presenceIntervalsRef = useRef<Record<string, number>>({})
   const cloudSubscribedRoomsRef = useRef(cloudSubscribedRooms)
@@ -839,6 +916,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const isReplayingRef = useRef(false)
   const isCueReplayingRef = useRef(false)
   const lastControllerWriteRef = useRef<Record<string, { source: 'cloud' | 'companion'; timestamp: number }>>({})
+  const companionHoldUntilRef = useRef<Record<string, number>>({})
   const joinQueueRef = useRef<Array<{
     roomId: string
     clientType: 'controller' | 'viewer'
@@ -866,6 +944,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [handshakeStatus, socket],
   )
   const confidenceWindowMs = useMemo(() => getConfidenceWindowMs(reconnectChurn), [reconnectChurn])
+  const getHoldUntil = useCallback((roomId: string) => {
+    const holds = companionHoldUntilRef.current
+    return holds[roomId] ?? holds['*'] ?? 0
+  }, [])
+  const isHoldActive = useCallback((roomId: string) => getHoldUntil(roomId) > Date.now(), [getHoldUntil])
   const markControllerWrite = useCallback((roomId: string, source: 'cloud' | 'companion') => {
     lastControllerWriteRef.current = {
       ...lastControllerWriteRef.current,
@@ -948,7 +1031,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     })()
     const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
     const isElectron = /Electron/i.test(ua)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- browser support check
+    const isBrave = Boolean((navigator as any).brave) || /Brave\//i.test(ua)
     const browserLabel = (() => {
+      if (isBrave) return 'Brave'
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- browser support check
       const brands = (navigator as any).userAgentData?.brands as Array<{ brand: string }> | undefined
       const brand = brands?.find((entry) =>
@@ -1232,6 +1318,85 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [clientId, controlDisplacements, controllerLocks, pendingControlRequests],
   )
 
+  const mergeRoomPin = useCallback(
+    (roomId: string, next: RoomPinMeta) => {
+      let shouldSyncToCompanion = false
+      let emitPin: string | null = null
+      let appliedUpdate = false
+
+      setRoomPins((prev) => {
+        const current = prev[roomId]
+        const currentUpdatedAt = current?.updatedAt ?? 0
+        const nextUpdatedAt = next.updatedAt ?? 0
+        const hasValidCurrent = currentUpdatedAt > 0
+        const hasValidNext = nextUpdatedAt > 0
+
+        const currentValue = current?.value ?? null
+        const cloudPreferred = firebase.connectionStatus !== 'offline'
+        if (
+          cloudPreferred &&
+          current?.source === 'cloud' &&
+          currentValue &&
+          next.source === 'companion' &&
+          next.value !== currentValue
+        ) {
+          return prev
+        }
+
+        if (next.source === 'companion') {
+          const syncState = roomPinSyncRef.current[roomId]
+          if (syncState?.cloudToCompanionInFlight) {
+            const sameValue = current?.value === next.value
+            if (sameValue || nextUpdatedAt >= currentUpdatedAt) {
+              roomPinSyncRef.current[roomId] = { ...syncState, cloudToCompanionInFlight: false }
+            }
+          }
+        }
+
+        if (hasValidCurrent && !hasValidNext) {
+          return prev
+        }
+
+        if (hasValidNext && hasValidCurrent && nextUpdatedAt <= currentUpdatedAt) {
+          return prev
+        }
+
+        appliedUpdate = true
+        if (next.source === 'cloud' && hasValidNext && next.value !== null) {
+          shouldSyncToCompanion = true
+          emitPin = next.value ?? null
+        }
+
+        return { ...prev, [roomId]: next }
+      })
+
+      if (!shouldSyncToCompanion || !appliedUpdate) return
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      if (!roomOwnerId || !user?.uid || roomOwnerId !== user.uid) return
+      if (firebase.connectionStatus !== 'online') return
+      if (!isCompanionLive() || !socket) {
+        roomPinSyncRef.current[roomId] = {
+          ...roomPinSyncRef.current[roomId],
+          pendingCloudPin: emitPin,
+          pendingCloudUpdatedAt: next.updatedAt,
+        }
+        return
+      }
+      roomPinSyncRef.current[roomId] = {
+        ...roomPinSyncRef.current[roomId],
+        cloudToCompanionInFlight: true,
+        lastCloudSyncedAt: next.updatedAt,
+      }
+      socket.emit('SET_ROOM_PIN', {
+        type: 'SET_ROOM_PIN',
+        roomId,
+        pin: emitPin,
+        timestamp: Date.now(),
+      })
+    },
+    [firebase, isCompanionLive, socket, user],
+  )
+
   const getRoomPin = useCallback(
     (roomId: string) => roomPins[roomId] ?? null,
     [roomPins],
@@ -1239,9 +1404,40 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
   const setRoomPin = useCallback(
     (roomId: string, pin: string | null) => {
-      if (shouldUseCloudLock(roomId)) {
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      const isOwner = Boolean(roomOwnerId && user?.uid && roomOwnerId === user.uid)
+      const writePinToCloud = (reportErrors: boolean) => {
         if (!firestoreWriteThrough || !firestore) return
         if (!user?.uid) return
+        if (!isOwner) {
+          if (reportErrors) {
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'PIN_UPDATE_FORBIDDEN',
+                message: 'Only the room owner can update the cloud PIN.',
+                receivedAt: Date.now(),
+              },
+            }))
+          }
+          return
+        }
+        if (firebase.connectionStatus !== 'online') {
+          if (pin) {
+            roomPinSyncStatusRef.current[roomId] = { attempted: false, pending: true }
+          }
+          if (reportErrors) {
+            setControlErrors((prev) => ({
+              ...prev,
+              [roomId]: {
+                code: 'PIN_UPDATE_SKIPPED_OFFLINE',
+                message: 'Cloud is offline. PIN update was not persisted.',
+                receivedAt: Date.now(),
+              },
+            }))
+          }
+          return
+        }
         void (async () => {
           const pinDoc = doc(firestore, 'rooms', roomId, 'config', 'pin')
           try {
@@ -1258,8 +1454,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
                 { merge: true },
               )
             }
-            setControlErrors((prev) => ({ ...prev, [roomId]: null }))
+            if (reportErrors) {
+              setControlErrors((prev) => ({ ...prev, [roomId]: null }))
+            }
           } catch (error) {
+            if (!reportErrors) return
             const message = error instanceof Error ? error.message : 'PIN update failed'
             setControlErrors((prev) => ({
               ...prev,
@@ -1271,10 +1470,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             }))
           }
         })()
+      }
+      if (shouldUseCloudLock(roomId)) {
+        writePinToCloud(true)
         return
       }
       if (!socket) return
       if (isLockedOut(roomId)) return
+      if (!pin || !pin.trim()) {
+        roomPinSyncStatusRef.current[roomId] = { attempted: false, pending: false }
+      }
+      const shouldReport = firebase.connectionStatus === 'online'
+      writePinToCloud(shouldReport)
       socket.emit('SET_ROOM_PIN', {
         type: 'SET_ROOM_PIN',
         roomId,
@@ -1282,8 +1489,107 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         timestamp: Date.now(),
       })
     },
-    [firestore, firestoreWriteThrough, isLockedOut, shouldUseCloudLock, socket, user],
+    [firebase, firestore, firestoreWriteThrough, isLockedOut, shouldUseCloudLock, socket, user],
   )
+
+  const syncMissingCloudPin = useCallback(
+    async (roomId: string, localPinMeta: RoomPinMeta) => {
+      if (!firestoreWriteThrough || !firestore) return
+      if (!user?.uid) return
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      if (!roomOwnerId || roomOwnerId !== user.uid) return
+      if (localPinMeta.source !== 'companion') return
+      const localPin = localPinMeta.value
+      if (typeof localPin !== 'string' || !localPin.trim()) return
+      if (firebase.connectionStatus !== 'online') {
+        roomPinSyncStatusRef.current[roomId] = { attempted: false, pending: true }
+        return
+      }
+      const status = roomPinSyncStatusRef.current[roomId]
+      if (status?.attempted && !status?.pending) return
+      roomPinSyncStatusRef.current[roomId] = { attempted: true, pending: false }
+
+      const pinDoc = doc(firestore, 'rooms', roomId, 'config', 'pin')
+      try {
+        const snap = await getDoc(pinDoc)
+        const data = snap.exists() ? (snap.data() as Record<string, unknown>) : null
+        const cloudPin = typeof data?.value === 'string' ? data.value : null
+        const cloudUpdatedAt = toMillis(data?.updatedAt)
+        const localUpdatedAt = localPinMeta.updatedAt ?? 0
+        if (cloudPin && cloudUpdatedAt >= localUpdatedAt) {
+          roomPinSyncStatusRef.current[roomId] = { attempted: true, pending: false }
+          return
+        }
+        const trimmedPin = localPin.trim()
+        await setDoc(
+          pinDoc,
+          {
+            value: trimmedPin,
+            updatedAt: serverTimestamp(),
+            updatedBy: user.uid,
+          },
+          { merge: true },
+        )
+      } catch (error) {
+        roomPinSyncStatusRef.current[roomId] = { attempted: false, pending: true }
+        const message = error instanceof Error ? error.message : 'Cloud PIN sync failed'
+        setControlErrors((prev) => ({
+          ...prev,
+          [roomId]: {
+            code: 'PIN_SYNC_FAILED',
+            message,
+            receivedAt: Date.now(),
+          },
+        }))
+      }
+    },
+    [firebase, firestore, firestoreWriteThrough, setControlErrors, user],
+  )
+
+  useEffect(() => {
+    if (firebase.connectionStatus !== 'online') return
+    Object.entries(roomPins).forEach(([roomId, pin]) => {
+      if (!pin) return
+      void syncMissingCloudPin(roomId, pin)
+    })
+  }, [firebase.connectionStatus, roomPins, syncMissingCloudPin])
+
+  useEffect(() => {
+    if (firebase.connectionStatus !== 'online') return
+    if (!isCompanionLive() || !socket) return
+    Object.entries(roomPins).forEach(([roomId, pinMeta]) => {
+      if (!pinMeta || pinMeta.source !== 'cloud') return
+      if (pinMeta.value === null) return
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      if (!roomOwnerId || !user?.uid || roomOwnerId !== user.uid) return
+
+      const syncState = roomPinSyncRef.current[roomId] ?? {}
+      const pending = syncState.pendingCloudPin
+      const pendingUpdatedAt = syncState.pendingCloudUpdatedAt ?? 0
+      const lastSyncedAt = syncState.lastCloudSyncedAt ?? 0
+
+      const shouldSendPending =
+        pending !== undefined && pendingUpdatedAt >= lastSyncedAt
+      const shouldSendCurrent =
+        pending === undefined && pinMeta.updatedAt > lastSyncedAt
+
+      if (!shouldSendPending && !shouldSendCurrent) return
+
+      roomPinSyncRef.current[roomId] = {
+        ...syncState,
+        pendingCloudPin: undefined,
+        pendingCloudUpdatedAt: undefined,
+        cloudToCompanionInFlight: true,
+        lastCloudSyncedAt: pinMeta.updatedAt,
+      }
+      socket.emit('SET_ROOM_PIN', {
+        type: 'SET_ROOM_PIN',
+        roomId,
+        pin: shouldSendPending ? pending : pinMeta.value,
+        timestamp: Date.now(),
+      })
+    })
+  }, [firebase, isCompanionLive, roomPins, socket, user])
 
   const requestControl = useCallback(
     (roomId: string, overrideName?: string) => {
@@ -1541,11 +1847,26 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [clientId, socket],
   )
 
+  const resolveCompanionToken = useCallback(
+    async (tokenOverride?: string) => {
+      if (tokenOverride) return tokenOverride
+      if (token) {
+        const expAt = getTokenExpiryMs(token)
+        if (expAt && expAt <= Date.now() + 5_000) {
+          return (await fetchToken()) ?? token
+        }
+        return token
+      }
+      return await fetchToken()
+    },
+    [fetchToken, token],
+  )
+
   const subscribeToCompanionRoom = useCallback(
     (roomId: string, clientType: 'controller' | 'viewer', tokenOverride?: string) => {
       void (async () => {
         const tokenSource: 'controller' | 'viewer' = tokenOverride ? 'viewer' : 'controller'
-        const joinToken = tokenOverride ?? token ?? (await fetchToken()) ?? null
+        const joinToken = (await resolveCompanionToken(tokenOverride)) ?? null
         if (!joinToken) {
           console.warn('[UnifiedDataContext] missing Companion token for room', roomId)
           return
@@ -1573,7 +1894,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         enqueueJoin(roomId, clientType, joinToken, tokenSource)
       })()
     },
-    [addPendingSyncRoom, enqueueJoin, fetchToken, token],
+    [addPendingSyncRoom, enqueueJoin, resolveCompanionToken],
   )
 
   const registerCloudRoom = useCallback(
@@ -2381,11 +2702,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
 
       if (payload.type === 'ROOM_PIN_STATE') {
-        setRoomPins((prev) => ({ ...prev, [payload.roomId]: payload.pin }))
+        const updatedAt = toMillis(payload.updatedAt)
+        mergeRoomPin(payload.roomId, { value: payload.pin, updatedAt, source: 'companion' })
       }
 
       if (payload.type === 'ROOM_CLIENTS_STATE') {
-        setRoomClients((prev) => ({ ...prev, [payload.roomId]: payload.clients }))
+        const incoming = payload.clients.map((client) =>
+          normalizeClientWithSource(client, 'companion', client.lastHeartbeat ?? payload.timestamp),
+        )
+        setRoomClients((prev) => ({
+          ...prev,
+          [payload.roomId]: mergeControllerClients(prev[payload.roomId] ?? [], incoming),
+        }))
       }
 
       if (payload.type === 'ERROR') {
@@ -2406,7 +2734,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         broadcastControlPayload(payload)
       }
     },
-    [broadcastControlPayload, clientId],
+    [broadcastControlPayload, clientId, mergeRoomPin],
   )
 
   useEffect(() => {
@@ -2591,13 +2919,19 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }, 0)
       return
     }
+    if (firebase.connectionStatus === 'offline') {
+      Object.values(roomPinSubscriptionsRef.current).forEach((unsubscribe) => {
+        unsubscribe()
+      })
+      roomPinSubscriptionsRef.current = {}
+      return
+    }
     const rooms = Object.entries({ ...cloudSubscribedRooms, ...subscribedRooms })
       .filter(([, sub]) => sub.clientType === 'controller')
       .map(([roomId]) => roomId)
     const eligible = new Set<string>()
 
     rooms.forEach((roomId) => {
-      if (!shouldUseCloudLock(roomId)) return
       eligible.add(roomId)
       if (roomPinSubscriptionsRef.current[roomId]) return
       const pinDoc = doc(firestore, 'rooms', roomId, 'config', 'pin')
@@ -2605,12 +2939,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         pinDoc,
         (snapshot) => {
           if (!snapshot.exists()) {
-            setRoomPins((prev) => ({ ...prev, [roomId]: null }))
+            mergeRoomPin(roomId, { value: null, updatedAt: 0, source: 'cloud' })
             return
           }
           const data = snapshot.data() as Record<string, unknown>
           const value = typeof data.value === 'string' ? data.value : null
-          setRoomPins((prev) => ({ ...prev, [roomId]: value }))
+          const updatedAt = toMillis(data.updatedAt)
+          mergeRoomPin(roomId, { value, updatedAt, source: 'cloud' })
         },
         (error) => {
           console.warn('[UnifiedDataContext] room pin subscription failed', { roomId, error })
@@ -2630,7 +2965,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms, user?.uid])
+  }, [cloudSubscribedRooms, firebase.connectionStatus, firestore, mergeRoomPin, subscribedRooms, user?.uid])
 
   useEffect(() => {
     if (!firestore) return
@@ -2649,28 +2984,27 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       .map(([roomId]) => roomId)
     const eligible = new Set<string>()
 
+    const allowCloudClients = firebase.connectionStatus !== 'offline'
+
     rooms.forEach((roomId) => {
-      if (!shouldUseCloudLock(roomId)) return
-      const lockState = resolveControllerLockState({
-        roomId,
-        clientId,
-        controllerLocks,
-        controlDisplacements,
-        pendingControlRequests,
-      })
-      if (lockState !== 'authoritative') return
+      if (!allowCloudClients) return
       eligible.add(roomId)
       if (roomClientSubscriptionsRef.current[roomId]) return
       const clientCollection = collection(firestore, 'rooms', roomId, 'clients')
       const unsubscribe = onSnapshot(
         clientCollection,
         (snapshot) => {
+          const now = Date.now()
           const clients = snapshot.docs
             .map((docSnap) =>
               normalizeControllerClient(docSnap.data() as Record<string, unknown>, docSnap.id),
             )
-            .filter(Boolean) as ControllerClient[]
-          setRoomClients((prev) => ({ ...prev, [roomId]: clients }))
+            .filter(Boolean)
+            .map((client) => normalizeClientWithSource(client as ControllerClient, 'cloud', now)) as ControllerClient[]
+          setRoomClients((prev) => ({
+            ...prev,
+            [roomId]: mergeControllerClients(prev[roomId] ?? [], clients),
+          }))
         },
         (error) => {
           console.warn('[UnifiedDataContext] room clients subscription failed', { roomId, error })
@@ -2695,6 +3029,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     cloudSubscribedRooms,
     controlDisplacements,
     controllerLocks,
+    firebase.connectionStatus,
     firestore,
     pendingControlRequests,
     shouldUseCloudLock,
@@ -2741,15 +3076,6 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     rooms.forEach((roomId) => {
       if (!shouldUseCloudLock(roomId)) return
       if (!isCloudController(roomId)) return
-      const lockState = resolveControllerLockState({
-        roomId,
-        clientId,
-        controllerLocks,
-        controlDisplacements,
-        pendingControlRequests,
-      })
-      if (lockState !== 'authoritative') return
-
       activeRooms.add(roomId)
       if (heartbeatIntervalsRef.current[roomId]) return
 
@@ -2899,7 +3225,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const handleConnect = async () => {
       if (debugCompanion) console.info('[companion] connect')
 
-      const joinToken = token ?? (await fetchToken()) ?? null
+      const joinToken = (await resolveCompanionToken()) ?? null
       if (!joinToken && debugCompanion) {
         console.warn('[companion] connect missing token, skipping controller JOIN replay')
       }
@@ -3019,6 +3345,22 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const handleHandshakeAckQueue = () => {
       joinPendingRef.current = false
       activeJoinRef.current = null
+      const holdUntil = Date.now() + getConfidenceWindowMs(reconnectChurn)
+      companionHoldUntilRef.current['*'] = holdUntil
+      if (debugCompanion) {
+        const subscribedRoomIds = Object.keys(subscribedRoomsRef.current)
+        const roomAuthoritySnapshot = subscribedRoomIds.map((roomId) => ({
+          roomId,
+          shouldUseCloudLock: shouldUseCloudLock(roomId),
+          authoritySource: roomAuthority[roomId]?.source ?? 'unknown',
+        }))
+        console.info('[companion] HANDSHAKE_ACK hold window', {
+          holdUntil,
+          confidenceWindowMs: getConfidenceWindowMs(reconnectChurn),
+          connectionStatus: firebase.connectionStatus,
+          roomAuthoritySnapshot,
+        })
+      }
       processJoinQueue()
       if (reconnectSyncPendingRef.current) {
         Object.entries(subscribedRoomsRef.current).forEach(([roomId, sub]) => {
@@ -3337,10 +3679,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const existing = companionCuesRef.current[payload.roomId]?.find((entry) => entry.id === payload.cueId)
       const nextCue: Cue | null = existing
         ? {
-            ...existing,
-            ...(payload.changes as Partial<Cue>),
-            updatedAt,
-          }
+          ...existing,
+          ...(payload.changes as Partial<Cue>),
+          updatedAt,
+        }
         : null
       if (nextCue) {
         setCompanionCues((prev) => {
@@ -3482,6 +3824,31 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
+      const holdUntil = getHoldUntil(payload.roomId)
+      const holdActive = isHoldActive(payload.roomId)
+      const shouldHold =
+        shouldUseCloudLock(payload.roomId) &&
+        firebase.connectionStatus === 'online' &&
+        roomAuthority[payload.roomId]?.source === 'cloud' &&
+        holdActive
+
+      if (debugCompanion) {
+        const firebaseTs = controllerLocksRef.current[payload.roomId]?.lockedAt ?? 0
+        console.info('[companion] CONTROLLER_LOCK_STATE arbitration', {
+          roomId: payload.roomId,
+          firebaseTs,
+          companionTs: payload.timestamp,
+          confidenceWindowMs,
+          holdUntil,
+          holdActive,
+          shouldUseCloudLock: shouldUseCloudLock(payload.roomId),
+          connectionStatus: firebase.connectionStatus,
+          priorSource: roomAuthority[payload.roomId]?.source ?? 'unknown',
+          decision: shouldHold ? 'hold-active:skip' : 'apply',
+        })
+      }
+
+      if (shouldHold) return
       applyControlPayload(payload, { broadcast: true })
     }
 
@@ -3577,11 +3944,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     enqueueJoin,
     emitSyncRoomState,
     fetchToken,
+    getHoldUntil,
+    isHoldActive,
     processJoinQueue,
+    reconnectChurn,
     recordLiveCueRate,
     removeCompanionLiveCue,
     removePendingSyncRoom,
     resolveLiveCueWriteSource,
+    resolveCompanionToken,
     setCompanionActiveLiveCueId,
     upsertCompanionLiveCue,
     writeActiveLiveCueId,
@@ -3591,6 +3962,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     socket,
     firestore,
     firebase,
+    roomAuthority,
+    shouldUseCloudLock,
     token,
   ])
 
@@ -3667,6 +4040,24 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const firebaseRoom = firebase.getRoom(roomId)
       const cachedRoom = cached?.room
 
+      const buildSkeletonRoom = (): Room => {
+        const fallbackTimezone =
+          typeof Intl !== 'undefined'
+            ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
+            : 'UTC'
+        return {
+          id: roomId,
+          ownerId: 'local',
+          title: 'Loading room...',
+          timezone: cachedRoom?.timezone ?? fallbackTimezone,
+          createdAt: Date.now(),
+          order: cachedRoom?.order,
+          config: DEFAULT_ROOM_CONFIG,
+          features: DEFAULT_FEATURES,
+          state: DEFAULT_ROOM_STATE,
+        }
+      }
+
       // Helper to merge cached progress into a room, giving priority to cached values
       // This ensures bonus time (negative elapsed) and other progress is preserved
       const mergeProgressFromCache = (room: Room): Room => {
@@ -3692,7 +4083,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const companionState = companionRooms[roomId]
       if (!companionState) {
         if (firebaseRoom) return mergeProgressFromCache(firebaseRoom)
-        return cachedRoom
+        if (cachedRoom) return cachedRoom
+        if (shouldUseCompanion(roomId)) {
+          return buildSkeletonRoom()
+        }
+        return undefined
       }
       if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState, cachedRoom)
 
@@ -3715,7 +4110,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
       return mergeProgressFromCache(firebaseRoom)
     },
-    [companionRooms, debugCompanion, firebase, isCompanionLive, pickSource, roomAuthority],
+    [companionRooms, debugCompanion, firebase, isCompanionLive, pickSource, roomAuthority, shouldUseCompanion],
   )
 
   const getTimers = useCallback(
@@ -4411,13 +4806,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           const updatedProgress = { ...(cached.room.state.progress ?? {}), [timerId]: 0 }
           const updatedState = isActiveTimer
             ? {
-                ...cached.room.state,
-                progress: updatedProgress,
-                elapsedOffset: 0,
-                startedAt: wasRunning ? now : null,
-                currentTime: 0,
-                lastUpdate: now,
-              }
+              ...cached.room.state,
+              progress: updatedProgress,
+              elapsedOffset: 0,
+              startedAt: wasRunning ? now : null,
+              currentTime: 0,
+              lastUpdate: now,
+            }
             : { ...cached.room.state, progress: updatedProgress }
           cachedSnapshotsRef.current = {
             ...cachedSnapshotsRef.current,
@@ -5089,7 +5484,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const value = useMemo<UnifiedDataContextValue>(
     () => {
       const mergedRoomsMap = new Map<string, Room>()
-      ;(firebase.rooms ?? []).forEach((room) => mergedRoomsMap.set(room.id, room))
+        ; (firebase.rooms ?? []).forEach((room) => mergedRoomsMap.set(room.id, room))
       Object.values(cachedSnapshots).forEach((entry) => {
         if (!mergedRoomsMap.has(entry.roomId)) {
           mergedRoomsMap.set(entry.roomId, entry.room)
