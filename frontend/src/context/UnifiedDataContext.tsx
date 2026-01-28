@@ -17,7 +17,7 @@ import { useAuth } from './AuthContext'
 import { INTERFACE_VERSION, getTokenExpiryMs, useCompanionConnection } from './CompanionConnectionContext'
 
 type RoomAuthority = {
-  source: 'cloud' | 'companion' | 'pending'
+  source: 'cloud' | 'companion'
   status: 'ready' | 'syncing' | 'degraded'
   lastSyncAt: number
 }
@@ -614,7 +614,7 @@ export const resolveRoomSource = ({
   }
 
   if (Math.abs(firebaseTs - companionTs) < confidenceWindowMs) {
-    if (authoritySource === 'companion' || authoritySource === 'pending') return 'companion'
+    if (authoritySource === 'companion') return 'companion'
     return 'cloud'
   }
 
@@ -987,7 +987,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (!firestoreWriteThrough || !firestore) return false
       if (isLockedOut(roomId)) return false
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
-      const localAuthoritative = isCompanionLive() && (authority.source === 'companion' || authority.source === 'pending')
+      const localAuthoritative = isCompanionLive() && authority.source === 'companion'
       const isBridgeController = subscribedRoomsRef.current[roomId]?.clientType === 'controller'
       if (localAuthoritative && !isBridgeController) return false
       return true
@@ -1064,12 +1064,19 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const shouldUseCloudLock = useCallback(
     (roomId: string) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
-      const cloudAuthority = authority.source === 'cloud'
-      const pendingCloud = authority.source === 'pending' && effectiveMode === 'cloud'
-      if (!cloudAuthority && !pendingCloud) return false
-      return isCloudLockEligible(roomId)
+      if (authority.source === 'cloud') return isCloudLockEligible(roomId)
+      if (!isCompanionLive() && firebase.connectionStatus === 'online') {
+        return isCloudLockEligible(roomId)
+      }
+      if (effectiveMode === 'cloud') return isCloudLockEligible(roomId)
+      return false
     },
-    [effectiveMode, isCloudLockEligible, roomAuthority],
+    [effectiveMode, firebase.connectionStatus, isCloudLockEligible, isCompanionLive, roomAuthority],
+  )
+
+  const shouldPreferCloudAuthority = useCallback(
+    (roomId: string) => shouldUseCloudLock(roomId) && firebase.connectionStatus === 'online',
+    [firebase.connectionStatus, shouldUseCloudLock],
   )
 
   const isCloudController = useCallback(
@@ -1881,7 +1888,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         setRoomAuthority((prev) => ({
           ...prev,
           [roomId]: {
-            source: 'pending',
+            source:
+              firebase.connectionStatus !== 'online' && effectiveMode === 'local'
+                ? 'companion'
+                : (prev[roomId]?.source ?? DEFAULT_AUTHORITY.source),
             status: 'syncing',
             lastSyncAt: Date.now(),
           },
@@ -1894,7 +1904,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         enqueueJoin(roomId, clientType, joinToken, tokenSource)
       })()
     },
-    [addPendingSyncRoom, enqueueJoin, resolveCompanionToken],
+    [addPendingSyncRoom, effectiveMode, enqueueJoin, firebase.connectionStatus, resolveCompanionToken],
   )
 
   const registerCloudRoom = useCallback(
@@ -2178,7 +2188,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
       const usingCompanion =
         companionLive &&
-        (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId))
+        (authority.source === 'companion' || shouldUseCompanion(roomId))
       const companionState = usingCompanion ? companionRoomsRef.current[roomId] : undefined
       const resolvedRoom = companionState
         ? buildRoomFromCompanion(roomId, companionState, firebase.getRoom(roomId))
@@ -3372,6 +3382,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleRoomStateSnapshot = (payload: RoomStateSnapshotPayload) => {
+      const shouldHoldAuthority =
+        isHoldActive(payload.roomId) &&
+        shouldPreferCloudAuthority(payload.roomId)
       const baseRoom = firebase.getRoom(payload.roomId)
       const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
@@ -3441,14 +3454,25 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             activeLiveCueId: payload.state.activeLiveCueId,
           },
         }))
-        setRoomAuthority((prev) => ({
-          ...prev,
-          [payload.roomId]: {
-            source: 'companion',
-            status: 'degraded',
-            lastSyncAt: Date.now(),
-          },
-        }))
+        if (shouldHoldAuthority) {
+          if (debugCompanion) {
+            console.info('[companion] ROOM_STATE_SNAPSHOT authority hold', {
+              roomId: payload.roomId,
+              holdUntil: getHoldUntil(payload.roomId),
+            })
+          }
+        } else {
+          setRoomAuthority((prev) => ({
+            ...prev,
+            [payload.roomId]: {
+              source: shouldPreferCloudAuthority(payload.roomId)
+                ? 'cloud'
+                : 'companion',
+              status: 'degraded',
+              lastSyncAt: Date.now(),
+            },
+          }))
+        }
         return
       }
 
@@ -3473,14 +3497,25 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         removePendingSyncRoom(payload.roomId)
       }
 
-      setRoomAuthority((prev) => ({
-        ...prev,
-        [payload.roomId]: {
-          source: 'companion',
-          status: 'ready',
-          lastSyncAt: Date.now(),
-        },
-      }))
+      if (shouldHoldAuthority) {
+        if (debugCompanion) {
+          console.info('[companion] ROOM_STATE_SNAPSHOT authority hold', {
+            roomId: payload.roomId,
+            holdUntil: getHoldUntil(payload.roomId),
+          })
+        }
+      } else {
+        setRoomAuthority((prev) => ({
+          ...prev,
+          [payload.roomId]: {
+            source: shouldPreferCloudAuthority(payload.roomId)
+              ? 'cloud'
+              : 'companion',
+            status: 'ready',
+            lastSyncAt: Date.now(),
+          },
+        }))
+      }
 
       if (debugCompanion) {
         console.info('[companion] ROOM_STATE_SNAPSHOT', {
@@ -3494,6 +3529,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleRoomStateDelta = (payload: RoomStateDeltaPayload) => {
+      const shouldHoldAuthority =
+        isHoldActive(payload.roomId) &&
+        shouldPreferCloudAuthority(payload.roomId)
       if (payload.clientId && payload.clientId === clientId) return
       const incomingTs = payload.changes.lastUpdate ?? payload.timestamp ?? Date.now()
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
@@ -3550,14 +3588,25 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         removePendingSyncRoom(payload.roomId)
       }
 
-      setRoomAuthority((prev) => ({
-        ...prev,
-        [payload.roomId]: {
-          source: 'companion',
-          status: 'ready',
-          lastSyncAt: Date.now(),
-        },
-      }))
+      if (shouldHoldAuthority) {
+        if (debugCompanion) {
+          console.info('[companion] ROOM_STATE_DELTA authority hold', {
+            roomId: payload.roomId,
+            holdUntil: getHoldUntil(payload.roomId),
+          })
+        }
+      } else {
+        setRoomAuthority((prev) => ({
+          ...prev,
+          [payload.roomId]: {
+            source: shouldPreferCloudAuthority(payload.roomId)
+              ? 'cloud'
+              : 'companion',
+            status: 'ready',
+            lastSyncAt: Date.now(),
+          },
+        }))
+      }
 
       if (debugCompanion) {
         console.info('[companion] ROOM_STATE_DELTA', {
@@ -3827,9 +3876,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const holdUntil = getHoldUntil(payload.roomId)
       const holdActive = isHoldActive(payload.roomId)
       const shouldHold =
-        shouldUseCloudLock(payload.roomId) &&
-        firebase.connectionStatus === 'online' &&
-        roomAuthority[payload.roomId]?.source === 'cloud' &&
+        shouldPreferCloudAuthority(payload.roomId) &&
         holdActive
 
       if (debugCompanion) {
@@ -3964,6 +4011,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     firebase,
     roomAuthority,
     shouldUseCloudLock,
+    shouldPreferCloudAuthority,
     token,
   ])
 
@@ -3975,13 +4023,16 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       setRoomAuthority((prev) => ({
         ...prev,
         [roomId]: {
-          source: 'pending',
+          source:
+            firebase.connectionStatus !== 'online' && effectiveMode === 'local'
+              ? 'companion'
+              : (prev[roomId]?.source ?? DEFAULT_AUTHORITY.source),
           status: 'syncing',
           lastSyncAt: Date.now(),
         },
       }))
     })
-  }, [addPendingSyncRoom, effectiveMode, subscribedRooms])
+  }, [addPendingSyncRoom, effectiveMode, firebase.connectionStatus, subscribedRooms])
 
   useEffect(() => {
     if (!isCompanionLive()) return
@@ -4013,6 +4064,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const pickSource = useCallback(
     (roomId: string, firebaseTs: number, companionTs: number, authority: RoomAuthority) => {
       const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(roomId)
+      if (isHoldActive(roomId) && shouldPreferCloudAuthority(roomId)) {
+        return 'cloud'
+      }
       const lastControllerWrite = lastControllerWriteRef.current[roomId]
       const controllerTieBreaker =
         lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
@@ -4029,8 +4083,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         confidenceWindowMs,
         controllerTieBreaker,
       })
-    },
-    [confidenceWindowMs, effectiveMode, isCompanionLive, isViewerClient, mode],
+    }, 
+    [confidenceWindowMs, effectiveMode, isCompanionLive, isHoldActive, isViewerClient, mode, shouldPreferCloudAuthority],
   )
 
   const getRoom = useCallback(
