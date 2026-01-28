@@ -328,6 +328,7 @@ type RoomClientsState = {
     clientType: 'controller' | 'viewer';
     role?: string;
     tokenId?: string;
+    lastHeartbeat?: number;
   }>;
   timestamp: number;
 };
@@ -862,13 +863,18 @@ const roomControllerStore: Map<string, {
   userId?: string;
   userName?: string;
 }> = new Map();
-const roomClientStore: Map<string, Map<string, {
+type RoomClientEntry = {
   socketId: string;
   deviceName?: string;
   userId?: string;
   userName?: string;
   clientType: 'controller' | 'viewer';
-}>> = new Map();
+  lastHeartbeat?: number;
+  viewerRole?: string;
+  viewerTokenId?: string;
+};
+
+const roomClientStore: Map<string, Map<string, RoomClientEntry>> = new Map();
 const pendingHandshakeStore: Map<string, { socketId: string; startedAt: number }> = new Map();
 const pendingControlRequests: Map<string, {
   requesterId: string;
@@ -900,6 +906,7 @@ const roomOwnerStore: Map<string, {
   updatedAt: number;
   setBy?: string;
 }> = new Map();
+const roomClientsEmitAt: Map<string, number> = new Map();
 const roomViewerTokenStore: Map<string, Map<string, ViewerTokenEntry>> = new Map();
 const roomPairingCodeStore: Map<string, PairingCodeEntry> = new Map();
 let currentToken: string | null = null;
@@ -925,15 +932,7 @@ let pptNativeReadline: readline.Interface | null = null;
 let pptNativePending: Array<{ resolve: (line: string | null) => void }> = [];
 let pptNativeHelperLogged = false;
 
-function getRoomClients(roomId: string): Map<string, {
-  socketId: string;
-  deviceName?: string;
-  userId?: string;
-  userName?: string;
-  clientType: 'controller' | 'viewer';
-  viewerRole?: string;
-  viewerTokenId?: string;
-}> {
+function getRoomClients(roomId: string): Map<string, RoomClientEntry> {
   if (!roomClientStore.has(roomId)) {
     roomClientStore.set(roomId, new Map());
   }
@@ -1035,6 +1034,7 @@ function emitRoomPinStateToController(roomId: string) {
 
 function emitRoomClientsState(roomId: string) {
   pruneRoomClients(roomId);
+  roomClientsEmitAt.set(roomId, Date.now());
   const clients = [...getRoomClients(roomId).entries()].map(([clientId, entry]) => ({
     clientId,
     deviceName: entry.deviceName,
@@ -1043,6 +1043,7 @@ function emitRoomClientsState(roomId: string) {
     clientType: entry.clientType,
     role: entry.viewerRole,
     tokenId: entry.viewerTokenId,
+    lastHeartbeat: entry.lastHeartbeat,
   }));
   const payload: RoomClientsState = {
     type: 'ROOM_CLIENTS_STATE',
@@ -5125,6 +5126,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     clientType: socket.data.clientType,
     viewerRole: socket.data.viewerRole,
     viewerTokenId: socket.data.viewerTokenId,
+    lastHeartbeat: Date.now(),
   });
 
   const requestedType = socket.data.clientType as 'controller' | 'viewer';
@@ -5343,6 +5345,15 @@ function handleHeartbeat(socket: Socket, payload: unknown) {
   if (!current || current.clientId !== payload.clientId) return;
   if (current.socketId !== socket.id) return;
   current.lastHeartbeat = Date.now();
+  const clients = getRoomClients(payload.roomId);
+  const entry = clients.get(payload.clientId);
+  if (entry) {
+    entry.lastHeartbeat = current.lastHeartbeat;
+    const lastEmit = roomClientsEmitAt.get(payload.roomId) ?? 0;
+    if (Date.now() - lastEmit >= 10_000) {
+      emitRoomClientsState(payload.roomId);
+    }
+  }
 }
 
 function handleRequestControl(socket: Socket, payload: unknown) {
