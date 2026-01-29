@@ -2809,12 +2809,31 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           const lock = snapshot.exists()
             ? normalizeControllerLock(roomId, snapshot.data() as Record<string, unknown>)
             : null
+          const timestamp = Date.now()
+          if (ARBITRATION_FLAGS.lock) {
+            const decision = arbitrate({
+              roomId,
+              domain: 'lock',
+              cloudTs: lock?.lockedAt ?? timestamp,
+              companionTs: controllerLocksRef.current[roomId]?.lockedAt ?? null,
+              mode,
+              effectiveMode,
+              isCompanionLive: isCompanionLive(),
+              cloudOnline: firebase.connectionStatus !== 'offline',
+              confidenceWindowMs,
+              preferSource: shouldUseCloudLock(roomId) ? 'cloud' : 'companion',
+              holdActive: isHoldActive(roomId),
+            })
+            if (decision.acceptSource !== 'cloud') {
+              return
+            }
+          }
           applyControlPayload(
             {
               type: 'CONTROLLER_LOCK_STATE',
               roomId,
               lock,
-              timestamp: Date.now(),
+              timestamp,
             },
             { broadcast: false },
           )
@@ -2837,7 +2856,19 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [applyControlPayload, firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms])
+  }, [
+    applyControlPayload,
+    cloudSubscribedRooms,
+    confidenceWindowMs,
+    effectiveMode,
+    firestore,
+    firebase,
+    isCompanionLive,
+    isHoldActive,
+    mode,
+    shouldUseCloudLock,
+    subscribedRooms,
+  ])
 
   useEffect(() => {
     if (!firestore) return
@@ -3946,6 +3977,42 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     }
 
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
+      if (ARBITRATION_FLAGS.lock) {
+        const decision = arbitrate({
+          roomId: payload.roomId,
+          domain: 'lock',
+          cloudTs: controllerLocksRef.current[payload.roomId]?.lockedAt ?? null,
+          companionTs: payload.lock?.lockedAt ?? payload.timestamp ?? Date.now(),
+          mode,
+          effectiveMode,
+          isCompanionLive: isCompanionLive(),
+          cloudOnline: firebase.connectionStatus !== 'offline',
+          confidenceWindowMs,
+          preferSource: shouldUseCloudLock(payload.roomId) ? 'cloud' : 'companion',
+          holdActive: isHoldActive(payload.roomId),
+        })
+
+        if (debugCompanion) {
+          console.info('[companion] CONTROLLER_LOCK_STATE arbitration', {
+            roomId: payload.roomId,
+            decision,
+            cloudTs: controllerLocksRef.current[payload.roomId]?.lockedAt ?? 0,
+            companionTs: payload.lock?.lockedAt ?? payload.timestamp,
+            confidenceWindowMs,
+            holdActive: isHoldActive(payload.roomId),
+            shouldUseCloudLock: shouldUseCloudLock(payload.roomId),
+            connectionStatus: firebase.connectionStatus,
+          })
+        }
+
+        if (decision.acceptSource !== 'companion') {
+          return
+        }
+
+        applyControlPayload(payload, { broadcast: true })
+        return
+      }
+
       const holdUntil = getHoldUntil(payload.roomId)
       const holdActive = isHoldActive(payload.roomId)
       const shouldHold =
