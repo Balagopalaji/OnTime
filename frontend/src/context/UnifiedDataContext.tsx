@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
+import { ARBITRATION_FLAGS, arbitrate } from '../lib/arbitration'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
 import {
@@ -585,7 +586,15 @@ const CHURN_CONFIDENCE_WINDOW_MS = 4000
 export const getConfidenceWindowMs = (hasReconnectChurn: boolean) =>
   hasReconnectChurn ? CHURN_CONFIDENCE_WINDOW_MS : BASE_CONFIDENCE_WINDOW_MS
 
+const normalizeRoomAuthoritySource = (
+  source: RoomAuthority['source'],
+): 'cloud' | 'companion' | undefined => {
+  if (source === 'pending') return undefined
+  return source
+}
+
 export const resolveRoomSource = ({
+  roomId,
   isCompanionLive,
   viewerSyncGuard,
   firebaseTs,
@@ -595,7 +604,10 @@ export const resolveRoomSource = ({
   effectiveMode,
   confidenceWindowMs,
   controllerTieBreaker,
+  cloudOnline,
+  holdActive,
 }: {
+  roomId: string
   isCompanionLive: boolean
   viewerSyncGuard: boolean
   firebaseTs: number
@@ -605,7 +617,28 @@ export const resolveRoomSource = ({
   effectiveMode: 'cloud' | 'local'
   confidenceWindowMs: number
   controllerTieBreaker?: 'cloud' | 'companion'
+  cloudOnline: boolean
+  holdActive?: boolean
 }): 'cloud' | 'companion' => {
+  if (ARBITRATION_FLAGS.room) {
+    const decision = arbitrate({
+      roomId,
+      domain: 'room',
+      cloudTs: firebaseTs,
+      companionTs,
+      authoritySource: normalizeRoomAuthoritySource(authoritySource),
+      mode,
+      effectiveMode,
+      isCompanionLive,
+      cloudOnline,
+      confidenceWindowMs,
+      controllerTieBreaker,
+      viewerSyncGuard,
+      holdActive,
+    })
+    return decision.acceptSource
+  }
+
   if (!isCompanionLive) return 'cloud'
   if (viewerSyncGuard) return 'cloud'
 
@@ -614,7 +647,7 @@ export const resolveRoomSource = ({
   }
 
   if (Math.abs(firebaseTs - companionTs) < confidenceWindowMs) {
-    if (authoritySource === 'companion' || authoritySource === 'pending') return 'companion'
+    if (authoritySource === 'companion') return 'companion'
     return 'cloud'
   }
 
@@ -946,7 +979,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const confidenceWindowMs = useMemo(() => getConfidenceWindowMs(reconnectChurn), [reconnectChurn])
   const getHoldUntil = useCallback((roomId: string) => {
     const holds = companionHoldUntilRef.current
-    return holds[roomId] ?? holds['*'] ?? 0
+    return holds[roomId] ?? 0
   }, [])
   const isHoldActive = useCallback((roomId: string) => getHoldUntil(roomId) > Date.now(), [getHoldUntil])
   const markControllerWrite = useCallback((roomId: string, source: 'cloud' | 'companion') => {
@@ -3346,9 +3379,15 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       joinPendingRef.current = false
       activeJoinRef.current = null
       const holdUntil = Date.now() + getConfidenceWindowMs(reconnectChurn)
-      companionHoldUntilRef.current['*'] = holdUntil
+      const subscribedRoomIds = Object.keys(subscribedRoomsRef.current)
+      if (subscribedRoomIds.length > 0) {
+        const nextHolds = { ...companionHoldUntilRef.current }
+        subscribedRoomIds.forEach((roomId) => {
+          nextHolds[roomId] = holdUntil
+        })
+        companionHoldUntilRef.current = nextHolds
+      }
       if (debugCompanion) {
-        const subscribedRoomIds = Object.keys(subscribedRoomsRef.current)
         const roomAuthoritySnapshot = subscribedRoomIds.map((roomId) => ({
           roomId,
           shouldUseCloudLock: shouldUseCloudLock(roomId),
@@ -3376,9 +3415,33 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
       const firebaseTs = baseRoom?.state.lastUpdate ?? 0
-      const isStale =
-        snapshotTs + confidenceWindowMs < existingTs ||
-        snapshotTs + confidenceWindowMs < firebaseTs
+      const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
+      const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(payload.roomId)
+      const lastControllerWrite = lastControllerWriteRef.current[payload.roomId]
+      const controllerTieBreaker =
+        lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
+          ? lastControllerWrite.source
+          : undefined
+      const arbitrationDecision = ARBITRATION_FLAGS.room
+        ? arbitrate({
+            roomId: payload.roomId,
+            domain: 'room',
+            cloudTs: firebaseTs,
+            companionTs: snapshotTs,
+            authoritySource: normalizeRoomAuthoritySource(authority.source),
+            mode,
+            effectiveMode,
+            isCompanionLive: isCompanionLive(),
+            cloudOnline: firebase.connectionStatus !== 'offline',
+            confidenceWindowMs,
+            controllerTieBreaker,
+            viewerSyncGuard,
+            holdActive: isHoldActive(payload.roomId),
+          })
+        : null
+      const isStale = ARBITRATION_FLAGS.room
+        ? arbitrationDecision?.acceptSource !== 'companion'
+        : snapshotTs + confidenceWindowMs < existingTs || snapshotTs + confidenceWindowMs < firebaseTs
       if (debugCompanion) {
         console.info('[companion] ROOM_STATE_SNAPSHOT activeLiveCueId', {
           roomId: payload.roomId,
@@ -3393,7 +3456,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             incomingTs: snapshotTs,
             existingTs,
             firebaseTs,
+            decision: arbitrationDecision,
           })
+        }
+        if (ARBITRATION_FLAGS.room && arbitrationDecision) {
+          setRoomAuthority((prev) => ({
+            ...prev,
+            [payload.roomId]: {
+              source: arbitrationDecision.acceptSource,
+              status: 'ready',
+              lastSyncAt: Date.now(),
+            },
+          }))
         }
         return
       }
@@ -3444,7 +3518,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         setRoomAuthority((prev) => ({
           ...prev,
           [payload.roomId]: {
-            source: 'companion',
+            source: arbitrationDecision?.acceptSource ?? 'companion',
             status: 'degraded',
             lastSyncAt: Date.now(),
           },
@@ -3476,7 +3550,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       setRoomAuthority((prev) => ({
         ...prev,
         [payload.roomId]: {
-          source: 'companion',
+          source: arbitrationDecision?.acceptSource ?? 'companion',
           status: 'ready',
           lastSyncAt: Date.now(),
         },
@@ -3498,9 +3572,33 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const incomingTs = payload.changes.lastUpdate ?? payload.timestamp ?? Date.now()
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
       const firebaseTs = firebase.getRoom(payload.roomId)?.state.lastUpdate ?? 0
-      const isStale =
-        incomingTs + confidenceWindowMs < existingTs ||
-        incomingTs + confidenceWindowMs < firebaseTs
+      const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
+      const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(payload.roomId)
+      const lastControllerWrite = lastControllerWriteRef.current[payload.roomId]
+      const controllerTieBreaker =
+        lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
+          ? lastControllerWrite.source
+          : undefined
+      const arbitrationDecision = ARBITRATION_FLAGS.room
+        ? arbitrate({
+            roomId: payload.roomId,
+            domain: 'room',
+            cloudTs: firebaseTs,
+            companionTs: incomingTs,
+            authoritySource: normalizeRoomAuthoritySource(authority.source),
+            mode,
+            effectiveMode,
+            isCompanionLive: isCompanionLive(),
+            cloudOnline: firebase.connectionStatus !== 'offline',
+            confidenceWindowMs,
+            controllerTieBreaker,
+            viewerSyncGuard,
+            holdActive: isHoldActive(payload.roomId),
+          })
+        : null
+      const isStale = ARBITRATION_FLAGS.room
+        ? arbitrationDecision?.acceptSource !== 'companion'
+        : incomingTs + confidenceWindowMs < existingTs || incomingTs + confidenceWindowMs < firebaseTs
       if (import.meta.env.DEV) {
         const activeId =
           payload.changes.activeTimerId ??
@@ -3514,6 +3612,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           incomingTs,
           existingTs,
           firebaseTs,
+          decision: arbitrationDecision,
         })
       }
       if (isStale) {
@@ -3523,7 +3622,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             incomingTs,
             existingTs,
             firebaseTs,
+            decision: arbitrationDecision,
           })
+        }
+        if (ARBITRATION_FLAGS.room && arbitrationDecision) {
+          setRoomAuthority((prev) => ({
+            ...prev,
+            [payload.roomId]: {
+              source: arbitrationDecision.acceptSource,
+              status: 'ready',
+              lastSyncAt: Date.now(),
+            },
+          }))
         }
         return
       }
@@ -3553,7 +3663,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       setRoomAuthority((prev) => ({
         ...prev,
         [payload.roomId]: {
-          source: 'companion',
+          source: arbitrationDecision?.acceptSource ?? 'companion',
           status: 'ready',
           lastSyncAt: Date.now(),
         },
@@ -3957,7 +4067,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     emitSyncRoomState,
     fetchToken,
     getHoldUntil,
+    isCompanionLive,
     isHoldActive,
+    isViewerClient,
+    mode,
     processJoinQueue,
     reconnectChurn,
     recordLiveCueRate,
@@ -4031,6 +4144,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           ? lastControllerWrite.source
           : undefined
       return resolveRoomSource({
+        roomId,
         isCompanionLive: isCompanionLive(),
         viewerSyncGuard,
         firebaseTs,
@@ -4040,9 +4154,19 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         effectiveMode,
         confidenceWindowMs,
         controllerTieBreaker,
+        cloudOnline: firebase.connectionStatus !== 'offline',
+        holdActive: isHoldActive(roomId),
       })
     },
-    [confidenceWindowMs, effectiveMode, isCompanionLive, isViewerClient, mode],
+    [
+      confidenceWindowMs,
+      effectiveMode,
+      firebase.connectionStatus,
+      isCompanionLive,
+      isHoldActive,
+      isViewerClient,
+      mode,
+    ],
   )
 
   const getRoom = useCallback(

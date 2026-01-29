@@ -73,6 +73,7 @@ describe('getConfidenceWindowMs', () => {
 
 describe('resolveRoomSource', () => {
   const baseArgs = {
+    roomId: 'room-1',
     isCompanionLive: true,
     viewerSyncGuard: false,
     firebaseTs: 1234,
@@ -81,6 +82,7 @@ describe('resolveRoomSource', () => {
     mode: 'auto' as const,
     effectiveMode: 'cloud' as const,
     confidenceWindowMs: 2000,
+    cloudOnline: true,
   }
 
   it('prefers controller-originated companion changes on equal timestamps', () => {
