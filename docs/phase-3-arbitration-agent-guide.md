@@ -24,6 +24,7 @@ If any doc conflicts with the plan, the plan wins.
 - **Phase 0.5 must land before Phase 5.** (Per-item `updatedAt` required for timers/cues.)
 - **Arbitration is not authorization.** Owner checks must still gate PIN writes, lock updates, and role enforcement.
 - **No timer math changes** (see `docs/timer-logic.md`).
+- **Lock write-through required (Pass 4a):** accepted companion locks must mirror to cloud for correct fallback.
 
 ## Quick Rules Summary
 - Dual-write to cloud + companion when possible.

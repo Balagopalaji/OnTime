@@ -171,6 +171,7 @@ Add the helper in `frontend/src/context/UnifiedDataContext.tsx` or `frontend/src
 - Make hold per-room, not `'*'`.
 - Pass a **lock-domain preferSource** into helper (e.g., derived from shouldUseCloudLock(roomId)), not room authority.
 - Hold scope: keep hold for room arbitration but make it per-room (Option B).
+ - **Lock write-through (required):** when a companion lock is accepted and cloud is online, mirror it to cloud so fallback isn’t stale. Implement via a dedicated same-user sync callable (see roadmap Pass 4a).
 
 ### Phase 4 — PIN
 - Remove cloud-preferred short-circuit.

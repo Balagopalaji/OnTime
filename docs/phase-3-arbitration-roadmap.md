@@ -139,6 +139,14 @@ Wire arbitrate() into room state: resolveRoomSource, pickSource, and handleRoomS
 - Companion reconnect does not flip lock if cloud authoritative.
 - Cloud takeover works when Companion offline.
 
+### Manual Test Checklist (before enabling ARBITRATION_FLAGS.lock)
+1) Companion online + cloud online: lock acquired in cloud -> companion lock event ignored.
+2) Companion online + cloud online: lock acquired in companion -> cloud lock update ignored.
+3) Companion offline: cloud lock changes still apply.
+4) Cloud offline: companion lock changes still apply.
+5) Reconnect companion: lock does not flip if cloud lock is newer (hold window still in effect).
+6) Force takeover in cloud mode still works and updates lock across both.
+
 ### Builder Prompt (Pass 4)
 ```
 <task>
@@ -150,6 +158,36 @@ Apply arbitrate() to lock domain. Prevent Companion lock events from overwriting
 - No changes to lock enforcement semantics.
 </context>
 ```
+
+---
+
+## Pass 4a — Lock Write-Through (Required)
+**Goal:** Prevent stale cloud lock fallback by mirroring accepted companion locks to Cloud (same-user only).
+
+### Tasks
+- Add a new callable (e.g., `syncLockFromCompanion`) in `functions/src/lock.ts` to mirror locks when `existing.userId === auth.uid` and incoming `lockedAt >= existing.lockedAt`.
+- Frontend: when a **companion lock is accepted** and cloud is online + shouldUseCloudLock(roomId) true, fire-and-forget the callable to sync the lock to Cloud.
+- Do not modify existing enforcement callables (`acquireLock`, `forceTakeover`, `requestControl`).
+
+### Verification
+- With cloud+companion online, a companion lock takeover updates the cloud lock doc.
+- When companion drops, UI does not jump to a stale cloud lock.
+
+### Builder Prompt (Pass 4a)
+```
+<task>
+Add a same-user lock write-through callable (syncLockFromCompanion) and a frontend best-effort mirror call when a companion lock is accepted.
+</task>
+<context>
+- functions/src/lock.ts and functions/src/index.ts
+- frontend/src/context/UnifiedDataContext.tsx
+- This is a data-integrity sync, not a takeover; keep permissions strict (same-user only).
+</context>
+```
+
+### Known Issue — Reconnect Churn (follow-up)
+- Companion reconnect produces 6+ HANDSHAKE_ACK / JOIN_ROOM cycles, causing lock subscription teardown and clearing `controllerLocksRef` (cloudTs=0). This allows stale companion locks to win after the hold window guard loses its cloud reference.
+- Investigate JOIN_ROOM / HANDSHAKE_ACK storm and subscription lifecycle stability as a focused task before enabling lock arbitration in production.
 
 ---
 
