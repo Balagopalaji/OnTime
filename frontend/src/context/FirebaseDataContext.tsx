@@ -730,6 +730,16 @@ export const FirebaseDataProvider = ({
       })
       batch.delete(doc(firestore, 'rooms', roomId))
       await batch.commit()
+
+      // Write tombstone to prevent resurrection from companion/local cache
+      const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+      const now = Date.now()
+      await setDoc(doc(firestore, 'deleted_rooms', roomId), {
+        roomId,
+        deletedAt: now,
+        expiresAt: now + TOMBSTONE_TTL_MS,
+        deletedBy: user.uid,
+      })
     },
     [firestore, rooms, timers, user],
   )

@@ -46,6 +46,7 @@ export type CompanionConnectionContextValue = {
 type HandshakeAck = {
   type: 'HANDSHAKE_ACK'
   success: boolean
+  roomId?: string
   companionMode: string
   companionVersion: string
   interfaceVersion?: string

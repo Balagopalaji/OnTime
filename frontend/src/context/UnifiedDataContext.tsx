@@ -49,6 +49,7 @@ type UnifiedDataContextValue = DataContextValue & {
   registerCloudRoom: (roomId: string, clientType: 'controller' | 'viewer') => void
   unregisterCloudRoom: (roomId: string) => void
   clearLiveCues: (roomId: string) => void
+  setActiveRoomIntent: (roomId: string | null) => void
 }
 
 type RoomStateSnapshotPayload = {
@@ -469,9 +470,11 @@ const DEFAULT_AUTHORITY: RoomAuthority = {
 
 const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
 const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
+const TOMBSTONE_CACHE_KEY = 'ontime:deletedRoomTombstones'
 const CONTROL_CHANNEL_NAME = 'ontime:control:channel'
 const CACHE_LIMIT = 20
 const HEARTBEAT_INTERVAL_MS = 30_000
+const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 type CachedRoomSnapshot = {
   roomId: string
@@ -575,6 +578,41 @@ const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
   }
 }
 
+type LocalTombstone = {
+  roomId: string
+  deletedAt: number
+  expiresAt: number
+}
+
+const readLocalTombstones = (): Record<string, LocalTombstone> => {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(TOMBSTONE_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, LocalTombstone>
+    const now = Date.now()
+    // Prune expired local tombstones on read
+    const active: Record<string, LocalTombstone> = {}
+    Object.entries(parsed).forEach(([roomId, entry]) => {
+      if (entry && entry.expiresAt > now) {
+        active[roomId] = entry
+      }
+    })
+    return active
+  } catch {
+    return {}
+  }
+}
+
+const persistLocalTombstones = (tombstones: Record<string, LocalTombstone>) => {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(TOMBSTONE_CACHE_KEY, JSON.stringify(tombstones))
+  } catch {
+    // ignore
+  }
+}
+
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 const MAX_QUEUE = 100
 const MAX_CUE_QUEUE = 150
@@ -606,6 +644,7 @@ export const resolveRoomSource = ({
   controllerTieBreaker,
   cloudOnline,
   holdActive,
+  preferSource,
 }: {
   roomId: string
   isCompanionLive: boolean
@@ -619,6 +658,7 @@ export const resolveRoomSource = ({
   controllerTieBreaker?: 'cloud' | 'companion'
   cloudOnline: boolean
   holdActive?: boolean
+  preferSource?: 'cloud' | 'companion'
 }): 'cloud' | 'companion' => {
   if (ARBITRATION_FLAGS.room) {
     const decision = arbitrate({
@@ -635,6 +675,7 @@ export const resolveRoomSource = ({
       controllerTieBreaker,
       viewerSyncGuard,
       holdActive,
+      preferSource,
     })
     return decision.acceptSource
   }
@@ -914,6 +955,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     if (typeof document === 'undefined') return true
     return document.visibilityState !== 'hidden'
   })
+  const [deletedRoomIds, setDeletedRoomIds] = useState<Set<string>>(() => new Set(Object.keys(readLocalTombstones())))
   const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>(cachedSnapshots)
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
@@ -963,6 +1005,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     token: string
     tokenSource: 'controller' | 'viewer'
   } | null>(null)
+  const activeRoomIntentRef = useRef<string | null>(null)
   const lastCapabilitiesRevisionRef = useRef<number | null>(null)
   const lastTierSignatureRef = useRef<string | null>(null)
   const reconnectSyncPendingRef = useRef(false)
@@ -972,6 +1015,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
   )
+  const setActiveRoomIntent = useCallback((roomId: string | null) => {
+    activeRoomIntentRef.current = roomId
+  }, [])
+
   const isCompanionLive = useCallback(
     () => Boolean(socket?.connected && handshakeStatus === 'ack'),
     [handshakeStatus, socket],
@@ -1186,11 +1233,74 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       joinToken: string,
       tokenSource: 'controller' | 'viewer',
     ) => {
+      // Idempotent: skip if already in-flight or queued for the same room+clientType
+      const active = activeJoinRef.current
+      if (active && active.roomId === roomId && active.clientType === clientType) return
+      if (joinQueueRef.current.some((entry) => entry.roomId === roomId && entry.clientType === clientType)) return
       joinQueueRef.current.push({ roomId, clientType, token: joinToken, tokenSource })
       processJoinQueue()
     },
     [processJoinQueue],
   )
+
+  // Subscribe to cloud tombstones to prevent deleted rooms from resurrecting
+  useEffect(() => {
+    if (!firestore) return
+    const tombstoneCollection = collection(firestore, 'deleted_rooms')
+    const unsubscribe = onSnapshot(tombstoneCollection, (snapshot) => {
+      const cloudTombstones = new Set<string>()
+      snapshot.docs.forEach((docSnap) => {
+        cloudTombstones.add(docSnap.id)
+      })
+
+      // Merge cloud tombstones with local tombstones
+      const localTombstones = readLocalTombstones()
+      const merged = new Set([...cloudTombstones, ...Object.keys(localTombstones)])
+
+      setDeletedRoomIds(merged)
+
+      // Upload any local-only tombstones to cloud (offline delete sync)
+      if (userId) {
+        Object.entries(localTombstones).forEach(([roomId, tombstone]) => {
+          if (!cloudTombstones.has(roomId)) {
+            setDoc(doc(firestore, 'deleted_rooms', roomId), tombstone).then(() => {
+              // Remove from local cache after successful upload
+              const updated = readLocalTombstones()
+              delete updated[roomId]
+              persistLocalTombstones(updated)
+            }).catch(() => {
+              // Will retry on next snapshot
+            })
+          }
+        })
+      }
+
+      // Purge tombstoned rooms from cached snapshots (passive cleanup)
+      if (merged.size > 0) {
+        const currentCache = cachedSnapshotsRef.current
+        let cacheChanged = false
+        const nextCache = { ...currentCache }
+        merged.forEach((roomId) => {
+          if (nextCache[roomId]) {
+            delete nextCache[roomId]
+            cacheChanged = true
+          }
+        })
+        if (cacheChanged) {
+          cachedSnapshotsRef.current = nextCache
+          persistRoomCache(nextCache)
+          setCachedSnapshots(nextCache)
+        }
+      }
+    }, () => {
+      // On error (e.g., offline), fall back to local tombstones only
+      const localTombstones = readLocalTombstones()
+      if (Object.keys(localTombstones).length > 0) {
+        setDeletedRoomIds(new Set(Object.keys(localTombstones)))
+      }
+    })
+    return unsubscribe
+  }, [firestore, userId])
 
   useEffect(() => {
     subscribedRoomsRef.current = subscribedRooms
@@ -2633,6 +2743,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const activeId = room.state.activeTimerId ?? null
       const includeTimers = timers.length > 0 || !activeId
       const currentTime = computeCurrentTimeWithProgress(room)
+      const cloudLastUpdate = room.state.lastUpdate ?? Date.now()
       const payload: SyncRoomStatePayload = {
         type: 'SYNC_ROOM_STATE',
         roomId,
@@ -2640,14 +2751,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           activeTimerId: activeId,
           isRunning: room.state.isRunning ?? false,
           currentTime,
-          lastUpdate: Date.now(),
+          lastUpdate: cloudLastUpdate,
           showClock: room.state.showClock ?? false,
           message: room.state.message,
           title: room.title,
           timezone: room.timezone,
         },
         sourceClientId: clientId,
-        timestamp: Date.now(),
+        timestamp: cloudLastUpdate,
       }
       if (includeTimers) {
         payload.timers = timers
@@ -3330,8 +3441,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return changed ? next : prev
       })
 
+      // On reconnect, only join the active room (the one the user is viewing).
+      // Other rooms will rejoin lazily when the user navigates to them.
       const rooms = subscribedRoomsRef.current
-      Object.entries(rooms).forEach(([roomId, sub]) => {
+      const intentRoomId = activeRoomIntentRef.current
+      const reconnectEntries = intentRoomId && rooms[intentRoomId]
+        ? [[intentRoomId, rooms[intentRoomId]] as const]
+        : [] // No active room intent: don't rejoin anything; pages will trigger joins on mount
+      reconnectEntries.forEach(([roomId, sub]) => {
         const tokenToUse = sub.tokenSource === 'controller' ? joinToken : sub.token
         if (!tokenToUse) return
         enqueueJoin(roomId, sub.clientType, tokenToUse, sub.tokenSource)
@@ -3428,11 +3545,14 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       })()
     }
 
-    const handleHandshakeAckQueue = () => {
+    const handleHandshakeAckQueue = (ack?: { roomId?: string }) => {
       joinPendingRef.current = false
       activeJoinRef.current = null
       const holdUntil = Date.now() + getConfidenceWindowMs(reconnectChurn)
-      const subscribedRoomIds = Object.keys(subscribedRoomsRef.current)
+      const ackRoomId = ack?.roomId
+      const subscribedRoomIds = ackRoomId
+        ? (subscribedRoomsRef.current[ackRoomId] ? [ackRoomId] : [])
+        : Object.keys(subscribedRoomsRef.current)
       if (subscribedRoomIds.length > 0) {
         const nextHolds = { ...companionHoldUntilRef.current }
         subscribedRoomIds.forEach((roomId) => {
@@ -4297,9 +4417,25 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
           ? lastControllerWrite.source
           : undefined
+      // When Companion is live and timestamps match (e.g. after SYNC echo),
+      // prefer the source matching effectiveMode so the user's mode choice wins ties.
+      const companionLive = isCompanionLive()
+      const localBiased = effectiveMode === 'local' || mode === 'local'
+      const modePreferSource = companionLive && localBiased ? 'companion' : undefined
+      if (debugCompanion) {
+        console.info('[companion] pickSource inputs', {
+          roomId,
+          mode,
+          effectiveMode,
+          companionLive,
+          localBiased,
+          holdActive: isHoldActive(roomId),
+          authority: authority.source,
+        })
+      }
       return resolveRoomSource({
         roomId,
-        isCompanionLive: isCompanionLive(),
+        isCompanionLive: companionLive,
         viewerSyncGuard,
         firebaseTs,
         companionTs,
@@ -4310,10 +4446,12 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         controllerTieBreaker,
         cloudOnline: firebase.connectionStatus !== 'offline',
         holdActive: isHoldActive(roomId),
+        preferSource: modePreferSource,
       })
     },
     [
       confidenceWindowMs,
+      debugCompanion,
       effectiveMode,
       firebase.connectionStatus,
       isCompanionLive,
@@ -5782,18 +5920,55 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [canWriteThrough, clientId, emitOrQueue, emitTimerAction, ensureCloudWriteAllowed, ensureCompanionRoomState, firebase, firestore, isLockedOut, markControllerWrite, isViewerClient, shouldUseCompanion],
   )
 
+  // Wrap deleteRoom to write a local tombstone for offline resilience
+  const deleteRoom = useCallback(async (roomId: string) => {
+    const now = Date.now()
+    // Write local tombstone immediately (survives offline)
+    const tombstones = readLocalTombstones()
+    tombstones[roomId] = { roomId, deletedAt: now, expiresAt: now + TOMBSTONE_TTL_MS }
+    persistLocalTombstones(tombstones)
+    setDeletedRoomIds((prev) => new Set([...prev, roomId]))
+
+    // Purge from local cache
+    const currentCache = cachedSnapshotsRef.current
+    if (currentCache[roomId]) {
+      const nextCache = { ...currentCache }
+      delete nextCache[roomId]
+      cachedSnapshotsRef.current = nextCache
+      persistRoomCache(nextCache)
+      setCachedSnapshots(nextCache)
+    }
+
+    // Notify companion of deletion (so it can tombstone locally too)
+    if (socket?.connected && handshakeStatus === 'ack') {
+      socket.emit('DELETE_ROOM', { roomId, timestamp: now })
+    }
+
+    // Delegate to Firebase deleteRoom (which also writes cloud tombstone)
+    try {
+      await firebase.deleteRoom(roomId)
+    } catch (error) {
+      console.warn('[rooms] deleteRoom failed; tombstone queued locally', error)
+    }
+  }, [firebase, handshakeStatus, socket])
+
   const value = useMemo<UnifiedDataContextValue>(
     () => {
       const mergedRoomsMap = new Map<string, Room>()
-        ; (firebase.rooms ?? []).forEach((room) => mergedRoomsMap.set(room.id, room))
+        ; (firebase.rooms ?? []).forEach((room) => {
+          if (!deletedRoomIds.has(room.id)) {
+            mergedRoomsMap.set(room.id, room)
+          }
+        })
       Object.values(cachedSnapshots).forEach((entry) => {
-        if (!mergedRoomsMap.has(entry.roomId)) {
+        if (!mergedRoomsMap.has(entry.roomId) && !deletedRoomIds.has(entry.roomId)) {
           mergedRoomsMap.set(entry.roomId, entry.room)
         }
       })
       return {
         ...firebase,
         rooms: [...mergedRoomsMap.values()],
+        deleteRoom,
         queueStatus,
         getRoom,
         getTimers,
@@ -5844,11 +6019,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         unsubscribeFromCompanionRoom,
         registerCloudRoom,
         unregisterCloudRoom,
+        setActiveRoomIntent,
       }
     },
     [
       cachedSnapshots,
       controllerLocks,
+      deletedRoomIds,
       roomPins,
       roomClients,
       controlRequests,
@@ -5857,6 +6034,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       controlDisplacements,
       controlErrors,
       createTimer,
+      deleteRoom,
       deleteTimer,
       firebase,
       forceCloudAuthority,
@@ -5887,6 +6065,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       requestControl,
       roomAuthority,
       sendHeartbeat,
+      setActiveRoomIntent,
       setActiveTimer,
       setClockMode,
       setRoomPin,

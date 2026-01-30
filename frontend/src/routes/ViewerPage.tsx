@@ -100,7 +100,15 @@ export const ViewerPage = () => {
       tokenOverride?: string,
     ) => void
   }).subscribeToCompanionRoom
+  const setActiveRoomIntent = (ctx as typeof ctx & {
+    setActiveRoomIntent?: (roomId: string | null) => void
+  }).setActiveRoomIntent
   const lastJoinKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (roomId) setActiveRoomIntent?.(roomId)
+    return () => setActiveRoomIntent?.(null)
+  }, [roomId, setActiveRoomIntent])
 
   useEffect(() => {
     setViewerToken(readViewerToken(roomId))
