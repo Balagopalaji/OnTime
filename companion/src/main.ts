@@ -1069,10 +1069,12 @@ function setControllerLock(
   userName?: string,
   options?: { clearPending?: boolean },
 ) {
+  const existing = roomControllerStore.get(roomId);
+  const preserveConnectedAt = existing && existing.clientId === clientId;
   roomControllerStore.set(roomId, {
     clientId,
     socketId,
-    connectedAt: Date.now(),
+    connectedAt: preserveConnectedAt ? existing.connectedAt : Date.now(),
     lastHeartbeat: Date.now(),
     deviceName,
     userId,
