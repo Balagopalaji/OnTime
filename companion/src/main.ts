@@ -336,6 +336,7 @@ type RoomClientsState = {
 type HandshakeAck = {
   type: 'HANDSHAKE_ACK';
   success: true;
+  roomId?: string;
   companionMode: CompanionMode;
   companionVersion: string;
   interfaceVersion: string;
@@ -739,6 +740,25 @@ const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
 const roomCuesStore: Map<string, Map<string, Cue>> = new Map();
 const liveCuesStore: Map<string, Map<string, { cue: LiveCue; updatedAt: number }>> = new Map();
+const roomTombstoneStore: Map<string, { roomId: string; deletedAt: number; expiresAt: number }> = new Map();
+const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function applyRoomTombstone(roomId: string) {
+  roomStateStore.delete(roomId);
+  roomTimersStore.delete(roomId);
+  roomCuesStore.delete(roomId);
+  liveCuesStore.delete(roomId);
+  roomControllerStore.delete(roomId);
+  roomClientStore.delete(roomId);
+  roomPinStore.delete(roomId);
+  roomOwnerStore.delete(roomId);
+  pendingHandshakeStore.delete(roomId);
+  pendingControlRequests.delete(roomId);
+  roomControlAuditStore.delete(roomId);
+  roomViewerTokenStore.delete(roomId);
+  roomPairingCodeStore.delete(roomId);
+  scheduleRoomCacheWrite();
+}
 
 function getRoomLiveCues(roomId: string): Map<string, { cue: LiveCue; updatedAt: number }> {
   if (liveCuesStore.has(roomId)) return liveCuesStore.get(roomId)!;
@@ -3100,6 +3120,16 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
     socket.on('HAND_OVER', (payload) => handleHandOver(socket, payload));
     socket.on('DENY_CONTROL', (payload) => handleDenyControl(socket, payload));
     socket.on('SET_ROOM_PIN', (payload) => handleSetRoomPin(socket, payload));
+    socket.on('DELETE_ROOM', (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const { roomId } = payload as { roomId?: string };
+      if (!roomId || typeof roomId !== 'string') return;
+      if (!enforceControllerAccess(socket, roomId)) return;
+      const now = Date.now();
+      roomTombstoneStore.set(roomId, { roomId, deletedAt: now, expiresAt: now + TOMBSTONE_TTL_MS });
+      applyRoomTombstone(roomId);
+      console.log(`[ws] Room ${roomId} deleted and tombstoned by client=${socket.id}`);
+    });
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
       const roomId = socket.data?.roomId as string | undefined;
@@ -5141,6 +5171,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   const ack: HandshakeAck = {
     type: 'HANDSHAKE_ACK',
     success: true,
+    roomId: payload.roomId,
     companionMode: currentCompanionMode,
     companionVersion: COMPANION_VERSION,
     interfaceVersion: INTERFACE_VERSION,
@@ -7169,6 +7200,7 @@ async function loadRoomCache() {
         setBy?: string;
       }>;
       viewerTokens?: Record<string, ViewerTokenEntry[]>;
+      tombstones?: Record<string, { roomId: string; deletedAt: number; expiresAt: number }>;
     };
     if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
       console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
@@ -7262,6 +7294,22 @@ async function loadRoomCache() {
         }
       });
     }
+    // Load tombstones and prune expired; apply active tombstones to remove deleted rooms
+    if (parsed.tombstones) {
+      const now = Date.now();
+      Object.entries(parsed.tombstones).forEach(([roomId, entry]) => {
+        if (entry && entry.expiresAt > now) {
+          roomTombstoneStore.set(roomId, entry);
+          // Remove room data for any tombstoned room
+          roomStateStore.delete(roomId);
+          roomTimersStore.delete(roomId);
+          roomCuesStore.delete(roomId);
+        }
+      });
+      if (roomTombstoneStore.size > 0) {
+        console.log(`[cache] Applied ${roomTombstoneStore.size} tombstones, pruned deleted rooms`);
+      }
+    }
     lastWriteTs = parsed.lastWrite ?? Date.now();
     console.log(`[cache] Loaded ${roomStateStore.size} rooms from cache`);
   } catch (error: any) {
@@ -7347,6 +7395,7 @@ async function writeRoomCache() {
       controlAudit: Object.fromEntries(roomControlAuditStore.entries()),
       pins: Object.fromEntries(roomPinStore.entries()),
       owners: Object.fromEntries(roomOwnerStore.entries()),
+      tombstones: Object.fromEntries(roomTombstoneStore.entries()),
       viewerTokens: Object.fromEntries(
         [...roomViewerTokenStore.entries()].map(([roomId, tokenMap]) => [
           roomId,
