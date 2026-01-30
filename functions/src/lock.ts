@@ -387,3 +387,60 @@ export const forceTakeover = functions.https.onCall(async (data, context) => {
     return { success: true, lock: newLock, previousHolder: existingLock };
   });
 });
+
+export const syncLockFromCompanion = functions.https.onCall(async (data, context) => {
+  const roomId = requireString(data?.roomId, 'roomId');
+  const clientId = requireString(data?.clientId, 'clientId');
+  const userId = resolveUserId(data?.userId, context);
+  const deviceName = optionalString(data?.deviceName, 'deviceName');
+  const userName = optionalString(data?.userName, 'userName');
+  const lockedAtMs = data?.lockedAt;
+  if (typeof lockedAtMs !== 'number' || lockedAtMs <= 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'lockedAt is required');
+  }
+  const now = admin.firestore.Timestamp.now();
+  const lockedAt = admin.firestore.Timestamp.fromMillis(lockedAtMs);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(lockRef(roomId));
+
+    if (!snap.exists) {
+      const lockData: ControllerLock = {
+        clientId,
+        userId,
+        lockedAt,
+        lastHeartbeat: now,
+        controlPolicy: 'exclusive',
+        ...(deviceName !== undefined && { deviceName }),
+        ...(userName !== undefined && { userName }),
+      };
+      tx.set(lockRef(roomId), lockData);
+      return { success: true };
+    }
+
+    const existing = snap.data() as ControllerLock;
+
+    if (existing.userId !== userId) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'Cannot sync lock for a different user.'
+      );
+    }
+
+    const existingLockedAtMs = toMillis(existing.lockedAt) ?? 0;
+    if (lockedAtMs < existingLockedAtMs) {
+      return { success: true }; // cloud is already newer, no-op
+    }
+
+    const updateData: Record<string, unknown> = {
+      clientId,
+      lockedAt,
+      lastHeartbeat: now,
+      controlPolicy: 'exclusive',
+    };
+    if (deviceName !== undefined) updateData.deviceName = deviceName;
+    if (userName !== undefined) updateData.userName = userName;
+    tx.update(lockRef(roomId), updateData);
+    return { success: true };
+  });
+});

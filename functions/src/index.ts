@@ -5,6 +5,7 @@ import {
   forceTakeover,
   releaseLock,
   requestControl,
+  syncLockFromCompanion,
   updateHeartbeat,
 } from './lock';
 import { joinAsOperator } from './operators';
@@ -16,6 +17,7 @@ export {
   forceTakeover,
   releaseLock,
   requestControl,
+  syncLockFromCompanion,
   updateHeartbeat,
   joinAsOperator,
 };

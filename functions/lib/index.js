@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.joinAsOperator = exports.updateHeartbeat = exports.requestControl = exports.releaseLock = exports.forceTakeover = exports.handoverLock = exports.denyControl = exports.acquireLock = void 0;
+exports.joinAsOperator = exports.updateHeartbeat = exports.syncLockFromCompanion = exports.requestControl = exports.releaseLock = exports.forceTakeover = exports.handoverLock = exports.denyControl = exports.acquireLock = void 0;
 const lock_1 = require("./lock");
 Object.defineProperty(exports, "acquireLock", { enumerable: true, get: function () { return lock_1.acquireLock; } });
 Object.defineProperty(exports, "denyControl", { enumerable: true, get: function () { return lock_1.denyControl; } });
@@ -8,6 +8,7 @@ Object.defineProperty(exports, "handoverLock", { enumerable: true, get: function
 Object.defineProperty(exports, "forceTakeover", { enumerable: true, get: function () { return lock_1.forceTakeover; } });
 Object.defineProperty(exports, "releaseLock", { enumerable: true, get: function () { return lock_1.releaseLock; } });
 Object.defineProperty(exports, "requestControl", { enumerable: true, get: function () { return lock_1.requestControl; } });
+Object.defineProperty(exports, "syncLockFromCompanion", { enumerable: true, get: function () { return lock_1.syncLockFromCompanion; } });
 Object.defineProperty(exports, "updateHeartbeat", { enumerable: true, get: function () { return lock_1.updateHeartbeat; } });
 const operators_1 = require("./operators");
 Object.defineProperty(exports, "joinAsOperator", { enumerable: true, get: function () { return operators_1.joinAsOperator; } });

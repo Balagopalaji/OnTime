@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.forceTakeover = exports.handoverLock = exports.denyControl = exports.requestControl = exports.updateHeartbeat = exports.releaseLock = exports.acquireLock = void 0;
+exports.syncLockFromCompanion = exports.forceTakeover = exports.handoverLock = exports.denyControl = exports.requestControl = exports.updateHeartbeat = exports.releaseLock = exports.acquireLock = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions"));
 const STALE_THRESHOLD_MS = 90000;
@@ -328,5 +328,55 @@ exports.forceTakeover = functions.https.onCall(async (data, context) => {
             tx.delete(controlRequestRef(roomId));
         }
         return { success: true, lock: newLock, previousHolder: existingLock };
+    });
+});
+exports.syncLockFromCompanion = functions.https.onCall(async (data, context) => {
+    const roomId = requireString(data === null || data === void 0 ? void 0 : data.roomId, 'roomId');
+    const clientId = requireString(data === null || data === void 0 ? void 0 : data.clientId, 'clientId');
+    const userId = resolveUserId(data === null || data === void 0 ? void 0 : data.userId, context);
+    const deviceName = optionalString(data === null || data === void 0 ? void 0 : data.deviceName, 'deviceName');
+    const userName = optionalString(data === null || data === void 0 ? void 0 : data.userName, 'userName');
+    const lockedAtMs = data === null || data === void 0 ? void 0 : data.lockedAt;
+    if (typeof lockedAtMs !== 'number' || lockedAtMs <= 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'lockedAt is required');
+    }
+    const now = admin.firestore.Timestamp.now();
+    const lockedAt = admin.firestore.Timestamp.fromMillis(lockedAtMs);
+    return db.runTransaction(async (tx) => {
+        var _a;
+        const snap = await tx.get(lockRef(roomId));
+        if (!snap.exists) {
+            const lockData = {
+                clientId,
+                userId,
+                lockedAt,
+                lastHeartbeat: now,
+                controlPolicy: 'exclusive',
+                ...(deviceName !== undefined && { deviceName }),
+                ...(userName !== undefined && { userName }),
+            };
+            tx.set(lockRef(roomId), lockData);
+            return { success: true };
+        }
+        const existing = snap.data();
+        if (existing.userId !== userId) {
+            throw new functions.https.HttpsError('permission-denied', 'Cannot sync lock for a different user.');
+        }
+        const existingLockedAtMs = (_a = toMillis(existing.lockedAt)) !== null && _a !== void 0 ? _a : 0;
+        if (lockedAtMs < existingLockedAtMs) {
+            return { success: true }; // cloud is already newer, no-op
+        }
+        const updateData = {
+            clientId,
+            lockedAt,
+            lastHeartbeat: now,
+            controlPolicy: 'exclusive',
+        };
+        if (deviceName !== undefined)
+            updateData.deviceName = deviceName;
+        if (userName !== undefined)
+            updateData.userName = userName;
+        tx.update(lockRef(roomId), updateData);
+        return { success: true };
     });
 });
