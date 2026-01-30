@@ -36,8 +36,8 @@ export type ArbitrationDecision = {
 }
 
 export const ARBITRATION_FLAGS = {
-  room: false,
-  lock: false,
+  room: true,
+  lock: true,
   pin: false,
   timer: false,
   cue: false,

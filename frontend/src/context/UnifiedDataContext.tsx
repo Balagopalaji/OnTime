@@ -1138,6 +1138,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     () => (functions ? httpsCallable(functions, 'handoverLock') : null),
     [],
   )
+  const syncLockFromCompanionCallable = useMemo(
+    () => (functions ? httpsCallable(functions, 'syncLockFromCompanion') : null),
+    [],
+  )
 
   const processJoinQueue = useCallback(() => {
     if (!socket) return
@@ -2821,9 +2825,23 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
               isCompanionLive: isCompanionLive(),
               cloudOnline: firebase.connectionStatus !== 'offline',
               confidenceWindowMs,
-              preferSource: shouldUseCloudLock(roomId) ? 'cloud' : 'companion',
+              preferSource: undefined,
               holdActive: isHoldActive(roomId),
             })
+            if (debugCompanion) {
+              console.info('[cloud] CONTROLLER_LOCK_STATE arbitration', {
+                roomId,
+                decision,
+                cloudTs: lock?.lockedAt ?? null,
+                companionTs: controllerLocksRef.current[roomId]?.lockedAt ?? null,
+                holdActive: isHoldActive(roomId),
+                isCompanionLive: isCompanionLive(),
+                isCloudLockEligible: isCloudLockEligible(roomId),
+                connectionStatus: firebase.connectionStatus,
+                cloudLock: lock ?? null,
+                companionLock: controllerLocksRef.current[roomId] ?? null,
+              })
+            }
             if (decision.acceptSource !== 'cloud') {
               return
             }
@@ -2847,6 +2865,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     Object.keys(lockSubscriptionsRef.current).forEach((roomId) => {
       if (eligible.has(roomId)) return
+      if (isHoldActive(roomId)) return
       lockSubscriptionsRef.current[roomId]?.()
       delete lockSubscriptionsRef.current[roomId]
       setControllerLocks((prev) => {
@@ -2860,9 +2879,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     applyControlPayload,
     cloudSubscribedRooms,
     confidenceWindowMs,
+    debugCompanion,
     effectiveMode,
     firestore,
     firebase,
+    isCloudLockEligible,
     isCompanionLive,
     isHoldActive,
     mode,
@@ -2954,6 +2975,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     Object.keys(controlRequestSubscriptionsRef.current).forEach((roomId) => {
       if (eligible.has(roomId)) return
+      if (isHoldActive(roomId)) return
       controlRequestSubscriptionsRef.current[roomId]?.()
       delete controlRequestSubscriptionsRef.current[roomId]
       setControlRequests((prev) => {
@@ -2969,7 +2991,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return next
       })
     })
-  }, [clientId, firestore, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms, user?.uid])
+  }, [clientId, firestore, isHoldActive, shouldUseCloudLock, subscribedRooms, cloudSubscribedRooms, user?.uid])
 
   useEffect(() => {
     if (!firestore) return
@@ -3978,6 +4000,27 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
 
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
       if (ARBITRATION_FLAGS.lock) {
+        // Hold conflict guard: during reconnect churn, if cloud already has a lock
+        // held by a different client, ignore the companion lock to prevent stale
+        // auto-claim from overriding a legitimate cloud takeover.
+        const cloudLock = controllerLocksRef.current[payload.roomId]
+        const holdConflict =
+          isHoldActive(payload.roomId) &&
+          cloudLock?.clientId &&
+          payload.lock?.clientId &&
+          cloudLock.clientId !== payload.lock.clientId
+        if (holdConflict) {
+          if (debugCompanion) {
+            console.info('[companion] CONTROLLER_LOCK_STATE hold-conflict: ignoring stale companion lock', {
+              roomId: payload.roomId,
+              cloudClientId: cloudLock?.clientId,
+              companionClientId: payload.lock?.clientId,
+              holdActive: true,
+            })
+          }
+          return
+        }
+
         const decision = arbitrate({
           roomId: payload.roomId,
           domain: 'lock',
@@ -3988,7 +4031,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           isCompanionLive: isCompanionLive(),
           cloudOnline: firebase.connectionStatus !== 'offline',
           confidenceWindowMs,
-          preferSource: shouldUseCloudLock(payload.roomId) ? 'cloud' : 'companion',
+          preferSource: undefined,
           holdActive: isHoldActive(payload.roomId),
         })
 
@@ -4002,11 +4045,53 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
             holdActive: isHoldActive(payload.roomId),
             shouldUseCloudLock: shouldUseCloudLock(payload.roomId),
             connectionStatus: firebase.connectionStatus,
+            cloudLock: controllerLocksRef.current[payload.roomId] ?? null,
+            companionLock: payload.lock ?? null,
           })
         }
 
         if (decision.acceptSource !== 'companion') {
           return
+        }
+
+        // Lock write-through (Pass 4a): mirror accepted companion lock to cloud
+        // Suppress during hold window to avoid overwriting correct cloud lock with stale companion data
+        if (
+          payload.lock &&
+          payload.lock.userId &&
+          syncLockFromCompanionCallable &&
+          firebase.connectionStatus !== 'offline' &&
+          isCloudLockEligible(payload.roomId) &&
+          !isHoldActive(payload.roomId)
+        ) {
+          const previousLock = controllerLocksRef.current[payload.roomId]
+          const lockChanged = previousLock?.clientId !== payload.lock.clientId
+          if (debugCompanion) {
+            console.info('[lock-write-through] attempt', {
+              roomId: payload.roomId,
+              lockChanged,
+              previousClientId: previousLock?.clientId ?? null,
+              nextClientId: payload.lock.clientId,
+              userId: payload.lock.userId,
+              lockedAt: payload.lock.lockedAt ?? payload.timestamp ?? null,
+              isCloudLockEligible: isCloudLockEligible(payload.roomId),
+              connectionStatus: firebase.connectionStatus,
+            })
+          }
+          if (lockChanged) {
+            syncLockFromCompanionCallable({
+              roomId: payload.roomId,
+              clientId: payload.lock.clientId,
+              userId: payload.lock.userId,
+              deviceName: payload.lock.deviceName,
+              userName: payload.lock.userName,
+              lockedAt: typeof payload.lock.lockedAt === 'number'
+                ? payload.lock.lockedAt
+                : Date.now(),
+            }).catch((err) => {
+              console.warn('[lock-write-through] syncLockFromCompanion failed', err)
+            })
+          }
         }
 
         applyControlPayload(payload, { broadcast: true })
@@ -4156,6 +4241,8 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     firebase,
     roomAuthority,
     shouldUseCloudLock,
+    isCloudLockEligible,
+    syncLockFromCompanionCallable,
     token,
   ])
 
