@@ -123,12 +123,22 @@ The frontend uses a Unified Data Provider architecture where Firebase and Compan
    - Format translation: converts Companion format to Firebase format transparently
    - Sync orchestration: sends `SYNC_ROOM_STATE` when controller joins Companion room
 
+### 3.2.1 Sync Integrity Guardrails (Implemented)
+**These are active and must be preserved.**
+- **Truthful timestamps:** `SYNC_ROOM_STATE` preserves Cloud `state.lastUpdate` and uses it for payload timestamps. Companion must not mint new timestamps for synced data.
+- **Room-aware handshake:** `HANDSHAKE_ACK` includes `roomId`. Hold windows are per-room (no global `'*'`).
+- **Lazy join:** on reconnect, only the active room is joined; other rooms join on navigation. (Prevents JOIN storms.)
+- **Idempotent join queue:** duplicate joins for the same room+clientType are ignored.
+- **Seed companion cache:** `SEED_COMPANION_CACHE` bulk-pushes cloud rooms + tombstones to Companion after handshake. Overwrite-safe (newer wins). No JOIN/handshake side effects.
+- **Tombstones:** cloud deletes write `deleted_rooms/{roomId}` with TTL (`expiresAt`). Firestore TTL must be enabled on `deleted_rooms.expiresAt` and the field is stored as a Firestore Timestamp; the app normalizes to ms at the boundary. Local tombstones are queued offline and uploaded on reconnect. Companion applies tombstones to purge local cache.
+- **Cross-tab seed guard:** only one browser tab seeds within a short window to avoid redundant seeding.
+
 ### 3.3 Parallel Sync & Flawless Fallback Architecture
 > ⚠️ **SUPERSEDED (Arbitration Rules):** The arbitration rule order and confidence-window logic in this section are superseded by `docs/phase-3-unified-arbitration-plan.md`. Use that plan as the authoritative source of truth for cross-source arbitration.
 
 **Target behavior:** This section describes intended behavior. Items marked "TO BE IMPLEMENTED" are not yet in code.
 
-**Mutual backups:** When both are available, always write to both; reads pick freshest by timestamp with a 2s confidence window (expandable to 4s on choppy links).
+**Mutual backups:** When both are available, always write to both; reads pick freshest by timestamp with a confidence window (see `getConfidenceWindowMs`).
 
 #### Write behavior (all modes)
 
@@ -162,11 +172,11 @@ function writeTimerAction(action: TimerAction) {
 #### Read behavior (timestamp arbitration)
 
 **Target:** Pick freshest data by timestamp with mode bias.
-**Current:** Timestamp arbitration is implemented in `getRoom` with a 2s confidence window and mode bias; viewers use Firebase while `authority.status === 'syncing'`.
+**Current:** Timestamp arbitration is implemented in `getRoom` with a confidence window and mode bias; viewers use Firebase while `authority.status === 'syncing'`.
 
 **Viewer sync guard:** While `authority.status === 'syncing'`, viewers fall back to Firebase until status is `ready`, then apply timestamp arbitration.
 
-**Authority rule for confidence window (Auto mode):** Within the confidence window (2s), trust `roomAuthority`. This prevents flickering when both sources update near-simultaneously. If no `roomAuthority` is set (fresh room, no writes yet), default to Firebase until the first controller write establishes authority.
+**Authority rule for confidence window (Auto mode):** Within the confidence window, trust `roomAuthority`. This prevents flickering when both sources update near-simultaneously. If no `roomAuthority` is set (fresh room, no writes yet), default to Firebase until the first controller write establishes authority.
 
 **Target logic:**
 
@@ -208,7 +218,7 @@ function getRoom(roomId: string): Room | undefined {
 }
 ```
 
-**Implemented:** Timestamp arbitration with 2s confidence window. Dynamic expansion to 4s on choppy links is not implemented.
+**Implemented:** Timestamp arbitration with a confidence window (see `getConfidenceWindowMs`).
 
 #### Change merging (multi-device scenarios)
 

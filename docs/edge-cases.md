@@ -70,6 +70,20 @@ Current state:
 
 ---
 
+## 4. Fresh Device Offline (Companion Cache Seeding)
+
+Scenario: Operator prepares rooms online, then goes offline on a fresh Companion install.
+
+Current state (implemented):
+- After Companion handshake, frontend sends `SEED_COMPANION_CACHE` (bulk rooms + tombstones).
+- Companion stores data without JOIN/handshake side effects.
+- Seed is overwrite-safe (newer wins) and guarded across tabs.
+
+Mitigation:
+- If no seed has occurred, offline dashboard shows only locally cached rooms.
+
+---
+
 ## 4. Template Room Conflicts (Mitigation)
 
 Scenario: Two juniors clone the same template.
@@ -108,15 +122,19 @@ Mitigation:
 
 ---
 
-## 6. Room Deletion Visibility
+## 6. Room Deletion (Tombstones)
 
 Scenario: Room deleted from dashboard while viewers are connected or try to open the link.
 
-Target behavior (not yet implemented):
-- Detect null room on Firestore read (doc deleted)
-- Block access to the room
-- Show a clear message: "This timer has been deleted by the owner"
-- Offer "Return to Dashboard" button
+Current state (implemented):
+- Room deletes write a tombstone to `deleted_rooms/{roomId}` with `expiresAt` TTL.
+- Frontend filters tombstoned rooms from both cloud and companion caches.
+- Companion purges local cache when tombstone is applied (via socket or seed).
+- Local tombstones queue offline deletes and upload on reconnect.
+
+Notes:
+- Firestore TTL must be enabled on `deleted_rooms.expiresAt` to auto-clean tombstones.
+- UI messaging for “room deleted” is still TBD (viewer/controller UX).
 
 ---
 
@@ -145,7 +163,7 @@ Implementation note:
 
 ---
 
-## 7. Choppy Connection Handling
+## 8. Choppy Connection Handling
 
 Scenario: Internet reconnects every 30 seconds.
 
@@ -160,7 +178,7 @@ Current state:
 
 ---
 
-## 8. Viewer Sees Stale Companion During Controller Sync
+## 9. Viewer Sees Stale Companion During Controller Sync
 
 Scenario: Controller switches Cloud → Local; Companion receives an old snapshot; viewer joins before SYNC completes.
 
@@ -179,7 +197,7 @@ Mitigation:
 
 ---
 
-## 9. PowerPoint Embedded Video Timing Unavailable (Windows)
+## 10. PowerPoint Embedded Video Timing Unavailable (Windows)
 
 Scenario: PowerPoint slideshow is running with an embedded MP4, but video timing shows as unavailable in the controller.
 

@@ -471,8 +471,10 @@ Notes:
 {
   "type": "HANDSHAKE_ACK",
   "success": true,
+  "roomId": "abc123",
   "companionMode": "minimal",
   "companionVersion": "1.0.0",
+  "interfaceVersion": "1.2.0",
   "capabilities": {
     "powerpoint": false,
     "externalVideo": false,
@@ -748,6 +750,18 @@ Notes:
 - Rooms with a local tombstone are ignored; incoming tombstones are applied before room data.
 - Does not emit socket broadcasts or trigger JOIN logic.
 - Triggered once per successful reconnect/handshake when cloud is online.
+
+**Client → Server: `DELETE_ROOM`**
+```json
+{
+  "type": "DELETE_ROOM",
+  "roomId": "abc123",
+  "timestamp": 1234567890
+}
+```
+Notes:
+- Tombstones the room locally in Companion (deletes cached room state).
+- Controller-only event; Companion enforces controller access.
 
 **Client → Server: `SYNC_ROOM_STATE`**
 ```json

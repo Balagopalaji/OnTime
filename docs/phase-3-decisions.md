@@ -37,6 +37,13 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
   - Replay order is timestamp-ordered after per-type merge (match timer queue semantics in `docs/local-mode.md`).
   - Conflict resolution uses the existing timestamp arbitration rules; newest cue write wins.
   - Pending offline cues do not block cloud edits; on reconnect, queued writes apply on top of latest cloud state.
+- Sync integrity guardrails (implemented in Phase 1D hardening):
+  - Truthful timestamps: SYNC payloads preserve source `lastUpdate`.
+  - Room-aware handshake: `HANDSHAKE_ACK` includes `roomId`, hold window is per-room.
+  - Lazy join + idempotent join queue to prevent JOIN storms.
+  - `SEED_COMPANION_CACHE` bulk seed after handshake (overwrite-safe, no JOIN side effects).
+  - Tombstones: `deleted_rooms` TTL + local tombstone queue + companion purge.
+  - Cross-tab seed guard to avoid redundant seeding.
 - Role storage is explicit only: authorization relies on `rooms/{roomId}/operators/{odUserId}` (plus owner implicit TD/Director); no role inference from connection source or client type.
 - Bundle strategy: separate viewer-only Vite build (`VITE_VIEWER_ONLY=true`), packaged in `resources/viewer/`, unpacked to a runtime cache on launch, served at `/viewer/v{appVersion}/` with content-hash filenames. See `docs/phase-3-bundle-strategy.md`.
 - Cert trust UX: trust guide in Companion LAN Viewers panel; viewer-side "Trust Required" screen with retry after proceeding past TLS warning; BYO cert in Settings (advanced); no HTTP fallback; recommend viewer-only Electron app to reduce trust friction. See `docs/phase-3-cert-trust-ux.md`.
