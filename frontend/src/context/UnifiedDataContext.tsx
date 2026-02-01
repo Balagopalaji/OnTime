@@ -4,6 +4,7 @@ import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot,
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { ARBITRATION_FLAGS, arbitrate } from '../lib/arbitration'
+import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
 import {
@@ -586,14 +587,6 @@ type LocalTombstone = {
   expiresAt: number
 }
 
-const toMillis = (value: unknown): number | null => {
-  if (typeof value === 'number') return value
-  if (value && typeof (value as { toMillis?: () => number }).toMillis === 'function') {
-    return (value as { toMillis: () => number }).toMillis()
-  }
-  return null
-}
-
 const readLocalTombstones = (): Record<string, LocalTombstone> => {
   if (typeof localStorage === 'undefined') return {}
   try {
@@ -809,20 +802,12 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
   },
 })
 
-const toMillis = (value: unknown): number => {
-  if (typeof value === 'number') return value
-  if (value && typeof (value as { toMillis?: () => number }).toMillis === 'function') {
-    return (value as { toMillis: () => number }).toMillis()
-  }
-  return 0
-}
-
 const normalizeControllerLock = (roomId: string, raw: Record<string, unknown> | null | undefined): ControllerLock | null => {
   if (!raw) return null
   const clientId = typeof raw.clientId === 'string' ? raw.clientId : ''
   if (!clientId) return null
-  const lockedAt = toMillis(raw.lockedAt)
-  const lastHeartbeat = toMillis(raw.lastHeartbeat)
+  const lockedAt = toMillis(raw.lockedAt) ?? 0
+  const lastHeartbeat = toMillis(raw.lastHeartbeat) ?? 0
   const fallback = Date.now()
   return {
     clientId,
@@ -1700,7 +1685,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         const snap = await getDoc(pinDoc)
         const data = snap.exists() ? (snap.data() as Record<string, unknown>) : null
         const cloudPin = typeof data?.value === 'string' ? data.value : null
-        const cloudUpdatedAt = toMillis(data?.updatedAt)
+        const cloudUpdatedAt = toMillis(data?.updatedAt) ?? 0
         const localUpdatedAt = localPinMeta.updatedAt ?? 0
         if (cloudPin && cloudUpdatedAt >= localUpdatedAt) {
           roomPinSyncStatusRef.current[roomId] = { attempted: true, pending: false }
@@ -2937,7 +2922,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       }
 
       if (payload.type === 'ROOM_PIN_STATE') {
-        const updatedAt = toMillis(payload.updatedAt)
+        const updatedAt = toMillis(payload.updatedAt) ?? 0
         mergeRoomPin(payload.roomId, { value: payload.pin, updatedAt, source: 'companion' })
       }
 
@@ -3228,7 +3213,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           }
           const data = snapshot.data() as Record<string, unknown>
           const value = typeof data.value === 'string' ? data.value : null
-          const updatedAt = toMillis(data.updatedAt)
+          const updatedAt = toMillis(data.updatedAt) ?? 0
           mergeRoomPin(roomId, { value, updatedAt, source: 'cloud' })
         },
         (error) => {
