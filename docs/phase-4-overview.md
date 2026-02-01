@@ -24,7 +24,7 @@ Phase 4 focuses on scale, polish, and optional modules. This draft captures cand
 - Native viewer apps (iOS/Android) with public viewer support.
 - Viewer theming: logo banners, colors, and font customization for enterprise branding.
 - Undo/redo command system for planner and cue edits.
-- Windows cert install hardening (if not completed in Phase 3D).
+- Windows cert install hardening (if not completed in Phase 3E).
 - Remote file open on show laptop: controller triggers PPT open on a dedicated show machine.
 - File distribution/sync: authorized device uploads files; show and backup laptops sync for reliable open cues.
 - Modular packaging: optional standalone modules or feature bundles for specific roles.

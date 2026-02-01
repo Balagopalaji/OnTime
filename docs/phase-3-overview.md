@@ -62,7 +62,13 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - **Key work:** CRUD + ordering for sections/segments/timers, cues with trigger types and ack states, crew chat, viewer panels for upcoming cues, role scoping.
 - **Outputs:** end-to-end planner usable in a live show context.
 
-### Phase 3D — Hardening + Release
+### Phase 3D — Save/Load Sessions
+- **Goals:** enable cross-device save/restore of room state as sessions or templates.
+- **Key work:** cloud session storage (subcollections), save/restore flows, templates (`kind` + `locked`), companion offline queue, session caps.
+- **Spec:** `docs/phase-3-save-load-sessions.md`
+- **Outputs:** users can save a show, restore it on another device as a new room.
+
+### Phase 3E — Hardening + Release
 - **Goals:** stabilize, test, and document Phase 3 features.
 - **Key work:** reliability checks, performance targets, QA checklists, doc updates.
 
@@ -70,11 +76,11 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - Tier selection UI (target: Phase 3A/3C).
 - Viewer-only Electron build target (target: Phase 3B).
 - Crash recovery banner on force-quit relaunch (target: Phase 3A/3D).
-- Auto-update pipeline for Electron controller (target: Phase 3D).
-- RAM target reduction work for Minimal mode (target: Phase 3D).
-- macOS version bump step (target: Phase 3D).
+- Auto-update pipeline for Electron controller (target: Phase 3E).
+- RAM target reduction work for Minimal mode (target: Phase 3E).
+- macOS version bump step (target: Phase 3E).
 - Viewer second-display option (fullscreen) for internal workflows (target: Phase 3C).
-- UI polish pass with gating copy clarity (target: Phase 3D).
+- UI polish pass with gating copy clarity (target: Phase 3E).
 - Prefer VLC for external video playback when available (target: Phase 3C).
 
 ## Success Criteria

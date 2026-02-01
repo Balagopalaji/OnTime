@@ -146,7 +146,7 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 
 ---
 
-## Phase 3 — Save/Load Sessions
+## Phase 3D — Save/Load Sessions
 
 **Goal:** Enable cross-device save and restore of room state as sessions or templates.
 **Spec:** `docs/phase-3-save-load-sessions.md`
@@ -185,7 +185,7 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 
 ---
 
-## Phase 3D — Hardening + Release
+## Phase 3E — Hardening + Release
 
 **Goal:** Stabilize and document Phase 3 features.
 
@@ -208,10 +208,10 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [ ] Viewer-only Electron build target (separate app/build config) — target: 3B.
 - [ ] Crash recovery banner on force-quit relaunch — target: 3A/3D.
 - [ ] Viewer second-display option (fullscreen) — target: 3C.
-- [ ] UI polish pass with gating copy clarity — target: 3D.
-- [ ] Auto-update pipeline for Electron controller (canary + stable) — target: 3D.
-- [ ] Code signing for macOS + Windows; notarization checks — target: 3D.
-- [ ] macOS version bump step (optional parity with Windows script) — target: 3D.
-- [ ] Reassess RAM budgets using packaged builds; meet Minimal target — target: 3D.
+- [ ] UI polish pass with gating copy clarity — target: 3E.
+- [ ] Auto-update pipeline for Electron controller (canary + stable) — target: 3E.
+- [ ] Code signing for macOS + Windows; notarization checks — target: 3E.
+- [ ] macOS version bump step (optional parity with Windows script) — target: 3E.
+- [ ] Reassess RAM budgets using packaged builds; meet Minimal target — target: 3E.
 - [ ] Prefer VLC when opening external videos (fallback to default player) — target: 3C.
 - [ ] Standalone PowerPoint video timer app (deferred beyond Phase 3 core).

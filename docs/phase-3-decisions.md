@@ -68,7 +68,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 
 ## Notes
 - Windows cert trust behavior: Edge/Chrome require Advanced → Proceed to localhost; no installable cert path confirmed.
-- Optional hardening: document Windows cert install path during Phase 3D if feasible; otherwise defer to Phase 4.
+- Optional hardening: document Windows cert install path during Phase 3E if feasible; otherwise defer to Phase 4.
 - Phase 3B Pass B1 validation: verified self-signed SAN certs, LAN allowlist, and PNA/CORS on local + LAN scenarios.
 - Phase 3B Pass C validation: LAN pairing QR/local flow, role-bound tokens, and revocation persistence verified.
 - Phase 3B Pass D validation: viewer tokens cannot invoke REQUEST_CONTROL or FORCE_TAKEOVER; server returns PERMISSION_DENIED.

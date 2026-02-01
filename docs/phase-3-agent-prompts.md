@@ -291,7 +291,7 @@ Before writing code:
 
 ---
 
-## Phase 3 — Save/Load Sessions
+## Phase 3D — Save/Load Sessions
 
 **Guardrails (do not violate):**
 - Restore always creates a **new room** (no overwrite-in-place).
@@ -373,13 +373,13 @@ Before writing changes:
 
 ---
 
-## Phase 3D — Hardening + Release
+## Phase 3E — Hardening + Release
 
 ### Pass A: Test Coverage
 Prompt:
 ```
 Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
-Implement Phase 3D Pass A.
+Implement Phase 3E Pass A.
 Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
 Scope: tests for planner data flows and role scoping.
 Before writing code:
@@ -392,7 +392,7 @@ Before writing code:
 Prompt:
 ```
 Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
-Implement Phase 3D Pass B.
+Implement Phase 3E Pass B.
 Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
 Scope: performance validation and RAM budget reassessment.
 Before writing changes:
@@ -405,7 +405,7 @@ Before writing changes:
 Prompt:
 ```
 Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
-Implement Phase 3D Pass C.
+Implement Phase 3E Pass C.
 Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
 Scope: documentation updates only.
 Before writing changes:
@@ -457,11 +457,11 @@ Before writing code:
 3) Then proceed
 ```
 
-### Carryover (Phase 3D)
+### Carryover (Phase 3E)
 Prompt:
 ```
 Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
-Implement the carryover items in `docs/phase-3-tasklist.md` marked for target 3D.
+Implement the carryover items in `docs/phase-3-tasklist.md` marked for target 3E.
 Complete every item listed under this carryover group; list any item you cannot complete and why.
 Scope: crash recovery banner, UI polish, auto-update, code signing, RAM targets, macOS version bump.
 Before writing code:
