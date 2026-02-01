@@ -471,10 +471,12 @@ const DEFAULT_AUTHORITY: RoomAuthority = {
 const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
 const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
 const TOMBSTONE_CACHE_KEY = 'ontime:deletedRoomTombstones'
+const SEED_GUARD_KEY = 'ontime:companionSeedAt'
 const CONTROL_CHANNEL_NAME = 'ontime:control:channel'
 const CACHE_LIMIT = 20
 const HEARTBEAT_INTERVAL_MS = 30_000
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+const SEED_GUARD_WINDOW_MS = 60_000
 
 type CachedRoomSnapshot = {
   roomId: string
@@ -956,6 +958,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     return document.visibilityState !== 'hidden'
   })
   const [deletedRoomIds, setDeletedRoomIds] = useState<Set<string>>(() => new Set(Object.keys(readLocalTombstones())))
+  const [deletedRoomMeta, setDeletedRoomMeta] = useState<Record<string, LocalTombstone>>(() => readLocalTombstones())
   const cachedSnapshotsRef = useRef<Record<string, CachedRoomSnapshot>>(cachedSnapshots)
   const [clientId] = useState(() => {
     if (typeof sessionStorage === 'undefined') return crypto.randomUUID()
@@ -1009,6 +1012,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const lastCapabilitiesRevisionRef = useRef<number | null>(null)
   const lastTierSignatureRef = useRef<string | null>(null)
   const reconnectSyncPendingRef = useRef(false)
+  const seedFiredRef = useRef(false)
   const firestore = db
   const firestoreWriteThrough = Boolean(firestore)
   const isViewerClient = useCallback(
@@ -1249,15 +1253,26 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     const tombstoneCollection = collection(firestore, 'deleted_rooms')
     const unsubscribe = onSnapshot(tombstoneCollection, (snapshot) => {
       const cloudTombstones = new Set<string>()
+      const cloudMeta: Record<string, LocalTombstone> = {}
       snapshot.docs.forEach((docSnap) => {
         cloudTombstones.add(docSnap.id)
+        const data = docSnap.data() as Partial<LocalTombstone>
+        if (typeof data.deletedAt === 'number' && typeof data.expiresAt === 'number') {
+          cloudMeta[docSnap.id] = {
+            roomId: docSnap.id,
+            deletedAt: data.deletedAt,
+            expiresAt: data.expiresAt,
+          }
+        }
       })
 
       // Merge cloud tombstones with local tombstones
       const localTombstones = readLocalTombstones()
-      const merged = new Set([...cloudTombstones, ...Object.keys(localTombstones)])
+      const mergedMeta = { ...localTombstones, ...cloudMeta }
+      const merged = new Set(Object.keys(mergedMeta))
 
       setDeletedRoomIds(merged)
+      setDeletedRoomMeta(mergedMeta)
 
       // Upload any local-only tombstones to cloud (offline delete sync)
       if (userId) {
@@ -1297,6 +1312,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const localTombstones = readLocalTombstones()
       if (Object.keys(localTombstones).length > 0) {
         setDeletedRoomIds(new Set(Object.keys(localTombstones)))
+        setDeletedRoomMeta(localTombstones)
       }
     })
     return unsubscribe
@@ -2776,6 +2792,54 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     [clientId, computeCurrentTimeWithProgress, debugCompanion, firebase, isLockedOut, socket],
   )
 
+  const seedCompanion = useCallback(() => {
+    if (!socket?.connected) return
+    if (seedFiredRef.current) return
+
+    const firebaseRooms = firebase.rooms ?? []
+
+    const rooms = firebaseRooms.map((room) => {
+      const timers = firebase.getTimers(room.id)
+      const cues = firebase.getCues(room.id)
+      const pin = roomPins[room.id] ?? undefined
+      return {
+        roomId: room.id,
+        state: room.state as RoomState,
+        ...(timers.length > 0 ? { timers } : {}),
+        ...(cues.length > 0 ? { cues } : {}),
+        ...(pin ? { pin } : {}),
+      }
+    })
+
+    const tombstones = Object.values(deletedRoomMeta)
+    if (rooms.length === 0 && tombstones.length === 0) return
+
+    // Cross-tab guard: only seed once per short window per device.
+    if (typeof localStorage !== 'undefined') {
+      const lastSeed = Number(localStorage.getItem(SEED_GUARD_KEY) ?? 0)
+      if (Number.isFinite(lastSeed) && Date.now() - lastSeed < SEED_GUARD_WINDOW_MS) {
+        return
+      }
+      try {
+        localStorage.setItem(SEED_GUARD_KEY, String(Date.now()))
+      } catch {
+        // ignore
+      }
+    }
+
+    seedFiredRef.current = true
+    socket.emit('SEED_COMPANION_CACHE', {
+      type: 'SEED_COMPANION_CACHE',
+      rooms,
+      ...(tombstones.length > 0 ? { tombstones } : {}),
+      timestamp: Date.now(),
+    })
+
+    if (debugCompanion) {
+      console.info('[companion] SEED_COMPANION_CACHE sent', { roomCount: rooms.length })
+    }
+  }, [debugCompanion, deletedRoomMeta, firebase, roomPins, socket])
+
   const broadcastControlPayload = useCallback(
     (payload: ControlSyncPayload) => {
       try {
@@ -3462,6 +3526,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (debugCompanion) console.info('[companion] disconnect')
       joinPendingRef.current = false
       reconnectSyncPendingRef.current = true
+      seedFiredRef.current = false
       if (activeJoinRef.current) {
         joinQueueRef.current.unshift(activeJoinRef.current)
         activeJoinRef.current = null
@@ -3580,6 +3645,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
           emitSyncRoomState(roomId)
         })
         reconnectSyncPendingRef.current = false
+      }
+      // Seed companion cache with cloud data once per connection session
+      if (firebase.connectionStatus === 'online') {
+        seedCompanion()
       }
     }
 
@@ -4356,6 +4425,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     writeLiveCueToFirestore,
     replayRoomQueue,
     replayCueQueue,
+    seedCompanion,
     socket,
     firestore,
     firebase,
