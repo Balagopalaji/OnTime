@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-28
+Last updated: 2026-02-01
 Scope: RepoPrompt agent prompt list for Phase 3 implementation passes.
 ---
 
@@ -284,6 +284,88 @@ Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list a
 Scope: introduce StageState payload + events for viewers; keep controller sync intact and viewer read-only.
 Do not alter timer math, cue authority model, or controller write paths.
 Before writing code:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+---
+
+## Phase 3 — Save/Load Sessions
+
+**Guardrails (do not violate):**
+- Restore always creates a **new room** (no overwrite-in-place).
+- Never sync sessions as live data; sessions are **static snapshots** only.
+- Do not bypass tombstones; block save/restore for tombstoned rooms.
+- Use subcollections for snapshots (no single 1MB doc).
+- No session auto-download; list metadata only, fetch snapshot on demand.
+- After completing a full pass, run `npm run lint` and `npm run test` in `frontend/`.
+
+### Pass A: Data Model + Security Rules
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read `docs/phase-3-save-load-sessions.md` (the full spec for this feature).
+Implement Save/Load Sessions Pass A from `docs/phase-3-tasklist.md`.
+Complete every item listed under this pass; list any item you cannot complete and why.
+Scope: TypeScript types + Firestore security rules + optional Cloud Function for cap enforcement.
+Before writing code:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+### Pass B: Save Flow
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read `docs/phase-3-save-load-sessions.md` (the full spec for this feature).
+Implement Save/Load Sessions Pass B from `docs/phase-3-tasklist.md`.
+Complete every item listed under this pass; list any item you cannot complete and why.
+Scope: Dashboard save actions, save logic (strip runtime fields, reset state, write subcollections), size guard, tombstone guard, client cap enforcement.
+Before writing code:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+### Pass C: Sessions Page + Restore Flow
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read `docs/phase-3-save-load-sessions.md` (the full spec for this feature).
+Implement Save/Load Sessions Pass C from `docs/phase-3-tasklist.md`.
+Complete every item listed under this pass; list any item you cannot complete and why.
+Scope: /sessions route, metadata list with pagination, on-demand snapshot fetch, restore as new room, delete flow, filter tabs.
+Before writing code:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+### Pass D: Companion Offline Queue
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read `docs/phase-3-save-load-sessions.md` (the full spec for this feature).
+Implement Save/Load Sessions Pass D from `docs/phase-3-tasklist.md`.
+Complete every item listed under this pass; list any item you cannot complete and why.
+Scope: Companion local session file write, local cap enforcement, frontend reconnect upload + local file cleanup.
+Before writing code:
+1) List the files you will modify
+2) Confirm scope exclusions
+3) Then proceed
+```
+
+### Pass E: Testing + QA
+Prompt:
+```
+Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance section, and run the Pre-flight (Context Sync) prompt in section 0.
+Also read `docs/phase-3-save-load-sessions.md` (the full spec for this feature).
+Implement Save/Load Sessions Pass E from `docs/phase-3-tasklist.md`.
+Complete every item listed under this pass; list any item you cannot complete and why.
+Scope: Testing and QA validation only. Verify save/restore round-trip, offline queue, cap enforcement, template locking, cross-device, and security rules.
+Before writing changes:
 1) List the files you will modify
 2) Confirm scope exclusions
 3) Then proceed

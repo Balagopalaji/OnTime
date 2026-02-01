@@ -45,6 +45,7 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 - Phase 3: `joinAsOperator` Cloud Function for invite validation and operator creation.
 - Role-based cue ownership (operators can edit only their role cues; TD/Director override).
 - Cloud-to-Companion sync improvements (see `docs/local-mode.md`).
+- Save/Load Sessions storage under `users/{uid}/sessions/*` (Phase 3).
 - Tombstones use Firestore Timestamps (written via `Timestamp.fromMillis`); clients normalize to ms at boundaries.
 
 ## Acceptance Criteria

@@ -2,8 +2,8 @@
 Type: Plan
 Status: planned
 Owner: KDB
-Last updated: 2026-01-27
-Scope: Phase 3 plan for Show Controller definition, LAN offline viewers, and Show Planner build.
+Last updated: 2026-02-01
+Scope: Phase 3 plan for Show Controller definition, LAN offline viewers, Show Planner build, and Save/Load Sessions.
 ---
 
 # Phase 3 Overview (OnTime)
@@ -16,6 +16,7 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - Define Show Controller/Planner workflows, cue authority model, and viewer requirements before building LAN distribution.
 - Deliver LAN offline viewers with secure pairing, trusted HTTPS, and role-bound tokens.
 - Ship Show Controller/Planner features (sections, segments, cues, crew chat) with role-based viewer panels.
+- Deliver Save/Load Sessions for cross-device show prep and reusable templates (see `docs/phase-3-save-load-sessions.md`).
 - Preserve timer logic invariants and parallel sync stability.
 - Reinforce parallel sync principles (no single primary; timestamp arbitration with confidence window).
 
@@ -24,6 +25,7 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - `docs/interface.md` (Phase 3 schema fields for sections, segments, cues, crew chat).
 - `docs/local-mode.md` (parallel sync rules).
 - `docs/timer-logic.md` (authoritative timer math).
+- `docs/phase-3-save-load-sessions.md` (Save/Load Sessions spec).
 
 ## Scope Breakdown
 
@@ -40,6 +42,7 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 ### Deferred
 - Standalone PowerPoint video timer app (see `docs/phase-3-standalone-ppt-timer.md`).
 - Mobile LAN viewers until trust flow is proven.
+- Export/Import sessions to file (Phase 4).
 
 ## Milestones
 

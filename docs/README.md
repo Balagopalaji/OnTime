@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2026-01-28
+Last updated: 2026-02-01
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -54,6 +54,7 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/phase-3-unified-arbitration-plan.md` (parallel sync arbitration plan)
 - `docs/phase-3-arbitration-roadmap.md` (arbitration implementation roadmap)
 - `docs/phase-3-standalone-ppt-timer.md` (standalone PowerPoint video timer draft)
+- `docs/phase-3-save-load-sessions.md` (Save/Load Sessions spec)
 
 ## References
 - `docs/local-mode.md` (parallel sync architecture)

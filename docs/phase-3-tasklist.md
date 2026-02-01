@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: planned
 Owner: KDB
-Last updated: 2026-01-22
+Last updated: 2026-02-01
 Scope: Phase 3 task list and implementation passes.
 ---
 
@@ -143,6 +143,45 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [ ] Companion emits StageState on join and on relevant changes (timer display/clock/message) for viewers.
 - [ ] Viewers use StageState as the single source for the stage card; operator viewers embed StageState and layer role overlays.
 - [ ] Keep existing room/timer sync for controllers; no permission changes (viewer remains read-only).
+
+---
+
+## Phase 3 — Save/Load Sessions
+
+**Goal:** Enable cross-device save and restore of room state as sessions or templates.
+**Spec:** `docs/phase-3-save-load-sessions.md`
+
+### Pass A: Data Model + Security Rules
+- [ ] **Types:** Add `SessionMeta`, `SessionSnapshotRoom`, `SessionSnapshotState`, `SessionSnapshotTimer`, `SessionSnapshotCue`, `Session` types to `frontend/src/types/index.ts`.
+- [ ] **Cloud/Firebase:** Add Firestore security rules for `users/{uid}/sessions/{sessionId}` and `snapshot/{doc=**}`.
+- [ ] **Cloud Function (optional):** Add session count enforcement on session document create (hard cap 70).
+
+### Pass B: Save Flow
+- [ ] **Frontend:** Add "Save Session" and "Save as Template" actions to Dashboard room card menu.
+- [ ] **Frontend:** Implement save logic: read room/state/timers/cues, strip runtime fields, reset state, write to Firestore subcollections.
+- [ ] **Frontend:** Size estimation + warning at > 700KB.
+- [ ] **Frontend:** Guard: block save on tombstoned rooms.
+- [ ] **Frontend:** Client-side cap enforcement (disable save at 50 snapshots / 20 templates).
+
+### Pass C: Sessions Page + Restore Flow
+- [ ] **Frontend:** Add `/sessions` route with metadata list (paginated, 25 per page).
+- [ ] **Frontend:** On-demand snapshot fetch when user selects a session.
+- [ ] **Frontend:** Restore as New Room: new roomId, new timer/cue IDs, reset state, navigate to controller.
+- [ ] **Frontend:** Delete session (single confirm for snapshots, unlock + confirm for templates).
+- [ ] **Frontend:** Filter tabs (All / Snapshots / Templates) and count display.
+
+### Pass D: Companion Offline Queue
+- [ ] **Companion:** Write `session-<id>.json` to cache directory when offline.
+- [ ] **Companion:** Local cap enforcement (10 files, warn + block).
+- [ ] **Frontend:** On reconnect, scan local queue, upload to Firestore, delete local file on success.
+
+### Pass E: Testing + QA
+- [ ] Save/restore round-trip (online).
+- [ ] Offline save → reconnect upload → verify in cloud.
+- [ ] Cap enforcement (client + optional Cloud Function).
+- [ ] Template lock/unlock/delete flow.
+- [ ] Cross-device: save on device A, restore on device B.
+- [ ] Security rules: user can only access own sessions.
 
 ---
 

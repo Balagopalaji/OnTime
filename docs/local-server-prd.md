@@ -113,6 +113,7 @@ Scope: Companion local server requirements (Electron/Node).
 ## Planned Phases (Roadmap)
 - Phase 2: show-control signal pipeline (live cues, presentation updates, slide progress, video elapsed/remaining time).
 - Phase 3: LAN viewer hosting and pairing (cert strategy + static viewer bundle), see `docs/local-offline-lan-plan.md`.
+- Phase 3: Save/Load Sessions offline queue (local session files + upload on reconnect).
 - Phase 3: pairing defaults — pairing code TTL 10 min (not persisted across restart), viewer token TTL 8 hours, max 20 devices per room.
 - Phase 3: companion cue queue for offline cue actions (dedicated queue, cap 150).
 - Optional viewer-only Electron app (desktop LAN) to avoid browser trust prompts.

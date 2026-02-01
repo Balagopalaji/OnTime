@@ -61,3 +61,4 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |
 | PowerPoint video timing debug notes (Windows, dev-only) | `docs/ppt-video-debug.md` | Reference | current | `companion/src/main.ts` |  |  |  |
 | Standalone PowerPoint video timer app | `docs/phase-3-standalone-ppt-timer.md` | Plan | draft | `companion/ppt-probe/Program.cs` |  |  |  |
+| Save/Load Sessions | `docs/phase-3-save-load-sessions.md` | Plan | draft | n/a |  |  |  |

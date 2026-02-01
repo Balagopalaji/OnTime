@@ -36,6 +36,7 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Cloud viewer is public; controller is owner-only.
 - Timer math and transitions follow `docs/timer-logic.md`.
 - Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
+- Save/Load Sessions (Phase 3): save room snapshots and restore as new rooms on another device (see `docs/phase-3-save-load-sessions.md`).
 - Companion cache seeding and tombstone-based deletes are documented in `docs/local-mode.md` and `docs/interface.md`.
 - Dashboard supports pinned rooms for live multi-room monitoring (pinned rooms only; non-pinned remain lazy).
 - Room tier defaults to `basic` on creation; tier selection UI is deferred to Phase 3.
@@ -373,7 +374,7 @@ Add segment button      |                               | Progress bar
 
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core (`docs/phase-2-overview.md`).
-- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including crew chat and multi-room monitoring, operator invite flow, and viewer-only Electron app.
+- Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including crew chat, multi-room monitoring, operator invite flow, viewer-only Electron app, and Save/Load Sessions.
   - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + advanced multi-room dashboard features.
 - Phase 4: AI-assisted program ingestion (image/PDF/Excel → auto-fill) and optional native viewer apps.
 
