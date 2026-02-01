@@ -50,7 +50,9 @@ type UnifiedDataContextValue = DataContextValue & {
   registerCloudRoom: (roomId: string, clientType: 'controller' | 'viewer') => void
   unregisterCloudRoom: (roomId: string) => void
   clearLiveCues: (roomId: string) => void
-  setActiveRoomIntent: (roomId: string | null) => void
+setActiveRoomIntents: (roomIds: string[]) => void
+  addActiveRoomIntent: (roomId: string) => void
+  removeActiveRoomIntent: (roomId: string) => void
 }
 
 type RoomStateSnapshotPayload = {
@@ -1001,7 +1003,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     token: string
     tokenSource: 'controller' | 'viewer'
   } | null>(null)
-  const activeRoomIntentRef = useRef<string | null>(null)
+const activeRoomIntentRef = useRef<Set<string>>(new Set())
   const lastCapabilitiesRevisionRef = useRef<number | null>(null)
   const lastTierSignatureRef = useRef<string | null>(null)
   const reconnectSyncPendingRef = useRef(false)
@@ -1012,8 +1014,18 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
   )
-  const setActiveRoomIntent = useCallback((roomId: string | null) => {
-    activeRoomIntentRef.current = roomId
+const setActiveRoomIntents = useCallback((roomIds: string[]) => {
+    activeRoomIntentRef.current = new Set(roomIds)
+  }, [])
+  const addActiveRoomIntent = useCallback((roomId: string) => {
+    const next = new Set(activeRoomIntentRef.current)
+    next.add(roomId)
+    activeRoomIntentRef.current = next
+  }, [])
+  const removeActiveRoomIntent = useCallback((roomId: string) => {
+    const next = new Set(activeRoomIntentRef.current)
+    next.delete(roomId)
+    activeRoomIntentRef.current = next
   }, [])
 
   const isCompanionLive = useCallback(
@@ -3513,13 +3525,13 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         return changed ? next : prev
       })
 
-      // On reconnect, only join the active room (the one the user is viewing).
-      // Other rooms will rejoin lazily when the user navigates to them.
+      // On reconnect, rejoin rooms with active intents (pinned dashboard rooms
+      // and the room currently being viewed). Other rooms rejoin lazily on navigation.
       const rooms = subscribedRoomsRef.current
-      const intentRoomId = activeRoomIntentRef.current
-      const reconnectEntries = intentRoomId && rooms[intentRoomId]
-        ? [[intentRoomId, rooms[intentRoomId]] as const]
-        : [] // No active room intent: don't rejoin anything; pages will trigger joins on mount
+const intentRoomIds = activeRoomIntentRef.current
+      const reconnectEntries = [...intentRoomIds]
+        .filter((id) => rooms[id])
+        .map((id) => [id, rooms[id]] as const)
       reconnectEntries.forEach(([roomId, sub]) => {
         const tokenToUse = sub.tokenSource === 'controller' ? joinToken : sub.token
         if (!tokenToUse) return
@@ -6097,7 +6109,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
         unsubscribeFromCompanionRoom,
         registerCloudRoom,
         unregisterCloudRoom,
-        setActiveRoomIntent,
+   setActiveRoomIntents,
+        addActiveRoomIntent,
+        removeActiveRoomIntent,
       }
     },
     [
@@ -6143,8 +6157,10 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       requestControl,
       roomAuthority,
       sendHeartbeat,
-      setActiveRoomIntent,
-      setActiveTimer,
+setActiveRoomIntents,
+        addActiveRoomIntent,
+        removeActiveRoomIntent,
+        setActiveTimer,
       setClockMode,
       setRoomPin,
       startTimer,

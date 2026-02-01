@@ -239,9 +239,12 @@ export const ControllerPage = () => {
   const clearLiveCues = (ctx as typeof ctx & {
     clearLiveCues?: (roomId: string) => void
   }).clearLiveCues
-  const setActiveRoomIntent = (ctx as typeof ctx & {
-    setActiveRoomIntent?: (roomId: string | null) => void
-  }).setActiveRoomIntent
+const addActiveRoomIntent = (ctx as typeof ctx & {
+    addActiveRoomIntent?: (roomId: string) => void
+  }).addActiveRoomIntent
+  const removeActiveRoomIntent = (ctx as typeof ctx & {
+    removeActiveRoomIntent?: (roomId: string) => void
+  }).removeActiveRoomIntent
   const lastJoinKeyRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const debugCompanion =
@@ -506,9 +509,9 @@ export const ControllerPage = () => {
   }, [ensureCompanionJoin, roomId])
 
   useEffect(() => {
-    if (roomId) setActiveRoomIntent?.(roomId)
-    return () => setActiveRoomIntent?.(null)
-  }, [roomId, setActiveRoomIntent])
+if (roomId) addActiveRoomIntent?.(roomId)
+    return () => { if (roomId) removeActiveRoomIntent?.(roomId) }
+  }, [roomId, addActiveRoomIntent, removeActiveRoomIntent])
 
   useEffect(() => {
     if (!roomId) return

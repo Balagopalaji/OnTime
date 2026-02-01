@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Check, Globe, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
+import { Check, Globe, Pin, Plus, QrCode, Redo2, Share2, Trash2, Undo2, X } from 'lucide-react'
 import { collection, getDocs, limit, query } from 'firebase/firestore'
 import { SortableItem } from '../components/sortable/SortableItem'
 import { SortableList } from '../components/sortable/SortableList'
@@ -71,6 +71,85 @@ export const DashboardPage = () => {
     migrateRoomToV2,
     rollbackRoomMigration,
   } = dataContext
+
+  const addActiveRoomIntent = (dataContext as DataContextValue & {
+    addActiveRoomIntent?: (roomId: string) => void
+  }).addActiveRoomIntent
+  const removeActiveRoomIntent = (dataContext as DataContextValue & {
+    removeActiveRoomIntent?: (roomId: string) => void
+  }).removeActiveRoomIntent
+
+  const MAX_PINNED = 3
+  const PINNED_STORAGE_KEY = 'ontime:pinnedRooms'
+
+  const [pinnedRoomIds, setPinnedRoomIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(PINNED_STORAGE_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw) as unknown
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string').slice(0, MAX_PINNED) : []
+    } catch {
+      return []
+    }
+  })
+
+  const togglePinRoom = useCallback((roomId: string) => {
+    setPinnedRoomIds((prev) => {
+      const next = prev.includes(roomId)
+        ? prev.filter((id) => id !== roomId)
+        : prev.length >= MAX_PINNED
+          ? prev
+          : [...prev, roomId]
+      try { localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+
+  // Keep active room intents in sync with pinned rooms
+  const prevPinnedRef = useRef<string[]>([])
+  useEffect(() => {
+    const prev = prevPinnedRef.current
+    const added = pinnedRoomIds.filter((id) => !prev.includes(id))
+    const removed = prev.filter((id) => !pinnedRoomIds.includes(id))
+    added.forEach((id) => {
+      addActiveRoomIntent?.(id)
+      dataContext.subscribeToCompanionRoom?.(id, 'viewer')
+    })
+    removed.forEach((id) => removeActiveRoomIntent?.(id))
+    prevPinnedRef.current = pinnedRoomIds
+  }, [pinnedRoomIds, addActiveRoomIntent, removeActiveRoomIntent, dataContext])
+
+  // On unmount, remove all pinned intents
+  useEffect(() => {
+    return () => {
+      prevPinnedRef.current.forEach((id) => removeActiveRoomIntent?.(id))
+    }
+  }, [removeActiveRoomIntent])
+
+  // Cross-tab sync for pinned rooms via localStorage 'storage' event
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== PINNED_STORAGE_KEY) return
+      try {
+        const raw = event.newValue
+        if (!raw) {
+          setPinnedRoomIds((prev) => (prev.length === 0 ? prev : []))
+          return
+        }
+        const parsed = JSON.parse(raw) as unknown
+        if (!Array.isArray(parsed)) return
+        const next = parsed.filter((id): id is string => typeof id === 'string').slice(0, MAX_PINNED)
+        setPinnedRoomIds((prev) => {
+          if (prev.length === next.length && prev.every((id, i) => id === next[i])) return prev
+          return next
+        })
+      } catch {
+        // ignore malformed data from other tabs
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
 
   const hasFirebaseConfig = Boolean(
     import.meta.env.VITE_FIREBASE_API_KEY &&
@@ -570,6 +649,27 @@ export const DashboardPage = () => {
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Room</p>
           </div>
           <div className="flex items-start gap-2">
+            <Tooltip content={
+              pinnedRoomIds.includes(room.id)
+                ? 'Unpin room'
+                : pinnedRoomIds.length >= MAX_PINNED
+                  ? `Max ${MAX_PINNED} pinned rooms`
+                  : 'Pin room for live updates'
+            }>
+              <button
+                type="button"
+                onClick={() => togglePinRoom(room.id)}
+                disabled={!pinnedRoomIds.includes(room.id) && pinnedRoomIds.length >= MAX_PINNED}
+                className={`rounded-full border p-2 transition ${
+                  pinnedRoomIds.includes(room.id)
+                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
+                    : 'border-transparent text-slate-400 hover:border-sky-500/40 hover:bg-sky-500/10 hover:text-sky-300 disabled:opacity-40 disabled:hover:border-transparent disabled:hover:bg-transparent'
+                }`}
+                aria-label={pinnedRoomIds.includes(room.id) ? 'Unpin room' : 'Pin room'}
+              >
+                <Pin size={16} className={pinnedRoomIds.includes(room.id) ? 'fill-current' : ''} />
+              </button>
+            </Tooltip>
             <Tooltip content={canManageRooms ? 'Delete room' : 'Sign in to delete rooms'}>
               <button
                 type="button"
