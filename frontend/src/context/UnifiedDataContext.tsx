@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { ARBITRATION_FLAGS, arbitrate } from '../lib/arbitration'
@@ -584,6 +584,14 @@ type LocalTombstone = {
   roomId: string
   deletedAt: number
   expiresAt: number
+}
+
+const toMillis = (value: unknown): number | null => {
+  if (typeof value === 'number') return value
+  if (value && typeof (value as { toMillis?: () => number }).toMillis === 'function') {
+    return (value as { toMillis: () => number }).toMillis()
+  }
+  return null
 }
 
 const readLocalTombstones = (): Record<string, LocalTombstone> => {
@@ -1256,13 +1264,24 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       const cloudMeta: Record<string, LocalTombstone> = {}
       snapshot.docs.forEach((docSnap) => {
         cloudTombstones.add(docSnap.id)
-        const data = docSnap.data() as Partial<LocalTombstone>
-        if (typeof data.deletedAt === 'number' && typeof data.expiresAt === 'number') {
+        const data = docSnap.data() as { deletedAt?: unknown; expiresAt?: unknown }
+        const deletedAt = toMillis(data.deletedAt)
+        const expiresAt = toMillis(data.expiresAt)
+        const needsUpgrade = typeof data.deletedAt === 'number' || typeof data.expiresAt === 'number'
+        if (typeof deletedAt === 'number' && typeof expiresAt === 'number') {
           cloudMeta[docSnap.id] = {
             roomId: docSnap.id,
-            deletedAt: data.deletedAt,
-            expiresAt: data.expiresAt,
+            deletedAt,
+            expiresAt,
           }
+        }
+        if (needsUpgrade && userId && typeof deletedAt === 'number' && typeof expiresAt === 'number') {
+          setDoc(doc(firestore, 'deleted_rooms', docSnap.id), {
+            deletedAt: Timestamp.fromMillis(deletedAt),
+            expiresAt: Timestamp.fromMillis(expiresAt),
+          }, { merge: true }).catch(() => {
+            // best-effort upgrade
+          })
         }
       })
 
@@ -1278,7 +1297,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
       if (userId) {
         Object.entries(localTombstones).forEach(([roomId, tombstone]) => {
           if (!cloudTombstones.has(roomId)) {
-            setDoc(doc(firestore, 'deleted_rooms', roomId), tombstone).then(() => {
+            setDoc(doc(firestore, 'deleted_rooms', roomId), {
+              ...tombstone,
+              deletedAt: Timestamp.fromMillis(tombstone.deletedAt),
+              expiresAt: Timestamp.fromMillis(tombstone.expiresAt),
+            }).then(() => {
               // Remove from local cache after successful upload
               const updated = readLocalTombstones()
               delete updated[roomId]

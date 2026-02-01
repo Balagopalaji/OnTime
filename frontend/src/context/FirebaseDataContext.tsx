@@ -12,6 +12,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   writeBatch,
   type DocumentData,
@@ -736,8 +737,8 @@ export const FirebaseDataProvider = ({
       const now = Date.now()
       await setDoc(doc(firestore, 'deleted_rooms', roomId), {
         roomId,
-        deletedAt: now,
-        expiresAt: now + TOMBSTONE_TTL_MS,
+        deletedAt: Timestamp.fromMillis(now),
+        expiresAt: Timestamp.fromMillis(now + TOMBSTONE_TTL_MS),
         deletedBy: user.uid,
       })
     },
