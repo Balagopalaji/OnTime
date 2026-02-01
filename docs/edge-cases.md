@@ -2,13 +2,13 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-02-01
 Scope: Edge cases and resolutions for sync, lock, and timer behavior.
 ---
 
 # OnTime Edge Cases and Resolutions
 
-Last Updated: 2025-12-30
+Last Updated: 2026-02-01
 Status: CURRENT (Phase 1D target architecture)
 
 ---
@@ -107,10 +107,10 @@ Scenario: Viewer joins a room with stale Companion data.
 
 Target behavior (not yet implemented):
 - Compare `lastUpdate` timestamps from both sources
-- Pick freshest data; if within 2s confidence window, trust `roomAuthority`
+- Pick freshest data; if within the confidence window, trust `roomAuthority` (see unified arbitration plan).
 
 Current state:
-- Timestamp arbitration implemented (2s confidence window + mode bias)
+- Timestamp arbitration implemented (configurable confidence window + mode bias).
 - Viewer sync guard uses Firebase while `authority.status === 'syncing'`
 - Timer list arbitration still prefers Firebase when available (no timestamp arbitration on timers)
 
@@ -168,12 +168,12 @@ Implementation note:
 Scenario: Internet reconnects every 30 seconds.
 
 Target behavior (partially implemented):
-- Confidence window prevents frequent authority flips when timestamps are close
-- Expand window from 2s to 4s when reconnect frequency is high
+- Confidence window prevents frequent authority flips when timestamps are close (configurable; expanded on churn).
+- Expand window when reconnect frequency is high (see unified arbitration plan).
 - Track reconnect frequency and adjust confidence dynamically
 
 Current state:
-- 2s confidence window exists in code (verify in `UnifiedDataContext.tsx`)
+- Confidence window exists in code (verify in `UnifiedDataContext.tsx`).
 - Dynamic expansion (2s → 4s) is target behavior, not implemented
 
 ---
@@ -183,7 +183,7 @@ Current state:
 Scenario: Controller switches Cloud → Local; Companion receives an old snapshot; viewer joins before SYNC completes.
 
 Target behavior (not yet implemented):
-- During `authority.status === 'syncing'`, viewers fall back to Firebase
+- During `authority.status === 'syncing'`, viewers fall back to Firebase (see unified arbitration plan for rule order).
 - Once `status === 'ready'`, apply timestamp arbitration
 - Confidence window prevents premature switch to stale Companion
 

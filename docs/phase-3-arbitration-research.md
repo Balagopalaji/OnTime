@@ -2,11 +2,13 @@
 Type: Reference
 Status: draft
 Owner: KDB
-Last updated: 2026-01-28
+Last updated: 2026-02-01
 Scope: Curated summary of arbitration research and raw reports.
 ---
 
 # Phase 3 Arbitration Research Summary
+
+> **Research only. Not a spec.** If this document conflicts with `docs/phase-3-unified-arbitration-plan.md`, the plan wins.
 
 Date: 2026-01-27
 Branch: fix/companion-cloud-issues (research snapshot)

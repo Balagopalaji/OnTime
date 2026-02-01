@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-27
+Last updated: 2026-02-01
 Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 ---
 
@@ -30,6 +30,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - Cloud viewer opens link → sees active timer, clock, and messages with no auth.
 - LAN viewer pairs via QR/manual code → receives read-only token and connects over HTTPS/WSS (trust required).
 - Local mode: controller connects to Companion for low-latency updates; cloud remains as backup.
+- Dashboard supports pinned rooms for live monitoring without joining every room.
 - Phase 3: owner generates invite code → operators join and edit role-specific cues.
 
 ## Current Behavior (Reality)
@@ -42,7 +43,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - **No single primary:** Firebase and Companion are equal sources of truth.
 - **Dual-write always:** If a channel is available, we write to it. We do not switch write targets.
 - **Timestamp arbitration:** Readers pick the freshest `lastUpdate`.
-- **Confidence window:** Mode is only a tie-breaker when timestamps are within ~2s.
+- **Confidence window:** Mode is only a tie-breaker when timestamps are within a short, configurable window (see `docs/local-mode.md`).
 - **Safe reconnect:** A returning source must sync before it can override state.
 
 ## Controller Lock Enforcement (Target: Milestone 5)

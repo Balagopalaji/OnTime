@@ -2,7 +2,7 @@
 Type: Reference
 Status: draft
 Owner: KDB
-Last updated: 2026-01-28
+Last updated: 2026-02-01
 Scope: Agent instructions for arbitration work.
 ---
 
@@ -33,7 +33,7 @@ If any doc conflicts with the plan, the plan wins.
 - Skew guard: if `abs(companionTs - cloudTs) > 10 minutes`, choose cloud for that decision.
 - Viewer sync guard: viewers prefer cloud while `authority.status === 'syncing'`.
 - No-data: if one source has data and the other doesn’t, use the source with data.
-- Within confidence window (2–4s): prefer current authority source.
+- Within confidence window (configurable; expanded on churn): prefer current authority source.
 - Outside confidence window: newer timestamp wins.
 
 ## Pass-to-Phase Mapping

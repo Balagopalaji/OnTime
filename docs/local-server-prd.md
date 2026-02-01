@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-22
+Last updated: 2026-02-01
 Scope: Companion local server requirements (Electron/Node).
 ---
 
@@ -32,7 +32,11 @@ Scope: Companion local server requirements (Electron/Node).
 - Local WebSocket relay with token validation and room state cache.
 - HTTP token endpoint on loopback with Origin allowlist.
 - State persistence in Companion cache to survive restarts.
+- Companion applies tombstones (`deleted_rooms`) to purge local cache and prevent resurrected rooms.
+- Bulk seeding from Cloud via `SEED_COMPANION_CACHE` updates the cache without JOIN/handshake side effects.
+- `HANDSHAKE_ACK` includes `roomId` for per-room hold windows.
 - Companion enforces a single authoritative controller per room (lock + takeover).
+- Companion accepts `DELETE_ROOM` (controller-only) to tombstone and purge local room data.
 - Cloud controller lock enforcement is **not** implemented yet (Milestone 5; see `docs/cloud-lock-design.md`).
 - Existing Companion trust flow modal + trust-page launch is available for local controller setup.
 

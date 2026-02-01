@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-01-27
+Last updated: 2026-02-01
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -36,13 +36,15 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - Cloud viewer is public; controller is owner-only.
 - Timer math and transitions follow `docs/timer-logic.md`.
 - Edge-case handling and local caching behavior described in `docs/edge-cases.md`.
+- Companion cache seeding and tombstone-based deletes are documented in `docs/local-mode.md` and `docs/interface.md`.
+- Dashboard supports pinned rooms for live multi-room monitoring (pinned rooms only; non-pinned remain lazy).
 - Room tier defaults to `basic` on creation; tier selection UI is deferred to Phase 3.
 
 ### Parallel Sync Principles (Core Architecture)
 - **No single primary:** Firebase and Companion are equal sources of truth.
 - **Dual-write always:** If a channel is available, we write to it. We do not switch write targets.
 - **Timestamp arbitration:** Readers pick the freshest `lastUpdate`.
-- **Confidence window:** Mode is only a tie-breaker when timestamps are within ~2s.
+- **Confidence window:** Mode is only a tie-breaker when timestamps are within a short, configurable window (see `docs/local-mode.md`).
 - **Safe reconnect:** A returning source must sync before it can override state.
 
 ## Phase 2 UX (Electron Controller + Transport)
@@ -223,7 +225,8 @@ Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is 
 **Crew chat widget for quick coordination.**
 - Phase 3: operators can send to all or selected roles; role-targeted messages are highlighted.
 - Phase 4: optional named channels (saved role groups).
-- Multi-room dashboard for breakout monitoring.
+- Phase 2: basic multi-room dashboard with pinned rooms for live updates (non-pinned rooms remain lazy).
+- Phase 3: expanded multi-room dashboard for breakout monitoring.
 - Planned start times define order; actual runtime can drift without changing the printed schedule.
 - When a segment start time is edited, prompt to shift downstream times:
   - Shift all future segments
@@ -371,7 +374,7 @@ Add segment button      |                               | Progress bar
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core (`docs/phase-2-overview.md`).
 - Phase 3: LAN offline viewers + manual run-of-show (“Show Planner”), including crew chat and multi-room monitoring, operator invite flow, and viewer-only Electron app.
-  - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
+  - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + advanced multi-room dashboard features.
 - Phase 4: AI-assisted program ingestion (image/PDF/Excel → auto-fill) and optional native viewer apps.
 
 ## Acceptance Criteria

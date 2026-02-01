@@ -2,7 +2,7 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-02-01
 Scope: Parallel sync architecture reference (Phase 1D).
 ---
 
@@ -132,13 +132,14 @@ The frontend uses a Unified Data Provider architecture where Firebase and Compan
 - **Seed companion cache:** `SEED_COMPANION_CACHE` bulk-pushes cloud rooms + tombstones to Companion after handshake. Overwrite-safe (newer wins). No JOIN/handshake side effects.
 - **Tombstones:** cloud deletes write `deleted_rooms/{roomId}` with TTL (`expiresAt`). Firestore TTL must be enabled on `deleted_rooms.expiresAt` and the field is stored as a Firestore Timestamp; the app normalizes to ms at the boundary. Local tombstones are queued offline and uploaded on reconnect. Companion applies tombstones to purge local cache.
 - **Cross-tab seed guard:** only one browser tab seeds within a short window to avoid redundant seeding.
+- **Pinned rooms (Dashboard):** UI preference for live updates; stored in localStorage (`ontime:pinnedRooms`). This is unrelated to **room PIN** (security/pairing code).
 
 ### 3.3 Parallel Sync & Flawless Fallback Architecture
 > ⚠️ **SUPERSEDED (Arbitration Rules):** The arbitration rule order and confidence-window logic in this section are superseded by `docs/phase-3-unified-arbitration-plan.md`. Use that plan as the authoritative source of truth for cross-source arbitration.
 
 **Target behavior:** This section describes intended behavior. Items marked "TO BE IMPLEMENTED" are not yet in code.
 
-**Mutual backups:** When both are available, always write to both; reads pick freshest by timestamp with a confidence window (see `getConfidenceWindowMs`).
+**Mutual backups:** When both are available, always write to both; reads pick freshest by timestamp with a configurable confidence window (see `getConfidenceWindowMs`).
 
 #### Write behavior (all modes)
 
@@ -172,13 +173,13 @@ function writeTimerAction(action: TimerAction) {
 #### Read behavior (timestamp arbitration)
 
 **Target:** Pick freshest data by timestamp with mode bias.
-**Current:** Timestamp arbitration is implemented in `getRoom` with a confidence window and mode bias; viewers use Firebase while `authority.status === 'syncing'`.
+**Current:** Timestamp arbitration is implemented; rule order and tie-breakers are defined in `docs/phase-3-unified-arbitration-plan.md` (authoritative).
 
 **Viewer sync guard:** While `authority.status === 'syncing'`, viewers fall back to Firebase until status is `ready`, then apply timestamp arbitration.
 
-**Authority rule for confidence window (Auto mode):** Within the confidence window, trust `roomAuthority`. This prevents flickering when both sources update near-simultaneously. If no `roomAuthority` is set (fresh room, no writes yet), default to Firebase until the first controller write establishes authority.
+**Authority rule for confidence window (Auto mode):** See `docs/phase-3-unified-arbitration-plan.md` for the authoritative rule order and tie-breakers.
 
-**Target logic:**
+**Historical sketch (superseded by unified arbitration plan):**
 
 ```ts
 function getRoom(roomId: string): Room | undefined {
@@ -191,7 +192,7 @@ function getRoom(roomId: string): Room | undefined {
 
   const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
   const companionTs = companionState.lastUpdate ?? 0
-  const confidenceMs = 2000 // Expand to 4000ms on choppy links
+  const confidenceMs = getConfidenceWindowMs(reconnectChurn) // Configurable; expanded on churn
 
   if (Math.abs(firebaseTs - companionTs) < confidenceMs) {
     if (authority?.source === 'companion') {
@@ -585,7 +586,7 @@ onSnapshot(roomRef, (snap) => {
 
 ### ✅ Implemented (Phase 1D Core)
 - **Companion participates in Cloud mode** - subscription-based; not mode-gated
-- **Timestamp arbitration (room state)** - 2s confidence window in `getRoom`
+- **Timestamp arbitration (room state)** - configurable confidence window in `getRoom`
 - **Per-change-type queue merge** - groups by change type + target, replays in timestamp order
 - **Firebase to Companion sync** - emits `SYNC_ROOM_STATE` when Firebase is newer
 - **Mode types cleaned** - uses `auto | cloud | local` (no `hybrid`)
