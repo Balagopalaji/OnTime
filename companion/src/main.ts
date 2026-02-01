@@ -3104,6 +3104,7 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
     console.log(`[ws] client connected: ${socket.id}`);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
+    socket.on('SEED_COMPANION_CACHE', (payload) => handleSeedCompanionCache(socket, payload));
     socket.on('ROOM_STATE_PATCH', (payload) => handleRoomStatePatch(socket, payload));
     socket.on('TIMER_ACTION', (payload) => handleTimerAction(socket, payload));
     socket.on('CREATE_TIMER', (payload) => handleCreateTimer(socket, payload));
@@ -5182,6 +5183,14 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     }
   };
 
+  if (socket.rooms.has(payload.roomId) && socket.data.clientType === requestedType) {
+    socket.emit('HANDSHAKE_ACK', ack);
+    console.log(
+      `[ws] JOIN_ROOM ignored (already joined): room=${payload.roomId}, clientType=${requestedType}, socket=${socket.id}`
+    );
+    return;
+  }
+
   console.log(
     `[ws] JOIN_ROOM accepted: room=${payload.roomId}, clientType=${payload.clientType ?? 'unknown'}, socket=${socket.id}`
   );
@@ -5843,6 +5852,119 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
   socket.emit('ROOM_STATE_SNAPSHOT', snapshot);
 
   console.log(`[ws] SYNC_ROOM_STATE room=${roomId} by=${clientId ?? socket.id} timers=${payload.timers?.length ?? 0}`);
+}
+
+function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
+  if (!payload || typeof payload !== 'object') return;
+  const { rooms, tombstones, timestamp } = payload as {
+    rooms?: Array<{
+      roomId: string;
+      state: RoomState;
+      timers?: Timer[];
+      cues?: Cue[];
+      pin?: { value: string | null; updatedAt: number; source?: string };
+    }>;
+    tombstones?: Array<{ roomId: string; deletedAt: number; expiresAt: number }>;
+    timestamp?: number;
+  };
+  if (!Array.isArray(rooms) && !Array.isArray(tombstones)) return;
+
+  const now = timestamp ?? Date.now();
+  let processed = 0;
+  let updated = 0;
+  let tombstoneUpdated = false;
+  let tombstonesApplied = 0;
+
+  if (Array.isArray(tombstones)) {
+    for (const entry of tombstones) {
+      if (!entry || typeof entry.roomId !== 'string') continue;
+      if (typeof entry.expiresAt !== 'number' || entry.expiresAt <= now) continue;
+      const existing = roomTombstoneStore.get(entry.roomId);
+      const existingTs = existing?.deletedAt ?? 0;
+      if (entry.deletedAt > existingTs) {
+        roomTombstoneStore.set(entry.roomId, entry);
+        applyRoomTombstone(entry.roomId);
+        tombstoneUpdated = true;
+        tombstonesApplied++;
+      }
+    }
+  }
+
+  for (const entry of rooms ?? []) {
+    if (!entry.roomId || typeof entry.roomId !== 'string') continue;
+    processed++;
+
+    // Skip tombstoned rooms
+    if (roomTombstoneStore.has(entry.roomId)) continue;
+
+    let roomUpdated = false;
+
+    // State: apply if incoming lastUpdate > local lastUpdate
+    if (entry.state) {
+      const localState = roomStateStore.get(entry.roomId);
+      const localTs = localState?.lastUpdate ?? 0;
+      const incomingTs = entry.state.lastUpdate ?? 0;
+      if (incomingTs > localTs) {
+        const existing = localState ?? getRoomState(entry.roomId);
+        roomStateStore.set(entry.roomId, {
+          ...existing,
+          ...entry.state,
+          message: entry.state.message
+            ? { ...(existing.message ?? {}), ...entry.state.message }
+            : existing.message,
+        });
+        roomUpdated = true;
+      }
+    }
+
+    // Timers: per-item updatedAt comparison
+    if (Array.isArray(entry.timers)) {
+      const map = getRoomTimers(entry.roomId);
+      for (const timer of entry.timers) {
+        if (!timer.id) continue;
+        const local = map.get(timer.id);
+        const localTs = local?.updatedAt ?? 0;
+        const incomingTs = timer.updatedAt ?? 0;
+        if (incomingTs > localTs) {
+          map.set(timer.id, { ...timer, roomId: entry.roomId });
+          roomUpdated = true;
+        }
+      }
+    }
+
+    // Cues: per-item updatedAt comparison
+    if (Array.isArray(entry.cues)) {
+      const map = getRoomCues(entry.roomId);
+      for (const cue of entry.cues) {
+        if (!cue.id) continue;
+        const local = map.get(cue.id);
+        const localTs = local?.updatedAt ?? 0;
+        const incomingTs = cue.updatedAt ?? 0;
+        if (incomingTs > localTs) {
+          map.set(cue.id, { ...cue, roomId: entry.roomId });
+          roomUpdated = true;
+        }
+      }
+    }
+
+    // Pin: updatedAt comparison
+    if (entry.pin && typeof entry.pin.updatedAt === 'number') {
+      const localPin = roomPinStore.get(entry.roomId);
+      const localTs = localPin?.updatedAt ?? 0;
+      if (entry.pin.updatedAt > localTs) {
+        roomPinStore.set(entry.roomId, {
+          pin: entry.pin.value ?? '',
+          updatedAt: entry.pin.updatedAt,
+        });
+        roomUpdated = true;
+      }
+    }
+
+    if (roomUpdated) updated++;
+  }
+
+  if (updated > 0 || tombstoneUpdated) scheduleRoomCacheWrite();
+  console.log(`[seed] processed ${processed} rooms, updated ${updated} rooms, tombstones ${tombstonesApplied}.`);
 }
 
 function handleRoomStatePatch(socket: Socket, payload: unknown) {
