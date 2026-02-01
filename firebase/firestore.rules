@@ -44,6 +44,13 @@ service cloud.firestore {
         || get(/databases/$(database)/documents/rooms/$(roomId)/lock/current).data.userId == request.auth.uid;
     }
 
+    // Tombstones for deleted rooms (TTL on expiresAt)
+    match /deleted_rooms/{roomId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
     match /rooms/{roomId} {
       // Viewer is public (share-by-roomId); controller writes are owner-only.
       allow read: if true;
