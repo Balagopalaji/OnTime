@@ -723,6 +723,32 @@ Notes:
 Notes:
 - Firestore is the canonical store for cues/chat; Companion events are optional to enable offline/LAN flows.
 
+**Client → Server: `SEED_COMPANION_CACHE`**
+```json
+{
+  "type": "SEED_COMPANION_CACHE",
+  "rooms": [
+    {
+      "roomId": "abc123",
+      "state": { "activeTimerId": "timer-1", "isRunning": true, "currentTime": 12345, "lastUpdate": 1234567890 },
+      "timers": [],
+      "cues": [],
+      "pin": { "value": "4821", "updatedAt": 1234567890, "source": "cloud" }
+    }
+  ],
+  "tombstones": [
+    { "roomId": "abc123", "deletedAt": 1234567000, "expiresAt": 1237159000 }
+  ],
+  "timestamp": 1234567890
+}
+```
+Notes:
+- Bulk-pushes cloud room data to Companion without triggering JOIN/handshake per room.
+- Overwrite-safe: per-room state applied only if incoming `state.lastUpdate > local state.lastUpdate`; per-item timers/cues applied only if incoming `updatedAt > local updatedAt`; pins applied only if incoming `updatedAt > local updatedAt`.
+- Rooms with a local tombstone are ignored; incoming tombstones are applied before room data.
+- Does not emit socket broadcasts or trigger JOIN logic.
+- Triggered once per successful reconnect/handshake when cloud is online.
+
 **Client → Server: `SYNC_ROOM_STATE`**
 ```json
 {
