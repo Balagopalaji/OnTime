@@ -936,6 +936,17 @@ export const FirebaseDataProvider = ({
     [firestore],
   )
 
+  const updateRoomTier: DataContextValue['updateRoomTier'] = useCallback(
+    async (roomId, tier) => {
+      if (migratingRoomsRef.current.has(roomId) || !firestore) return
+      await updateDoc(doc(firestore, 'rooms', roomId), {
+        tier,
+        updatedAt: Date.now(),
+      })
+    },
+    [firestore],
+  )
+
   const restoreTimer: DataContextValue['restoreTimer'] = useCallback(async (roomId, timer) => {
     if (migratingRoomsRef.current.has(roomId) || !firestore) return
     await setDoc(doc(firestore, 'rooms', roomId, 'timers', timer.id), timer)
@@ -1547,6 +1558,7 @@ export const FirebaseDataProvider = ({
       updateTimer,
       updateCue,
       updateRoomMeta,
+      updateRoomTier,
       moveRoom,
       reorderRoom,
       restoreTimer,
@@ -1620,6 +1632,7 @@ export const FirebaseDataProvider = ({
       updateTimer,
       updateCue,
       updateRoomMeta,
+      updateRoomTier,
       moveRoom,
       reorderRoom,
       restoreTimer,

@@ -652,6 +652,17 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [persistRoomStack, setState, state.rooms, syncPendingState, updateRoom],
   )
 
+  const updateRoomTier = useCallback(
+    async (roomId: string, tier: Room['tier']) => {
+      updateRoom(roomId, (room) => ({
+        ...room,
+        tier,
+      }))
+      await safeDelayRef.current?.()
+    },
+    [updateRoom],
+  )
+
   const restoreTimer = useCallback(
     async (roomId: string, timer: Timer) => {
       updateTimers(roomId, (timers) => {
@@ -1670,6 +1681,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       updateTimer,
       updateCue,
       updateRoomMeta,
+      updateRoomTier,
       moveRoom,
       reorderRoom,
       restoreTimer,
@@ -1742,6 +1754,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       updateTimer,
       updateCue,
       updateRoomMeta,
+      updateRoomTier,
       moveRoom,
       reorderRoom,
       restoreTimer,

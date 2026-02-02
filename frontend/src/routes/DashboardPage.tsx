@@ -58,6 +58,7 @@ export const DashboardPage = () => {
     deleteRoom,
     createTimer,
     updateRoomMeta,
+    updateRoomTier,
     getRoom,
     getTimers,
     getControllerLock,
@@ -81,6 +82,7 @@ export const DashboardPage = () => {
 
   const MAX_PINNED = 3
   const PINNED_STORAGE_KEY = 'ontime:pinnedRooms'
+  const showTierSwitch = import.meta.env.DEV
 
   const [pinnedRoomIds, setPinnedRoomIds] = useState<string[]>(() => {
     try {
@@ -699,6 +701,30 @@ export const DashboardPage = () => {
               >
                 Upgrade
               </Link>
+            </div>
+          </div>
+        ) : null}
+
+        {showTierSwitch && canManageRooms && updateRoomTier ? (
+          <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Dev tier</p>
+                <p className="mt-1 text-sm text-slate-300">
+                  Toggle room tier for testing. This is temporary and can be removed later.
+                </p>
+              </div>
+              <select
+                className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
+                value={room.tier ?? 'basic'}
+                onChange={(event) => {
+                  void updateRoomTier(room.id, event.target.value as (typeof room)['tier'])
+                }}
+              >
+                <option value="basic">Basic</option>
+                <option value="show_control">Show Control</option>
+                <option value="production">Production</option>
+              </select>
             </div>
           </div>
         ) : null}

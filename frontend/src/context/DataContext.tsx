@@ -160,6 +160,7 @@ export type DataContextValue = {
     roomId: string,
     patch: Partial<Pick<Room, 'title' | 'timezone'>>,
   ) => Promise<void>
+  updateRoomTier?: (roomId: string, tier: Room['tier']) => Promise<void>
   moveRoom?: (roomId: string, direction: 'up' | 'down') => Promise<void>
   reorderRoom?: (roomId: string, targetIndex: number) => Promise<void>
   restoreTimer: (roomId: string, timer: Timer) => Promise<void>
