@@ -8,6 +8,8 @@ import type {
   LiveCue,
   LiveCueRecord,
   Cue,
+  Section,
+  Segment,
   CueTriggerType,
   OperatorRole,
   MessageColor,
@@ -43,6 +45,24 @@ type CreateCueInput = {
   triggerNote?: string
   notes?: string
   createdByRole?: OperatorRole
+}
+
+type CreateSectionInput = {
+  title: string
+  notes?: string
+  plannedDurationSec?: number
+  plannedStartAt?: number
+  order?: number
+}
+
+type CreateSegmentInput = {
+  title: string
+  sectionId?: string
+  plannedStartAt?: number
+  plannedDurationSec?: number
+  primaryTimerId?: string
+  notes?: string
+  order?: number
 }
 
 type QueueStatus = {
@@ -153,6 +173,24 @@ export type DataContextValue = {
   ) => Promise<void>
   reorderTimer: (roomId: string, timerId: string, targetIndex: number) => Promise<void>
   reorderCues: (roomId: string, cueIds: string[]) => Promise<void>
+  getSections: (roomId: string) => Section[]
+  getSegments: (roomId: string) => Segment[]
+  createSection: (roomId: string, input: CreateSectionInput) => Promise<Section | undefined>
+  updateSection: (
+    roomId: string,
+    sectionId: string,
+    patch: Partial<Omit<Section, 'id' | 'roomId'>>,
+  ) => Promise<void>
+  deleteSection: (roomId: string, sectionId: string) => Promise<void>
+  reorderSections: (roomId: string, sectionIds: string[]) => Promise<void>
+  createSegment: (roomId: string, input: CreateSegmentInput) => Promise<Segment | undefined>
+  updateSegment: (
+    roomId: string,
+    segmentId: string,
+    patch: Partial<Omit<Segment, 'id' | 'roomId'>>,
+  ) => Promise<void>
+  deleteSegment: (roomId: string, segmentId: string) => Promise<void>
+  reorderSegments: (roomId: string, sectionId: string, segmentIds: string[]) => Promise<void>
   setActiveTimer: (roomId: string, timerId: string) => Promise<void>
   startTimer: (roomId: string, timerId?: string) => Promise<void>
   pauseTimer: (roomId: string) => Promise<void>

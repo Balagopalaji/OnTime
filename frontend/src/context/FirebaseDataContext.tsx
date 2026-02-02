@@ -19,7 +19,7 @@ import {
   type FirestoreError,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerClient } from '../types'
+import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, Cue, Section, Segment, ControllerClient } from '../types'
 import { DataProviderBoundary, type DataContextValue, type RoomPinMeta } from './DataContext'
 import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
@@ -154,6 +154,8 @@ type TimerDoc = {
   speaker?: string
   type: string
   order: number
+  segmentId?: string
+  segmentOrder?: number
 }
 
 const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
@@ -165,6 +167,8 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
   speaker: data.speaker ?? '',
   type: (data.type as Timer['type']) ?? 'countdown',
   order: data.order ?? 0,
+  segmentId: typeof data.segmentId === 'string' ? data.segmentId : undefined,
+  segmentOrder: typeof data.segmentOrder === 'number' ? data.segmentOrder : undefined,
 })
 
 type LiveCueDoc = {
@@ -308,6 +312,57 @@ const mapCue = (id: string, roomId: string, data: CueDoc): Cue => {
   }
 }
 
+type SectionDoc = {
+  title?: string
+  order?: number
+  notes?: string
+  plannedDurationSec?: number
+  plannedStartAt?: number
+  createdAt?: number | { seconds: number; nanoseconds: number }
+  updatedAt?: number | { seconds: number; nanoseconds: number }
+}
+
+type SegmentDoc = {
+  sectionId?: string
+  title?: string
+  order?: number
+  plannedStartAt?: number
+  plannedDurationSec?: number
+  primaryTimerId?: string
+  notes?: string
+  createdAt?: number | { seconds: number; nanoseconds: number }
+  updatedAt?: number | { seconds: number; nanoseconds: number }
+}
+
+const stripUndefined = <T extends Record<string, unknown>>(payload: T): Partial<T> =>
+  Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)) as Partial<T>
+
+const mapSection = (id: string, roomId: string, data: SectionDoc): Section => ({
+  id,
+  roomId,
+  title: typeof data.title === 'string' ? data.title : '',
+  order: typeof data.order === 'number' ? data.order : 0,
+  notes: typeof data.notes === 'string' ? data.notes : undefined,
+  plannedDurationSec: typeof data.plannedDurationSec === 'number' ? data.plannedDurationSec : undefined,
+  plannedStartAt: typeof data.plannedStartAt === 'number' ? data.plannedStartAt : undefined,
+  createdAt: toMillis(data.createdAt, undefined) ?? undefined,
+  updatedAt: toMillis(data.updatedAt, undefined) ?? undefined,
+})
+
+const mapSegment = (id: string, roomId: string, data: SegmentDoc): Segment => ({
+  id,
+  roomId,
+  sectionId: typeof data.sectionId === 'string' ? data.sectionId : undefined,
+  title: typeof data.title === 'string' ? data.title : '',
+  order: typeof data.order === 'number' ? data.order : 0,
+  plannedStartAt: typeof data.plannedStartAt === 'number' ? data.plannedStartAt : undefined,
+  plannedDurationSec: typeof data.plannedDurationSec === 'number' ? data.plannedDurationSec : undefined,
+  primaryTimerId: typeof data.primaryTimerId === 'string' ? data.primaryTimerId : undefined,
+  notes: typeof data.notes === 'string' ? data.notes : undefined,
+  createdAt: toMillis(data.createdAt, undefined) ?? undefined,
+  updatedAt: toMillis(data.updatedAt, undefined) ?? undefined,
+})
+
 const roomOrderKey = (room: Pick<Room, 'order' | 'createdAt'>) => room.order ?? room.createdAt
 
 // Use shared timer-utils for elapsed calculations
@@ -336,6 +391,8 @@ export const FirebaseDataProvider = ({
   const [timers, setTimers] = useState<Record<string, Timer[]>>({})
   const [liveCueRecords, setLiveCueRecords] = useState<Record<string, LiveCueRecord[]>>({})
   const [cues, setCues] = useState<Record<string, Cue[]>>({})
+  const [sections, setSections] = useState<Record<string, Section[]>>({})
+  const [segments, setSegments] = useState<Record<string, Segment[]>>({})
   const [connectionStatus, setConnectionStatus] = useState<DataContextValue['connectionStatus']>(() =>
     typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline',
   )
@@ -575,11 +632,53 @@ export const FirebaseDataProvider = ({
           setConnectionStatus('offline')
         },
       )
+      const sectionsRef = collection(firestore, 'rooms', room.id, 'sections')
+      const sectionsUnsub = onSnapshot(
+        sectionsRef,
+        { includeMetadataChanges: true },
+        (snapshot) => {
+          const sectionsForRoom: Section[] = []
+          snapshot.forEach((docSnap) => {
+            sectionsForRoom.push(mapSection(docSnap.id, room.id, docSnap.data() as SectionDoc))
+          })
+          sectionsForRoom.sort((a, b) => a.order - b.order)
+          setSections((prev) => ({ ...prev, [room.id]: sectionsForRoom }))
+          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
+        },
+        (error: FirestoreError) => {
+          console.error('sections snapshot error', error)
+          if (error.code === 'permission-denied') return
+          setConnectionStatus('offline')
+        },
+      )
+
+      const segmentsRef = collection(firestore, 'rooms', room.id, 'segments')
+      const segmentsUnsub = onSnapshot(
+        segmentsRef,
+        { includeMetadataChanges: true },
+        (snapshot) => {
+          const segmentsForRoom: Segment[] = []
+          snapshot.forEach((docSnap) => {
+            segmentsForRoom.push(mapSegment(docSnap.id, room.id, docSnap.data() as SegmentDoc))
+          })
+          segmentsForRoom.sort((a, b) => a.order - b.order)
+          setSegments((prev) => ({ ...prev, [room.id]: segmentsForRoom }))
+          setConnectionStatusFromSnapshot(snapshot.metadata?.fromCache)
+        },
+        (error: FirestoreError) => {
+          console.error('segments snapshot error', error)
+          if (error.code === 'permission-denied') return
+          setConnectionStatus('offline')
+        },
+      )
+
       return () => {
         stateUnsub()
         timersUnsub()
         liveCuesUnsub()
         cuesUnsub()
+        sectionsUnsub()
+        segmentsUnsub()
       }
     })
     return () => {
@@ -623,6 +722,16 @@ export const FirebaseDataProvider = ({
   const getCues = useCallback(
     (roomId: string) => [...(cues[roomId] ?? [])],
     [cues],
+  )
+
+  const getSections = useCallback(
+    (roomId: string) => [...(sections[roomId] ?? [])],
+    [sections],
+  )
+
+  const getSegments = useCallback(
+    (roomId: string) => [...(segments[roomId] ?? [])],
+    [segments],
   )
 
   const getLiveCueRecords = useCallback(
@@ -941,6 +1050,131 @@ export const FirebaseDataProvider = ({
       const now = Date.now()
       cueIds.forEach((cueId, idx) => {
         batch.update(doc(firestore, 'rooms', roomId, 'cues', cueId), {
+          order: (idx + 1) * 10,
+          updatedAt: now,
+        })
+      })
+      await batch.commit()
+    },
+    [firestore, user],
+  )
+
+  const createSection: DataContextValue['createSection'] = useCallback(async (roomId, input) => {
+    if (!firestore || !user?.uid) throw new Error('firebase_unavailable')
+    const sectionRef = doc(collection(firestore, 'rooms', roomId, 'sections'))
+    const existing = sections[roomId] ?? []
+    const nextOrder =
+      typeof input.order === 'number' && Number.isFinite(input.order)
+        ? input.order
+        : existing.length
+          ? Math.max(...existing.map((s) => s.order)) + 10
+          : 10
+    const now = Date.now()
+    const section: Section = {
+      id: sectionRef.id,
+      roomId,
+      title: input.title.trim(),
+      order: nextOrder,
+      notes: input.notes,
+      plannedDurationSec: input.plannedDurationSec,
+      plannedStartAt: input.plannedStartAt,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await setDoc(sectionRef, stripUndefined(section))
+    return section
+  }, [firestore, sections, user?.uid])
+
+  const updateSection: DataContextValue['updateSection'] = useCallback(
+    async (roomId, sectionId, patch) => {
+      if (!firestore) return
+      const payload = stripUndefined({ ...patch, updatedAt: Date.now() })
+      if (Object.keys(payload).length === 0) return
+      await updateDoc(doc(firestore, 'rooms', roomId, 'sections', sectionId), payload)
+    },
+    [firestore],
+  )
+
+  const deleteSection: DataContextValue['deleteSection'] = useCallback(
+    async (roomId, sectionId) => {
+      if (!user || !firestore) return
+      await deleteDoc(doc(firestore, 'rooms', roomId, 'sections', sectionId))
+    },
+    [firestore, user],
+  )
+
+  const reorderSections: DataContextValue['reorderSections'] = useCallback(
+    async (roomId, sectionIds) => {
+      if (!user || !firestore) return
+      const batch = writeBatch(firestore)
+      const now = Date.now()
+      sectionIds.forEach((sectionId, idx) => {
+        batch.update(doc(firestore, 'rooms', roomId, 'sections', sectionId), {
+          order: (idx + 1) * 10,
+          updatedAt: now,
+        })
+      })
+      await batch.commit()
+    },
+    [firestore, user],
+  )
+
+  const createSegment: DataContextValue['createSegment'] = useCallback(async (roomId, input) => {
+    if (!firestore || !user?.uid) throw new Error('firebase_unavailable')
+    const segmentRef = doc(collection(firestore, 'rooms', roomId, 'segments'))
+    const existing = segments[roomId] ?? []
+    const sameSection = existing.filter((s) => s.sectionId === input.sectionId)
+    const nextOrder =
+      typeof input.order === 'number' && Number.isFinite(input.order)
+        ? input.order
+        : sameSection.length
+          ? Math.max(...sameSection.map((s) => s.order)) + 10
+          : 10
+    const now = Date.now()
+    const segment: Segment = {
+      id: segmentRef.id,
+      roomId,
+      sectionId: input.sectionId,
+      title: input.title.trim(),
+      order: nextOrder,
+      plannedStartAt: input.plannedStartAt,
+      plannedDurationSec: input.plannedDurationSec,
+      primaryTimerId: input.primaryTimerId,
+      notes: input.notes,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await setDoc(segmentRef, stripUndefined(segment))
+    return segment
+  }, [firestore, segments, user?.uid])
+
+  const updateSegment: DataContextValue['updateSegment'] = useCallback(
+    async (roomId, segmentId, patch) => {
+      if (!firestore) return
+      const payload = stripUndefined({ ...patch, updatedAt: Date.now() })
+      if (Object.keys(payload).length === 0) return
+      await updateDoc(doc(firestore, 'rooms', roomId, 'segments', segmentId), payload)
+    },
+    [firestore],
+  )
+
+  const deleteSegment: DataContextValue['deleteSegment'] = useCallback(
+    async (roomId, segmentId) => {
+      if (!user || !firestore) return
+      await deleteDoc(doc(firestore, 'rooms', roomId, 'segments', segmentId))
+    },
+    [firestore, user],
+  )
+
+  const reorderSegments: DataContextValue['reorderSegments'] = useCallback(
+    async (roomId, _sectionId, segmentIds) => {
+      // sectionId is API-level scoping; callers must pass only segment IDs from that section.
+      void _sectionId
+      if (!user || !firestore) return
+      const batch = writeBatch(firestore)
+      const now = Date.now()
+      segmentIds.forEach((segmentId, idx) => {
+        batch.update(doc(firestore, 'rooms', roomId, 'segments', segmentId), {
           order: (idx + 1) * 10,
           updatedAt: now,
         })
@@ -1352,6 +1586,8 @@ export const FirebaseDataProvider = ({
       getRoom,
       getTimers,
       getCues,
+      getSections,
+      getSegments,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
@@ -1370,6 +1606,14 @@ export const FirebaseDataProvider = ({
       moveTimer,
       reorderTimer,
       reorderCues,
+      createSection,
+      updateSection,
+      deleteSection,
+      reorderSections,
+      createSegment,
+      updateSegment,
+      deleteSegment,
+      reorderSegments,
       setActiveTimer,
       startTimer,
       pauseTimer,
@@ -1415,6 +1659,8 @@ export const FirebaseDataProvider = ({
       getRoom,
       getTimers,
       getCues,
+      getSections,
+      getSegments,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
@@ -1433,6 +1679,14 @@ export const FirebaseDataProvider = ({
       moveTimer,
       reorderTimer,
       reorderCues,
+      createSection,
+      updateSection,
+      deleteSection,
+      reorderSections,
+      createSegment,
+      updateSegment,
+      deleteSegment,
+      reorderSegments,
       setActiveTimer,
       startTimer,
       pauseTimer,

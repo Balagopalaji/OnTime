@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
-import type { Room, Timer, LiveCue, LiveCueRecord, Cue, MessageColor, ConnectionStatus, ControllerClient } from '../types'
+import type { Room, Timer, LiveCue, LiveCueRecord, Cue, Section, Segment, MessageColor, ConnectionStatus, ControllerClient } from '../types'
 import {
   clearStack,
   loadStack,
@@ -994,6 +994,67 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     await safeDelayRef.current?.()
   }, [])
 
+  const getSections = useCallback((_roomId: string): Section[] => {
+    void _roomId
+    return []
+  }, [])
+
+  const getSegments = useCallback((_roomId: string): Segment[] => {
+    void _roomId
+    return []
+  }, [])
+
+  const createSection: DataContextValue['createSection'] = useCallback(async (_roomId, _input) => {
+    void _roomId
+    void _input
+    await safeDelayRef.current?.()
+    return undefined
+  }, [])
+
+  const updateSection: DataContextValue['updateSection'] = useCallback(async (_roomId, _sectionId) => {
+    void _roomId
+    void _sectionId
+    await safeDelayRef.current?.()
+  }, [])
+
+  const deleteSection: DataContextValue['deleteSection'] = useCallback(async (_roomId, _sectionId) => {
+    void _roomId
+    void _sectionId
+    await safeDelayRef.current?.()
+  }, [])
+
+  const reorderSections: DataContextValue['reorderSections'] = useCallback(async (_roomId, _sectionIds) => {
+    void _roomId
+    void _sectionIds
+    await safeDelayRef.current?.()
+  }, [])
+
+  const createSegment: DataContextValue['createSegment'] = useCallback(async (_roomId, _input) => {
+    void _roomId
+    void _input
+    await safeDelayRef.current?.()
+    return undefined
+  }, [])
+
+  const updateSegment: DataContextValue['updateSegment'] = useCallback(async (_roomId, _segmentId) => {
+    void _roomId
+    void _segmentId
+    await safeDelayRef.current?.()
+  }, [])
+
+  const deleteSegment: DataContextValue['deleteSegment'] = useCallback(async (_roomId, _segmentId) => {
+    void _roomId
+    void _segmentId
+    await safeDelayRef.current?.()
+  }, [])
+
+  const reorderSegments: DataContextValue['reorderSegments'] = useCallback(async (_roomId, _sectionId, _segmentIds) => {
+    void _roomId
+    void _sectionId
+    void _segmentIds
+    await safeDelayRef.current?.()
+  }, [])
+
   const undoRoomDelete: DataContextValue['undoRoomDelete'] = useCallback(async () => {
     if (!user) return
     const { entry, stack } = popUndo(roomStackRef.current)
@@ -1598,6 +1659,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       getRoom,
       getTimers,
       getCues,
+      getSections,
+      getSegments,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
@@ -1616,6 +1679,14 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       deleteCue,
       moveTimer,
       reorderCues,
+      createSection,
+      updateSection,
+      deleteSection,
+      reorderSections,
+      createSegment,
+      updateSegment,
+      deleteSegment,
+      reorderSegments,
       setActiveTimer,
       startTimer,
       pauseTimer,
@@ -1660,6 +1731,8 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       getRoom,
       getTimers,
       getCues,
+      getSections,
+      getSegments,
       getLiveCues,
       getLiveCueRecords,
       createRoom,
@@ -1678,6 +1751,14 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       deleteCue,
       moveTimer,
       reorderCues,
+      createSection,
+      updateSection,
+      deleteSection,
+      reorderSections,
+      createSegment,
+      updateSegment,
+      deleteSegment,
+      reorderSegments,
       setActiveTimer,
       startTimer,
       pauseTimer,

@@ -39,7 +39,7 @@ import {
   type LanPairingInfo,
   type LanPairingStatus,
 } from '../lib/companion-pairing'
-import type { LiveCueRecord, ControllerClient } from '../types'
+import type { LiveCueRecord, ControllerClient, Segment as SegmentType, Timer as TimerType } from '../types'
 
 type PresentationEntry = {
   key: string
@@ -222,6 +222,16 @@ export const ControllerPage = () => {
     getLiveCues,
     getLiveCueRecords,
     getLiveCueDiagnostics,
+    getSections,
+    getSegments,
+    createSection,
+    updateSection,
+    deleteSection,
+    reorderSections,
+    createSegment,
+    updateSegment,
+    deleteSegment,
+    reorderSegments,
   } = ctx
   const subscribeToCompanionRoom = (ctx as typeof ctx & {
     subscribeToCompanionRoom?: (
@@ -319,6 +329,14 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
   const timers = useMemo(
     () => (roomId ? getTimers(roomId) : []),
     [getTimers, roomId],
+  )
+  const sections = useMemo(
+    () => (roomId ? getSections(roomId) : []),
+    [getSections, roomId],
+  )
+  const segments = useMemo(
+    () => (roomId ? getSegments(roomId) : []),
+    [getSegments, roomId],
   )
   const liveCueRecords = useMemo(
     () => (roomId ? getLiveCueRecords(roomId) : []),
@@ -843,6 +861,23 @@ if (roomId) addActiveRoomIntent?.(roomId)
     void reorderTimer(currentRoomId, sourceId, targetIndex)
   }
 
+  const handleReorderSegmentTimers = (segmentId: string, timerIds: string[]) => {
+    if (isReadOnly) {
+      setControlBarCollapsed(false)
+      return
+    }
+    if (!currentRoomId) return
+    bumpCompanionOnActivity('reorder')
+    const now = Date.now()
+    timerIds.forEach((timerId, idx) => {
+      void updateTimer(currentRoomId, timerId, {
+        segmentId,
+        segmentOrder: idx * 10,
+        updatedAt: now,
+      })
+    })
+  }
+
   const engine = useTimerEngine({
     durationSec: activeTimer?.duration ?? 0,
     isRunning: room?.state.isRunning ?? false,
@@ -1355,18 +1390,31 @@ if (roomId) addActiveRoomIntent?.(roomId)
     }
   }, [getCompanionAuthToken, roomId])
 
-  const handleAddSegment = () => {
+  const handleAddTimer = (segmentId?: string) => {
     if (isReadOnly) {
       setControlBarCollapsed(false)
       return
     }
     if (!room) return
-    void createTimer(room.id, {
-      title: 'New Segment',
+    const timerInput: { title: string; duration: number; speaker?: string } = {
+      title: 'New Timer',
       duration: 5 * 60,
       speaker: '',
-    }).then((newTimer) => {
+    }
+    void createTimer(room.id, timerInput).then((newTimer) => {
       if (!newTimer) return
+      if (segmentId) {
+        const segmentTimers = timers.filter((timer) => timer.segmentId === segmentId)
+        const segmentOrders = segmentTimers
+          .map((timer) => timer.segmentOrder)
+          .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        const nextOrder = segmentOrders.length ? Math.max(...segmentOrders) + 10 : 0
+        void updateTimer(room.id, newTimer.id, { segmentId, segmentOrder: nextOrder })
+        const segment = segments.find((candidate) => candidate.id === segmentId)
+        if (segment && !segment.primaryTimerId && nextOrder === 0) {
+          void updateSegment(room.id, segmentId, { primaryTimerId: newTimer.id })
+        }
+      }
       setSelectedTimerId(newTimer.id)
       setShortcutScope('rundown')
     })
@@ -1393,6 +1441,148 @@ if (roomId) addActiveRoomIntent?.(roomId)
       return
     }
     void resetTimerProgress(room.id, timerId)
+  }
+
+  // Section/Segment CRUD handlers
+  const handleAddSection = () => {
+    if (isReadOnly || !room) return
+    void createSection(room.id, { title: 'New Section' })
+  }
+
+  const handleEditSection = (sectionId: string, patch: Partial<{ title: string; notes: string }>) => {
+    if (isReadOnly || !room) return
+    void updateSection(room.id, sectionId, patch)
+  }
+
+  const handleDeleteSection = (sectionId: string) => {
+    if (isReadOnly || !room) return
+    void deleteSection(room.id, sectionId)
+  }
+
+  const handleReorderSections = (sectionIds: string[]) => {
+    if (isReadOnly || !room) return
+    void reorderSections(room.id, sectionIds)
+  }
+
+  const handleAddSegment = (sectionId?: string) => {
+    if (isReadOnly || !room) return
+    void createSegment(room.id, {
+      title: 'New Segment',
+      sectionId,
+    })
+  }
+
+  const handleEditSegment = (segmentId: string, patch: Partial<{ title: string; notes: string; sectionId: string }>) => {
+    if (isReadOnly || !room) return
+    void updateSegment(room.id, segmentId, patch)
+  }
+
+  const handleDeleteSegment = (segmentId: string) => {
+    if (isReadOnly || !room) return
+    void deleteSegment(room.id, segmentId)
+  }
+
+  const handleReorderSegments = (sectionId: string, segmentIds: string[]) => {
+    if (isReadOnly || !room) return
+    void reorderSegments(room.id, sectionId, segmentIds)
+  }
+
+  const handleMoveSegmentToSection = (segmentId: string, fromSectionId: string, targetSectionId: string, targetIndex: number) => {
+    if (isReadOnly || !room) return
+    bumpCompanionOnActivity('reorder')
+    if (fromSectionId === targetSectionId) return
+    // Use null (not undefined) so updateSegment actually clears the field
+    const newSectionId: string | null = targetSectionId === '__none__' ? null : targetSectionId
+    // Update the segment's sectionId
+    void updateSegment(room.id, segmentId, { sectionId: newSectionId } as Partial<Omit<SegmentType, 'id' | 'roomId'>>)
+
+    // Reorder target section's segments (insert at targetIndex)
+    const targetKey = newSectionId ?? undefined
+    const targetSegments = segments
+      .filter((seg) => seg.sectionId === targetKey && seg.id !== segmentId)
+      .sort((a, b) => a.order - b.order)
+    const clamped = Math.max(0, Math.min(targetIndex, targetSegments.length))
+    const movedSeg = segments.find((seg) => seg.id === segmentId)
+    if (movedSeg) {
+      targetSegments.splice(clamped, 0, movedSeg)
+    }
+    if (newSectionId) {
+      void reorderSegments(room.id, newSectionId, targetSegments.map((seg) => seg.id))
+    } else {
+      // For unsectioned, manually update order on each segment
+      const now = Date.now()
+      targetSegments.forEach((seg, idx) => {
+        void updateSegment(room.id, seg.id, { order: (idx + 1) * 10, updatedAt: now } as Partial<Omit<SegmentType, 'id' | 'roomId'>>)
+      })
+    }
+
+    // Normalize source section's segment ordering
+    const sourceKey = fromSectionId === '__none__' ? undefined : fromSectionId
+    const sourceSegments = segments
+      .filter((seg) => seg.sectionId === sourceKey && seg.id !== segmentId)
+      .sort((a, b) => a.order - b.order)
+    if (sourceKey) {
+      void reorderSegments(room.id, sourceKey, sourceSegments.map((seg) => seg.id))
+    } else {
+      const now = Date.now()
+      sourceSegments.forEach((seg, idx) => {
+        void updateSegment(room.id, seg.id, { order: (idx + 1) * 10, updatedAt: now } as Partial<Omit<SegmentType, 'id' | 'roomId'>>)
+      })
+    }
+  }
+
+  const handleMoveTimerToSegment = (timerId: string, fromSegmentId: string, targetSegmentId: string, targetIndex: number) => {
+    if (isReadOnly || !room) return
+    bumpCompanionOnActivity('reorder')
+    if (fromSegmentId === targetSegmentId) return
+    const now = Date.now()
+    // Use null (not undefined) so updateTimer actually clears the field
+    const newSegmentId: string | null = targetSegmentId === '__none__' ? null : targetSegmentId
+    const fromSegId: string | null = fromSegmentId === '__none__' ? null : fromSegmentId
+
+    // --- Target segment: insert and reorder ---
+    const targetTimers = timers
+      .filter((timer) => (timer.segmentId ?? '__none__') === targetSegmentId && timer.id !== timerId)
+      .sort((a, b) => (a.segmentOrder ?? a.order) - (b.segmentOrder ?? b.order))
+    const clamped = Math.max(0, Math.min(targetIndex, targetTimers.length))
+    const movedTimer = timers.find((timer) => timer.id === timerId)
+    if (movedTimer) {
+      targetTimers.splice(clamped, 0, movedTimer)
+    }
+    targetTimers.forEach((timer, idx) => {
+      const patch: Record<string, unknown> = { segmentOrder: idx * 10, updatedAt: now }
+      if (timer.id === timerId) {
+        patch.segmentId = newSegmentId
+      }
+      void updateTimer(room.id, timer.id, patch as Partial<Omit<TimerType, 'id' | 'roomId'>>)
+    })
+
+    // --- Source segment: reorder remaining timers ---
+    const sourceTimers = timers
+      .filter((timer) => (timer.segmentId ?? '__none__') === fromSegmentId && timer.id !== timerId)
+      .sort((a, b) => (a.segmentOrder ?? a.order) - (b.segmentOrder ?? b.order))
+    sourceTimers.forEach((timer, idx) => {
+      void updateTimer(room.id, timer.id, { segmentOrder: idx * 10, updatedAt: now } as Partial<Omit<TimerType, 'id' | 'roomId'>>)
+    })
+
+    // --- primaryTimerId maintenance ---
+    // If target segment was empty, set primaryTimerId to the moved timer
+    if (newSegmentId) {
+      const targetWasEmpty = timers.filter(
+        (timer) => timer.segmentId === newSegmentId && timer.id !== timerId,
+      ).length === 0
+      if (targetWasEmpty) {
+        void updateSegment(room.id, newSegmentId, { primaryTimerId: timerId } as Partial<Omit<SegmentType, 'id' | 'roomId'>>)
+      }
+    }
+    // If the moved timer was the primaryTimerId of the source segment, pick next or clear
+    if (fromSegId) {
+      const sourceSegment = segments.find((seg) => seg.id === fromSegId)
+      if (sourceSegment?.primaryTimerId === timerId) {
+        const nextPrimary = sourceTimers[0]?.id ?? null
+        void updateSegment(room.id, fromSegId, { primaryTimerId: nextPrimary } as Partial<Omit<SegmentType, 'id' | 'roomId'>>)
+      }
+    }
   }
 
   const pendingStagedDelta = useRef(0)
@@ -2925,6 +3115,8 @@ if (roomId) addActiveRoomIntent?.(roomId)
           <RundownPanel
             readOnly={isReadOnly}
             timers={timers}
+            sections={sections}
+            segments={segments}
             activeTimerId={room.state.activeTimerId}
             isRunning={isRunning}
             activeTimerDisplay={isRunning && activeTimer ? engine.display : null}
@@ -2948,14 +3140,25 @@ if (roomId) addActiveRoomIntent?.(roomId)
               bumpCompanionOnActivity('start')
               void startTimer(room.id, timerId)
             }}
-            onDelete={handleDeleteTimer}
-            onAddSegment={handleAddSegment}
-            onEdit={(timerId, patch) => {
+            onDeleteTimer={handleDeleteTimer}
+            onAddTimer={handleAddTimer}
+            onEditTimer={(timerId, patch) => {
               handleEditTimer(timerId, patch)
             }}
-            onReorder={(timerId, targetIndex) => {
+            onReorderTimers={(timerId, targetIndex) => {
               handleReorderTimer(timerId, targetIndex)
             }}
+            onReorderSegmentTimers={handleReorderSegmentTimers}
+            onAddSection={handleAddSection}
+            onEditSection={handleEditSection}
+            onDeleteSection={handleDeleteSection}
+            onReorderSections={handleReorderSections}
+            onAddSegment={handleAddSegment}
+            onEditSegment={handleEditSegment}
+            onDeleteSegment={handleDeleteSegment}
+            onReorderSegments={handleReorderSegments}
+            onMoveSegmentToSection={handleMoveSegmentToSection}
+            onMoveTimerToSegment={handleMoveTimerToSegment}
             onPauseActive={pauseControlTimer}
             onActiveNudge={nudgeActiveTimer}
             onReset={handleResetTimer}

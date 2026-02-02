@@ -13,6 +13,10 @@ type DragState = {
 type UseSortableListProps<T> = {
   items: Array<SortableItem<T>>
   onReorder: (fromIndex: number, toIndex: number) => void
+  groupId?: string
+  itemType?: string
+  onForeignDrop?: (foreignId: string, fromGroupId: string, targetIndex: number) => void
+  handleOnly?: boolean
 }
 
 type UseSortableListResult<T> = {
@@ -20,7 +24,7 @@ type UseSortableListResult<T> = {
   draggingId: string | null
   overIndex: number | null
   getItemProps: (id: string, index: number) => {
-    draggable: true
+    draggable: boolean
     'data-sort-id': string
     'data-sort-index': number
     onDragStart: (event: React.DragEvent) => void
@@ -32,19 +36,32 @@ type UseSortableListResult<T> = {
     onDrop: (event: React.DragEvent) => void
   }
   getHandleProps: (id: string, index: number) => {
+    draggable?: boolean
+    'data-sort-id'?: string
     tabIndex: number
     role: string
     'aria-grabbed': boolean
     onKeyDown: (event: React.KeyboardEvent) => void
     onMouseDown: (event: React.MouseEvent) => void
     onPointerDown: (event: React.PointerEvent) => void
+    onDragStart?: (event: React.DragEvent) => void
+    onDragEnd?: () => void
   }
 }
+
+// Module-level state so all sortable lists can coordinate cross-container drags.
+let activeDrag: { id: string; itemType: string; groupId: string } | null = null
+
+export const getActiveDrag = () => activeDrag
 
 export const useSortableList = <T,>({
   items,
   onReorder,
   containerRef,
+  groupId,
+  itemType,
+  onForeignDrop,
+  handleOnly,
 }: UseSortableListProps<T> & { containerRef?: RefObject<HTMLElement | null> }): UseSortableListResult<T> => {
   const [dragState, setDragState] = useState<DragState>({ draggingId: null, overIndex: null })
   const draggingIdRef = useRef<string | null>(null)
@@ -55,9 +72,29 @@ export const useSortableList = <T,>({
 
   const sorted = useMemo(() => items, [items])
 
+  const itemIds = useMemo(() => new Set(items.map((item) => item.id)), [items])
+
   const finishDrag = () => {
-    if (draggingIdRef.current === null) return
     const targetIndex = overIndexRef.current ?? dragState.overIndex
+
+    // Check for foreign drop first
+    const foreignAllowed =
+      activeDrag &&
+      onForeignDrop &&
+      activeDrag.itemType === (itemType ?? '') &&
+      activeDrag.groupId !== (groupId ?? '') &&
+      targetIndex !== null
+    if (foreignAllowed && !itemIds.has(activeDrag.id)) {
+      onForeignDrop(activeDrag.id, activeDrag.groupId, Math.max(0, targetIndex))
+      activeDrag = null
+      draggingIdRef.current = null
+      dragFromIndexRef.current = null
+      overIndexRef.current = null
+      window.setTimeout(() => setDragState({ draggingId: null, overIndex: null }), 48)
+      return
+    }
+
+    if (draggingIdRef.current === null) return
     const draggingId = draggingIdRef.current ?? dragState.draggingId
     if (draggingId !== null && dragFromIndexRef.current !== null && targetIndex !== null) {
       const fromIndex = dragFromIndexRef.current
@@ -66,6 +103,7 @@ export const useSortableList = <T,>({
         onReorder(fromIndex, toIndex)
       }
     }
+    activeDrag = null
     draggingIdRef.current = null
     dragFromIndexRef.current = null
     overIndexRef.current = null
@@ -89,8 +127,10 @@ export const useSortableList = <T,>({
   }
 
   const hydrateRects = () => {
-    const root: ParentNode = (containerRef?.current as ParentNode | null) ?? document
-    const elements = Array.from(root.querySelectorAll<HTMLElement>('[data-sort-index]'))
+    const container = containerRef?.current
+    const elements = container
+      ? Array.from(container.querySelectorAll<HTMLElement>(':scope > [data-sort-index]'))
+      : Array.from(document.querySelectorAll<HTMLElement>('[data-sort-index]'))
     rectsRef.current = elements
       .map((el) => {
         const idx = Number(el.dataset.sortIndex)
@@ -105,52 +145,68 @@ export const useSortableList = <T,>({
       .filter((entry): entry is { index: number; centerX: number; centerY: number } => entry !== null)
   }
 
+  const isForeignDragCompatible = () => {
+    if (!activeDrag || !itemType) return false
+    return activeDrag.itemType === itemType && activeDrag.groupId !== (groupId ?? '')
+  }
+
+  const handleDragStart = (id: string, index: number, event: React.DragEvent) => {
+    const transfer = event.dataTransfer
+    if (transfer) {
+      transfer.effectAllowed = 'move'
+      transfer.dropEffect = 'move'
+      if (transfer.setData) {
+        transfer.setData('text/plain', id)
+      }
+      if (!transparentDragImageRef.current) {
+        const img = new Image()
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+        transparentDragImageRef.current = img
+      }
+      if (transparentDragImageRef.current && transfer.setDragImage) {
+        transfer.setDragImage(transparentDragImageRef.current, 0, 0)
+      }
+    }
+    activeDrag = { id, itemType: itemType ?? '', groupId: groupId ?? '' }
+    draggingIdRef.current = id
+    dragFromIndexRef.current = index
+    overIndexRef.current = index
+    setDragState({ draggingId: id, overIndex: index })
+    hydrateRects()
+    const handler = (nativeEvent: DragEvent) => {
+      nativeEvent.preventDefault()
+      const nearest = computeNearestIndex(nativeEvent.clientX, nativeEvent.clientY)
+      if (nearest !== null) {
+        overIndexRef.current = nearest
+        setDragState((prev) => ({ ...prev, overIndex: nearest }))
+      }
+    }
+    document.addEventListener('dragover', handler, { passive: false })
+    const dropHandler = (nativeEvent: DragEvent) => {
+      nativeEvent.preventDefault()
+      finishDrag()
+      document.removeEventListener('dragover', handler)
+      document.removeEventListener('drop', dropHandler)
+    }
+    document.addEventListener('drop', dropHandler)
+  }
+
   const getItemProps = (id: string, index: number) => ({
-    draggable: true as const,
+    draggable: !handleOnly,
     'data-sort-id': id,
     'data-sort-index': index,
     onDragStart: (event: React.DragEvent) => {
-      const transfer = event.dataTransfer
-      if (transfer) {
-        transfer.effectAllowed = 'move'
-        transfer.dropEffect = 'move'
-        if (transfer.setData) {
-          transfer.setData('text/plain', id)
-        }
-        if (!transparentDragImageRef.current) {
-          const img = new Image()
-          img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
-          transparentDragImageRef.current = img
-        }
-        if (transparentDragImageRef.current && transfer.setDragImage) {
-          transfer.setDragImage(transparentDragImageRef.current, 0, 0)
-        }
+      if (handleOnly) {
+        event.preventDefault()
+        return
       }
-      draggingIdRef.current = id
-      dragFromIndexRef.current = index
-      overIndexRef.current = index
-      setDragState({ draggingId: id, overIndex: index })
-      hydrateRects()
-      const handler = (nativeEvent: DragEvent) => {
-        nativeEvent.preventDefault()
-        const nearest = computeNearestIndex(nativeEvent.clientX, nativeEvent.clientY)
-        if (nearest !== null) {
-          overIndexRef.current = nearest
-          setDragState((prev) => ({ ...prev, overIndex: nearest }))
-        }
-      }
-      document.addEventListener('dragover', handler, { passive: false })
-      const dropHandler = (nativeEvent: DragEvent) => {
-        nativeEvent.preventDefault()
-        finishDrag()
-        document.removeEventListener('dragover', handler)
-        document.removeEventListener('drop', dropHandler)
-      }
-      document.addEventListener('drop', dropHandler)
+      handleDragStart(id, index, event)
     },
     onDragOver: (event: React.DragEvent) => {
       event.preventDefault()
-      if (!draggingIdRef.current && dragState.draggingId === null) return
+      const isLocal = draggingIdRef.current !== null || dragState.draggingId !== null
+      const isForeign = isForeignDragCompatible()
+      if (!isLocal && !isForeign) return
       const nearest = computeNearestIndex(event.clientX, event.clientY)
       const nextIndex = nearest ?? index
       overIndexRef.current = nextIndex
@@ -158,7 +214,9 @@ export const useSortableList = <T,>({
     },
     onDragEnter: (event: React.DragEvent) => {
       event.preventDefault()
-      if (!draggingIdRef.current && dragState.draggingId === null) return
+      const isLocal = draggingIdRef.current !== null || dragState.draggingId !== null
+      const isForeign = isForeignDragCompatible()
+      if (!isLocal && !isForeign) return
       const nearest = computeNearestIndex(event.clientX, event.clientY)
       const nextIndex = nearest ?? index
       overIndexRef.current = nextIndex
@@ -183,9 +241,17 @@ export const useSortableList = <T,>({
   })
 
   const getHandleProps = (id: string, index: number) => ({
+    draggable: true,
+    'data-sort-id': id,
     tabIndex: 0,
     role: 'button',
     'aria-grabbed': dragState.draggingId === id,
+    onDragStart: (event: React.DragEvent) => {
+      handleDragStart(id, index, event)
+    },
+    onDragEnd: () => {
+      finishDrag()
+    },
     onKeyDown: (event: React.KeyboardEvent) => {
       if (event.key === ' ' || event.key.toLowerCase() === 'enter') {
         event.preventDefault()
