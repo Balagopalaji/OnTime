@@ -51,6 +51,7 @@ type UseSortableListResult<T> = {
 
 // Module-level state so all sortable lists can coordinate cross-container drags.
 let activeDrag: { id: string; itemType: string; groupId: string } | null = null
+let handledDragId: string | null = null
 
 export const getActiveDrag = () => activeDrag
 
@@ -85,12 +86,23 @@ export const useSortableList = <T,>({
       activeDrag.groupId !== (groupId ?? '') &&
       targetIndex !== null
     if (foreignAllowed && !itemIds.has(activeDrag.id)) {
+      handledDragId = activeDrag.id
       onForeignDrop(activeDrag.id, activeDrag.groupId, Math.max(0, targetIndex))
       activeDrag = null
       draggingIdRef.current = null
       dragFromIndexRef.current = null
       overIndexRef.current = null
       window.setTimeout(() => setDragState({ draggingId: null, overIndex: null }), 48)
+      return
+    }
+
+    // If another list already handled this drag, just reset local state.
+    if (handledDragId && draggingIdRef.current === handledDragId && activeDrag === null) {
+      draggingIdRef.current = null
+      dragFromIndexRef.current = null
+      overIndexRef.current = null
+      window.setTimeout(() => setDragState({ draggingId: null, overIndex: null }), 48)
+      handledDragId = null
       return
     }
 
@@ -103,6 +115,7 @@ export const useSortableList = <T,>({
         onReorder(fromIndex, toIndex)
       }
     }
+    handledDragId = null
     activeDrag = null
     draggingIdRef.current = null
     dragFromIndexRef.current = null

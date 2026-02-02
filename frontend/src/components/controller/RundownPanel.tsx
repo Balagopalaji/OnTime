@@ -434,10 +434,32 @@ const SegmentGroup = ({
     return current
   }, [draggingId, overIndex, sorted])
 
+  const allowTimerDrop = (event: React.DragEvent) => {
+    const drag = getActiveDrag()
+    if (!drag || drag.itemType !== 'timer' || drag.groupId === segmentGroupId) return false
+    event.preventDefault()
+    return true
+  }
+
   return (
     <div className="space-y-2">
       {segment && (
-        <div className="flex items-center justify-between gap-2 px-1">
+        <div
+          className="flex items-center justify-between gap-2 px-1"
+          onDragOver={(event) => {
+            allowTimerDrop(event)
+          }}
+          onDragEnter={(event) => {
+            allowTimerDrop(event)
+          }}
+          onDrop={(event) => {
+            if (!allowTimerDrop(event)) return
+            const drag = getActiveDrag()
+            if (drag && onMoveTimerToSegment) {
+              onMoveTimerToSegment(drag.id, drag.groupId, segmentGroupId, 0)
+            }
+          }}
+        >
           <EditableField
             value={segment.title}
             onSave={(next) => onEditSegment(segment.id, { title: next })}
