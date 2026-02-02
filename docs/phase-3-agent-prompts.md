@@ -217,6 +217,7 @@ Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance 
 Implement Phase 3C Pass B.
 Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
 Scope: sections/segments CRUD + ordering.
+Note: cross-section drag-and-drop for segments/timers is a follow-up (B2.1) item; do not block Pass B unless explicitly asked.
 Before writing code:
 1) List the files you will modify
 2) Confirm scope exclusions
@@ -230,6 +231,7 @@ Before any code: open `docs/phase-3-agent-prompts.md`, read the Global Guidance 
 Implement Phase 3C Pass C.
 Complete every item listed under this pass in `docs/phase-3-tasklist.md`; list any item you cannot complete and why.
 Scope: cue CRUD + role enforcement + audit fields + tests.
+Note: cross-section drag-and-drop for cues is part of Pass C; confirm ordering semantics before implementing.
 Before writing code:
 1) List the files you will modify
 2) Confirm scope exclusions
