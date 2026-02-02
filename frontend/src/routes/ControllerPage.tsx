@@ -338,6 +338,62 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     () => (roomId ? getSegments(roomId) : []),
     [getSegments, roomId],
   )
+
+  // ---- Bootstrapping: auto-create default section when none exist ----
+  const bootstrappedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!room || !roomId || isReadOnly) return
+    if (sections.length > 0) return
+    if (bootstrappedRef.current.has(roomId)) return
+    bootstrappedRef.current.add(roomId)
+
+    const bootstrap = async () => {
+      try {
+        const section = await createSection(roomId, { title: 'Session 1' })
+        if (!section) return
+
+        // Migrate existing unsectioned segments into the new section
+        if (segments.length > 0) {
+          for (const seg of segments) {
+            if (!seg.sectionId) {
+              await updateSegment(roomId, seg.id, { sectionId: section.id })
+            }
+          }
+          // Migrate existing unsectioned timers: assign sectionId
+          for (const timer of timers) {
+            if (!timer.sectionId) {
+              // If the timer has a segmentId, its section is inherited via the segment.
+              // If no segmentId either, make it a section-level timer.
+              await updateTimer(roomId, timer.id, { sectionId: section.id })
+            }
+          }
+        } else if (timers.length > 0) {
+          // No segments exist: create a default segment and assign all timers
+          const segment = await createSegment(roomId, { title: 'New Segment', sectionId: section.id })
+          if (!segment) return
+          for (const timer of timers) {
+            await updateTimer(roomId, timer.id, { sectionId: section.id, segmentId: segment.id })
+          }
+        } else {
+          // Completely empty room: create default segment + timer
+          const segment = await createSegment(roomId, { title: 'New Segment', sectionId: section.id })
+          if (!segment) return
+          await createTimer(roomId, {
+            title: 'New Timer',
+            duration: 5 * 60,
+            sectionId: section.id,
+            segmentId: segment.id,
+          })
+        }
+      } catch (error) {
+        console.error('[controller] bootstrapping failed:', error)
+        bootstrappedRef.current.delete(roomId)
+      }
+    }
+    void bootstrap()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, roomId, sections.length, isReadOnly])
+
   const liveCueRecords = useMemo(
     () => (roomId ? getLiveCueRecords(roomId) : []),
     [getLiveCueRecords, roomId],
@@ -1390,16 +1446,28 @@ if (roomId) addActiveRoomIntent?.(roomId)
     }
   }, [getCompanionAuthToken, roomId])
 
-  const handleAddTimer = (segmentId?: string) => {
+  const handleAddTimer = (segmentIdOrSectionTag?: string) => {
     if (isReadOnly) {
       setControlBarCollapsed(false)
       return
     }
     if (!room) return
-    const timerInput: { title: string; duration: number; speaker?: string } = {
+
+    // If prefixed with __section__, this is a section-level timer (no segment)
+    const isSectionLevel = segmentIdOrSectionTag?.startsWith('__section__') ?? false
+    const explicitSectionId = isSectionLevel ? segmentIdOrSectionTag!.slice('__section__'.length) : undefined
+    const segmentId = isSectionLevel ? undefined : segmentIdOrSectionTag
+
+    // Resolve sectionId from the segment, explicit section tag, or fall back to first section
+    const segment = segmentId ? segments.find((candidate) => candidate.id === segmentId) : undefined
+    const sectionId = explicitSectionId ?? segment?.sectionId ?? (sections.length > 0 ? sections[0].id : undefined)
+
+    const timerInput: { title: string; duration: number; speaker?: string; sectionId?: string; segmentId?: string } = {
       title: 'New Timer',
       duration: 5 * 60,
       speaker: '',
+      ...(sectionId ? { sectionId } : {}),
+      ...(segmentId ? { segmentId } : {}),
     }
     void createTimer(room.id, timerInput).then((newTimer) => {
       if (!newTimer) return
@@ -1409,8 +1477,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
           .map((timer) => timer.segmentOrder)
           .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
         const nextOrder = segmentOrders.length ? Math.max(...segmentOrders) + 10 : 0
-        void updateTimer(room.id, newTimer.id, { segmentId, segmentOrder: nextOrder })
-        const segment = segments.find((candidate) => candidate.id === segmentId)
+        void updateTimer(room.id, newTimer.id, { segmentOrder: nextOrder })
         if (segment && !segment.primaryTimerId && nextOrder === 0) {
           void updateSegment(room.id, segmentId, { primaryTimerId: newTimer.id })
         }
@@ -1536,13 +1603,22 @@ if (roomId) addActiveRoomIntent?.(roomId)
     bumpCompanionOnActivity('reorder')
     if (fromSegmentId === targetSegmentId) return
     const now = Date.now()
+    const targetIsSection = targetSegmentId.startsWith('__section__')
+    const fromIsSection = fromSegmentId.startsWith('__section__')
+    const targetSectionId = targetIsSection ? targetSegmentId.slice('__section__'.length) : null
+    const fromSectionId = fromIsSection ? fromSegmentId.slice('__section__'.length) : null
     // Use null (not undefined) so updateTimer actually clears the field
-    const newSegmentId: string | null = targetSegmentId === '__none__' ? null : targetSegmentId
-    const fromSegId: string | null = fromSegmentId === '__none__' ? null : fromSegmentId
+    const newSegmentId: string | null = targetIsSection ? null : targetSegmentId === '__none__' ? null : targetSegmentId
+    const fromSegId: string | null = fromIsSection ? null : fromSegmentId === '__none__' ? null : fromSegmentId
 
     // --- Target segment: insert and reorder ---
     const targetTimers = timers
-      .filter((timer) => (timer.segmentId ?? '__none__') === targetSegmentId && timer.id !== timerId)
+      .filter((timer) => {
+        if (targetIsSection) {
+          return timer.sectionId === targetSectionId && !timer.segmentId && timer.id !== timerId
+        }
+        return (timer.segmentId ?? '__none__') === targetSegmentId && timer.id !== timerId
+      })
       .sort((a, b) => (a.segmentOrder ?? a.order) - (b.segmentOrder ?? b.order))
     const clamped = Math.max(0, Math.min(targetIndex, targetTimers.length))
     const movedTimer = timers.find((timer) => timer.id === timerId)
@@ -1553,13 +1629,19 @@ if (roomId) addActiveRoomIntent?.(roomId)
       const patch: Record<string, unknown> = { segmentOrder: idx * 10, updatedAt: now }
       if (timer.id === timerId) {
         patch.segmentId = newSegmentId
+        patch.sectionId = targetIsSection ? targetSectionId : null
       }
       void updateTimer(room.id, timer.id, patch as Partial<Omit<TimerType, 'id' | 'roomId'>>)
     })
 
     // --- Source segment: reorder remaining timers ---
     const sourceTimers = timers
-      .filter((timer) => (timer.segmentId ?? '__none__') === fromSegmentId && timer.id !== timerId)
+      .filter((timer) => {
+        if (fromIsSection) {
+          return timer.sectionId === fromSectionId && !timer.segmentId && timer.id !== timerId
+        }
+        return (timer.segmentId ?? '__none__') === fromSegmentId && timer.id !== timerId
+      })
       .sort((a, b) => (a.segmentOrder ?? a.order) - (b.segmentOrder ?? b.order))
     sourceTimers.forEach((timer, idx) => {
       void updateTimer(room.id, timer.id, { segmentOrder: idx * 10, updatedAt: now } as Partial<Omit<TimerType, 'id' | 'roomId'>>)
@@ -1567,7 +1649,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
 
     // --- primaryTimerId maintenance ---
     // If target segment was empty, set primaryTimerId to the moved timer
-    if (newSegmentId) {
+    if (!targetIsSection && newSegmentId) {
       const targetWasEmpty = timers.filter(
         (timer) => timer.segmentId === newSegmentId && timer.id !== timerId,
       ).length === 0
@@ -1576,7 +1658,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
       }
     }
     // If the moved timer was the primaryTimerId of the source segment, pick next or clear
-    if (fromSegId) {
+    if (!fromIsSection && fromSegId) {
       const sourceSegment = segments.find((seg) => seg.id === fromSegId)
       if (sourceSegment?.primaryTimerId === timerId) {
         const nextPrimary = sourceTimers[0]?.id ?? null

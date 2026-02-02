@@ -11,6 +11,7 @@ export type Timer = {
   speaker?: string
   type: TimerType
   order: number
+  sectionId?: string
   segmentId?: string
   segmentOrder?: number
   updatedAt?: number

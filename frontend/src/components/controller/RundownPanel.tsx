@@ -373,6 +373,7 @@ const SegmentGroup = ({
   onReorderSegmentTimers,
   onMoveTimerToSegment,
   timerRowProps,
+  groupIdOverride,
 }: {
   segment: Segment | null // null = unsectioned timers
   timers: Timer[]
@@ -386,8 +387,9 @@ const SegmentGroup = ({
   onMoveTimerToSegment?: (timerId: string, fromSegmentId: string, targetSegmentId: string, targetIndex: number) => void
   timerRowProps: TimerRowSharedProps
   dragHandleProps?: React.ButtonHTMLAttributes<HTMLButtonElement>
+  groupIdOverride?: string
 }) => {
-  const segmentGroupId = segment?.id ?? '__none__'
+  const segmentGroupId = groupIdOverride ?? segment?.id ?? '__none__'
   const sorted = useMemo(
     () => [...timers].sort((a, b) => (a.segmentOrder ?? a.order) - (b.segmentOrder ?? b.order)),
     [timers],
@@ -649,8 +651,11 @@ const SectionGroup = ({
     return map
   }, [timers])
 
-  // Timers not assigned to any segment within this section
-  const unsegmentedTimers = timersBySegment['__none__'] ?? []
+  // Section-level timers: timers with sectionId matching this section but no segmentId
+  const sectionLevelTimers = useMemo(
+    () => timers.filter((timer) => timer.sectionId === section?.id && !timer.segmentId),
+    [timers, section],
+  )
 
   return (
     <div className="space-y-3">
@@ -682,6 +687,16 @@ const SectionGroup = ({
             />
           </div>
           <div className="flex items-center gap-1">
+            <Tooltip content="Add Timer to Section">
+              <button
+                type="button"
+                onClick={() => onAddTimer(`__section__${section.id}`)}
+                aria-disabled={readOnly}
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-slate-700 text-slate-400 transition hover:border-slate-500 hover:text-white ${blockedClass}`}
+              >
+                <Plus size={14} />
+              </button>
+            </Tooltip>
             <Tooltip content="Add Segment">
               <button
                 type="button"
@@ -770,20 +785,36 @@ const SectionGroup = ({
               label={section ? 'No segments in this section' : 'Drop segment here'}
             />
           )}
-          {unsegmentedTimers.length > 0 && (
-            <SegmentGroup
-              segment={null}
-              timers={unsegmentedTimers}
-              readOnly={readOnly}
-              blockedClass={blockedClass}
-              onEditSegment={onEditSegment}
-              onDeleteSegment={onDeleteSegment}
-              onAddTimer={onAddTimer}
-              onReorderTimers={onReorderTimers}
-              onReorderSegmentTimers={onReorderSegmentTimers}
-              onMoveTimerToSegment={onMoveTimerToSegment}
-              timerRowProps={timerRowProps}
-            />
+          {section && (
+            <div className="space-y-2">
+              <p className="px-1 text-xs uppercase tracking-[0.2em] text-slate-500">Section Items</p>
+              <SegmentGroup
+                segment={null}
+                timers={sectionLevelTimers}
+                readOnly={readOnly}
+                blockedClass={blockedClass}
+                onEditSegment={onEditSegment}
+                onDeleteSegment={onDeleteSegment}
+                onAddTimer={onAddTimer}
+                onReorderTimers={onReorderTimers}
+                onReorderSegmentTimers={onReorderSegmentTimers}
+                onMoveTimerToSegment={onMoveTimerToSegment}
+                timerRowProps={timerRowProps}
+                groupIdOverride={`__section__${section.id}`}
+              />
+              {sectionLevelTimers.length === 0 && (
+                <DropZone
+                  itemType="timer"
+                  groupId={`__section__${section.id}`}
+                  onDrop={(foreignId, fromGroupId) => {
+                    if (onMoveTimerToSegment) {
+                      onMoveTimerToSegment(foreignId, fromGroupId, `__section__${section.id}`, 0)
+                    }
+                  }}
+                  label="Drop timer here for section-level item"
+                />
+              )}
+            </div>
           )}
         </div>
       )}
@@ -983,7 +1014,7 @@ export const RundownPanel = ({
     return map
   }, [segments])
 
-  // For each section, collect its timers (timers whose segmentId matches a segment in that section, or unsegmented)
+  // For each section, collect its timers (timers with direct sectionId, or via segment's sectionId)
   const timersForSection = useMemo(() => {
     const map: Record<string, Timer[]> = {}
     // Build reverse lookup: segmentId → sectionId
@@ -993,7 +1024,10 @@ export const RundownPanel = ({
     }
     for (const timer of timers) {
       let sectionKey = '__none__'
-      if (timer.segmentId && segToSection[timer.segmentId]) {
+      // Direct sectionId on timer takes priority (section-level items)
+      if (timer.sectionId) {
+        sectionKey = timer.sectionId
+      } else if (timer.segmentId && segToSection[timer.segmentId]) {
         sectionKey = segToSection[timer.segmentId]
       }
       if (!map[sectionKey]) map[sectionKey] = []
@@ -1001,10 +1035,6 @@ export const RundownPanel = ({
     }
     return map
   }, [timers, segments])
-
-  // Timers that belong to no section (either no segmentId, or segmentId points to a segment with no sectionId)
-  const unsectionedTimers = timersForSection['__none__'] ?? []
-  const unsectionedSegments = segmentsBySection['__none__'] ?? []
 
   // Shared props for TimerRow (everything except per-timer state)
   const timerRowProps = useMemo(
@@ -1127,28 +1157,7 @@ export const RundownPanel = ({
             })}
           </SortableList>
 
-          {/* Unsectioned segments + timers */}
-          {(unsectionedSegments.length > 0 || unsectionedTimers.length > 0) && (
-            <SectionGroup
-              section={null}
-              segments={unsectionedSegments}
-              timers={unsectionedTimers}
-              readOnly={readOnly}
-              blockedClass={blockedClass}
-              onEditSection={onEditSection}
-              onDeleteSection={onDeleteSection}
-              onAddSegment={onAddSegment}
-              onEditSegment={onEditSegment}
-              onDeleteSegment={onDeleteSegment}
-              onAddTimer={onAddTimer}
-              onReorderSegments={onReorderSegments}
-              onReorderTimers={onReorderTimers}
-              onReorderSegmentTimers={onReorderSegmentTimers}
-              onMoveSegmentToSection={onMoveSegmentToSection}
-              onMoveTimerToSegment={onMoveTimerToSegment}
-              timerRowProps={timerRowProps}
-            />
-          )}
+          {/* NOTE: Unsectioned bucket removed — all items should belong to a section after bootstrapping */}
 
           {/* Undo placeholder at bottom */}
           {undoPlaceholder && undoPlaceholder.index > 0 && (
