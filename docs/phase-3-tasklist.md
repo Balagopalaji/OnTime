@@ -106,14 +106,15 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [ ] **Acceptance:** operators can join via invite; blocked users cannot write cues; cue queue persists and replays.
 
 ### Pass B: Sections + Segments UI
-- [ ] **Frontend:** CRUD + ordering for sections and segments; segment-timer linkage and display.
-- [ ] **Frontend:** section-level items lane (timers/cues without segment; used for breaks/interstitials).
+- [x] **Frontend:** CRUD + ordering for sections and segments; segment-timer linkage and display.
+- [x] **Frontend:** section-level items lane (timers/cues without segment; used for breaks/interstitials).
 - [ ] **Cloud/Firebase:** update write helpers and rules validation if needed.
-- [ ] **Tests:** section/segment CRUD + ordering.
-- [ ] **Acceptance:** sections/segments reorder correctly without timer regression.
+  - Note: Validate section/segment/timer writes against current Firestore rules after Pass C.
+- [x] **Tests:** section/segment CRUD + ordering.
+- [x] **Acceptance:** sections/segments reorder correctly without timer regression.
 - **Note (B1):** Sections and segments are cloud-only (Firestore CRUD). No Companion socket events or offline cache support in this pass. Companion offline support for sections/segments is deferred and should be added when Companion socket/cache support is designed.
-- [ ] **Follow-up (B2.1):** Enable drag-and-drop of segments across sections (cross-list move, preserving segment timers/cues).
-- [ ] **Follow-up (B2.1):** Enable drag-and-drop of timers across segments/sections (cross-list move, preserve segment timing order).
+- [x] **Follow-up (B2.1):** Enable drag-and-drop of segments across sections (cross-list move, preserving segment timers/cues).
+- [x] **Follow-up (B2.1):** Enable drag-and-drop of timers across segments/sections (cross-list move, preserve segment timing order).
 
 ### Pass C: Cues UI
 - [ ] **Frontend:** cue creation, editing, ordering, and trigger types.
