@@ -654,9 +654,20 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const updateRoomTier = useCallback(
     async (roomId: string, tier: Room['tier']) => {
+      const nextFeatures =
+        tier === 'basic'
+          ? { showControl: false, powerpoint: false, externalVideo: false }
+          : tier === 'production'
+            ? { showControl: false, powerpoint: false, externalVideo: true }
+            : { showControl: true, powerpoint: true, externalVideo: true }
+
       updateRoom(roomId, (room) => ({
         ...room,
         tier,
+        features: {
+          localMode: room.features?.localMode ?? true,
+          ...nextFeatures,
+        },
       }))
       await safeDelayRef.current?.()
     },

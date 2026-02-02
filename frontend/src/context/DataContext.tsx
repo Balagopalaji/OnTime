@@ -28,6 +28,8 @@ type CreateTimerInput = {
   title: string
   duration: number
   speaker?: string
+  sectionId?: string
+  segmentId?: string
 }
 
 type CreateCueInput = {

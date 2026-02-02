@@ -155,6 +155,7 @@ type TimerDoc = {
   speaker?: string
   type: string
   order: number
+  sectionId?: string
   segmentId?: string
   segmentOrder?: number
 }
@@ -168,6 +169,7 @@ const mapTimer = (id: string, roomId: string, data: TimerDoc): Timer => ({
   speaker: data.speaker ?? '',
   type: (data.type as Timer['type']) ?? 'countdown',
   order: data.order ?? 0,
+  sectionId: typeof data.sectionId === 'string' ? data.sectionId : undefined,
   segmentId: typeof data.segmentId === 'string' ? data.segmentId : undefined,
   segmentOrder: typeof data.segmentOrder === 'number' ? data.segmentOrder : undefined,
 })
@@ -817,6 +819,8 @@ export const FirebaseDataProvider = ({
       type: 'countdown',
       order: Date.now(),
       updatedAt: Date.now(),
+      ...(input.sectionId ? { sectionId: input.sectionId } : {}),
+      ...(input.segmentId ? { segmentId: input.segmentId } : {}),
     }
     await setDoc(timerRef, timer)
     const room = getRoom(roomId)
@@ -939,9 +943,19 @@ export const FirebaseDataProvider = ({
   const updateRoomTier: DataContextValue['updateRoomTier'] = useCallback(
     async (roomId, tier) => {
       if (migratingRoomsRef.current.has(roomId) || !firestore) return
+      const features =
+        tier === 'basic'
+          ? { showControl: false, powerpoint: false, externalVideo: false }
+          : tier === 'production'
+            ? { showControl: false, powerpoint: false, externalVideo: true }
+            : { showControl: true, powerpoint: true, externalVideo: true }
+
       await updateDoc(doc(firestore, 'rooms', roomId), {
         tier,
         updatedAt: Date.now(),
+        'features.showControl': features.showControl,
+        'features.powerpoint': features.powerpoint,
+        'features.externalVideo': features.externalVideo,
       })
     },
     [firestore],
