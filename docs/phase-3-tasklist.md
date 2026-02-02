@@ -107,6 +107,7 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 
 ### Pass B: Sections + Segments UI
 - [ ] **Frontend:** CRUD + ordering for sections and segments; segment-timer linkage and display.
+- [ ] **Frontend:** section-level items lane (timers/cues without segment; used for breaks/interstitials).
 - [ ] **Cloud/Firebase:** update write helpers and rules validation if needed.
 - [ ] **Tests:** section/segment CRUD + ordering.
 - [ ] **Acceptance:** sections/segments reorder correctly without timer regression.

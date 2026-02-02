@@ -219,7 +219,7 @@ Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is 
 **Phase 3 preview (Show Planner)**
 **Core concepts**
 - Full rundown with **sections (sessions)** grouping segments (e.g., "Morning Session" → Speaker 1/2/3).
-- Sections can carry optional **section-level cues** (e.g., "Open house lights at session start").
+- Sections can carry optional **section-level cues and timers** (e.g., "Open house lights at session start", "15‑min break").
 - Section cues use the same trigger types as segment cues; timed cues anchor to section start unless fixed_time is used.
 - Unified cue timeline (all roles in place), with role-based styling and filters.
 - Operators can create and edit their own cues; TD/Director can edit any cue.

@@ -72,6 +72,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Phase 3B Pass B1 validation: verified self-signed SAN certs, LAN allowlist, and PNA/CORS on local + LAN scenarios.
 - Phase 3B Pass C validation: LAN pairing QR/local flow, role-bound tokens, and revocation persistence verified.
 - Phase 3B Pass D validation: viewer tokens cannot invoke REQUEST_CONTROL or FORCE_TAKEOVER; server returns PERMISSION_DENIED.
+- Break sections: model as **sections with no segments** that carry **section-level timers/cues** (e.g., Lunch/Intermission).
 - Phase 3C Pass A validation: Firestore rules tests passed (operator role match, blocked operator, owner override, unauthenticated read denial).
 - Phase 3C Pass A validation: joinAsOperator emulator test passed (invite code + auth path).
 - Troubleshooting notes: see `docs/phase-3-troubleshooting.md` for ongoing Phase 3C issues.

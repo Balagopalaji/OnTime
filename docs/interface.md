@@ -95,12 +95,14 @@ Notes:
 - `originalDuration?: number` (seconds)
 - `type: 'countdown' | 'countup' | 'timeofday'`
 - `order: number`
+- `sectionId?: string` (optional link to section; used for section-level timers)
 - `segmentId?: string` (optional link to segment)
 - `segmentOrder?: number` (sequence within segment; 0 = primary timer)
 - `adjustmentLog?: Array<{ timestamp: number; delta: number; deviceId: string; reason: 'manual' | 'sync' | 'migration' }>`
 - `updatedAt?: number` (write-through timestamp; required for cross-source arbitration)
 Notes:
 - Timers with the same `segmentId` are sequential; `segmentOrder` controls display/order.
+- If `segmentId` is unset and `sectionId` is set, the timer is a **section-level timer** (e.g., breaks/interstitials).
 - Parallel timers are not supported in Phase 3; use a second room for truly concurrent timers.
 
 **`rooms/{roomId}/sections/{sectionId}`** (Phase 3: session/group headers)
