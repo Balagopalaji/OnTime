@@ -29,8 +29,9 @@ import { getCloudViewerUrl } from '../lib/viewer-links'
 import { useAppMode } from '../context/AppModeContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useClock } from '../hooks/useClock'
-import { auth } from '../lib/firebase'
+import { auth, db } from '../lib/firebase'
 import { GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth'
+import { collection, getDocs, limit, query } from 'firebase/firestore'
 import {
   createLanPairing,
   fetchLanPairingStatus,
@@ -349,6 +350,13 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
 
     const bootstrap = async () => {
       try {
+        const existingSections = await getDocs(
+          query(collection(db, 'rooms', roomId, 'sections'), limit(1)),
+        )
+        if (!existingSections.empty) {
+          return
+        }
+
         const section = await createSection(roomId, { title: 'Session 1' })
         if (!section) return
 
