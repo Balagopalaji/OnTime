@@ -490,11 +490,19 @@ type CachedRoomSnapshot = {
   source: 'companion' | 'cloud'
 }
 
-type CompanionSubscription = {
+export type CompanionSubscription = {
   clientType: 'controller' | 'viewer'
   token: string
   tokenSource: 'controller' | 'viewer'
 }
+
+export const getReconnectJoinEntries = (
+  rooms: Record<string, CompanionSubscription>,
+  activeRoomIntents: Iterable<string>,
+): Array<[string, CompanionSubscription]> =>
+  [...activeRoomIntents]
+    .filter((roomId) => Boolean(rooms[roomId]))
+    .map((roomId) => [roomId, rooms[roomId]] as [string, CompanionSubscription])
 
 const readCachedSubscriptions = (): Record<string, CompanionSubscription> => {
   if (typeof localStorage === 'undefined') return {}
@@ -3528,10 +3536,8 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       // On reconnect, rejoin rooms with active intents (pinned dashboard rooms
       // and the room currently being viewed). Other rooms rejoin lazily on navigation.
       const rooms = subscribedRoomsRef.current
-const intentRoomIds = activeRoomIntentRef.current
-      const reconnectEntries = [...intentRoomIds]
-        .filter((id) => rooms[id])
-        .map((id) => [id, rooms[id]] as const)
+      const intentRoomIds = activeRoomIntentRef.current
+      const reconnectEntries = getReconnectJoinEntries(rooms, intentRoomIds)
       reconnectEntries.forEach(([roomId, sub]) => {
         const tokenToUse = sub.tokenSource === 'controller' ? joinToken : sub.token
         if (!tokenToUse) return
