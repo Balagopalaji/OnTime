@@ -41,6 +41,8 @@ import {
   type LanPairingInfo,
   type LanPairingStatus,
 } from '../lib/companion-pairing'
+import { canPerformControllerAction } from './controller-permissions'
+import { resolveControllerJoinIntent } from './controller-join-intent'
 import type { LiveCueRecord, ControllerClient, Segment as SegmentType, Timer as TimerType, Cue } from '../types'
 
 type PresentationEntry = {
@@ -272,17 +274,17 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     (options?: { force?: boolean; reason?: string }) => {
       if (!roomId) return
       if (!subscribeToCompanionRoom) return
-      const joinKey = `${roomId}::controller::${effectiveMode}`
-      if (!options?.force && lastJoinKeyRef.current === joinKey) return
-      lastJoinKeyRef.current = joinKey
+      const intent = resolveControllerJoinIntent(lastJoinKeyRef.current, roomId, options)
+      if (!intent.shouldJoin) return
+      lastJoinKeyRef.current = intent.nextKey
       if (debugCompanion) {
         console.info(
-          `[Companion] auto-joining controller for room ${roomId} (${effectiveMode}) reason=${options?.reason ?? 'auto'}`,
+          `[Companion] auto-joining controller for room ${roomId} reason=${options?.reason ?? 'auto'}`,
         )
       }
       subscribeToCompanionRoom(roomId, 'controller')
     },
-    [debugCompanion, effectiveMode, roomId, subscribeToCompanionRoom],
+    [debugCompanion, roomId, subscribeToCompanionRoom],
   )
 
   const bumpCompanionOnActivity = useCallback(
@@ -545,6 +547,7 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('ontime:viewerOnly') === 'true'
   })
+  const controlsAllowed = canPerformControllerAction({ viewerOnly, isReadOnly })
   const [pinHidden, setPinHidden] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('ontime:pinHidden') === 'true'
@@ -592,7 +595,7 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
   )
   const showControlBar = Boolean(
     roomId &&
-      lockState !== 'authoritative' &&
+      (lockState !== 'authoritative' || viewerOnly) &&
       (!controlBarCollapsed || latestControlEventAt > controlBarDismissedAt),
   )
   const controlBarTone = visibleDisplacement || visibleDenial || visibleError ? 'rose' : 'amber'
@@ -1204,11 +1207,14 @@ if (roomId) addActiveRoomIntent?.(roomId)
   }, [controlError, denial, displacement, forceTakeoverInFlight])
 
   const handleForceTakeover = useCallback(() => {
-    if (!room) return
+    if (!room || !controlsAllowed) {
+      setControlBarCollapsed(false)
+      return
+    }
     setForcePromptMode(forceTakeoverReady ? 'confirm' : 'pin')
     setForcePinDraft('')
     setForcePromptOpen(true)
-  }, [forceTakeoverReady, room])
+  }, [controlsAllowed, forceTakeoverReady, room])
 
   useEffect(() => {
     if (!forcePromptOpen || forcePromptMode !== 'pin') return
@@ -1217,7 +1223,10 @@ if (roomId) addActiveRoomIntent?.(roomId)
   }, [forcePromptOpen, forcePromptMode])
 
   const submitForceTakeover = useCallback(async () => {
-    if (!room) return
+    if (!room || !controlsAllowed) {
+      setControlBarCollapsed(false)
+      return
+    }
     if (forcePromptMode === 'confirm') {
       startForceTakeoverRequest()
       forceTakeover(room.id)
@@ -1241,7 +1250,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
     startForceTakeoverRequest()
     forceTakeover(room.id, { reauthenticated: true })
     setForcePromptOpen(false)
-  }, [attemptReauth, forcePinDraft, forcePromptMode, forceTakeover, normalizePin, room, startForceTakeoverRequest])
+  }, [attemptReauth, controlsAllowed, forcePinDraft, forcePromptMode, forceTakeover, normalizePin, room, startForceTakeoverRequest])
 
   const handleSetPin = useCallback(() => {
     if (!room) return
@@ -1311,7 +1320,10 @@ if (roomId) addActiveRoomIntent?.(roomId)
   }, [lastPresentationDetectedAt])
 
   const handleConfirmHandover = useCallback(() => {
-    if (!room || !handoverTargetId) return
+    if (!room || !handoverTargetId || !controlsAllowed) {
+      setControlBarCollapsed(false)
+      return
+    }
     const target = availableHandoverTargets.find(
       (client) => client.targetClientId === handoverTargetId,
     )
@@ -1319,7 +1331,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
     handOverControl(room.id, handoverTargetId)
     setHandoverOpen(false)
     setHandoverTargetId(null)
-  }, [availableHandoverTargets, handOverControl, handoverTargetId, room])
+  }, [availableHandoverTargets, controlsAllowed, handOverControl, handoverTargetId, room])
 
   const handleTimezoneSave = () => {
     if (isReadOnly) {
@@ -2227,7 +2239,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
             </div>
           <div className="flex flex-wrap items-center gap-3">
             <ConnectionIndicator status={connectionStatus} />
-            {lockState !== 'authoritative' || isCloudOffline ? (
+            {lockState !== 'authoritative' || isCloudOffline || viewerOnly ? (
               <button
                 type="button"
                 onClick={() => setControlBarCollapsed(false)}
@@ -2331,7 +2343,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
                   ↻
                 </button>
               </Tooltip>
-              {roomId && lockState === 'authoritative' && !isReadOnly ? (
+              {roomId && lockState === 'authoritative' && controlsAllowed ? (
                 <Tooltip content="Hand over control">
                   <button
                     type="button"
@@ -2728,10 +2740,10 @@ if (roomId) addActiveRoomIntent?.(roomId)
                   <button
                     type="button"
                     onClick={() => {
-                      if (room) requestControl(room.id)
+                      if (room && controlsAllowed) requestControl(room.id)
                       setControlBarCollapsed(false)
                     }}
-                    disabled={lockState === 'requesting'}
+                    disabled={!controlsAllowed || lockState === 'requesting'}
                     className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
                   >
                     {lockState === 'requesting' ? 'Requesting' : 'Reclaim'}
@@ -2739,7 +2751,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
                   <button
                     type="button"
                     onClick={handleForceTakeover}
-                    disabled={forceTakeoverInFlight || (!forceTakeoverReady && !canForceNow)}
+                    disabled={!controlsAllowed || forceTakeoverInFlight || (!forceTakeoverReady && !canForceNow)}
                     className="rounded-full border border-rose-400/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-100 transition hover:border-rose-300 disabled:opacity-60"
                   >
                     {forceTakeoverInFlight
@@ -2776,8 +2788,8 @@ if (roomId) addActiveRoomIntent?.(roomId)
                 <>
                   <button
                     type="button"
-                    disabled={lockState === 'requesting'}
-                    onClick={() => room && requestControl(room.id)}
+                    disabled={!controlsAllowed || lockState === 'requesting'}
+                    onClick={() => room && controlsAllowed && requestControl(room.id)}
                     className="rounded-full border border-amber-300/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200 disabled:opacity-60"
                   >
                     {lockState === 'requesting' ? 'Requesting' : 'Request'}
@@ -2785,7 +2797,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
                   <button
                     type="button"
                     onClick={handleForceTakeover}
-                    disabled={forceTakeoverInFlight || (!forceTakeoverReady && !canForceNow)}
+                    disabled={!controlsAllowed || forceTakeoverInFlight || (!forceTakeoverReady && !canForceNow)}
                     title={
                       forceTakeoverReady
                         ? 'Force takeover now'
@@ -2840,11 +2852,17 @@ if (roomId) addActiveRoomIntent?.(roomId)
               <button
                 type="button"
                 onClick={() => {
-                  if (!canHandOver) return
+                  if (!canHandOver || !controlsAllowed) return
                   if (room) handOverControl(room.id, incomingRequest.requesterId)
                 }}
-                disabled={!canHandOver}
-                title={canHandOver ? undefined : 'Handover requires Companion'}
+                disabled={!canHandOver || !controlsAllowed}
+                title={
+                  !controlsAllowed
+                    ? 'Viewer-only mode blocks controller actions'
+                    : canHandOver
+                    ? undefined
+                    : 'Handover requires Companion'
+                }
                 className="rounded-full border border-rose-300/70 bg-rose-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-50 transition hover:border-rose-200 disabled:opacity-60"
               >
                 Hand over
@@ -2859,11 +2877,13 @@ if (roomId) addActiveRoomIntent?.(roomId)
               <button
                 type="button"
                 onClick={() => {
+                  if (!controlsAllowed) return
                   if (room) {
                     denyControl(room.id, incomingRequest.requesterId)
                   }
                   setIgnoredRequestTs(incomingRequest.requestedAt)
                 }}
+                disabled={!controlsAllowed}
                 className="rounded-full border border-slate-700 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-200 transition hover:border-slate-500"
               >
                 Deny

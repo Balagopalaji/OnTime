@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { getConfidenceWindowMs, resolveControllerLockState, resolveRoomSource, mergeCueQueueEvents, type CueQueuedEvent } from './UnifiedDataContext'
+import {
+  getConfidenceWindowMs,
+  getReconnectJoinEntries,
+  mergeCueQueueEvents,
+  resolveControllerLockState,
+  resolveRoomSource,
+  type CueQueuedEvent,
+} from './UnifiedDataContext'
 
 const baseArgs = {
   roomId: 'room-1',
@@ -168,5 +175,25 @@ describe('mergeCueQueueEvents', () => {
     const merged = mergeCueQueueEvents(queue)
     expect(merged).toHaveLength(1)
     expect(merged[0].type).toBe('REORDER_CUES')
+  })
+})
+
+describe('getReconnectJoinEntries', () => {
+  it('returns reconnect entries only for active intent rooms with subscriptions', () => {
+    const entries = getReconnectJoinEntries(
+      {
+        'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+        'room-b': { clientType: 'viewer', token: 'token-b', tokenSource: 'viewer' },
+      },
+      new Set(['room-b', 'room-c']),
+    )
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.[0]).toBe('room-b')
+    expect(entries[0]?.[1]).toEqual({
+      clientType: 'viewer',
+      token: 'token-b',
+      tokenSource: 'viewer',
+    })
   })
 })
