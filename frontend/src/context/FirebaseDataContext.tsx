@@ -253,7 +253,7 @@ type CueDoc = {
   updatedAt?: number | { seconds: number; nanoseconds: number }
   editedBy?: string
   createdByRole?: string
-  editedByRole?: string
+  editedByRole?: string | null
   editNote?: string
 }
 
@@ -926,6 +926,9 @@ export const FirebaseDataProvider = ({
       }
       if (user?.uid) {
         payload.editedBy = user.uid
+      }
+      if (patch.editedByRole !== undefined) {
+        payload.editedByRole = patch.editedByRole
       }
       await updateDoc(doc(firestore, 'rooms', roomId, 'cues', cueId), payload)
     },

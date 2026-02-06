@@ -152,7 +152,7 @@ export type Cue = {
   updatedAt?: number
   editedBy?: string
   createdByRole?: OperatorRole
-  editedByRole?: OperatorRole
+  editedByRole?: OperatorRole | null
   editNote?: string
 }
 

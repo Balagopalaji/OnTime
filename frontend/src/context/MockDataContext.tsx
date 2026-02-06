@@ -26,12 +26,15 @@ import { roomStackKey, timerStackKey } from '../lib/undoKeys'
 import {
   DataProviderBoundary,
   useDataContext,
+  type CreateCueInput,
   type DataContextValue,
   type RoomPinMeta,
 } from './DataContext'
 import { useAuth } from './AuthContext'
 
-const isTestEnv = Boolean((import.meta as unknown as { vitest?: unknown })?.vitest)
+const isTestEnv =
+  Boolean((import.meta as unknown as { vitest?: unknown })?.vitest) ||
+  (typeof process !== 'undefined' && process.env?.VITEST === 'true')
 
 const STORAGE_KEY = 'stagetime.mockState.v2'
 
@@ -73,11 +76,112 @@ const PLACEHOLDER_TTL = 10_000
 
 const createEmptyStack = (): UndoStack => ({ undo: [], redo: [] })
 
+// eslint-disable-next-line react-refresh/only-export-components
+export const createCueRecord = ({
+  roomId,
+  input,
+  userId,
+  existingCues,
+  now,
+  cueId,
+}: {
+  roomId: string
+  input: CreateCueInput
+  userId: string
+  existingCues: Cue[]
+  now: number
+  cueId?: string
+}): Cue => {
+  const nextOrder =
+    typeof input.order === 'number' && Number.isFinite(input.order)
+      ? input.order
+      : existingCues.length
+        ? Math.max(...existingCues.map((cue) => cue.order ?? 0)) + 10
+        : 10
+  return {
+    id: cueId ?? randomId(),
+    roomId,
+    title: input.title.trim(),
+    role: input.role,
+    triggerType: input.triggerType,
+    notes: input.notes,
+    sectionId: input.sectionId,
+    segmentId: input.segmentId,
+    order: nextOrder,
+    offsetMs: input.offsetMs,
+    timeBase: input.timeBase,
+    targetTimeMs: input.targetTimeMs,
+    afterCueId: input.afterCueId,
+    approximatePosition: input.approximatePosition,
+    triggerNote: input.triggerNote,
+    createdBy: userId,
+    createdByRole: input.createdByRole,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const applyCuePatch = ({
+  cues,
+  cueId,
+  patch,
+  userId,
+  now,
+}: {
+  cues: Cue[]
+  cueId: string
+  patch: Partial<Omit<Cue, 'id' | 'roomId' | 'createdBy' | 'createdAt'>>
+  userId: string
+  now: number
+}): Cue[] =>
+  cues.map((cue) =>
+    cue.id === cueId
+      ? {
+          ...cue,
+          ...patch,
+          updatedAt: now,
+          editedBy: userId,
+          editedByRole: patch.editedByRole !== undefined ? patch.editedByRole : cue.editedByRole,
+        }
+      : cue,
+  )
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const removeCue = (cues: Cue[], cueId: string): Cue[] =>
+  cues.filter((cue) => cue.id !== cueId)
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const reorderCueList = ({
+  cues,
+  cueIds,
+  now,
+}: {
+  cues: Cue[]
+  cueIds: string[]
+  now: number
+}): Cue[] => {
+  const orderMap = new Map<string, number>()
+  cueIds.forEach((id, idx) => {
+    orderMap.set(id, (idx + 1) * 10)
+  })
+  return cues.map((cue) => {
+    const nextOrder = orderMap.get(cue.id)
+    if (nextOrder === undefined) return cue
+    return {
+      ...cue,
+      order: nextOrder,
+      updatedAt: now,
+    }
+  })
+}
+
 type PendingTimeout = { handle: ReturnType<typeof setTimeout>; resolve: () => void }
 
 type MockState = {
   rooms: Room[]
   timers: Record<string, Timer[]>
+  cues: Record<string, Cue[]>
 }
 
 type RoomSnapshot = {
@@ -318,7 +422,7 @@ const createSeedState = (): MockState => {
     },
   ]
 
-  return { rooms, timers: { [roomId]: timers } }
+  return { rooms, timers: { [roomId]: timers }, cues: {} }
 }
 
 const loadState = (): MockState => {
@@ -340,6 +444,7 @@ const loadState = (): MockState => {
         },
       })),
       timers: parsed.timers ?? {},
+      cues: parsed.cues ?? {},
     }
   } catch (error) {
     console.warn('Failed to load mock data from storage', error)
@@ -533,6 +638,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           },
         })) ?? [],
         timers: next.timers ?? {},
+        cues: next.cues ?? {},
       })
           return JSON.stringify(prev) === JSON.stringify(hydrated) ? prev : hydrated
         })
@@ -566,10 +672,14 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [pendingTimers, state.timers],
   )
 
-  const getCues = useCallback((_roomId: string): Cue[] => {
-    void _roomId
-    return []
-  }, [])
+  const getCues = useCallback(
+    (roomId: string): Cue[] => {
+      return [...(state.cues[roomId] ?? [])].sort(
+        (a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0),
+      )
+    },
+    [state.cues],
+  )
 
   const getLiveCueRecords = useCallback((_roomId: string): LiveCueRecord[] => {
     void _roomId
@@ -588,6 +698,19 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         timers: {
           ...prev.timers,
           [roomId]: updater(prev.timers[roomId] ?? []),
+        },
+      }))
+    },
+    [setState],
+  )
+
+  const updateCues = useCallback(
+    (roomId: string, updater: (cues: Cue[]) => Cue[]) => {
+      setState((prev) => ({
+        ...prev,
+        cues: {
+          ...prev.cues,
+          [roomId]: updater(prev.cues[roomId] ?? []),
         },
       }))
     },
@@ -881,11 +1004,25 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [getRoom, persistTimerStack, syncPendingState, updateTimers],
   )
 
-  const createCue = useCallback(async (_roomId: string) => {
-    void _roomId
-    await safeDelayRef.current?.()
-    return undefined
-  }, [])
+  const createCue = useCallback(
+    async (roomId: string, input: CreateCueInput) => {
+      const now = Date.now()
+      const userId = user?.uid ?? 'mock-user'
+      const list = state.cues[roomId] ?? []
+      const cue = createCueRecord({
+        roomId,
+        input,
+        userId,
+        existingCues: list,
+        now,
+      })
+
+      updateCues(roomId, (cues) => [...cues, cue])
+      await safeDelayRef.current?.()
+      return cue
+    },
+    [safeDelayRef, state.cues, updateCues, user?.uid],
+  )
 
   const updateTimer = useCallback(
     async (
@@ -998,23 +1135,46 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     [persistTimerStack, state.rooms, state.timers, syncPendingState, updateTimers, user],
   )
 
-  const updateCue: DataContextValue['updateCue'] = useCallback(async (_roomId, _cueId) => {
-    void _roomId
-    void _cueId
-    await safeDelayRef.current?.()
-  }, [])
+  const updateCue: DataContextValue['updateCue'] = useCallback(
+    async (roomId, cueId, patch) => {
+      const now = Date.now()
+      const userId = user?.uid ?? 'mock-user'
+      updateCues(roomId, (cues) =>
+        applyCuePatch({
+          cues,
+          cueId,
+          patch,
+          userId,
+          now,
+        }),
+      )
+      await safeDelayRef.current?.()
+    },
+    [safeDelayRef, updateCues, user?.uid],
+  )
 
-  const deleteCue: DataContextValue['deleteCue'] = useCallback(async (_roomId, _cueId) => {
-    void _roomId
-    void _cueId
-    await safeDelayRef.current?.()
-  }, [])
+  const deleteCue: DataContextValue['deleteCue'] = useCallback(
+    async (roomId, cueId) => {
+      updateCues(roomId, (cues) => removeCue(cues, cueId))
+      await safeDelayRef.current?.()
+    },
+    [safeDelayRef, updateCues],
+  )
 
-  const reorderCues: DataContextValue['reorderCues'] = useCallback(async (_roomId, _cueIds) => {
-    void _roomId
-    void _cueIds
-    await safeDelayRef.current?.()
-  }, [])
+  const reorderCues: DataContextValue['reorderCues'] = useCallback(
+    async (roomId, cueIds) => {
+      const now = Date.now()
+      updateCues(roomId, (cues) =>
+        reorderCueList({
+          cues,
+          cueIds,
+          now,
+        }),
+      )
+      await safeDelayRef.current?.()
+    },
+    [safeDelayRef, updateCues],
+  )
 
   const getSections = useCallback((_roomId: string): Section[] => {
     void _roomId

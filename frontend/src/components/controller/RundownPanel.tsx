@@ -1186,15 +1186,6 @@ export const RundownPanel = ({
       <div className="mt-5 flex flex-wrap justify-center gap-3">
         <button
           type="button"
-          onClick={() => onAddTimer()}
-          aria-disabled={readOnly}
-          className={`flex h-12 items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 px-6 text-sm text-slate-200 transition hover:border-slate-500 ${blockedClass}`}
-        >
-          <Plus size={16} />
-          <span>Add Timer</span>
-        </button>
-        <button
-          type="button"
           onClick={onAddSection}
           aria-disabled={readOnly}
           className={`flex h-12 items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 px-6 text-sm text-slate-200 transition hover:border-slate-500 ${blockedClass}`}

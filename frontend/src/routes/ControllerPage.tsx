@@ -15,6 +15,7 @@ import {
 import { useDataContext } from '../context/DataProvider'
 import { useAuth } from '../context/AuthContext'
 import { RundownPanel } from '../components/controller/RundownPanel'
+import { CuesPanel } from '../components/controller/CuesPanel'
 import { MessagePanel } from '../components/controller/MessagePanel'
 import { LiveTimerPreview } from '../components/controller/LiveTimerPreview'
 import { PresentationStatusPanel } from '../components/controller/PresentationStatusPanel'
@@ -40,7 +41,7 @@ import {
   type LanPairingInfo,
   type LanPairingStatus,
 } from '../lib/companion-pairing'
-import type { LiveCueRecord, ControllerClient, Segment as SegmentType, Timer as TimerType } from '../types'
+import type { LiveCueRecord, ControllerClient, Segment as SegmentType, Timer as TimerType, Cue } from '../types'
 
 type PresentationEntry = {
   key: string
@@ -225,6 +226,11 @@ export const ControllerPage = () => {
     getLiveCueDiagnostics,
     getSections,
     getSegments,
+    getCues,
+    createCue,
+    updateCue,
+    deleteCue,
+    reorderCues,
     createSection,
     updateSection,
     deleteSection,
@@ -339,6 +345,10 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     () => (roomId ? getSegments(roomId) : []),
     [getSegments, roomId],
   )
+  const cues = useMemo(
+    () => (roomId ? getCues(roomId) : []),
+    [getCues, roomId],
+  )
 
   // ---- Bootstrapping: auto-create default section when none exist ----
   const bootstrappedRef = useRef<Set<string>>(new Set())
@@ -375,6 +385,12 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
               await updateTimer(roomId, timer.id, { sectionId: section.id })
             }
           }
+          // Migrate existing section-level cues without a sectionId
+          for (const cue of cues) {
+            if (!cue.segmentId && !cue.sectionId) {
+              await updateCue(roomId, cue.id, { sectionId: section.id })
+            }
+          }
         } else if (timers.length > 0) {
           // No segments exist: create a default segment and assign all timers
           const segment = await createSegment(roomId, { title: 'New Segment', sectionId: section.id })
@@ -401,6 +417,24 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     void bootstrap()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, roomId, sections.length, isReadOnly])
+
+  // ---- Migration: ensure section-level cues have a sectionId ----
+  useEffect(() => {
+    if (!room || !roomId || isReadOnly) return
+    if (sections.length === 0) return
+    const targetSectionId = sections[0]?.id
+    if (!targetSectionId) return
+    const needsMigration = cues.filter((cue) => !cue.segmentId && !cue.sectionId)
+    if (needsMigration.length === 0) return
+
+    const migrate = async () => {
+      for (const cue of needsMigration) {
+        await updateCue(roomId, cue.id, { sectionId: targetSectionId })
+      }
+    }
+
+    void migrate()
+  }, [cues, isReadOnly, room, roomId, sections, updateCue])
 
   const liveCueRecords = useMemo(
     () => (roomId ? getLiveCueRecords(roomId) : []),
@@ -1673,6 +1707,48 @@ if (roomId) addActiveRoomIntent?.(roomId)
         void updateSegment(room.id, fromSegId, { primaryTimerId: nextPrimary } as Partial<Omit<SegmentType, 'id' | 'roomId'>>)
       }
     }
+  }
+
+  const handleCreateCue = (input: {
+    title: string
+    role: 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom'
+    triggerType: 'timed' | 'fixed_time' | 'sequential' | 'follow' | 'floating'
+    sectionId?: string
+    segmentId?: string
+    order?: number
+    offsetMs?: number
+    timeBase?: 'actual' | 'planned'
+    targetTimeMs?: number
+    afterCueId?: string
+    approximatePosition?: number
+    triggerNote?: string
+    notes?: string
+    createdByRole?: 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom'
+  }) => {
+    if (isReadOnly || !room) return
+    bumpCompanionOnActivity('create-cue')
+    void createCue(room.id, input)
+  }
+
+  const handleUpdateCue = (
+    cueId: string,
+    patch: Partial<Omit<Cue, 'id' | 'roomId' | 'createdBy' | 'createdAt'>>,
+  ) => {
+    if (isReadOnly || !room) return
+    bumpCompanionOnActivity('update-cue')
+    void updateCue(room.id, cueId, patch)
+  }
+
+  const handleDeleteCue = (cueId: string) => {
+    if (isReadOnly || !room) return
+    bumpCompanionOnActivity('delete-cue')
+    void deleteCue(room.id, cueId)
+  }
+
+  const handleReorderCues = (cueIds: string[]) => {
+    if (isReadOnly || !room) return
+    bumpCompanionOnActivity('reorder-cue')
+    void reorderCues(room.id, cueIds)
   }
 
   const pendingStagedDelta = useRef(0)
@@ -3284,6 +3360,19 @@ if (roomId) addActiveRoomIntent?.(roomId)
               clockMode={room.state.clockMode ?? '24h'}
               message={room.state.message}
               timezone={room.timezone}
+            />
+            <CuesPanel
+              roomId={room.id}
+              cues={cues}
+              sections={sections}
+              segments={segments}
+              readOnly={isReadOnly}
+              isOwner={isOwner}
+              currentUserId={user?.uid ?? null}
+              onCreateCue={handleCreateCue}
+              onUpdateCue={handleUpdateCue}
+              onDeleteCue={handleDeleteCue}
+              onReorderCues={handleReorderCues}
             />
           </div>
         </div>

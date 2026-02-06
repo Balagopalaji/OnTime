@@ -5418,6 +5418,25 @@ const intentRoomIds = activeRoomIntentRef.current
         console.warn('[UnifiedDataContext] controller locked; cannot update cue', roomId)
         return
       }
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      const isOwner = Boolean(roomOwnerId && userId && roomOwnerId === userId)
+      const existingCue = getCues(roomId).find((cue) => cue.id === cueId)
+      if (!isOwner) {
+        // TODO(phase-3f): replace patch-based cue role checks with authoritative membership lookups.
+        if (!existingCue) {
+          console.warn('[UnifiedDataContext] non-owner cue update missing target cue', roomId, cueId)
+          return
+        }
+        const actorRole = patch.editedByRole ?? null
+        if (!actorRole) {
+          console.warn('[UnifiedDataContext] non-owner cue update requires editedByRole', roomId, cueId)
+          return
+        }
+        if (existingCue.role !== actorRole) {
+          console.warn('[UnifiedDataContext] non-owner cue update role mismatch', roomId, cueId)
+          return
+        }
+      }
       if (!shouldUseCompanion(roomId)) {
         if (!ensureCloudWriteAllowed(roomId, 'updateCue')) return
         markControllerWrite(roomId, 'cloud')
@@ -5433,6 +5452,7 @@ const intentRoomIds = activeRoomIntentRef.current
         ...(patch as Partial<Cue>),
         updatedAt: now,
         editedBy: userId ?? existing.editedBy,
+        editedByRole: patch.editedByRole !== undefined ? patch.editedByRole : existing.editedByRole,
       }
 
       setCompanionCues((prev) => ({
@@ -5446,7 +5466,12 @@ const intentRoomIds = activeRoomIntentRef.current
         type: 'UPDATE_CUE',
         roomId,
         cueId,
-        changes: { ...patch, updatedAt: now, editedBy: userId ?? undefined },
+        changes: {
+          ...patch,
+          updatedAt: now,
+          editedBy: userId ?? undefined,
+          editedByRole: patch.editedByRole,
+        },
         timestamp: now,
         clientId,
       })
@@ -5455,6 +5480,7 @@ const intentRoomIds = activeRoomIntentRef.current
         const cueRef = doc(firestore, 'rooms', roomId, 'cues', cueId)
         const payload: Record<string, unknown> = { ...patch, updatedAt: now }
         if (userId) payload.editedBy = userId
+        if (patch.editedByRole !== undefined) payload.editedByRole = patch.editedByRole
         await setDoc(cueRef, payload, { merge: true }).catch(() => undefined)
       }
     },
@@ -5463,6 +5489,7 @@ const intentRoomIds = activeRoomIntentRef.current
       clientId,
       emitOrQueueCue,
       ensureCloudWriteAllowed,
+      getCues,
       firebase,
       firestore,
       isLockedOut,
@@ -5481,6 +5508,13 @@ const intentRoomIds = activeRoomIntentRef.current
       }
       if (isLockedOut(roomId)) {
         console.warn('[UnifiedDataContext] controller locked; cannot delete cue', roomId)
+        return
+      }
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      const isOwner = Boolean(roomOwnerId && userId && roomOwnerId === userId)
+      if (!isOwner) {
+        // TODO(phase-3f): allow role-scoped non-owner deletes once membership role is authoritative.
+        console.warn('[UnifiedDataContext] non-owner cue delete blocked', roomId, cueId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -5517,6 +5551,7 @@ const intentRoomIds = activeRoomIntentRef.current
       isViewerClient,
       markControllerWrite,
       shouldUseCompanion,
+      userId,
     ],
   )
 
@@ -5528,6 +5563,13 @@ const intentRoomIds = activeRoomIntentRef.current
       }
       if (isLockedOut(roomId)) {
         console.warn('[UnifiedDataContext] controller locked; cannot reorder cues', roomId)
+        return
+      }
+      const roomOwnerId = firebase.getRoom(roomId)?.ownerId
+      const isOwner = Boolean(roomOwnerId && userId && roomOwnerId === userId)
+      if (!isOwner) {
+        // TODO(phase-3f): allow role-scoped non-owner reorder once membership role is authoritative.
+        console.warn('[UnifiedDataContext] non-owner cue reorder blocked', roomId)
         return
       }
       if (!shouldUseCompanion(roomId)) {
@@ -5581,6 +5623,7 @@ const intentRoomIds = activeRoomIntentRef.current
       isViewerClient,
       markControllerWrite,
       shouldUseCompanion,
+      userId,
     ],
   )
 

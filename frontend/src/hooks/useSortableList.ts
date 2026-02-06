@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 
 type SortableItem<T> = {
   id: string
@@ -70,12 +70,36 @@ export const useSortableList = <T,>({
   const overIndexRef = useRef<number | null>(null)
   const rectsRef = useRef<Array<{ index: number; centerX: number; centerY: number }>>([])
   const transparentDragImageRef = useRef<HTMLImageElement | null>(null)
+  const dragOverListenerRef = useRef<((event: DragEvent) => void) | null>(null)
+  const dropListenerRef = useRef<((event: DragEvent) => void) | null>(null)
+  const dragEndListenerRef = useRef<((event: DragEvent) => void) | null>(null)
+  const keydownListenerRef = useRef<((event: KeyboardEvent) => void) | null>(null)
 
   const sorted = useMemo(() => items, [items])
 
   const itemIds = useMemo(() => new Set(items.map((item) => item.id)), [items])
 
+  const detachDocumentDragListeners = () => {
+    if (dragOverListenerRef.current) {
+      document.removeEventListener('dragover', dragOverListenerRef.current)
+      dragOverListenerRef.current = null
+    }
+    if (dropListenerRef.current) {
+      document.removeEventListener('drop', dropListenerRef.current)
+      dropListenerRef.current = null
+    }
+    if (dragEndListenerRef.current) {
+      document.removeEventListener('dragend', dragEndListenerRef.current)
+      dragEndListenerRef.current = null
+    }
+    if (keydownListenerRef.current) {
+      document.removeEventListener('keydown', keydownListenerRef.current)
+      keydownListenerRef.current = null
+    }
+  }
+
   const finishDrag = () => {
+    detachDocumentDragListeners()
     const targetIndex = overIndexRef.current ?? dragState.overIndex
 
     // Check for foreign drop first
@@ -186,7 +210,8 @@ export const useSortableList = <T,>({
     overIndexRef.current = index
     setDragState({ draggingId: id, overIndex: index })
     hydrateRects()
-    const handler = (nativeEvent: DragEvent) => {
+    detachDocumentDragListeners()
+    const dragOverHandler = (nativeEvent: DragEvent) => {
       nativeEvent.preventDefault()
       const nearest = computeNearestIndex(nativeEvent.clientX, nativeEvent.clientY)
       if (nearest !== null) {
@@ -194,15 +219,35 @@ export const useSortableList = <T,>({
         setDragState((prev) => ({ ...prev, overIndex: nearest }))
       }
     }
-    document.addEventListener('dragover', handler, { passive: false })
     const dropHandler = (nativeEvent: DragEvent) => {
       nativeEvent.preventDefault()
       finishDrag()
-      document.removeEventListener('dragover', handler)
-      document.removeEventListener('drop', dropHandler)
     }
+    const dragEndHandler = () => {
+      finishDrag()
+    }
+    const keydownHandler = (nativeEvent: KeyboardEvent) => {
+      if (nativeEvent.key === 'Escape') {
+        finishDrag()
+      }
+    }
+
+    dragOverListenerRef.current = dragOverHandler
+    dropListenerRef.current = dropHandler
+    dragEndListenerRef.current = dragEndHandler
+    keydownListenerRef.current = keydownHandler
+
+    document.addEventListener('dragover', dragOverHandler, { passive: false })
     document.addEventListener('drop', dropHandler)
+    document.addEventListener('dragend', dragEndHandler)
+    document.addEventListener('keydown', keydownHandler)
   }
+
+  useEffect(() => {
+    return () => {
+      detachDocumentDragListeners()
+    }
+  }, [])
 
   const getItemProps = (id: string, index: number) => ({
     draggable: !handleOnly,
