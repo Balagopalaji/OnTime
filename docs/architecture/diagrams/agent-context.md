@@ -9,7 +9,7 @@
 OnTime is a show timer platform with three operation modes:
 - **Cloud** — Firebase-backed, multi-device sync
 - **Local** — Companion desktop app for offline/LAN use
-- **Auto** — Prefers Companion when connected, falls back to Cloud
+- **Auto** — Prefers Companion when connected; otherwise Cloud if online, Local if cloud offline
 
 **Key architectural pattern:** `UnifiedDataContext` merges Cloud + Companion data, handles room authority, caches snapshots, and queues offline events.
 
@@ -34,8 +34,11 @@ OnTime is a show timer platform with three operation modes:
 | Domain | File |
 |--------|------|
 | Timer logic | `docs/timer-logic.md` |
+| Timer tuple migration/helpers | `frontend/src/context/firebase-timer-state-utils.ts` |
+| Timer tuple regression tests | `frontend/src/context/FirebaseDataContext.test.ts` |
 | Types | `frontend/src/types/index.ts` |
 | Timer utils | `frontend/src/utils/timer-utils.ts` |
+| Firebase timer writes | `frontend/src/context/FirebaseDataContext.tsx` |
 | Data context interface | `frontend/src/context/DataContext.tsx` |
 | Unified orchestration | `frontend/src/context/UnifiedDataContext.tsx` |
 | Firebase rules | `firebase/firestore.rules` |

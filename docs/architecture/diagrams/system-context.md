@@ -1,10 +1,15 @@
 # System Context
 
 **Verified against files:**
+- `/Users/radhabalagopala/Dev/OnTime/companion/src/main.ts`
+- `/Users/radhabalagopala/Dev/OnTime/docs/interface.md`
+- `/Users/radhabalagopala/Dev/OnTime/docs/local-offline-lan-plan.md`
+- `/Users/radhabalagopala/Dev/OnTime/docs/local-server-prd.md`
 - `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/AppModeContext.tsx`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.tsx`
+- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/AuthContext.tsx`
 - `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/CompanionConnectionContext.tsx`
 - `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/FirebaseDataContext.tsx`
+- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.tsx`
 
 **Last verified:** 2026-02-06
 
@@ -53,7 +58,7 @@ graph TD
 
 `AppModeContext` drives `mode` and `effectiveMode`, and `UnifiedDataContext` arbitration resolves the active source per room.
 
-- **auto**: prefers Companion when connected; otherwise Cloud. During close timestamp races, authority/tie-breakers and confidence windows apply.
+- **auto**: prefers Companion when connected; otherwise Cloud if online, Local if cloud offline. During close timestamp races, authority/tie-breakers and confidence windows apply.
 - **local**: local-biased arbitration (Companion favored on close timestamps/ties), but Cloud can still be selected when fresher.
 - **cloud**: cloud-biased arbitration, but Companion can still be selected when it has clearly fresher state.
 
