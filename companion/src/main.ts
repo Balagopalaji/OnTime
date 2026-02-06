@@ -13,6 +13,11 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { machineId } from 'node-machine-id';
 import selfsigned from 'selfsigned';
+import {
+  resolveLockOnDisconnect,
+  resolvePendingHandshakeConflict,
+  shouldDeleteClientEntryOnDisconnect,
+} from './lock-handshake-utils';
 
 let tray: Tray | null = null;
 let trayContextMenu: Menu | null = null;
@@ -3134,7 +3139,6 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
     socket.on('disconnect', (reason) => {
       console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
       const roomId = socket.data?.roomId as string | undefined;
-      const clientType = socket.data?.clientType as string | undefined;
       const clientId = socket.data?.clientId as string | undefined;
       if (clientId) {
         const pending = pendingHandshakeStore.get(clientId);
@@ -3143,8 +3147,47 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
         }
       }
       if (roomId && clientId) {
-        const clients = roomId ? getRoomClients(roomId) : null;
-        clients?.delete(clientId);
+        const clients = getRoomClients(roomId);
+        const pendingRequesterId = pendingControlRequests.get(roomId)?.requesterId;
+        const lockResolution = resolveLockOnDisconnect({
+          lock: roomControllerStore.get(roomId),
+          disconnectSocketId: socket.id,
+          pendingRequesterId,
+          clients: [...clients.entries()].map(([entryClientId, entry]) => ({
+            clientId: entryClientId,
+            socketId: entry.socketId,
+            clientType: entry.clientType,
+            deviceName: entry.deviceName,
+            userId: entry.userId,
+            userName: entry.userName,
+          })),
+          isSocketActive,
+        });
+
+        const storedClient = clients.get(clientId);
+        if (shouldDeleteClientEntryOnDisconnect(storedClient?.socketId, socket.id)) {
+          clients.delete(clientId);
+        }
+
+        if (lockResolution.action === 'transfer') {
+          setControllerLock(
+            roomId,
+            lockResolution.target.clientId,
+            lockResolution.target.socketId,
+            lockResolution.target.deviceName,
+            lockResolution.target.userId,
+            lockResolution.target.userName,
+            { clearPending: lockResolution.clearPending },
+          );
+        } else if (lockResolution.action === 'clear') {
+          roomControllerStore.delete(roomId);
+          if (lockResolution.clearPending) {
+            pendingControlRequests.delete(roomId);
+          }
+          emitControllerLockState(roomId);
+          emitRoomPinStateToController(roomId);
+        }
+
         emitRoomClientsState(roomId);
       }
     });
@@ -5016,6 +5059,22 @@ function startPowerPointDetection() {
   }, PPT_POLL_INTERVAL_MS);
 }
 
+function createHandshakeAck(roomId: string): HandshakeAck {
+  return {
+    type: 'HANDSHAKE_ACK',
+    success: true,
+    roomId,
+    companionMode: currentCompanionMode,
+    companionVersion: COMPANION_VERSION,
+    interfaceVersion: INTERFACE_VERSION,
+    capabilities: getCompanionCapabilities(),
+    systemInfo: {
+      platform: process.platform,
+      hostname: os.hostname()
+    }
+  };
+}
+
 function handleJoinRoom(socket: Socket, payload: unknown) {
   if (!isValidJoinRoomPayload(payload)) {
     console.warn(`[ws] Invalid JOIN_ROOM payload from socket=${socket.id}`);
@@ -5030,26 +5089,46 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   }
 
   const clientId = payload.clientId ?? socket.id;
+  const sameSocketSameRoomJoin =
+    socket.data?.clientId === clientId &&
+    socket.data?.roomId === payload.roomId &&
+    socket.rooms.has(payload.roomId);
   const pending = pendingHandshakeStore.get(clientId);
-  if (pending) {
-    const age = Date.now() - pending.startedAt;
-    if (age < PENDING_HANDSHAKE_TTL_MS) {
-      const stillConnected = ioServers.some((server) => server.sockets.sockets.has(pending.socketId));
-      if (!stillConnected) {
-        pendingHandshakeStore.delete(clientId);
-      } else {
-      console.warn(`[ws] Duplicate pending handshake for clientId=${clientId}`);
-      const error: HandshakeError = {
-        type: 'HANDSHAKE_ERROR',
-        code: 'INVALID_PAYLOAD',
-        message: 'Handshake already pending.'
-      };
-      socket.emit('HANDSHAKE_ERROR', error);
-      socket.disconnect(true);
-      return;
-      }
-    }
+  const pendingSocketConnected = pending
+    ? ioServers.some((server) => server.sockets.sockets.has(pending.socketId))
+    : false;
+
+  const pendingDecision = resolvePendingHandshakeConflict({
+    pending,
+    now: Date.now(),
+    ttlMs: PENDING_HANDSHAKE_TTL_MS,
+    pendingSocketConnected,
+    incomingSocketId: socket.id,
+    idempotentSameSocketJoin: sameSocketSameRoomJoin,
+  });
+  if (pendingDecision.clearExisting) {
     pendingHandshakeStore.delete(clientId);
+  }
+  if (pendingDecision.reject) {
+    console.warn(`[ws] Duplicate pending handshake for clientId=${clientId}`);
+    const error: HandshakeError = {
+      type: 'HANDSHAKE_ERROR',
+      code: 'INVALID_PAYLOAD',
+      message: 'Handshake already pending.'
+    };
+    socket.emit('HANDSHAKE_ERROR', error);
+    socket.disconnect(true);
+    return;
+  }
+
+  if (sameSocketSameRoomJoin) {
+    socket.emit('HANDSHAKE_ACK', createHandshakeAck(payload.roomId));
+    emitControllerLockStateToSocket(socket, payload.roomId);
+    emitRoomClientsState(payload.roomId);
+    console.log(
+      `[ws] JOIN_ROOM idempotent ack: room=${payload.roomId}, socket=${socket.id}`
+    );
+    return;
   }
 
   const tokenPayload = verifyTokenPayload(payload.token);
@@ -5169,22 +5248,11 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     requestedType === 'controller' &&
     (!currentLock || currentLock.clientId === clientId);
 
-  const ack: HandshakeAck = {
-    type: 'HANDSHAKE_ACK',
-    success: true,
-    roomId: payload.roomId,
-    companionMode: currentCompanionMode,
-    companionVersion: COMPANION_VERSION,
-    interfaceVersion: INTERFACE_VERSION,
-    capabilities: getCompanionCapabilities(),
-    systemInfo: {
-      platform: process.platform,
-      hostname: os.hostname()
-    }
-  };
+  const ack = createHandshakeAck(payload.roomId);
 
   if (socket.rooms.has(payload.roomId) && socket.data.clientType === requestedType) {
     socket.emit('HANDSHAKE_ACK', ack);
+    pendingHandshakeStore.delete(clientId);
     console.log(
       `[ws] JOIN_ROOM ignored (already joined): room=${payload.roomId}, clientType=${requestedType}, socket=${socket.id}`
     );
