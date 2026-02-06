@@ -26,6 +26,11 @@ import { MockDataProvider } from './MockDataContext'
 import { useAuth } from './AuthContext'
 import { doc as firestoreDoc, updateDoc as updateDocFs } from 'firebase/firestore'
 import { mapSection, mapSegment, stripUndefined, type SectionDoc, type SegmentDoc } from './firebase-data-utils'
+import {
+  buildDurationEditStateUpdates,
+  buildMigrationTimerTuple,
+  buildResetTimerProgressStateUpdates,
+} from './firebase-timer-state-utils'
 
 const DEFAULT_CONFIG = {
   warningSec: 120,
@@ -888,23 +893,14 @@ export const FirebaseDataProvider = ({
       try {
         await updateDoc(doc(firestore, 'rooms', roomId, 'timers', timerId), { ...patch, updatedAt: Date.now() })
         if (patch.duration !== undefined && room) {
-          const stateUpdates: Record<string, unknown> =
-            (room._version ?? 1) === 2
-              ? {
-                  [`progress.${timerId}`]: 0,
-                }
-              : {
-                  [`state.progress.${timerId}`]: 0,
-                }
-          if (room.state.activeTimerId === timerId) {
-            if ((room._version ?? 1) === 2) {
-              stateUpdates['elapsedOffset'] = 0
-              stateUpdates['startedAt'] = room.state.isRunning ? Date.now() : null
-            } else {
-              stateUpdates['state.elapsedOffset'] = 0
-              stateUpdates['state.startedAt'] = room.state.isRunning ? Date.now() : null
-            }
-          }
+          const now = Date.now()
+          const stateUpdates = buildDurationEditStateUpdates(
+            room._version ?? 1,
+            timerId,
+            room.state.activeTimerId === timerId,
+            room.state.isRunning,
+            now,
+          )
           const stateRef =
             (room._version ?? 1) === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
           await updateDocFs(stateRef, stateUpdates)
@@ -981,20 +977,7 @@ export const FirebaseDataProvider = ({
     if (migratingRoomsRef.current.has(roomId) || !firestore) return
     const room = getRoom(roomId)
     const isActive = room?.state.activeTimerId === timerId
-    const updates: Record<string, unknown> = {
-      ...((room?._version ?? 1) === 2 ? { [`progress.${timerId}`]: 0 } : { [`state.progress.${timerId}`]: 0 }),
-    }
-    if (isActive) {
-      if ((room?._version ?? 1) === 2) {
-        updates['elapsedOffset'] = 0
-        updates['startedAt'] = null
-        updates['isRunning'] = false
-      } else {
-        updates['state.elapsedOffset'] = 0
-        updates['state.startedAt'] = null
-        updates['state.isRunning'] = false
-      }
-    }
+    const updates = buildResetTimerProgressStateUpdates(room?._version ?? 1, timerId, isActive, Date.now())
     const stateRef =
       (room?._version ?? 1) === 2 ? firestoreDoc(firestore, 'rooms', roomId, 'state', 'current') : firestoreDoc(firestore, 'rooms', roomId)
     await updateDocFs(stateRef, updates)
@@ -1441,18 +1424,8 @@ export const FirebaseDataProvider = ({
         if (legacyData.ownerId !== user.uid) throw new Error('not_owner')
 
         const legacyState = (legacyData.state ?? {}) as Record<string, unknown>
-        const activeTimerId = typeof legacyState.activeTimerId === 'string' ? legacyState.activeTimerId : null
-        const isRunning = Boolean(legacyState.isRunning)
-        const startedAt = typeof legacyState.startedAt === 'number' ? legacyState.startedAt : null
-        const elapsedOffset = typeof legacyState.elapsedOffset === 'number' ? legacyState.elapsedOffset : 0
-        const progress = (legacyState.progress ?? {}) as Record<string, unknown>
-        const baseElapsed =
-          activeTimerId && typeof progress[activeTimerId] === 'number' ? (progress[activeTimerId] as number) : 0
-        const elapsedMs =
-          activeTimerId && isRunning && startedAt ? Date.now() - startedAt + baseElapsed : baseElapsed || elapsedOffset
-        const currentTime = Math.max(0, Math.round(elapsedMs / 1000))
-
         const now = Date.now()
+        const migrationTuple = buildMigrationTimerTuple(legacyState, now)
         const backupId = String(now)
         const backupRef = doc(firestore, 'rooms', roomId, 'migrationBackups', backupId)
         const stateRef = firestoreDoc(firestore, 'rooms', roomId, 'state', 'current')
@@ -1463,7 +1436,7 @@ export const FirebaseDataProvider = ({
           expiresAtMs: now + MIGRATION_RETENTION_MS,
           legacyRoom: legacyData,
         })
-        batch.set(stateRef, { activeTimerId, isRunning, currentTime, lastUpdate: now }, { merge: true })
+        batch.set(stateRef, migrationTuple, { merge: true })
         batch.set(
           roomRef,
           {
