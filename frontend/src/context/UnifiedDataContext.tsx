@@ -239,6 +239,16 @@ type ControlRequestDeniedPayload = {
   deniedByUserName?: string
 }
 
+type ControlRequestStatusPayload = {
+  type: 'CONTROL_REQUEST_STATUS'
+  roomId: string
+  requesterId: string
+  status: 'queued' | 'cleared'
+  reason?: 'lock_changed' | 'request_denied' | 'requester_disconnected' | 'timeout' | 'room_unsubscribed' | 'superseded'
+  requestedAt: number
+  timestamp: number
+}
+
 type RoomPinStatePayload = {
   type: 'ROOM_PIN_STATE'
   roomId: string
@@ -266,6 +276,7 @@ type ControlSyncPayload =
   | ControllerLockStatePayload
   | ControlRequestReceivedPayload
   | ControlRequestDeniedPayload
+  | ControlRequestStatusPayload
   | RoomPinStatePayload
   | RoomClientsStatePayload
   | ErrorPayload
@@ -291,6 +302,169 @@ type ControlDenial = {
   deniedByUserName?: string
   deniedAt: number
 }
+
+const CONTROL_REQUEST_PENDING_TTL_MS = 120_000
+
+export const shouldExpirePendingControlRequest = (
+  requestedAt: number,
+  now: number,
+  ttlMs = CONTROL_REQUEST_PENDING_TTL_MS,
+) => now - requestedAt >= ttlMs
+
+export const prunePendingControlRequests = <T extends { requestedAt: number }>(
+  pending: Record<string, T | null>,
+  now: number,
+  ttlMs = CONTROL_REQUEST_PENDING_TTL_MS,
+) => {
+  const expiredRoomIds: string[] = []
+  const next: Record<string, T | null> = {}
+  Object.entries(pending).forEach(([roomId, value]) => {
+    if (!value) {
+      next[roomId] = value
+      return
+    }
+    if (shouldExpirePendingControlRequest(value.requestedAt, now, ttlMs)) {
+      next[roomId] = null
+      expiredRoomIds.push(roomId)
+      return
+    }
+    next[roomId] = value
+  })
+  return { next, expiredRoomIds }
+}
+
+type RoomControlLifecycleSlices = {
+  controlRequests: Record<string, ControlRequest | null>
+  pendingControlRequests: Record<string, ControlRequest | null>
+  controlDenials: Record<string, ControlDenial | null>
+  controlDisplacements: Record<
+    string,
+    { takenAt: number; takenById: string; takenByName?: string; takenByUserId?: string; takenByUserName?: string } | null
+  >
+  controlErrors: Record<string, { code: string; message: string; receivedAt: number } | null>
+  roomClients: Record<string, ControllerClient[]>
+}
+
+export const clearRoomControlLifecycleState = (
+  roomId: string,
+  slices: RoomControlLifecycleSlices,
+  options?: { clearRoomClients?: boolean },
+): RoomControlLifecycleSlices => {
+  const controlRequests = { ...slices.controlRequests }
+  delete controlRequests[roomId]
+  const pendingControlRequests = { ...slices.pendingControlRequests }
+  delete pendingControlRequests[roomId]
+  const controlDenials = { ...slices.controlDenials }
+  delete controlDenials[roomId]
+  const controlDisplacements = { ...slices.controlDisplacements }
+  delete controlDisplacements[roomId]
+  const controlErrors = { ...slices.controlErrors }
+  delete controlErrors[roomId]
+  const roomClients = { ...slices.roomClients }
+  if (options?.clearRoomClients) {
+    delete roomClients[roomId]
+  }
+  return {
+    controlRequests,
+    pendingControlRequests,
+    controlDenials,
+    controlDisplacements,
+    controlErrors,
+    roomClients,
+  }
+}
+
+export const shouldQueueCompanionLockPayload = ({
+  holdActive,
+  cloudClientId,
+  companionClientId,
+}: {
+  holdActive: boolean
+  cloudClientId?: string
+  companionClientId?: string
+}) => holdActive && Boolean(cloudClientId && companionClientId && cloudClientId !== companionClientId)
+
+export const resolveQueuedCompanionLockReplayState = <T,>(
+  queuedPayload: T | undefined,
+  holdActive: boolean,
+  isSubscribed = true,
+): {
+  queuedPayload: T | null
+  replayPayload: T | null
+  shouldRequeue: boolean
+} => {
+  if (!queuedPayload || !isSubscribed) {
+    return {
+      queuedPayload: null,
+      replayPayload: null,
+      shouldRequeue: false,
+    }
+  }
+  if (holdActive) {
+    return {
+      queuedPayload,
+      replayPayload: null,
+      shouldRequeue: true,
+    }
+  }
+  return {
+    queuedPayload,
+    replayPayload: queuedPayload,
+    shouldRequeue: false,
+  }
+}
+
+export const reducePendingControlRequestByStatus = (
+  current: Record<string, ControlRequest | null>,
+  payload: ControlRequestStatusPayload,
+  clientId: string,
+): Record<string, ControlRequest | null> => {
+  if (payload.requesterId !== clientId) return current
+  if (payload.status === 'queued') {
+    return {
+      ...current,
+      [payload.roomId]: {
+        requesterId: payload.requesterId,
+        requestedAt: payload.requestedAt,
+      },
+    }
+  }
+  return {
+    ...current,
+    [payload.roomId]: null,
+  }
+}
+
+export const reduceControlRequestsByStatus = (
+  current: Record<string, ControlRequest | null>,
+  payload: ControlRequestStatusPayload,
+): Record<string, ControlRequest | null> => {
+  if (payload.status !== 'cleared') return current
+  const existing = current[payload.roomId]
+  if (
+    existing
+    && (
+      existing.requesterId !== payload.requesterId
+      || existing.requestedAt !== payload.requestedAt
+    )
+  ) {
+    return current
+  }
+  return {
+    ...current,
+    [payload.roomId]: null,
+  }
+}
+
+export const shouldResetQueuedLockReplayOnSocketChange = (
+  previousSocket: unknown,
+  nextSocket: unknown,
+): boolean => Boolean(previousSocket && nextSocket && previousSocket !== nextSocket)
+
+export const shouldApplyControlRequestTimeoutError = (
+  payload: ControlRequestStatusPayload,
+  clientId: string,
+): boolean => payload.reason === 'timeout' && payload.requesterId === clientId
 
 type QueuedEvent =
   | {
@@ -998,6 +1172,9 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const isCueReplayingRef = useRef(false)
   const lastControllerWriteRef = useRef<Record<string, { source: 'cloud' | 'companion'; timestamp: number }>>({})
   const companionHoldUntilRef = useRef<Record<string, number>>({})
+  const queuedCompanionLockPayloadRef = useRef<Record<string, ControllerLockStatePayload>>({})
+  const queuedCompanionLockTimerRef = useRef<Record<string, number>>({})
+  const previousSocketRef = useRef<typeof socket | null>(null)
   const joinQueueRef = useRef<Array<{
     roomId: string
     clientType: 'controller' | 'viewer'
@@ -1206,6 +1383,25 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     () => (functions ? httpsCallable(functions, 'syncLockFromCompanion') : null),
     [],
   )
+
+  const clearQueuedCompanionLockReplay = useCallback(() => {
+    Object.values(queuedCompanionLockTimerRef.current).forEach((timerId) => {
+      window.clearTimeout(timerId)
+    })
+    queuedCompanionLockTimerRef.current = {}
+    queuedCompanionLockPayloadRef.current = {}
+  }, [])
+
+  useEffect(() => {
+    if (shouldResetQueuedLockReplayOnSocketChange(previousSocketRef.current, socket)) {
+      clearQueuedCompanionLockReplay()
+    }
+    previousSocketRef.current = socket
+  }, [clearQueuedCompanionLockReplay, socket])
+
+  useEffect(() => () => {
+    clearQueuedCompanionLockReplay()
+  }, [clearQueuedCompanionLockReplay])
 
   const processJoinQueue = useCallback(() => {
     if (!socket) return
@@ -2038,6 +2234,30 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     [clientId, socket],
   )
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const now = Date.now()
+      setPendingControlRequests((prev) => {
+        const { next, expiredRoomIds } = prunePendingControlRequests(prev, now)
+        if (expiredRoomIds.length > 0) {
+          setControlErrors((current) => {
+            const withTimeouts = { ...current }
+            expiredRoomIds.forEach((roomId) => {
+              withTimeouts[roomId] = {
+                code: 'REQUEST_CONTROL_TIMEOUT',
+                message: 'Control request timed out. Please try again.',
+                receivedAt: now,
+              }
+            })
+            return withTimeouts
+          })
+        }
+        return next
+      })
+    }, 5_000)
+    return () => window.clearInterval(intervalId)
+  }, [])
+
   const resolveCompanionToken = useCallback(
     async (tokenOverride?: string) => {
       if (tokenOverride) return tokenOverride
@@ -2137,6 +2357,32 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     })
   }, [debugCompanion, handshakeStatus, socket, token])
 
+  const clearRoomControlLifecycle = useCallback(
+    (roomId: string, options?: { clearRoomClients?: boolean }) => {
+      const next = clearRoomControlLifecycleState(
+        roomId,
+        {
+          controlRequests,
+          pendingControlRequests,
+          controlDenials,
+          controlDisplacements,
+          controlErrors,
+          roomClients,
+        },
+        options,
+      )
+      setControlRequests(next.controlRequests)
+      setPendingControlRequests(next.pendingControlRequests)
+      setControlDenials(next.controlDenials)
+      setControlDisplacements(next.controlDisplacements)
+      setControlErrors(next.controlErrors)
+      if (options?.clearRoomClients) {
+        setRoomClients(next.roomClients)
+      }
+    },
+    [controlDenials, controlDisplacements, controlErrors, controlRequests, pendingControlRequests, roomClients],
+  )
+
   const unsubscribeFromCompanionRoom = useCallback((roomId: string) => {
     setSubscribedRooms((prev) => {
       if (!prev[roomId]) return prev
@@ -2171,24 +2417,19 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       delete next[roomId]
       return next
     })
-    setControlRequests((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
-    setPendingControlRequests((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
-    setControlDenials((prev) => {
-      if (!prev[roomId]) return prev
-      const next = { ...prev }
-      delete next[roomId]
-      return next
-    })
+    const queuedTimerId = queuedCompanionLockTimerRef.current[roomId]
+    if (queuedTimerId) {
+      window.clearTimeout(queuedTimerId)
+      const nextTimers = { ...queuedCompanionLockTimerRef.current }
+      delete nextTimers[roomId]
+      queuedCompanionLockTimerRef.current = nextTimers
+    }
+    if (queuedCompanionLockPayloadRef.current[roomId]) {
+      const nextPayloads = { ...queuedCompanionLockPayloadRef.current }
+      delete nextPayloads[roomId]
+      queuedCompanionLockPayloadRef.current = nextPayloads
+    }
+    clearRoomControlLifecycle(roomId, { clearRoomClients: true })
     removePendingSyncRoom(roomId)
     setRoomAuthority((prev) => ({
       ...prev,
@@ -2198,7 +2439,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         lastSyncAt: Date.now(),
       },
     }))
-  }, [removePendingSyncRoom])
+  }, [clearRoomControlLifecycle, removePendingSyncRoom])
 
   const shouldUseCompanion = useCallback(
     (roomId: string) => {
@@ -2941,6 +3182,23 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         }))
       }
 
+      if (payload.type === 'CONTROL_REQUEST_STATUS') {
+        setControlRequests((prev) => reduceControlRequestsByStatus(prev, payload))
+        setPendingControlRequests((prev) =>
+          reducePendingControlRequestByStatus(prev, payload, clientId),
+        )
+        if (shouldApplyControlRequestTimeoutError(payload, clientId)) {
+          setControlErrors((prev) => ({
+            ...prev,
+            [payload.roomId]: {
+              code: 'REQUEST_CONTROL_TIMEOUT',
+              message: 'Control request timed out. Please try again.',
+              receivedAt: payload.timestamp,
+            },
+          }))
+        }
+      }
+
       if (payload.type === 'ROOM_PIN_STATE') {
         const updatedAt = toMillis(payload.updatedAt) ?? 0
         mergeRoomPin(payload.roomId, { value: payload.pin, updatedAt, source: 'companion' })
@@ -3077,6 +3335,18 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         delete next[roomId]
         return next
       })
+      setControlDisplacements((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+      setControlErrors((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
     })
   }, [
     applyControlPayload,
@@ -3104,6 +3374,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       window.setTimeout(() => {
         setControlRequests({})
         setPendingControlRequests({})
+        setControlDenials({})
+        setControlDisplacements({})
+        setControlErrors({})
+        setRoomClients({})
       }, 0)
       return
     }
@@ -3188,6 +3462,30 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         return next
       })
       setPendingControlRequests((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+      setControlDenials((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+      setControlDisplacements((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+      setControlErrors((prev) => {
+        if (!prev[roomId]) return prev
+        const next = { ...prev }
+        delete next[roomId]
+        return next
+      })
+      setRoomClients((prev) => {
         if (!prev[roomId]) return prev
         const next = { ...prev }
         delete next[roomId]
@@ -3538,6 +3836,15 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const rooms = subscribedRoomsRef.current
       const intentRoomIds = activeRoomIntentRef.current
       const reconnectEntries = getReconnectJoinEntries(rooms, intentRoomIds)
+      if (reconnectEntries.length > 0) {
+        setPendingControlRequests((prev) => {
+          const next = { ...prev }
+          reconnectEntries.forEach(([roomId]) => {
+            next[roomId] = null
+          })
+          return next
+        })
+      }
       reconnectEntries.forEach(([roomId, sub]) => {
         const tokenToUse = sub.tokenSource === 'controller' ? joinToken : sub.token
         if (!tokenToUse) return
@@ -3558,15 +3865,23 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         activeJoinRef.current = null
       }
       const rooms = subscribedRoomsRef.current
+      const roomIds = Object.keys(rooms)
       const usingCompanion = effectiveMode !== 'cloud' && Object.keys(rooms).length > 0
       setRoomAuthority((prev) => {
         const next = { ...prev }
-        Object.keys(rooms).forEach((roomId) => {
+        roomIds.forEach((roomId) => {
           next[roomId] = {
             source: usingCompanion ? 'companion' : 'cloud',
             status: 'degraded',
             lastSyncAt: Date.now(),
           }
+        })
+        return next
+      })
+      setPendingControlRequests((prev) => {
+        const next = { ...prev }
+        roomIds.forEach((roomId) => {
+          next[roomId] = null
         })
         return next
       })
@@ -4213,26 +4528,62 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
     }
 
+    const queueCompanionLockPayload = (payload: ControllerLockStatePayload) => {
+      const roomId = payload.roomId
+      queuedCompanionLockPayloadRef.current = {
+        ...queuedCompanionLockPayloadRef.current,
+        [roomId]: payload,
+      }
+      const existingTimer = queuedCompanionLockTimerRef.current[roomId]
+      if (existingTimer) {
+        window.clearTimeout(existingTimer)
+      }
+      const holdUntil = getHoldUntil(roomId)
+      const delay = Math.max(25, holdUntil - Date.now() + 25)
+      const timerId = window.setTimeout(() => {
+        const queued = queuedCompanionLockPayloadRef.current[roomId]
+        delete queuedCompanionLockTimerRef.current[roomId]
+        const replayState = resolveQueuedCompanionLockReplayState(
+          queued,
+          isHoldActive(roomId),
+          Boolean(subscribedRoomsRef.current[roomId]),
+        )
+        if (!replayState.replayPayload && !replayState.shouldRequeue) return
+        if (replayState.shouldRequeue) {
+          if (!replayState.queuedPayload) return
+          queueCompanionLockPayload(replayState.queuedPayload)
+          return
+        }
+        delete queuedCompanionLockPayloadRef.current[roomId]
+        handleControllerLockState(replayState.replayPayload)
+      }, delay)
+      queuedCompanionLockTimerRef.current = {
+        ...queuedCompanionLockTimerRef.current,
+        [roomId]: timerId,
+      }
+    }
+
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
       if (ARBITRATION_FLAGS.lock) {
         // Hold conflict guard: during reconnect churn, if cloud already has a lock
         // held by a different client, ignore the companion lock to prevent stale
         // auto-claim from overriding a legitimate cloud takeover.
         const cloudLock = controllerLocksRef.current[payload.roomId]
-        const holdConflict =
-          isHoldActive(payload.roomId) &&
-          cloudLock?.clientId &&
-          payload.lock?.clientId &&
-          cloudLock.clientId !== payload.lock.clientId
+        const holdConflict = shouldQueueCompanionLockPayload({
+          holdActive: isHoldActive(payload.roomId),
+          cloudClientId: cloudLock?.clientId,
+          companionClientId: payload.lock?.clientId,
+        })
         if (holdConflict) {
           if (debugCompanion) {
-            console.info('[companion] CONTROLLER_LOCK_STATE hold-conflict: ignoring stale companion lock', {
+            console.info('[companion] CONTROLLER_LOCK_STATE hold-conflict: queued for post-hold reconciliation', {
               roomId: payload.roomId,
               cloudClientId: cloudLock?.clientId,
               companionClientId: payload.lock?.clientId,
               holdActive: true,
             })
           }
+          queueCompanionLockPayload(payload)
           return
         }
 
@@ -4337,7 +4688,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         })
       }
 
-      if (shouldHold) return
+      if (shouldHold) {
+        queueCompanionLockPayload(payload)
+        return
+      }
       applyControlPayload(payload, { broadcast: true })
     }
 
@@ -4346,6 +4700,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     }
 
     const handleControlRequestDenied = (payload: ControlRequestDeniedPayload) => {
+      applyControlPayload(payload, { broadcast: true })
+    }
+
+    const handleControlRequestStatus = (payload: ControlRequestStatusPayload) => {
       applyControlPayload(payload, { broadcast: true })
     }
 
@@ -4385,6 +4743,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     socket.on('CONTROLLER_LOCK_STATE', handleControllerLockState)
     socket.on('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
     socket.on('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
+    socket.on('CONTROL_REQUEST_STATUS', handleControlRequestStatus)
     socket.on('ROOM_PIN_STATE', handleRoomPinState)
     socket.on('ROOM_CLIENTS_STATE', handleRoomClientsState)
     socket.on('ERROR', handleSocketError)
@@ -4414,6 +4773,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       socket.off('CONTROLLER_LOCK_STATE', handleControllerLockState)
       socket.off('CONTROL_REQUEST_RECEIVED', handleControlRequestReceived)
       socket.off('CONTROL_REQUEST_DENIED', handleControlRequestDenied)
+      socket.off('CONTROL_REQUEST_STATUS', handleControlRequestStatus)
       socket.off('ROOM_PIN_STATE', handleRoomPinState)
       socket.off('ROOM_CLIENTS_STATE', handleRoomClientsState)
       socket.off('ERROR', handleSocketError)

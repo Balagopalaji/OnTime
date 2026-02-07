@@ -61,6 +61,44 @@ const VIEWER_CACHE_DIR = 'viewer';
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
+type ControlRequestClearReason =
+  | 'lock_changed'
+  | 'request_denied'
+  | 'requester_disconnected'
+  | 'timeout'
+  | 'room_unsubscribed'
+  | 'superseded';
+
+type PendingControlRequestEntry = {
+  requesterId: string;
+  requesterName?: string;
+  requesterUserId?: string;
+  requesterUserName?: string;
+  requestedAt: number;
+};
+
+export const getPendingControlReplacementReason = (
+  current: PendingControlRequestEntry | undefined,
+  incomingRequesterId: string,
+  now: number,
+  timeoutMs = CONTROL_REQUEST_TIMEOUT_MS,
+): ControlRequestClearReason | null => {
+  if (!current) return null;
+  if (now - current.requestedAt >= timeoutMs) return 'timeout';
+  if (current.requesterId !== incomingRequesterId) return 'superseded';
+  return null;
+};
+
+export const shouldClearPendingControlByTimeout = (
+  current: PendingControlRequestEntry | undefined,
+  now: number,
+  timeoutMs = CONTROL_REQUEST_TIMEOUT_MS,
+): boolean => Boolean(current && now - current.requestedAt >= timeoutMs);
+
+export const shouldClearPendingControlForRequester = (
+  current: PendingControlRequestEntry | undefined,
+  requesterId: string,
+): boolean => Boolean(current && current.requesterId === requesterId);
 const PPT_POLL_INTERVAL_MS = 1000;
 const PPT_DEBOUNCE_MS = 600;
 const PPT_VIDEO_CLEAR_POLLS = 2;
@@ -306,6 +344,16 @@ type ControlRequestDenied = {
   deniedByName?: string;
   deniedByUserId?: string;
   deniedByUserName?: string;
+};
+
+type ControlRequestStatus = {
+  type: 'CONTROL_REQUEST_STATUS';
+  roomId: string;
+  requesterId: string;
+  status: 'queued' | 'cleared';
+  reason?: ControlRequestClearReason;
+  requestedAt: number;
+  timestamp: number;
 };
 
 type RoomPinState = {
@@ -758,7 +806,7 @@ function applyRoomTombstone(roomId: string) {
   roomPinStore.delete(roomId);
   roomOwnerStore.delete(roomId);
   pendingHandshakeStore.delete(roomId);
-  pendingControlRequests.delete(roomId);
+  clearPendingControlRequest(roomId, 'room_unsubscribed');
   roomControlAuditStore.delete(roomId);
   roomViewerTokenStore.delete(roomId);
   roomPairingCodeStore.delete(roomId);
@@ -902,13 +950,8 @@ type RoomClientEntry = {
 
 const roomClientStore: Map<string, Map<string, RoomClientEntry>> = new Map();
 const pendingHandshakeStore: Map<string, { socketId: string; startedAt: number }> = new Map();
-const pendingControlRequests: Map<string, {
-  requesterId: string;
-  requesterName?: string;
-  requesterUserId?: string;
-  requesterUserName?: string;
-  requestedAt: number;
-}> = new Map();
+const pendingControlRequests: Map<string, PendingControlRequestEntry> = new Map();
+const pendingControlTimeouts: Map<string, NodeJS.Timeout> = new Map();
 const roomControlAuditStore: Map<string, Array<{
   action: 'request' | 'force' | 'handover' | 'deny';
   actorId: string;
@@ -1085,6 +1128,98 @@ function emitRoomClientsState(roomId: string) {
   });
 }
 
+function emitControlRequestStatusToRequester(
+  roomId: string,
+  requesterId: string,
+  status: 'queued' | 'cleared',
+  requestedAt: number,
+  reason?: ControlRequestClearReason,
+) {
+  const requesterEntry = getRoomClients(roomId).get(requesterId);
+  if (!requesterEntry) return;
+  if (!isSocketActive(requesterEntry.socketId)) return;
+  const payload: ControlRequestStatus = {
+    type: 'CONTROL_REQUEST_STATUS',
+    roomId,
+    requesterId,
+    status,
+    requestedAt,
+    reason,
+    timestamp: Date.now(),
+  };
+  ioServers.forEach((server) => {
+    server.to(requesterEntry.socketId).emit('CONTROL_REQUEST_STATUS', payload);
+  });
+}
+
+function emitControlRequestStatusToController(
+  roomId: string,
+  requesterId: string,
+  status: 'queued' | 'cleared',
+  requestedAt: number,
+  reason?: ControlRequestClearReason,
+) {
+  const controller = roomControllerStore.get(roomId);
+  if (!controller) return;
+  if (!isSocketActive(controller.socketId)) return;
+  const payload: ControlRequestStatus = {
+    type: 'CONTROL_REQUEST_STATUS',
+    roomId,
+    requesterId,
+    status,
+    requestedAt,
+    reason,
+    timestamp: Date.now(),
+  };
+  ioServers.forEach((server) => {
+    server.to(controller.socketId).emit('CONTROL_REQUEST_STATUS', payload);
+  });
+}
+
+function schedulePendingControlRequestTimeout(roomId: string, requestedAt: number) {
+  const existing = pendingControlTimeouts.get(roomId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  const delay = Math.max(0, CONTROL_REQUEST_TIMEOUT_MS - (Date.now() - requestedAt));
+  const timer = setTimeout(() => {
+    pendingControlTimeouts.delete(roomId);
+    const pending = pendingControlRequests.get(roomId);
+    if (!pending) return;
+    if (pending.requestedAt !== requestedAt) return;
+    clearPendingControlRequest(roomId, 'timeout');
+  }, delay);
+  pendingControlTimeouts.set(roomId, timer);
+}
+
+function clearPendingControlRequest(
+  roomId: string,
+  reason: ControlRequestClearReason,
+) {
+  const pending = pendingControlRequests.get(roomId);
+  if (!pending) return;
+  pendingControlRequests.delete(roomId);
+  const timeout = pendingControlTimeouts.get(roomId);
+  if (timeout) {
+    clearTimeout(timeout);
+    pendingControlTimeouts.delete(roomId);
+  }
+  emitControlRequestStatusToRequester(
+    roomId,
+    pending.requesterId,
+    'cleared',
+    pending.requestedAt,
+    reason,
+  );
+  emitControlRequestStatusToController(
+    roomId,
+    pending.requesterId,
+    'cleared',
+    pending.requestedAt,
+    reason,
+  );
+}
+
 function setControllerLock(
   roomId: string,
   clientId: string,
@@ -1106,7 +1241,7 @@ function setControllerLock(
     userName,
   });
   if (options?.clearPending !== false) {
-    pendingControlRequests.delete(roomId);
+    clearPendingControlRequest(roomId, 'lock_changed');
   }
   console.log(`[ws] controller lock set room=${roomId} by=${clientId}`);
   emitControllerLockState(roomId);
@@ -3062,10 +3197,12 @@ async function bootstrap() {
   console.log(`[startup] OnTime Companion started in ${getModeLabel(currentCompanionMode)}${headless ? ' (headless)' : ''}`);
 }
 
-bootstrap().catch((error) => {
-  console.error('Failed to launch Companion:', error);
-  app.quit();
-});
+if (process.env.ONTIME_COMPANION_DISABLE_BOOTSTRAP !== '1') {
+  bootstrap().catch((error) => {
+    console.error('Failed to launch Companion:', error);
+    app.quit();
+  });
+}
 
 function attachEngineCors(sio: SocketIOServer, allowLan: boolean) {
   // Allow secure contexts to call into the loopback server (Chrome PNA preflight)
@@ -3182,10 +3319,15 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
         } else if (lockResolution.action === 'clear') {
           roomControllerStore.delete(roomId);
           if (lockResolution.clearPending) {
-            pendingControlRequests.delete(roomId);
+            clearPendingControlRequest(roomId, 'lock_changed');
           }
           emitControllerLockState(roomId);
           emitRoomPinStateToController(roomId);
+        }
+
+        const pending = pendingControlRequests.get(roomId);
+        if (pending?.requesterId === clientId) {
+          clearPendingControlRequest(roomId, 'requester_disconnected');
         }
 
         emitRoomClientsState(roomId);
@@ -5503,13 +5645,33 @@ function handleRequestControl(socket: Socket, payload: unknown) {
     return;
   }
   if (current.clientId === payload.clientId) return;
+  const now = Date.now();
+  const existingPending = pendingControlRequests.get(roomId);
+  const replacementReason = getPendingControlReplacementReason(
+    existingPending,
+    payload.clientId,
+    now,
+  );
+  if (replacementReason) {
+    clearPendingControlRequest(roomId, replacementReason);
+  }
+  const requestedAt = now;
   pendingControlRequests.set(roomId, {
     requesterId: payload.clientId,
     requesterName,
     requesterUserId,
     requesterUserName,
-    requestedAt: Date.now(),
+    requestedAt,
   });
+  schedulePendingControlRequestTimeout(roomId, requestedAt);
+  socket.emit('CONTROL_REQUEST_STATUS', {
+    type: 'CONTROL_REQUEST_STATUS',
+    roomId,
+    requesterId: payload.clientId,
+    status: 'queued',
+    requestedAt,
+    timestamp: Date.now(),
+  } satisfies ControlRequestStatus);
   appendControlAudit(roomId, {
     action: 'request',
     actorId: payload.clientId,
@@ -5656,7 +5818,7 @@ function handleDenyControl(socket: Socket, payload: unknown) {
   const roomId = payload.roomId;
   const pending = pendingControlRequests.get(roomId);
   if (!pending || pending.requesterId !== payload.requesterId) return;
-  pendingControlRequests.delete(roomId);
+  clearPendingControlRequest(roomId, 'request_denied');
   appendControlAudit(roomId, {
     action: 'deny',
     actorId: socket.data?.clientId ?? socket.id,
