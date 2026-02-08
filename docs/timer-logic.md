@@ -64,6 +64,19 @@ remainingMs = durationMs - elapsed
 ## 3) Actions (Firebase + Companion equivalents)
 All actions must update `currentTime` and `lastUpdate` alongside the running anchors to avoid stale mirrors.
 
+### Timer Target Reconciliation (pre-action)
+Before `set-active`, `start`, `pause`, and `reset`, resolve the target timer ID in this order:
+
+1. Use `requestedTimerId` only when it exists in the current timer ID set.
+2. Else use `activeTimerId` only when it exists in the current timer ID set.
+3. Else use the first timer ID when the timer list is non-empty.
+
+**Current empty-list behavior (implemented):**
+- If the current timer list is empty, return `requestedTimerId ?? activeTimerId ?? null` (no membership validation is possible without IDs to validate against).
+- If reconciliation returns `null`, the action is a no-op.
+
+This reconciliation avoids persisting stale or invalid requested/active IDs whenever a valid current timer target exists.
+
 ### Start (optionally switching timers)
 - Inputs: `timerId` (target), optional `currentTime` when resuming from stored progress.
 - **If switching to a different timer:**
