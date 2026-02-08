@@ -469,6 +469,27 @@ export const resolveQueuedCompanionLockReplayState = <T,>(
   }
 }
 
+export const resolveQueuedCompanionLockReplayCallbackState = <T,>(
+  replayState: {
+    queuedPayload: T | null
+    replayPayload: T | null
+    shouldRequeue: boolean
+  },
+  isSubscribed = true,
+): {
+  queuedPayload: T | null
+  replayPayload: T | null
+  shouldRequeue: boolean
+} => {
+  if (!replayState.replayPayload && !replayState.shouldRequeue) return replayState
+  if (isSubscribed) return replayState
+  return {
+    queuedPayload: null,
+    replayPayload: null,
+    shouldRequeue: false,
+  }
+}
+
 export const reducePendingControlRequestByStatus = (
   current: Record<string, ControlRequest | null>,
   payload: ControlRequestStatusPayload,
@@ -484,6 +505,14 @@ export const reducePendingControlRequestByStatus = (
       },
     }
   }
+  const existing = current[payload.roomId]
+  if (!existing) return current
+  if (
+    existing.requesterId !== payload.requesterId
+    || existing.requestedAt !== payload.requestedAt
+  ) {
+    return current
+  }
   return {
     ...current,
     [payload.roomId]: null,
@@ -496,12 +525,10 @@ export const reduceControlRequestsByStatus = (
 ): Record<string, ControlRequest | null> => {
   if (payload.status !== 'cleared') return current
   const existing = current[payload.roomId]
+  if (!existing) return current
   if (
-    existing
-    && (
-      existing.requesterId !== payload.requesterId
-      || existing.requestedAt !== payload.requestedAt
-    )
+    existing.requesterId !== payload.requesterId
+    || existing.requestedAt !== payload.requestedAt
   ) {
     return current
   }
@@ -1445,6 +1472,17 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     })
     queuedCompanionLockTimerRef.current = {}
     queuedCompanionLockPayloadRef.current = {}
+  }, [])
+
+  const clearQueuedCompanionLockReplayForRoom = useCallback((roomId: string) => {
+    const queuedTimerId = queuedCompanionLockTimerRef.current[roomId]
+    if (queuedTimerId) {
+      window.clearTimeout(queuedTimerId)
+      delete queuedCompanionLockTimerRef.current[roomId]
+    }
+    if (queuedCompanionLockPayloadRef.current[roomId]) {
+      delete queuedCompanionLockPayloadRef.current[roomId]
+    }
   }, [])
 
   useEffect(() => {
@@ -2472,18 +2510,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       delete next[roomId]
       return next
     })
-    const queuedTimerId = queuedCompanionLockTimerRef.current[roomId]
-    if (queuedTimerId) {
-      window.clearTimeout(queuedTimerId)
-      const nextTimers = { ...queuedCompanionLockTimerRef.current }
-      delete nextTimers[roomId]
-      queuedCompanionLockTimerRef.current = nextTimers
-    }
-    if (queuedCompanionLockPayloadRef.current[roomId]) {
-      const nextPayloads = { ...queuedCompanionLockPayloadRef.current }
-      delete nextPayloads[roomId]
-      queuedCompanionLockPayloadRef.current = nextPayloads
-    }
+    clearQueuedCompanionLockReplayForRoom(roomId)
     clearRoomControlLifecycle(roomId, { clearRoomClients: true })
     removePendingSyncRoom(roomId)
     setRoomAuthority((prev) => ({
@@ -2494,7 +2521,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         lastSyncAt: Date.now(),
       },
     }))
-  }, [clearRoomControlLifecycle, removePendingSyncRoom])
+  }, [clearQueuedCompanionLockReplayForRoom, clearRoomControlLifecycle, removePendingSyncRoom])
 
   const shouldUseCompanion = useCallback(
     (roomId: string) => {
@@ -4595,10 +4622,14 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const delay = Math.max(25, holdUntil - Date.now() + 25)
       const timerId = window.setTimeout(() => {
         const queued = queuedCompanionLockPayloadRef.current[roomId]
-        delete queuedCompanionLockTimerRef.current[roomId]
-        const replayState = resolveQueuedCompanionLockReplayState(
+        clearQueuedCompanionLockReplayForRoom(roomId)
+        const initialReplayState = resolveQueuedCompanionLockReplayState(
           queued,
           isHoldActive(roomId),
+          Boolean(subscribedRoomsRef.current[roomId]),
+        )
+        const replayState = resolveQueuedCompanionLockReplayCallbackState(
+          initialReplayState,
           Boolean(subscribedRoomsRef.current[roomId]),
         )
         if (!replayState.replayPayload && !replayState.shouldRequeue) return
@@ -4607,7 +4638,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
           queueCompanionLockPayload(replayState.queuedPayload)
           return
         }
-        delete queuedCompanionLockPayloadRef.current[roomId]
         handleControllerLockState(replayState.replayPayload)
       }, delay)
       queuedCompanionLockTimerRef.current = {
@@ -4837,6 +4867,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     canWriteThrough,
     canUseLiveCues,
     clientId,
+    clearQueuedCompanionLockReplayForRoom,
     deleteLiveCueFromFirestore,
     clearPendingSyncRooms,
     clearToken,

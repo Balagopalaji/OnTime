@@ -8,6 +8,7 @@ import {
   reduceControlDisplacementsForLockUpdate,
   reduceControlRequestsByStatus,
   reducePendingControlRequestByStatus,
+  resolveQueuedCompanionLockReplayCallbackState,
   resolveQueuedCompanionLockReplayState,
   resolveControllerLockState,
   resolveRoomSource,
@@ -246,6 +247,17 @@ describe('hold-conflict lock reconciliation helpers', () => {
     expect(replayState.replayPayload).toBeNull()
     expect(replayState.queuedPayload).toBeNull()
   })
+
+  it('replay callback no-ops when room unsubscribes before apply', () => {
+    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
+    const replayState = resolveQueuedCompanionLockReplayCallbackState(
+      resolveQueuedCompanionLockReplayState(payload, false, true),
+      false,
+    )
+    expect(replayState.shouldRequeue).toBe(false)
+    expect(replayState.replayPayload).toBeNull()
+    expect(replayState.queuedPayload).toBeNull()
+  })
 })
 
 describe('clearRoomControlLifecycleState', () => {
@@ -323,6 +335,38 @@ describe('reducePendingControlRequestByStatus', () => {
     )
     expect(cleared['room-1']).toBeNull()
   })
+
+  it('does not clear a newer pending request when cleared status is stale for same requester', () => {
+    const queued = reducePendingControlRequestByStatus(
+      {},
+      {
+        type: 'CONTROL_REQUEST_STATUS',
+        roomId: 'room-1',
+        requesterId: 'client-a',
+        status: 'queued',
+        requestedAt: 200,
+        timestamp: 201,
+      },
+      'client-a',
+    )
+    const staleCleared = reducePendingControlRequestByStatus(
+      queued,
+      {
+        type: 'CONTROL_REQUEST_STATUS',
+        roomId: 'room-1',
+        requesterId: 'client-a',
+        status: 'cleared',
+        reason: 'lock_changed',
+        requestedAt: 100,
+        timestamp: 202,
+      },
+      'client-a',
+    )
+    expect(staleCleared['room-1']).toEqual({
+      requesterId: 'client-a',
+      requestedAt: 200,
+    })
+  })
 })
 
 describe('reduceControlRequestsByStatus', () => {
@@ -386,6 +430,26 @@ describe('reduceControlRequestsByStatus', () => {
       reason: 'request_denied' as const,
       requestedAt: 1,
       timestamp: 6,
+    }
+    const next = reduceControlRequestsByStatus(current, payload)
+    expect(next).toEqual(current)
+  })
+
+  it('does not clear a newer active request on stale cleared timestamp tuple', () => {
+    const current = {
+      'room-1': {
+        requesterId: 'requester-a',
+        requestedAt: 10,
+      },
+    }
+    const payload = {
+      type: 'CONTROL_REQUEST_STATUS' as const,
+      roomId: 'room-1',
+      requesterId: 'requester-a',
+      status: 'cleared' as const,
+      reason: 'lock_changed' as const,
+      requestedAt: 5,
+      timestamp: 11,
     }
     const next = reduceControlRequestsByStatus(current, payload)
     expect(next).toEqual(current)
