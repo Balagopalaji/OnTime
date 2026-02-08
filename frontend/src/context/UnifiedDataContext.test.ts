@@ -5,6 +5,7 @@ import {
   getReconnectJoinEntries,
   mergeCueQueueEvents,
   prunePendingControlRequests,
+  reduceControlDisplacementsForLockUpdate,
   reduceControlRequestsByStatus,
   reducePendingControlRequestByStatus,
   resolveQueuedCompanionLockReplayState,
@@ -73,6 +74,16 @@ describe('resolveControllerLockState', () => {
         pendingControlRequests: { 'room-1': { requesterId: 'client-a' } },
       }),
     ).toBe('displaced')
+  })
+
+  it('ignores stale displacement when no active lock exists', () => {
+    expect(
+      resolveControllerLockState({
+        ...baseArgs,
+        controllerLocks: { 'room-1': null },
+        controlDisplacements: { 'room-1': { takenAt: Date.now() } },
+      }),
+    ).toBe('authoritative')
   })
 })
 
@@ -378,6 +389,59 @@ describe('reduceControlRequestsByStatus', () => {
     }
     const next = reduceControlRequestsByStatus(current, payload)
     expect(next).toEqual(current)
+  })
+})
+
+describe('reduceControlDisplacementsForLockUpdate', () => {
+  it('clears displacement when lock is removed', () => {
+    const next = reduceControlDisplacementsForLockUpdate({
+      current: {
+        'room-1': {
+          takenAt: 100,
+          takenById: 'client-b',
+        },
+      },
+      roomId: 'room-1',
+      previousLock: {
+        roomId: 'room-1',
+        clientId: 'client-a',
+        lockedAt: 50,
+        lastHeartbeat: 50,
+      },
+      nextLock: null,
+      clientId: 'client-a',
+      timestamp: 200,
+    })
+    expect(next['room-1']).toBeNull()
+  })
+
+  it('creates displacement when control moves away from current client', () => {
+    const next = reduceControlDisplacementsForLockUpdate({
+      current: {},
+      roomId: 'room-1',
+      previousLock: {
+        roomId: 'room-1',
+        clientId: 'client-a',
+        lockedAt: 50,
+        lastHeartbeat: 50,
+      },
+      nextLock: {
+        roomId: 'room-1',
+        clientId: 'client-b',
+        lockedAt: 100,
+        lastHeartbeat: 100,
+        deviceName: 'Bridge iPad',
+      },
+      clientId: 'client-a',
+      timestamp: 200,
+    })
+    expect(next['room-1']).toEqual({
+      takenAt: 200,
+      takenById: 'client-b',
+      takenByName: 'Bridge iPad',
+      takenByUserId: undefined,
+      takenByUserName: undefined,
+    })
   })
 })
 

@@ -16,6 +16,11 @@ type HandoverGuardArgs = {
   lockState: 'authoritative' | 'read-only' | 'requesting' | 'displaced'
 }
 
+type HandoverSourceGuardArgs = {
+  authoritySource?: 'cloud' | 'companion' | 'pending'
+  isCloudOffline: boolean
+}
+
 export const canPerformWriteAction = ({ viewerOnly, isReadOnly }: ControllerWriteGuardArgs): boolean =>
   !viewerOnly && !isReadOnly
 
@@ -27,6 +32,13 @@ export const canPerformHandoverAction = ({
   canHandOver,
   lockState,
 }: HandoverGuardArgs): boolean => !viewerOnly && canHandOver && lockState === 'authoritative'
+
+export const canHandOverForAuthoritySource = ({
+  authoritySource,
+  isCloudOffline,
+}: HandoverSourceGuardArgs): boolean =>
+  !isCloudOffline &&
+  (authoritySource === 'cloud' || authoritySource === 'companion' || authoritySource === 'pending')
 
 export const canRequestControl = ({
   lockRecoveryAllowed,

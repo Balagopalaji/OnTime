@@ -42,6 +42,7 @@ import {
   type LanPairingStatus,
 } from '../lib/companion-pairing'
 import {
+  canHandOverForAuthoritySource,
   VIEWER_ONLY_PREFERENCE_SCOPE,
   canForceTakeover,
   canPerformHandoverAction,
@@ -336,8 +337,10 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
   }, [effectiveMode, registerCloudRoom, roomAuthority?.source, roomId, unregisterCloudRoom])
   const controllerLock = roomId ? getControllerLock(roomId) : null
   const isCloudOffline = connectionStatus !== 'online' && roomAuthority?.source === 'cloud'
-  const canHandOver =
-    (roomAuthority?.source === 'companion' || roomAuthority?.source === 'cloud') && !isCloudOffline
+  const canHandOver = canHandOverForAuthoritySource({
+    authoritySource: roomAuthority?.source,
+    isCloudOffline,
+  })
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
   const isReadOnly = lockState !== 'authoritative' || isCloudOffline
   const roomPinMeta = roomId ? (getRoomPin(roomId) as RoomPinMeta | null) : null

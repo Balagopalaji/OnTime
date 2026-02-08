@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canHandOverForAuthoritySource,
   VIEWER_ONLY_PREFERENCE_SCOPE,
   canForceTakeover,
   canPerformHandoverAction,
@@ -27,6 +28,24 @@ describe('controller permission guards', () => {
         lockState: 'authoritative',
       }),
     ).toBe(true)
+  })
+
+  it('allows handover source gate during pending authority reconnect windows', () => {
+    expect(
+      canHandOverForAuthoritySource({
+        authoritySource: 'pending',
+        isCloudOffline: false,
+      }),
+    ).toBe(true)
+  })
+
+  it('keeps handover source gate blocked when authority source is unknown', () => {
+    expect(
+      canHandOverForAuthoritySource({
+        authoritySource: undefined,
+        isCloudOffline: false,
+      }),
+    ).toBe(false)
   })
 
   it('cloud offline disables lock recovery even when not viewerOnly', () => {

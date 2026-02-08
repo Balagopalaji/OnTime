@@ -112,13 +112,68 @@ export const resolveControllerLockState = ({
   controlDisplacements: Record<string, { takenAt: number } | null | undefined>
   pendingControlRequests: Record<string, { requesterId: string } | null | undefined>
 }): ControllerLockState => {
-  if (controlDisplacements[roomId]) return 'displaced'
   const lock = controllerLocks[roomId]
   if (!lock) return 'authoritative'
+  if (controlDisplacements[roomId]) return 'displaced'
   if (lock.clientId === clientId) return 'authoritative'
   const pending = pendingControlRequests[roomId]
   if (pending?.requesterId === clientId) return 'requesting'
   return 'read-only'
+}
+
+export const reduceControlDisplacementsForLockUpdate = ({
+  current,
+  roomId,
+  previousLock,
+  nextLock,
+  clientId,
+  timestamp,
+}: {
+  current: Record<
+    string,
+    | {
+        takenAt: number
+        takenById: string
+        takenByName?: string
+        takenByUserId?: string
+        takenByUserName?: string
+      }
+    | null
+    | undefined
+  >
+  roomId: string
+  previousLock: ControllerLock | null | undefined
+  nextLock: ControllerLock | null
+  clientId: string
+  timestamp: number
+}): Record<
+  string,
+  | {
+      takenAt: number
+      takenById: string
+      takenByName?: string
+      takenByUserId?: string
+      takenByUserName?: string
+    }
+  | null
+  | undefined
+> => {
+  if (!nextLock) {
+    return { ...current, [roomId]: null }
+  }
+  if (previousLock?.clientId === clientId && nextLock.clientId !== clientId) {
+    return {
+      ...current,
+      [roomId]: {
+        takenAt: timestamp,
+        takenById: nextLock.clientId,
+        takenByName: nextLock.deviceName,
+        takenByUserId: nextLock.userId,
+        takenByUserName: nextLock.userName,
+      },
+    }
+  }
+  return current
 }
 
 type TimerCreatedPayload = {
@@ -3140,18 +3195,16 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         } else {
           setPendingControlRequests((prev) => ({ ...prev, [payload.roomId]: null }))
         }
-        if (previousLock?.clientId === clientId && nextLock && nextLock.clientId !== clientId) {
-          setControlDisplacements((prev) => ({
-            ...prev,
-            [payload.roomId]: {
-              takenAt: payload.timestamp,
-              takenById: nextLock.clientId,
-              takenByName: nextLock.deviceName,
-              takenByUserId: nextLock.userId,
-              takenByUserName: nextLock.userName,
-            },
-          }))
-        }
+        setControlDisplacements((prev) =>
+          reduceControlDisplacementsForLockUpdate({
+            current: prev,
+            roomId: payload.roomId,
+            previousLock,
+            nextLock,
+            clientId,
+            timestamp: payload.timestamp,
+          }),
+        )
       }
 
       if (payload.type === 'CONTROL_REQUEST_RECEIVED') {

@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppModeProvider, useAppMode } from './AppModeContext'
 
@@ -17,8 +17,18 @@ vi.mock('./CompanionConnectionContext', () => ({
 const STORAGE_KEY = 'ontime:appMode'
 
 const Probe = () => {
-  const { mode, effectiveMode, isDegraded } = useAppMode()
-  return <div data-testid="mode-readout">{`${mode}|${effectiveMode}|${String(isDegraded)}`}</div>
+  const { mode, effectiveMode, isDegraded, triggerCompanionFallback, clearDegraded } = useAppMode()
+  return (
+    <>
+      <div data-testid="mode-readout">{`${mode}|${effectiveMode}|${String(isDegraded)}`}</div>
+      <button type="button" onClick={triggerCompanionFallback}>
+        trigger-fallback
+      </button>
+      <button type="button" onClick={clearDegraded}>
+        clear-degraded
+      </button>
+    </>
+  )
 }
 
 const renderProvider = () =>
@@ -109,5 +119,29 @@ describe('AppModeProvider mode resolution', () => {
     })
 
     expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|local|false')
+  })
+
+  it('does not remain cloud-pinned while degraded when cloud churns offline', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'auto')
+    Object.assign(mockConnection, { isConnected: true, handshakeStatus: 'ack' })
+
+    renderProvider()
+
+    expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|local|false')
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'trigger-fallback' }))
+    })
+    expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|cloud|true')
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('ontime:cloud-status', { detail: 'offline' }))
+    })
+    expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|local|true')
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('ontime:cloud-status', { detail: 'online' }))
+    })
+    expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|cloud|true')
   })
 })
