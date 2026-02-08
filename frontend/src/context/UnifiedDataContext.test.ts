@@ -15,8 +15,10 @@ import {
   shouldApplyControlRequestTimeoutError,
   shouldResetQueuedLockReplayOnSocketChange,
   shouldQueueCompanionLockPayload,
+  resolveReconciledTimerTargetId,
   type CueQueuedEvent,
 } from './UnifiedDataContext'
+import { resolveControllerTimerTargetId } from '../routes/controller-timer-target'
 
 const baseArgs = {
   roomId: 'room-1',
@@ -195,6 +197,45 @@ describe('mergeCueQueueEvents', () => {
     const merged = mergeCueQueueEvents(queue)
     expect(merged).toHaveLength(1)
     expect(merged[0].type).toBe('REORDER_CUES')
+  })
+})
+
+describe('BUG-CTRL-SELECTED-001 controller timer target reconciliation', () => {
+  it('falls back to valid active timer when rundown selection is stale', () => {
+    const target = resolveControllerTimerTargetId({
+      shortcutScope: 'rundown',
+      selectedTimerId: 'timer-stale',
+      activeTimerId: 'timer-active',
+      timers: [{ id: 'timer-active' }, { id: 'timer-next' }],
+    })
+
+    expect(target).toBe('timer-active')
+  })
+})
+
+describe('BUG-CTRL-SELECTED-002 unified timer target reconciliation', () => {
+  it('does not persist invalid requested timer id when active timer is valid', () => {
+    const target = resolveReconciledTimerTargetId({
+      requestedTimerId: 'timer-missing',
+      activeTimerId: 'timer-active',
+      timers: [{ id: 'timer-active' }, { id: 'timer-next' }] as Parameters<
+        typeof resolveReconciledTimerTargetId
+      >[0]['timers'],
+    })
+
+    expect(target).toBe('timer-active')
+  })
+
+  it('falls back to first timer when both requested and active ids are invalid', () => {
+    const target = resolveReconciledTimerTargetId({
+      requestedTimerId: 'timer-missing',
+      activeTimerId: 'timer-stale',
+      timers: [{ id: 'timer-1' }, { id: 'timer-2' }] as Parameters<
+        typeof resolveReconciledTimerTargetId
+      >[0]['timers'],
+    })
+
+    expect(target).toBe('timer-1')
   })
 })
 

@@ -260,6 +260,25 @@ type SyncRoomStatePayload = {
   timestamp?: number
 }
 
+export const resolveReconciledTimerTargetId = ({
+  requestedTimerId,
+  activeTimerId,
+  timers,
+}: {
+  requestedTimerId?: string | null
+  activeTimerId?: string | null
+  timers: Timer[]
+}): string | null => {
+  if (timers.length === 0) {
+    return requestedTimerId ?? activeTimerId ?? null
+  }
+
+  const timerIds = new Set(timers.map((timer) => timer.id))
+  if (requestedTimerId && timerIds.has(requestedTimerId)) return requestedTimerId
+  if (activeTimerId && timerIds.has(activeTimerId)) return activeTimerId
+  return timers[0]?.id ?? null
+}
+
 type HandshakeError = {
   type: 'HANDSHAKE_ERROR'
   code?: string
@@ -5238,14 +5257,37 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       if (!shouldUseCompanion(roomId)) {
         if (!ensureCloudWriteAllowed(roomId, 'setActiveTimer')) return
         markControllerWrite(roomId, 'cloud')
-        return firebase.setActiveTimer(roomId, timerId)
+        const room = getRoom(roomId)
+        const timers = firebase.getTimers(roomId)
+        const resolvedTimerId = resolveReconciledTimerTargetId({
+          requestedTimerId: timerId,
+          activeTimerId: room?.state.activeTimerId ?? null,
+          timers,
+        })
+        if (!resolvedTimerId) return
+        return firebase.setActiveTimer(roomId, resolvedTimerId)
       }
 
       const room = getRoom(roomId)
+      const companionList = companionTimersRef.current[roomId] ?? []
+      const cachedTimers = cachedSnapshotsRef.current[roomId]?.timers ?? []
+      const timers =
+        companionList.length > 0
+          ? companionList
+          : cachedTimers.length > 0
+            ? cachedTimers
+            : firebase.getTimers(roomId)
       const now = Date.now()
       const state = ensureCompanionRoomState(roomId)
+      const nextTimerId = resolveReconciledTimerTargetId({
+        requestedTimerId: timerId,
+        activeTimerId: state.activeTimerId,
+        timers,
+      })
+      if (!nextTimerId) return
+
       const oldTimerId = state.activeTimerId
-      const isSwitchingTimer = oldTimerId && oldTimerId !== timerId
+      const isSwitchingTimer = oldTimerId && oldTimerId !== nextTimerId
 
       // Save old timer's progress before switching (including if it was running)
       if (isSwitchingTimer) {
@@ -5268,10 +5310,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         }
       }
 
-      const elapsedOffset = resolveElapsedForTimer(room, timerId)
+      const elapsedOffset = resolveElapsedForTimer(room, nextTimerId)
       const nextState: CompanionRoomState = {
         ...state,
-        activeTimerId: timerId,
+        activeTimerId: nextTimerId,
         isRunning: false,
         currentTime: elapsedOffset,
         lastUpdate: now,
@@ -5282,7 +5324,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         type: 'ROOM_STATE_PATCH',
         roomId,
         changes: {
-          activeTimerId: timerId,
+          activeTimerId: nextTimerId,
           isRunning: false,
           currentTime: elapsedOffset,
           lastUpdate: now,
@@ -5293,7 +5335,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       emitOrQueue(roomId, patch)
 
       if (firestore && canWriteThrough(roomId)) {
-        await firebase.setActiveTimer(roomId, timerId)
+        await firebase.setActiveTimer(roomId, nextTimerId)
       }
     },
     [
@@ -6305,7 +6347,11 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
       const state = ensureCompanionRoomState(roomId)
       const list = companionTimersRef.current[roomId] ?? []
-      const targetId = timerId ?? state.activeTimerId ?? list[0]?.id
+      const targetId = resolveReconciledTimerTargetId({
+        requestedTimerId: timerId,
+        activeTimerId: state.activeTimerId,
+        timers: list,
+      })
       if (!targetId) return
       const now = Date.now()
       // If switching to a different timer, use its stored progress (from progress map).
@@ -6375,7 +6421,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
       const state = ensureCompanionRoomState(roomId)
       const list = companionTimersRef.current[roomId] ?? []
-      const targetId = state.activeTimerId ?? list[0]?.id
+      const targetId = resolveReconciledTimerTargetId({
+        activeTimerId: state.activeTimerId,
+        timers: list,
+      })
       if (!targetId) return
       const now = Date.now()
       const elapsed = computeCompanionElapsed(state)
@@ -6430,7 +6479,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
       const state = ensureCompanionRoomState(roomId)
       const list = companionTimersRef.current[roomId] ?? []
-      const targetId = state.activeTimerId ?? list[0]?.id
+      const targetId = resolveReconciledTimerTargetId({
+        activeTimerId: state.activeTimerId,
+        timers: list,
+      })
       if (!targetId) return
       const now = Date.now()
 

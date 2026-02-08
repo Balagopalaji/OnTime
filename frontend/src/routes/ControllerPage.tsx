@@ -51,6 +51,7 @@ import {
   canRequestControl,
 } from './controller-permissions'
 import { resolveControllerJoinIntent, shouldIssueForcedControllerJoin } from './controller-join-intent'
+import { resolveControllerTimerTargetId } from './controller-timer-target'
 import type { LiveCueRecord, ControllerClient, Segment as SegmentType, Timer as TimerType, Cue } from '../types'
 
 type PresentationEntry = {
@@ -889,10 +890,12 @@ if (roomId) addActiveRoomIntent?.(roomId)
     return () => window.removeEventListener('keydown', handleUndoShortcut)
   }, [isReadOnly, redoRoomDelete, roomId, undoRoomDelete])
 
-  const controlTargetTimerId =
-    shortcutScope === 'rundown' && selectedTimerId
-      ? selectedTimerId
-      : room?.state.activeTimerId ?? null
+  const controlTargetTimerId = resolveControllerTimerTargetId({
+    shortcutScope,
+    selectedTimerId: effectiveSelectedTimerId,
+    activeTimerId: room?.state.activeTimerId ?? null,
+    timers,
+  })
 
   const startControlTimer = () => {
     if (isReadOnly) {
