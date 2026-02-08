@@ -19,6 +19,7 @@ import { useAppMode } from '../context/AppModeContext'
 import { getCloudViewerUrl } from '../lib/viewer-links'
 
 const DEBUG_SORTABLE = false
+const COMPANION_ROOM_FRESH_MS = 90_000
 
 type DraftState = {
   title: string
@@ -79,6 +80,9 @@ export const DashboardPage = () => {
   const removeActiveRoomIntent = (dataContext as DataContextValue & {
     removeActiveRoomIntent?: (roomId: string) => void
   }).removeActiveRoomIntent
+  const getRoomAuthority = (dataContext as DataContextValue & {
+    getRoomAuthority?: (roomId: string) => { source: 'cloud' | 'companion' | 'pending'; lastSyncAt: number }
+  }).getRoomAuthority
 
   const MAX_PINNED = 3
   const PINNED_STORAGE_KEY = 'ontime:pinnedRooms'
@@ -429,8 +433,17 @@ export const DashboardPage = () => {
 
   const ownedRooms = useMemo(() => {
     if (!user) return []
-    return displayedRooms.filter((room) => room.ownerId === user.uid && !pendingRooms.has(room.id))
-  }, [displayedRooms, pendingRooms, user])
+    return displayedRooms.filter((room) => {
+      if (pendingRooms.has(room.id)) return false
+      if (room.ownerId === user.uid) return true
+      if (room.ownerId !== 'local') return false
+      const authority = getRoomAuthority?.(room.id)
+      if (!authority) return false
+      if (authority.source !== 'companion' && authority.source !== 'pending') return false
+      const freshnessBase = authority.lastSyncAt > 0 ? authority.lastSyncAt : (room.state.lastUpdate ?? 0)
+      return freshnessBase > 0 && now - freshnessBase <= COMPANION_ROOM_FRESH_MS
+    })
+  }, [displayedRooms, getRoomAuthority, now, pendingRooms, user])
 
   useEffect(() => {
     if (!user || !firestore) return

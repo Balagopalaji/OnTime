@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildRoomFromCompanion,
   clearRoomControlLifecycleState,
   getConfidenceWindowMs,
   getReconnectJoinEntries,
   mergeCueQueueEvents,
   prunePendingControlRequests,
+  readCachedSubscriptions,
+  readRoomCache,
   reduceControlDisplacementsForLockUpdate,
   reduceControlRequestsByStatus,
   reducePendingControlRequestByStatus,
@@ -12,6 +15,7 @@ import {
   resolveQueuedCompanionLockReplayState,
   resolveControllerLockState,
   resolveRoomSource,
+  shouldBootstrapCachedSubscriptions,
   shouldApplyControlRequestTimeoutError,
   shouldResetQueuedLockReplayOnSocketChange,
   shouldQueueCompanionLockPayload,
@@ -256,6 +260,146 @@ describe('getReconnectJoinEntries', () => {
       token: 'token-b',
       tokenSource: 'viewer',
     })
+  })
+
+  it('returns no reconnect entries when intents are empty by default', () => {
+    const entries = getReconnectJoinEntries(
+      {
+        'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+      },
+      new Set<string>(),
+    )
+
+    expect(entries).toEqual([])
+  })
+
+  it('returns all cached subscriptions when intents are empty and include-all fallback is enabled', () => {
+    const entries = getReconnectJoinEntries(
+      {
+        'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+        'room-b': { clientType: 'viewer', token: 'token-b', tokenSource: 'viewer' },
+      },
+      new Set<string>(),
+      { includeAllWhenNoIntents: true },
+    )
+
+    expect(entries).toEqual([
+      ['room-a', { clientType: 'controller', token: 'token-a', tokenSource: 'controller' }],
+      ['room-b', { clientType: 'viewer', token: 'token-b', tokenSource: 'viewer' }],
+    ])
+  })
+})
+
+describe('offline companion room bootstrap helpers', () => {
+  it('normalizes cached subscriptions from localStorage', () => {
+    localStorage.setItem('ontime:companionSubs.v2', JSON.stringify({
+      'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+      'room-b': { clientType: 'something-else', token: 'token-b', tokenSource: 'invalid' },
+    }))
+
+    const subscriptions = readCachedSubscriptions()
+    expect(subscriptions).toEqual({
+      'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+      'room-b': { clientType: 'viewer', token: 'token-b', tokenSource: 'controller' },
+    })
+
+    localStorage.removeItem('ontime:companionSubs.v2')
+  })
+
+  it('reads room cache online with stale-entry filtering and legacy timestamp fallback', () => {
+    const now = Date.now()
+    const previousOnline = navigator.onLine
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true })
+    localStorage.setItem('ontime:companionRoomCache.v2', JSON.stringify({
+      fresh: {
+        roomId: 'fresh',
+        room: { id: 'fresh', state: { lastUpdate: 50 } },
+        timers: [],
+        cachedAt: now - 1000,
+        source: 'companion',
+      },
+      legacy: {
+        roomId: 'legacy',
+        room: { id: 'legacy', state: { lastUpdate: 0 } },
+        timers: [],
+        updatedAt: now - 1000,
+        source: 'cloud',
+      },
+      stale: {
+        roomId: 'stale',
+        room: { id: 'stale', state: { lastUpdate: 90 } },
+        timers: [],
+        cachedAt: now - 20_000,
+        source: 'companion',
+      },
+    }))
+
+    const cache = readRoomCache()
+    expect(Object.keys(cache).sort()).toEqual(['fresh', 'legacy'])
+    expect(cache.legacy?.cachedAt).toBe(now - 1000)
+    expect(cache.legacy?.dataTs).toBe(0)
+
+    localStorage.removeItem('ontime:companionRoomCache.v2')
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: previousOnline })
+  })
+
+  it('keeps stale room cache entries while offline', () => {
+    const previousOnline = navigator.onLine
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false })
+    localStorage.setItem('ontime:companionRoomCache.v2', JSON.stringify({
+      stale: {
+        roomId: 'stale',
+        room: { id: 'stale', state: { lastUpdate: 42 } },
+        timers: [],
+        cachedAt: Date.now() - 20_000,
+        source: 'companion',
+      },
+    }))
+
+    const cache = readRoomCache()
+    expect(cache.stale?.roomId).toBe('stale')
+
+    localStorage.removeItem('ontime:companionRoomCache.v2')
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: previousOnline })
+  })
+
+  it('evaluates cached-subscription bootstrap guard deterministically', () => {
+    expect(shouldBootstrapCachedSubscriptions({
+      hasBootstrapped: false,
+      hasSocket: true,
+      hasToken: true,
+      cachedSubscriptions: { 'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' } },
+    })).toBe(true)
+
+    expect(shouldBootstrapCachedSubscriptions({
+      hasBootstrapped: true,
+      hasSocket: true,
+      hasToken: true,
+      cachedSubscriptions: { 'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' } },
+    })).toBe(false)
+
+    expect(shouldBootstrapCachedSubscriptions({
+      hasBootstrapped: false,
+      hasSocket: true,
+      hasToken: true,
+      cachedSubscriptions: {},
+    })).toBe(false)
+  })
+
+  it('uses fallback owner for companion-only room bootstrap when no base room exists', () => {
+    const room = buildRoomFromCompanion(
+      'room-fallback',
+      {
+        activeTimerId: null,
+        isRunning: false,
+        currentTime: 0,
+        lastUpdate: 1234,
+      } as Parameters<typeof buildRoomFromCompanion>[1],
+      undefined,
+      'user-123',
+    )
+
+    expect(room.ownerId).toBe('user-123')
   })
 })
 

@@ -774,12 +774,18 @@ export type CompanionSubscription = {
 export const getReconnectJoinEntries = (
   rooms: Record<string, CompanionSubscription>,
   activeRoomIntents: Iterable<string>,
-): Array<[string, CompanionSubscription]> =>
-  [...activeRoomIntents]
+  options?: { includeAllWhenNoIntents?: boolean },
+): Array<[string, CompanionSubscription]> => {
+  const intentRoomIds = [...activeRoomIntents]
+  if (intentRoomIds.length === 0 && options?.includeAllWhenNoIntents) {
+    return Object.entries(rooms)
+  }
+  return intentRoomIds
     .filter((roomId) => Boolean(rooms[roomId]))
     .map((roomId) => [roomId, rooms[roomId]] as [string, CompanionSubscription])
+}
 
-const readCachedSubscriptions = (): Record<string, CompanionSubscription> => {
+export const readCachedSubscriptions = (): Record<string, CompanionSubscription> => {
   if (typeof localStorage === 'undefined') return {}
   try {
     const raw = localStorage.getItem(SUBS_CACHE_KEY)
@@ -808,7 +814,7 @@ const persistSubscriptions = (subs: Record<string, CompanionSubscription>) => {
   }
 }
 
-const readRoomCache = (): Record<string, CachedRoomSnapshot> => {
+export const readRoomCache = (): Record<string, CachedRoomSnapshot> => {
   if (typeof localStorage === 'undefined') return {}
   try {
     const now = Date.now()
@@ -908,6 +914,22 @@ const QUEUE_WARNING_THRESHOLD = 0.8
 const PREVIEW_CACHE_TTL_MS = 10_000
 const BASE_CONFIDENCE_WINDOW_MS = 2000
 const CHURN_CONFIDENCE_WINDOW_MS = 4000
+
+export const shouldBootstrapCachedSubscriptions = ({
+  hasBootstrapped,
+  hasSocket,
+  hasToken,
+  cachedSubscriptions,
+}: {
+  hasBootstrapped: boolean
+  hasSocket: boolean
+  hasToken: boolean
+  cachedSubscriptions: Record<string, CompanionSubscription>
+}): boolean => {
+  if (hasBootstrapped) return false
+  if (!hasSocket || !hasToken) return false
+  return Object.keys(cachedSubscriptions).length > 0
+}
 
 export const getConfidenceWindowMs = (hasReconnectChurn: boolean) =>
   hasReconnectChurn ? CHURN_CONFIDENCE_WINDOW_MS : BASE_CONFIDENCE_WINDOW_MS
@@ -1044,15 +1066,16 @@ export const isSnapshotStale = (
   return false
 }
 
-const buildRoomFromCompanion = (
+export const buildRoomFromCompanion = (
   roomId: string,
   companionState: CompanionRoomState,
   baseRoom?: Room,
+  fallbackOwnerId?: string,
 ): Room => {
   const base: Room =
     baseRoom ?? {
       id: roomId,
-      ownerId: 'local',
+      ownerId: fallbackOwnerId ?? 'local',
       title: 'Local Room',
       timezone: 'UTC',
       createdAt: Date.now(),
@@ -2441,33 +2464,57 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
   }, [])
 
   useEffect(() => {
-    if (bootstrappedSubsRef.current) return
-    // Only restore subscriptions when companion is connected and handshake successful
-    if (!socket || !token || handshakeStatus !== 'ack') return
+    const saved = readCachedSubscriptions()
+    if (!shouldBootstrapCachedSubscriptions({
+      hasBootstrapped: bootstrappedSubsRef.current,
+      hasSocket: Boolean(socket),
+      hasToken: Boolean(token),
+      cachedSubscriptions: saved,
+    })) return
 
     bootstrappedSubsRef.current = true
-    const saved = readCachedSubscriptions()
-    if (!Object.keys(saved).length) return
 
     if (debugCompanion) {
       console.info('[companion] restoring subscriptions', Object.keys(saved))
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate cached subscriptions after handshake
-    setSubscribedRooms(() => {
-      // Update controller subscriptions to use the current Companion token.
-      const updated = Object.entries(saved).reduce<Record<string, CompanionSubscription>>((acc, [roomId, sub]) => {
+    const updated = Object.entries(saved).reduce<Record<string, CompanionSubscription>>((acc, [roomId, sub]) => {
         if (sub.tokenSource === 'controller') {
           acc[roomId] = { ...sub, token }
         } else {
           acc[roomId] = sub
         }
         return acc
-      }, {})
+    }, {})
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate cached subscriptions after companion socket/token availability
+    setSubscribedRooms(() => {
       persistSubscriptions(updated)
       return updated
     })
-  }, [debugCompanion, handshakeStatus, socket, token])
+
+    const now = Date.now()
+    setRoomAuthority((prev) => {
+      const next = { ...prev }
+      Object.keys(updated).forEach((roomId) => {
+        next[roomId] = {
+          source: 'pending',
+          status: 'syncing',
+          lastSyncAt: now,
+        }
+      })
+      return next
+    })
+
+    Object.entries(updated).forEach(([roomId, sub]) => {
+      const tokenToUse = sub.tokenSource === 'controller' ? token : sub.token
+      if (!tokenToUse) return
+      if (sub.clientType === 'controller') {
+        addPendingSyncRoom(roomId)
+      }
+      enqueueJoin(roomId, sub.clientType, tokenToUse, sub.tokenSource)
+    })
+  }, [addPendingSyncRoom, debugCompanion, enqueueJoin, socket, token])
 
   const clearRoomControlLifecycle = useCallback(
     (roomId: string, options?: { clearRoomClients?: boolean }) => {
@@ -2714,7 +2761,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         (authority.source === 'companion' || authority.source === 'pending' || shouldUseCompanion(roomId))
       const companionState = usingCompanion ? companionRoomsRef.current[roomId] : undefined
       const resolvedRoom = companionState
-        ? buildRoomFromCompanion(roomId, companionState, firebase.getRoom(roomId))
+        ? buildRoomFromCompanion(roomId, companionState, firebase.getRoom(roomId), userId)
         : firebase.getRoom(roomId)
       if (!resolvedRoom) {
         // Only preserve cached room if Firebase data hasn't loaded yet.
@@ -2762,7 +2809,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     persistRoomCache(nextCache)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- keep cache state in sync with persisted snapshots
     setCachedSnapshots(nextCache)
-  }, [companionRooms, companionTimers, firebase, isCompanionLive, roomAuthority, shouldUseCompanion])
+  }, [companionRooms, companionTimers, firebase, isCompanionLive, roomAuthority, shouldUseCompanion, userId])
 
   const ensureCompanionRoomState = useCallback((roomId: string) => {
     const existing = companionRoomsRef.current[roomId]
@@ -3934,7 +3981,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       // and the room currently being viewed). Other rooms rejoin lazily on navigation.
       const rooms = subscribedRoomsRef.current
       const intentRoomIds = activeRoomIntentRef.current
-      const reconnectEntries = getReconnectJoinEntries(rooms, intentRoomIds)
+      const reconnectEntries = getReconnectJoinEntries(rooms, intentRoomIds, { includeAllWhenNoIntents: true })
       if (reconnectEntries.length > 0) {
         setPendingControlRequests((prev) => {
           const next = { ...prev }
@@ -5076,7 +5123,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         }
         return undefined
       }
-      if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState, cachedRoom)
+      if (!firebaseRoom) return buildRoomFromCompanion(roomId, companionState, cachedRoom, userId)
 
       const firebaseTs = firebaseRoom.state.lastUpdate ?? 0
       const companionTs = companionState.lastUpdate ?? 0
@@ -5092,12 +5139,12 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
       if (source === 'companion') {
         // Merge cached progress into the companion-built room
-        const companionRoom = buildRoomFromCompanion(roomId, companionState, firebaseRoom)
+        const companionRoom = buildRoomFromCompanion(roomId, companionState, firebaseRoom, userId)
         return mergeProgressFromCache(companionRoom)
       }
       return mergeProgressFromCache(firebaseRoom)
     },
-    [companionRooms, debugCompanion, firebase, isCompanionLive, pickSource, roomAuthority, shouldUseCompanion],
+    [companionRooms, debugCompanion, firebase, isCompanionLive, pickSource, roomAuthority, shouldUseCompanion, userId],
   )
 
   const getTimers = useCallback(
