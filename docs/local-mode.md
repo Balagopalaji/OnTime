@@ -2,7 +2,7 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-02-08
 Scope: Parallel sync architecture reference (Phase 1D).
 ---
 
@@ -127,7 +127,7 @@ The frontend uses a Unified Data Provider architecture where Firebase and Compan
 **These are active and must be preserved.**
 - **Truthful timestamps:** `SYNC_ROOM_STATE` preserves Cloud `state.lastUpdate` and uses it for payload timestamps. Companion must not mint new timestamps for synced data.
 - **Room-aware handshake:** `HANDSHAKE_ACK` includes `roomId`. Hold windows are per-room (no global `'*'`).
-- **Lazy join:** on reconnect, only the active room is joined; other rooms join on navigation. (Prevents JOIN storms.)
+- **Lazy join (active-intent default + safe fallback):** on reconnect, join only the active-intent room by default and join other rooms on navigation (prevents JOIN storms). Exception: if reconnect occurs with no active intents, permit an include-all fallback from cached subscriptions to avoid offline pre-ACK/bootstrap deadlock.
 - **Idempotent join queue:** duplicate joins for the same room+clientType are ignored.
 - **Seed companion cache:** `SEED_COMPANION_CACHE` bulk-pushes cloud rooms + tombstones to Companion after handshake. Overwrite-safe (newer wins). No JOIN/handshake side effects.
 - **Tombstones:** cloud deletes write `deleted_rooms/{roomId}` with TTL (`expiresAt`). Firestore TTL must be enabled on `deleted_rooms.expiresAt` and the field is stored as a Firestore Timestamp; the app normalizes to ms at the boundary. Local tombstones are queued offline and uploaded on reconnect. Companion applies tombstones to purge local cache.
