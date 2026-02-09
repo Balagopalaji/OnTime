@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import * as React from 'react'
+import { useEffect } from 'react'
+import { act, render } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildRoomFromCompanion,
   clearRoomControlLifecycleState,
@@ -7,6 +10,7 @@ import {
   mergeCueQueueEvents,
   prunePendingControlRequests,
   readCachedSubscriptions,
+  requeueJoinEntryToTail,
   readRoomCache,
   reduceControlDisplacementsForLockUpdate,
   reduceControlRequestsByStatus,
@@ -287,6 +291,576 @@ describe('getReconnectJoinEntries', () => {
       ['room-a', { clientType: 'controller', token: 'token-a', tokenSource: 'controller' }],
       ['room-b', { clientType: 'viewer', token: 'token-b', tokenSource: 'viewer' }],
     ])
+  })
+})
+
+describe('join replay queue progression', () => {
+  it('keeps queue progress deterministic when one join fails and is requeued', () => {
+    const queue = requeueJoinEntryToTail(
+      [
+        { roomId: 'room-b', clientType: 'controller', token: 'token-b', tokenSource: 'controller' },
+      ],
+      { roomId: 'room-a', clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+    )
+
+    expect(queue.map((entry) => entry.roomId)).toEqual(['room-b', 'room-a'])
+  })
+})
+
+describe('ACK-LAT-002 join watchdog integration', () => {
+  it('clears stalled in-flight join, requeues it, and resumes queue processing after watchdog timeout', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    class FakeSocket {
+      connected = true
+      active = true
+      connect = vi.fn()
+      disconnect = vi.fn()
+      emit = vi.fn()
+      private listeners = new Map<string, Set<(...args: unknown[]) => void>>()
+
+      on(event: string, cb: (...args: unknown[]) => void) {
+        const list = this.listeners.get(event) ?? new Set()
+        list.add(cb)
+        this.listeners.set(event, list)
+      }
+
+      off(event: string, cb: (...args: unknown[]) => void) {
+        this.listeners.get(event)?.delete(cb)
+      }
+
+      trigger(event: string, payload?: unknown) {
+        this.listeners.get(event)?.forEach((cb) => cb(payload))
+      }
+    }
+
+    const socket = new FakeSocket()
+    const companionMock = {
+      socket,
+      isConnected: true,
+      handshakeStatus: 'idle' as const,
+      reconnectState: 'idle' as const,
+      reconnectAttempts: 0,
+      reconnectChurn: false,
+      token: 'cached-token',
+      fetchToken: vi.fn(async () => 'cached-token'),
+      clearToken: vi.fn(),
+      markHandshakePending: vi.fn(),
+      retryConnection: vi.fn(),
+      protocolStatus: { clientVersion: '1.2.0', serverVersion: '1.2.0', compatibility: 'ok' as const },
+      companionMode: 'show_control',
+      capabilities: { powerpoint: false, externalVideo: false, fileOperations: true },
+      capabilitiesRevision: 0,
+      systemInfo: null,
+      discoverCompanion: vi.fn(async () => 'cached-token'),
+    }
+    const firebaseValue = {
+      rooms: [],
+      connectionStatus: 'online',
+      setConnectionStatus: vi.fn(),
+      pendingRooms: new Set<string>(),
+      pendingRoomPlaceholders: [],
+      pendingTimers: {},
+      pendingTimerPlaceholders: {},
+      undoRoomDelete: vi.fn(async () => {}),
+      redoRoomDelete: vi.fn(async () => {}),
+      undoTimerDelete: vi.fn(async () => {}),
+      redoTimerDelete: vi.fn(async () => {}),
+      clearUndoStacks: vi.fn(async () => {}),
+      getRoom: vi.fn(() => undefined),
+      getTimers: vi.fn(() => []),
+      getCues: vi.fn(() => []),
+      getLiveCues: vi.fn(() => []),
+      getLiveCueRecords: vi.fn(() => []),
+      createRoom: vi.fn(async () => { throw new Error('not used') }),
+      deleteRoom: vi.fn(async () => {}),
+      createTimer: vi.fn(async () => undefined),
+      createCue: vi.fn(async () => undefined),
+      updateTimer: vi.fn(async () => {}),
+      updateCue: vi.fn(async () => {}),
+      updateRoomMeta: vi.fn(async () => {}),
+      restoreTimer: vi.fn(async () => {}),
+      resetTimerProgress: vi.fn(async () => {}),
+      deleteTimer: vi.fn(async () => {}),
+      deleteCue: vi.fn(async () => {}),
+      moveTimer: vi.fn(async () => {}),
+      reorderTimer: vi.fn(async () => {}),
+      reorderCues: vi.fn(async () => {}),
+      getSections: vi.fn(() => []),
+      getSegments: vi.fn(() => []),
+      createSection: vi.fn(async () => undefined),
+      updateSection: vi.fn(async () => {}),
+      deleteSection: vi.fn(async () => {}),
+      reorderSections: vi.fn(async () => {}),
+      createSegment: vi.fn(async () => undefined),
+      updateSegment: vi.fn(async () => {}),
+      deleteSegment: vi.fn(async () => {}),
+      reorderSegments: vi.fn(async () => {}),
+      setActiveTimer: vi.fn(async () => {}),
+      startTimer: vi.fn(async () => {}),
+      pauseTimer: vi.fn(async () => {}),
+      resetTimer: vi.fn(async () => {}),
+      nudgeTimer: vi.fn(async () => {}),
+      setClockMode: vi.fn(async () => {}),
+      setClockFormat: vi.fn(async () => {}),
+      updateMessage: vi.fn(async () => {}),
+      controllerLocks: {},
+      roomPins: {},
+      roomClients: {},
+      controlRequests: {},
+      pendingControlRequests: {},
+      controlDenials: {},
+      controlDisplacements: {},
+      controlErrors: {},
+      getControllerLock: vi.fn(() => null),
+      getControllerLockState: vi.fn(() => 'authoritative'),
+      getRoomPin: vi.fn(() => null),
+      setRoomPin: vi.fn(),
+      requestControl: vi.fn(),
+      forceTakeover: vi.fn(),
+      handOverControl: vi.fn(),
+      denyControl: vi.fn(),
+      enqueueOfflineAction: vi.fn(),
+      clearOfflineQueue: vi.fn(),
+      cloudSync: vi.fn(),
+      cloudSyncEnabled: false,
+      clearLiveCues: vi.fn(),
+      sendHeartbeat: vi.fn(),
+    }
+
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => companionMock,
+    }))
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'auto', effectiveMode: 'local' }),
+    }))
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    const { UnifiedDataProvider, useUnifiedDataContext, JOIN_PENDING_WATCHDOG_MS } = module
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => {
+        ctxRef = ctx
+      }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(ctxRef).not.toBeNull()
+
+    await act(async () => {
+      ctxRef?.subscribeToCompanionRoom('room-a', 'controller')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const joinRoomCallsAfterQueue = socket.emit.mock.calls.filter(([event]) => event === 'JOIN_ROOM')
+    expect(joinRoomCallsAfterQueue.map(([, payload]) => (payload as { roomId: string }).roomId)).toEqual(['room-a'])
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(JOIN_PENDING_WATCHDOG_MS + 1)
+    })
+    const joinRoomCallsAfterFirstWatchdog = socket.emit.mock.calls.filter(([event]) => event === 'JOIN_ROOM')
+    expect(joinRoomCallsAfterFirstWatchdog.map(([, payload]) => (payload as { roomId: string }).roomId)).toEqual([
+      'room-a',
+      'room-a',
+    ])
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(JOIN_PENDING_WATCHDOG_MS + 1)
+    })
+    const joinRoomCallsAfterSecondWatchdog = socket.emit.mock.calls.filter(([event]) => event === 'JOIN_ROOM')
+    expect(joinRoomCallsAfterSecondWatchdog.map(([, payload]) => (payload as { roomId: string }).roomId)).toEqual([
+      'room-a',
+      'room-a',
+      'room-a',
+    ])
+
+    view.unmount()
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
+  })
+
+  it('retries after HANDSHAKE_PENDING without forcing a disconnect loop', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    class FakeSocket {
+      connected = true
+      active = true
+      connect = vi.fn()
+      disconnect = vi.fn()
+      emit = vi.fn()
+      private listeners = new Map<string, Set<(...args: unknown[]) => void>>()
+
+      on(event: string, cb: (...args: unknown[]) => void) {
+        const list = this.listeners.get(event) ?? new Set()
+        list.add(cb)
+        this.listeners.set(event, list)
+      }
+
+      off(event: string, cb: (...args: unknown[]) => void) {
+        this.listeners.get(event)?.delete(cb)
+      }
+
+      trigger(event: string, payload?: unknown) {
+        this.listeners.get(event)?.forEach((cb) => cb(payload))
+      }
+    }
+
+    const socket = new FakeSocket()
+    const companionMock = {
+      socket,
+      isConnected: true,
+      handshakeStatus: 'idle' as const,
+      reconnectState: 'idle' as const,
+      reconnectAttempts: 0,
+      reconnectChurn: false,
+      token: 'cached-token',
+      fetchToken: vi.fn(async () => 'cached-token'),
+      clearToken: vi.fn(),
+      markHandshakePending: vi.fn(),
+      retryConnection: vi.fn(),
+      protocolStatus: { clientVersion: '1.2.0', serverVersion: '1.2.0', compatibility: 'ok' as const },
+      companionMode: 'show_control',
+      capabilities: { powerpoint: false, externalVideo: false, fileOperations: true },
+      capabilitiesRevision: 0,
+      systemInfo: null,
+      discoverCompanion: vi.fn(async () => 'cached-token'),
+    }
+    const firebaseValue = {
+      rooms: [],
+      connectionStatus: 'online',
+      setConnectionStatus: vi.fn(),
+      pendingRooms: new Set<string>(),
+      pendingRoomPlaceholders: [],
+      pendingTimers: {},
+      pendingTimerPlaceholders: {},
+      undoRoomDelete: vi.fn(async () => {}),
+      redoRoomDelete: vi.fn(async () => {}),
+      undoTimerDelete: vi.fn(async () => {}),
+      redoTimerDelete: vi.fn(async () => {}),
+      clearUndoStacks: vi.fn(async () => {}),
+      getRoom: vi.fn(() => undefined),
+      getTimers: vi.fn(() => []),
+      getCues: vi.fn(() => []),
+      getLiveCues: vi.fn(() => []),
+      getLiveCueRecords: vi.fn(() => []),
+      createRoom: vi.fn(async () => { throw new Error('not used') }),
+      deleteRoom: vi.fn(async () => {}),
+      createTimer: vi.fn(async () => undefined),
+      createCue: vi.fn(async () => undefined),
+      updateTimer: vi.fn(async () => {}),
+      updateCue: vi.fn(async () => {}),
+      updateRoomMeta: vi.fn(async () => {}),
+      restoreTimer: vi.fn(async () => {}),
+      resetTimerProgress: vi.fn(async () => {}),
+      deleteTimer: vi.fn(async () => {}),
+      deleteCue: vi.fn(async () => {}),
+      moveTimer: vi.fn(async () => {}),
+      reorderTimer: vi.fn(async () => {}),
+      reorderCues: vi.fn(async () => {}),
+      getSections: vi.fn(() => []),
+      getSegments: vi.fn(() => []),
+      createSection: vi.fn(async () => undefined),
+      updateSection: vi.fn(async () => {}),
+      deleteSection: vi.fn(async () => {}),
+      reorderSections: vi.fn(async () => {}),
+      createSegment: vi.fn(async () => undefined),
+      updateSegment: vi.fn(async () => {}),
+      deleteSegment: vi.fn(async () => {}),
+      reorderSegments: vi.fn(async () => {}),
+      setActiveTimer: vi.fn(async () => {}),
+      startTimer: vi.fn(async () => {}),
+      pauseTimer: vi.fn(async () => {}),
+      resetTimer: vi.fn(async () => {}),
+      nudgeTimer: vi.fn(async () => {}),
+      setClockMode: vi.fn(async () => {}),
+      setClockFormat: vi.fn(async () => {}),
+      updateMessage: vi.fn(async () => {}),
+      controllerLocks: {},
+      roomPins: {},
+      roomClients: {},
+      controlRequests: {},
+      pendingControlRequests: {},
+      controlDenials: {},
+      controlDisplacements: {},
+      controlErrors: {},
+      getControllerLock: vi.fn(() => null),
+      getControllerLockState: vi.fn(() => 'authoritative'),
+      getRoomPin: vi.fn(() => null),
+      setRoomPin: vi.fn(),
+      requestControl: vi.fn(),
+      forceTakeover: vi.fn(),
+      handOverControl: vi.fn(),
+      denyControl: vi.fn(),
+      enqueueOfflineAction: vi.fn(),
+      clearOfflineQueue: vi.fn(),
+      cloudSync: vi.fn(),
+      cloudSyncEnabled: false,
+      clearLiveCues: vi.fn(),
+      sendHeartbeat: vi.fn(),
+    }
+
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => companionMock,
+    }))
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'auto', effectiveMode: 'local' }),
+    }))
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    const { UnifiedDataProvider, useUnifiedDataContext, JOIN_PENDING_WATCHDOG_MS } = module
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => {
+        ctxRef = ctx
+      }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(ctxRef).not.toBeNull()
+
+    await act(async () => {
+      ctxRef?.subscribeToCompanionRoom('room-a', 'controller')
+      await Promise.resolve()
+    })
+    expect(socket.emit.mock.calls.filter(([event]) => event === 'JOIN_ROOM')).toHaveLength(1)
+
+    act(() => {
+      socket.trigger('HANDSHAKE_ERROR', {
+        type: 'HANDSHAKE_ERROR',
+        code: 'HANDSHAKE_PENDING',
+        message: 'Handshake still pending.',
+      })
+    })
+    expect(socket.disconnect).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(JOIN_PENDING_WATCHDOG_MS + 1)
+    })
+    expect(socket.emit.mock.calls.filter(([event]) => event === 'JOIN_ROOM')).toHaveLength(2)
+
+    view.unmount()
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
+  })
+
+  it('does not forward reauthenticated in local force takeover payloads', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    class FakeSocket {
+      connected = true
+      active = true
+      connect = vi.fn()
+      disconnect = vi.fn()
+      emit = vi.fn()
+      private listeners = new Map<string, Set<(...args: unknown[]) => void>>()
+
+      on(event: string, cb: (...args: unknown[]) => void) {
+        const list = this.listeners.get(event) ?? new Set()
+        list.add(cb)
+        this.listeners.set(event, list)
+      }
+
+      off(event: string, cb: (...args: unknown[]) => void) {
+        this.listeners.get(event)?.delete(cb)
+      }
+    }
+
+    const socket = new FakeSocket()
+    const companionMock = {
+      socket,
+      isConnected: true,
+      handshakeStatus: 'ack' as const,
+      reconnectState: 'idle' as const,
+      reconnectAttempts: 0,
+      reconnectChurn: false,
+      token: 'cached-token',
+      fetchToken: vi.fn(async () => 'cached-token'),
+      clearToken: vi.fn(),
+      markHandshakePending: vi.fn(),
+      retryConnection: vi.fn(),
+      protocolStatus: { clientVersion: '1.2.0', serverVersion: '1.2.0', compatibility: 'ok' as const },
+      companionMode: 'show_control',
+      capabilities: { powerpoint: false, externalVideo: false, fileOperations: true },
+      capabilitiesRevision: 0,
+      systemInfo: null,
+      discoverCompanion: vi.fn(async () => 'cached-token'),
+    }
+    const firebaseValue = {
+      rooms: [],
+      connectionStatus: 'online',
+      setConnectionStatus: vi.fn(),
+      pendingRooms: new Set<string>(),
+      pendingRoomPlaceholders: [],
+      pendingTimers: {},
+      pendingTimerPlaceholders: {},
+      undoRoomDelete: vi.fn(async () => {}),
+      redoRoomDelete: vi.fn(async () => {}),
+      undoTimerDelete: vi.fn(async () => {}),
+      redoTimerDelete: vi.fn(async () => {}),
+      clearUndoStacks: vi.fn(async () => {}),
+      getRoom: vi.fn(() => undefined),
+      getTimers: vi.fn(() => []),
+      getCues: vi.fn(() => []),
+      getLiveCues: vi.fn(() => []),
+      getLiveCueRecords: vi.fn(() => []),
+      createRoom: vi.fn(async () => { throw new Error('not used') }),
+      deleteRoom: vi.fn(async () => {}),
+      createTimer: vi.fn(async () => undefined),
+      createCue: vi.fn(async () => undefined),
+      updateTimer: vi.fn(async () => {}),
+      updateCue: vi.fn(async () => {}),
+      updateRoomMeta: vi.fn(async () => {}),
+      restoreTimer: vi.fn(async () => {}),
+      resetTimerProgress: vi.fn(async () => {}),
+      deleteTimer: vi.fn(async () => {}),
+      deleteCue: vi.fn(async () => {}),
+      moveTimer: vi.fn(async () => {}),
+      reorderTimer: vi.fn(async () => {}),
+      reorderCues: vi.fn(async () => {}),
+      getSections: vi.fn(() => []),
+      getSegments: vi.fn(() => []),
+      createSection: vi.fn(async () => undefined),
+      updateSection: vi.fn(async () => {}),
+      deleteSection: vi.fn(async () => {}),
+      reorderSections: vi.fn(async () => {}),
+      createSegment: vi.fn(async () => undefined),
+      updateSegment: vi.fn(async () => {}),
+      deleteSegment: vi.fn(async () => {}),
+      reorderSegments: vi.fn(async () => {}),
+      setActiveTimer: vi.fn(async () => {}),
+      startTimer: vi.fn(async () => {}),
+      pauseTimer: vi.fn(async () => {}),
+      resetTimer: vi.fn(async () => {}),
+      nudgeTimer: vi.fn(async () => {}),
+      setClockMode: vi.fn(async () => {}),
+      setClockFormat: vi.fn(async () => {}),
+      updateMessage: vi.fn(async () => {}),
+      controllerLocks: {},
+      roomPins: {},
+      roomClients: {},
+      controlRequests: {},
+      pendingControlRequests: {},
+      controlDenials: {},
+      controlDisplacements: {},
+      controlErrors: {},
+      getControllerLock: vi.fn(() => null),
+      getControllerLockState: vi.fn(() => 'authoritative'),
+      getRoomPin: vi.fn(() => null),
+      setRoomPin: vi.fn(),
+      requestControl: vi.fn(),
+      forceTakeover: vi.fn(),
+      handOverControl: vi.fn(),
+      denyControl: vi.fn(),
+      enqueueOfflineAction: vi.fn(),
+      clearOfflineQueue: vi.fn(),
+      cloudSync: vi.fn(),
+      cloudSyncEnabled: false,
+      clearLiveCues: vi.fn(),
+      sendHeartbeat: vi.fn(),
+    }
+
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => companionMock,
+    }))
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'auto', effectiveMode: 'local' }),
+    }))
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    const { UnifiedDataProvider, useUnifiedDataContext } = module
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => {
+        ctxRef = ctx
+      }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(ctxRef).not.toBeNull()
+
+    act(() => {
+      ctxRef?.forceTakeover('room-a', { reauthenticated: true })
+    })
+
+    const forceCall = socket.emit.mock.calls.find(([event]) => event === 'FORCE_TAKEOVER')
+    expect(forceCall).toBeTruthy()
+    const [, payload] = forceCall as [string, { reauthenticated?: boolean }]
+    expect(payload.reauthenticated).toBeUndefined()
+
+    view.unmount()
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
   })
 })
 

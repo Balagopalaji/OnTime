@@ -771,6 +771,13 @@ export type CompanionSubscription = {
   tokenSource: 'controller' | 'viewer'
 }
 
+export type JoinQueueEntry = {
+  roomId: string
+  clientType: 'controller' | 'viewer'
+  token: string
+  tokenSource: 'controller' | 'viewer'
+}
+
 export const getReconnectJoinEntries = (
   rooms: Record<string, CompanionSubscription>,
   activeRoomIntents: Iterable<string>,
@@ -784,6 +791,11 @@ export const getReconnectJoinEntries = (
     .filter((roomId) => Boolean(rooms[roomId]))
     .map((roomId) => [roomId, rooms[roomId]] as [string, CompanionSubscription])
 }
+
+export const requeueJoinEntryToTail = (queue: JoinQueueEntry[], entry: JoinQueueEntry): JoinQueueEntry[] => [
+  ...queue,
+  entry,
+]
 
 export const readCachedSubscriptions = (): Record<string, CompanionSubscription> => {
   if (typeof localStorage === 'undefined') return {}
@@ -914,6 +926,7 @@ const QUEUE_WARNING_THRESHOLD = 0.8
 const PREVIEW_CACHE_TTL_MS = 10_000
 const BASE_CONFIDENCE_WINDOW_MS = 2000
 const CHURN_CONFIDENCE_WINDOW_MS = 4000
+export const JOIN_PENDING_WATCHDOG_MS = 2_500
 
 export const shouldBootstrapCachedSubscriptions = ({
   hasBootstrapped,
@@ -1300,20 +1313,11 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
   const queuedCompanionLockPayloadRef = useRef<Record<string, ControllerLockStatePayload>>({})
   const queuedCompanionLockTimerRef = useRef<Record<string, number>>({})
   const previousSocketRef = useRef<typeof socket | null>(null)
-  const joinQueueRef = useRef<Array<{
-    roomId: string
-    clientType: 'controller' | 'viewer'
-    token: string
-    tokenSource: 'controller' | 'viewer'
-  }>>([])
+  const joinQueueRef = useRef<JoinQueueEntry[]>([])
   const joinPendingRef = useRef(false)
-  const activeJoinRef = useRef<{
-    roomId: string
-    clientType: 'controller' | 'viewer'
-    token: string
-    tokenSource: 'controller' | 'viewer'
-  } | null>(null)
-const activeRoomIntentRef = useRef<Set<string>>(new Set())
+  const activeJoinRef = useRef<JoinQueueEntry | null>(null)
+  const joinPendingWatchdogRef = useRef<number | null>(null)
+  const activeRoomIntentRef = useRef<Set<string>>(new Set())
   const lastCapabilitiesRevisionRef = useRef<number | null>(null)
   const lastTierSignatureRef = useRef<string | null>(null)
   const reconnectSyncPendingRef = useRef(false)
@@ -1358,6 +1362,14 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     () => Boolean(socket?.connected && handshakeStatus === 'ack'),
     [handshakeStatus, socket],
   )
+  const clearJoinPendingWatchdog = useCallback(() => {
+    if (!joinPendingWatchdogRef.current) return
+    window.clearTimeout(joinPendingWatchdogRef.current)
+    joinPendingWatchdogRef.current = null
+  }, [])
+  useEffect(() => () => {
+    clearJoinPendingWatchdog()
+  }, [clearJoinPendingWatchdog])
   const confidenceWindowMs = useMemo(() => getConfidenceWindowMs(reconnectChurn), [reconnectChurn])
   const getHoldUntil = useCallback((roomId: string) => {
     const holds = companionHoldUntilRef.current
@@ -1562,7 +1574,17 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     if (!next) return
     const joinToken = next.tokenSource === 'viewer' ? next.token : token ?? next.token
     if (!joinToken) {
-      joinQueueRef.current.unshift(next)
+      joinQueueRef.current = requeueJoinEntryToTail(joinQueueRef.current, next)
+      logReconnectTrace('join_room_deferred_missing_token', {
+        roomId: next.roomId,
+        clientType: next.clientType,
+        queueDepth: joinQueueRef.current.length,
+      })
+      if (joinQueueRef.current.length > 1) {
+        window.setTimeout(() => {
+          processJoinQueue()
+        }, 0)
+      }
       return
     }
     if (!socket.connected && !socket.active) {
@@ -1576,6 +1598,21 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     }
     joinPendingRef.current = true
     activeJoinRef.current = { ...next, token: joinToken }
+    clearJoinPendingWatchdog()
+    joinPendingWatchdogRef.current = window.setTimeout(() => {
+      if (!joinPendingRef.current) return
+      const stalledJoin = activeJoinRef.current
+      joinPendingRef.current = false
+      activeJoinRef.current = null
+      if (stalledJoin) {
+        joinQueueRef.current = requeueJoinEntryToTail(joinQueueRef.current, stalledJoin)
+      }
+      logReconnectTrace('join_room_watchdog_timeout', {
+        roomId: stalledJoin?.roomId ?? null,
+        queueDepth: joinQueueRef.current.length,
+      })
+      processJoinQueue()
+    }, JOIN_PENDING_WATCHDOG_MS)
     markHandshakePending()
     logReconnectTrace('join_room_emit', {
       roomId: next.roomId,
@@ -1611,6 +1648,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     token,
     user?.displayName,
     user?.uid,
+    clearJoinPendingWatchdog,
   ])
 
   const enqueueJoin = useCallback(
@@ -1768,7 +1806,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     const entries = Object.entries(subscribedRoomsRef.current)
     if (!entries.length) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep subscription tokens in sync with refreshed token
     setSubscribedRooms((prev) => {
       let changed = false
       const next = { ...prev }
@@ -2247,7 +2284,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
               deviceName,
               userName: user.displayName,
               pin: options?.pin,
-              reauthenticated: options?.reauthenticated,
             })
             const data = response.data as { success?: boolean; error?: string }
             if (data?.success === false) {
@@ -2282,7 +2318,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         roomId,
         clientId,
         pin: options?.pin,
-        reauthenticated: options?.reauthenticated,
         timestamp: Date.now(),
       })
     },
@@ -2531,7 +2566,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         return acc
     }, {})
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate cached subscriptions after companion socket/token availability
     setSubscribedRooms(() => {
       persistSubscriptions(updated)
       return updated
@@ -2851,7 +2885,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     })
     cachedSnapshotsRef.current = nextCache
     persistRoomCache(nextCache)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep cache state in sync with persisted snapshots
     setCachedSnapshots(nextCache)
   }, [companionRooms, companionTimers, firebase, isCompanionLive, roomAuthority, shouldUseCompanion, userId])
 
@@ -3999,11 +4032,25 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
   useEffect(() => {
     if (!socket) return
 
-    const handleConnect = async () => {
+    const handleConnect = () => {
       if (debugCompanion) console.info('[companion] connect')
       logReconnectTrace('socket_connect_unified')
 
-      const joinToken = (await resolveCompanionToken()) ?? null
+      const now = Date.now()
+      const cachedToken = token
+      const cachedTokenExpAt = cachedToken ? getTokenExpiryMs(cachedToken) : null
+      const joinToken =
+        cachedToken && (!cachedTokenExpAt || cachedTokenExpAt > now + 1_000)
+          ? cachedToken
+          : null
+      const shouldRefreshInBackground =
+        !joinToken || (cachedTokenExpAt !== null && cachedTokenExpAt <= now + 60_000)
+      if (shouldRefreshInBackground && !tokenRefreshInFlightRef.current) {
+        tokenRefreshInFlightRef.current = true
+        void fetchToken().finally(() => {
+          tokenRefreshInFlightRef.current = false
+        })
+      }
       if (!joinToken && debugCompanion) {
         console.warn('[companion] connect missing token, skipping controller JOIN replay')
       }
@@ -4050,6 +4097,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       if (debugCompanion) console.info('[companion] disconnect')
       logReconnectTrace('socket_disconnect_unified')
       joinPendingRef.current = false
+      clearJoinPendingWatchdog()
       reconnectSyncPendingRef.current = true
       seedFiredRef.current = false
       if (activeJoinRef.current) {
@@ -4083,10 +4131,17 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     const handleHandshakeError = (err: HandshakeError) => {
       logReconnectTrace('handshake_error_unified', { code: err?.code ?? 'HANDSHAKE_ERROR' })
       joinPendingRef.current = false
+      clearJoinPendingWatchdog()
       const failedJoin = activeJoinRef.current
       if (failedJoin) {
-        joinQueueRef.current.unshift(failedJoin)
+        joinQueueRef.current = requeueJoinEntryToTail(joinQueueRef.current, failedJoin)
         activeJoinRef.current = null
+      }
+      if (err?.code === 'HANDSHAKE_PENDING') {
+        window.setTimeout(() => {
+          processJoinQueue()
+        }, JOIN_PENDING_WATCHDOG_MS)
+        return
       }
       if (err?.code === 'CONTROLLER_TAKEN') {
         return
@@ -4120,33 +4175,34 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       if (tokenRefreshInFlightRef.current) return
       tokenRefreshInFlightRef.current = true
       void (async () => {
-        const nextToken = await fetchToken()
-        if (!nextToken) {
-          tokenRefreshInFlightRef.current = false
-          return
-        }
-        setSubscribedRooms((prev) => {
-          const next: typeof prev = {}
-          Object.entries(prev).forEach(([roomId, sub]) => {
-            if (sub.tokenSource === 'controller') {
-              next[roomId] = { ...sub, token: nextToken }
-            } else {
-              next[roomId] = sub
-            }
+        try {
+          const nextToken = await fetchToken()
+          if (!nextToken) return
+          setSubscribedRooms((prev) => {
+            const next: typeof prev = {}
+            Object.entries(prev).forEach(([roomId, sub]) => {
+              if (sub.tokenSource === 'controller') {
+                next[roomId] = { ...sub, token: nextToken }
+              } else {
+                next[roomId] = sub
+              }
+            })
+            return next
           })
-          return next
-        })
-        Object.entries(subscribedRoomsRef.current).forEach(([roomId, sub]) => {
-          if (sub.tokenSource !== 'controller') return
-          enqueueJoin(roomId, sub.clientType, nextToken, sub.tokenSource)
-        })
-        tokenRefreshInFlightRef.current = false
+          Object.entries(subscribedRoomsRef.current).forEach(([roomId, sub]) => {
+            if (sub.tokenSource !== 'controller') return
+            enqueueJoin(roomId, sub.clientType, nextToken, sub.tokenSource)
+          })
+        } finally {
+          tokenRefreshInFlightRef.current = false
+        }
       })()
     }
 
     const handleHandshakeAckQueue = (ack?: { roomId?: string }) => {
       logReconnectTrace('handshake_ack_unified', { roomId: ack?.roomId })
       joinPendingRef.current = false
+      clearJoinPendingWatchdog()
       activeJoinRef.current = null
       const holdUntil = Date.now() + getConfidenceWindowMs(reconnectChurn)
       const ackRoomId = ack?.roomId
@@ -5003,7 +5059,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     removeCompanionLiveCue,
     removePendingSyncRoom,
     resolveLiveCueWriteSource,
-    resolveCompanionToken,
     setCompanionActiveLiveCueId,
     upsertCompanionLiveCue,
     writeActiveLiveCueId,
@@ -5019,6 +5074,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     isCloudLockEligible,
     syncLockFromCompanionCallable,
     token,
+    clearJoinPendingWatchdog,
   ])
 
   useEffect(() => {

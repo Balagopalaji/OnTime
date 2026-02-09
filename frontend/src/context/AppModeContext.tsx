@@ -42,7 +42,7 @@ export const AppModeProvider = ({ children }: { children: ReactNode }) => {
   const effectiveMode = useMemo<EffectiveAppMode>(() => {
     if (isDegraded && cloudStatus === 'online') return 'cloud'
     if (mode !== 'auto') return mode
-    if (isConnected && handshakeStatus === 'ack') return 'local'
+    if (isConnected && (handshakeStatus === 'ack' || handshakeStatus === 'pending')) return 'local'
     return cloudStatus === 'online' ? 'cloud' : 'local'
   }, [cloudStatus, handshakeStatus, isConnected, isDegraded, mode])
 

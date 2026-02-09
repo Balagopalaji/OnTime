@@ -40,6 +40,12 @@ class FakeSocket {
 let socket: FakeSocket
 let warnSpy: ReturnType<typeof vi.spyOn> | null = null
 
+const buildJwtWithExpiry = (expiresInSeconds: number) => {
+  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = btoa(JSON.stringify({ exp: expiresInSeconds }))
+  return `${header}.${payload}.signature`
+}
+
 vi.mock('socket.io-client', () => ({
   io: vi.fn(() => socket),
 }))
@@ -79,6 +85,7 @@ describe('CompanionConnectionProvider reconnect flow', () => {
   })
 
   afterEach(() => {
+    window.localStorage.clear()
     vi.useRealTimers()
     vi.restoreAllMocks()
     warnSpy?.mockRestore()
@@ -138,6 +145,34 @@ describe('CompanionConnectionProvider reconnect flow', () => {
 
     expect(socket.connect.mock.calls.length).toBeGreaterThanOrEqual(2)
     expect(snapshots[snapshots.length - 1]?.handshakeStatus).toBe('ack')
+
+    view.unmount()
+  })
+
+  it('does not block reconnect on slow token refresh when cached token is still usable', async () => {
+    const deferredFetch = new Promise<{ ok: boolean; json: () => Promise<{ token: string }> }>(() => {})
+    ;(globalThis as typeof globalThis & { fetch?: typeof fetch }).fetch = vi.fn().mockReturnValue(deferredFetch)
+    window.localStorage.setItem('ontime:companionToken', buildJwtWithExpiry(Math.floor(Date.now() / 1000) + 300))
+
+    const view = render(
+      <CompanionConnectionProvider>
+        <ContextProbe onReady={() => {}} onUpdate={() => {}} />
+      </CompanionConnectionProvider>,
+    )
+
+    act(() => {
+      socket.trigger('connect')
+      socket.trigger('disconnect', 'transport close')
+    })
+    const connectCallsBeforeRetryTimer = socket.connect.mock.calls.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+      await Promise.resolve()
+    })
+
+    expect(socket.connect.mock.calls.length).toBeGreaterThan(connectCallsBeforeRetryTimer)
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0)
 
     view.unmount()
   })

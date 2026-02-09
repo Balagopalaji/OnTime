@@ -49,6 +49,7 @@ describe('AppModeProvider mode resolution', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -83,7 +84,7 @@ describe('AppModeProvider mode resolution', () => {
     expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|local|false')
   })
 
-  it('uses cloud authority in auto mode when connection exists but handshake is not acknowledged', () => {
+  it('uses local authority in auto mode during pre-ACK reconnect windows', () => {
     window.localStorage.setItem(STORAGE_KEY, 'auto')
     Object.assign(mockConnection, { isConnected: true, handshakeStatus: 'pending' })
 
@@ -92,7 +93,7 @@ describe('AppModeProvider mode resolution', () => {
       window.dispatchEvent(new CustomEvent('ontime:cloud-status', { detail: 'online' }))
     })
 
-    expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|cloud|false')
+    expect(screen.getByTestId('mode-readout')).toHaveTextContent('auto|local|false')
   })
 
   it('falls back to cloud in auto mode when companion is unavailable and cloud is online', () => {

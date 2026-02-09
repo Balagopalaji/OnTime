@@ -87,6 +87,7 @@ const BACKOFF_SLOW_MS = 10_000
 const BACKOFF_CAP_MS = 60_000
 const RECONNECT_CHURN_WINDOW_MS = 30_000
 const RECONNECT_CHURN_THRESHOLD = 3
+const RECONNECT_TOKEN_MIN_TTL_MS = 5_000
 
 export const getReconnectDelayMs = (attempt: number) => {
   if (attempt <= 1) return 0
@@ -119,6 +120,17 @@ export const getTokenExpiryMs = (token: string): number | null => {
   const exp = payload?.exp
   if (typeof exp !== 'number') return null
   return exp * 1000
+}
+
+export const isReconnectTokenUsable = (
+  token: string | null | undefined,
+  now: number = Date.now(),
+  minTtlMs: number = RECONNECT_TOKEN_MIN_TTL_MS,
+): boolean => {
+  if (!token) return false
+  const expAt = getTokenExpiryMs(token)
+  if (!expAt) return false
+  return expAt - now > minTtlMs
 }
 
 const CompanionConnectionContext = createContext<CompanionConnectionContextValue | undefined>(undefined)
@@ -416,12 +428,17 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
           }
           return
         }
-        const refreshedToken = await fetchToken()
-        const nextToken = refreshedToken ?? token
-        if (!nextToken) {
-          setLastErrorCode('TOKEN_MISSING')
-          scheduleReconnect('token_missing')
-          return
+        const cachedTokenUsable = isReconnectTokenUsable(token)
+        if (!cachedTokenUsable) {
+          const refreshedToken = await fetchToken()
+          if (!refreshedToken) {
+            setLastErrorCode('TOKEN_MISSING')
+            scheduleReconnect('token_missing')
+            return
+          }
+        } else {
+          // Keep reconnect latency low: connect with cached token and refresh in background.
+          void fetchToken()
         }
         if (!socket.connected) {
           if (debugCompanion) {
