@@ -60,6 +60,7 @@ const CACHE_VERSION = 2;
 const VIEWER_CACHE_DIR = 'viewer';
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 10_000;
+const WS_LATENCY_TRACE_ENABLED = process.env.COMPANION_DEBUG_WS === 'true';
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 type ControlRequestClearReason =
   | 'lock_changed'
@@ -266,6 +267,7 @@ type JoinRoomPayload = {
   ownerId?: string;
   takeOver?: boolean;
   interfaceVersion?: string;
+  reconnectStartedAt?: number;
 };
 
 type ControllerLock = {
@@ -5217,8 +5219,35 @@ function createHandshakeAck(roomId: string): HandshakeAck {
   };
 }
 
+function logWsLatencyTrace(
+  event: string,
+  meta?: Record<string, unknown>,
+  reconnectStartedAt?: number,
+): void {
+  if (!WS_LATENCY_TRACE_ENABLED) return;
+  const ts = Date.now();
+  const reconnectStart =
+    typeof reconnectStartedAt === 'number' && Number.isFinite(reconnectStartedAt)
+      ? reconnectStartedAt
+      : null;
+  const deltaMs = reconnectStart ? ts - reconnectStart : 0;
+  console.info('[ws][latency-trace]', {
+    event,
+    ts,
+    deltaMs,
+    reconnectStart,
+    ...meta,
+  });
+}
+
 function handleJoinRoom(socket: Socket, payload: unknown) {
+  const reconnectStartedAt =
+    typeof (payload as { reconnectStartedAt?: unknown })?.reconnectStartedAt === 'number'
+      ? ((payload as { reconnectStartedAt?: number }).reconnectStartedAt as number)
+      : undefined;
+  logWsLatencyTrace('join_room_received', { socketId: socket.id }, reconnectStartedAt);
   if (!isValidJoinRoomPayload(payload)) {
+    logWsLatencyTrace('join_room_invalid_payload', { socketId: socket.id }, reconnectStartedAt);
     console.warn(`[ws] Invalid JOIN_ROOM payload from socket=${socket.id}`);
     const error: HandshakeError = {
       type: 'HANDSHAKE_ERROR',
@@ -5252,6 +5281,11 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     pendingHandshakeStore.delete(clientId);
   }
   if (pendingDecision.reject) {
+    logWsLatencyTrace(
+      'join_room_blocked_duplicate_pending',
+      { clientId, socketId: socket.id },
+      reconnectStartedAt,
+    );
     console.warn(`[ws] Duplicate pending handshake for clientId=${clientId}`);
     const error: HandshakeError = {
       type: 'HANDSHAKE_ERROR',
@@ -5264,6 +5298,11 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   }
 
   if (sameSocketSameRoomJoin) {
+    logWsLatencyTrace(
+      'handshake_ack_emit_idempotent',
+      { roomId: payload.roomId, socketId: socket.id },
+      reconnectStartedAt,
+    );
     socket.emit('HANDSHAKE_ACK', createHandshakeAck(payload.roomId));
     emitControllerLockStateToSocket(socket, payload.roomId);
     emitRoomClientsState(payload.roomId);
@@ -5275,6 +5314,11 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
 
   const tokenPayload = verifyTokenPayload(payload.token);
   if (!tokenPayload) {
+    logWsLatencyTrace(
+      'join_room_token_invalid',
+      { roomId: payload.roomId ?? 'unknown', socketId: socket.id },
+      reconnectStartedAt,
+    );
     console.warn(
       `[ws] Invalid token from socket=${socket.id}, room=${payload.roomId ?? 'unknown'}`
     );
@@ -5301,6 +5345,11 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     : undefined;
   const isViewerToken = tokenPayload.sub === 'viewer';
   if (isViewerToken && tokenPayload.roomId !== payload.roomId) {
+    logWsLatencyTrace(
+      'join_room_token_room_mismatch',
+      { tokenRoomId: tokenPayload.roomId, roomId: payload.roomId, socketId: socket.id },
+      reconnectStartedAt,
+    );
     console.warn(`[ws] Viewer token room mismatch token=${tokenPayload.roomId} join=${payload.roomId}`);
     const error: HandshakeError = {
       type: 'HANDSHAKE_ERROR',
@@ -5312,6 +5361,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     return;
   }
   if (isViewerToken && payload.clientType === 'controller') {
+    logWsLatencyTrace('join_room_token_role_invalid', { socketId: socket.id }, reconnectStartedAt);
     console.warn(`[ws] Viewer token attempted controller join socket=${socket.id}`);
     const error: HandshakeError = {
       type: 'HANDSHAKE_ERROR',
@@ -5327,6 +5377,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     const tokens = getRoomViewerTokens(payload.roomId);
     const entry = tokens.get(tokenPayload.tokenId);
     if (!entry || entry.revokedAt || entry.expiresAt <= Date.now()) {
+      logWsLatencyTrace('join_room_viewer_token_expired', { socketId: socket.id }, reconnectStartedAt);
       console.warn(`[ws] Viewer token revoked/expired socket=${socket.id}`);
       const error: HandshakeError = {
         type: 'HANDSHAKE_ERROR',
@@ -5393,6 +5444,11 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
   const ack = createHandshakeAck(payload.roomId);
 
   if (socket.rooms.has(payload.roomId) && socket.data.clientType === requestedType) {
+    logWsLatencyTrace(
+      'handshake_ack_emit_already_joined',
+      { roomId: payload.roomId, clientType: requestedType, socketId: socket.id },
+      reconnectStartedAt,
+    );
     socket.emit('HANDSHAKE_ACK', ack);
     pendingHandshakeStore.delete(clientId);
     console.log(
@@ -5405,6 +5461,16 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     `[ws] JOIN_ROOM accepted: room=${payload.roomId}, clientType=${payload.clientType ?? 'unknown'}, socket=${socket.id}`
   );
 
+  logWsLatencyTrace(
+    'join_room_validated',
+    { roomId: payload.roomId, clientType: payload.clientType ?? 'unknown', socketId: socket.id },
+    reconnectStartedAt,
+  );
+  logWsLatencyTrace(
+    'handshake_ack_emit',
+    { roomId: payload.roomId, clientType: payload.clientType ?? 'unknown', socketId: socket.id },
+    reconnectStartedAt,
+  );
   socket.emit('HANDSHAKE_ACK', ack);
   socket.join(payload.roomId);
 

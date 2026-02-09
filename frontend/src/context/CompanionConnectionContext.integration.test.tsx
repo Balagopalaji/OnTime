@@ -47,13 +47,21 @@ vi.mock('socket.io-client', () => ({
 type ConnectionSnapshot = {
   isConnected: boolean
   reconnectState: 'idle' | 'reconnecting' | 'stopped'
+  handshakeStatus: 'idle' | 'pending' | 'ack' | 'error'
 }
 
-const ContextProbe = ({ onUpdate }: { onUpdate: (ctx: ConnectionSnapshot) => void }) => {
+const ContextProbe = ({
+  onUpdate,
+  onReady,
+}: {
+  onUpdate: (ctx: ConnectionSnapshot) => void
+  onReady: (ctx: ReturnType<typeof useCompanionConnection>) => void
+}) => {
   const ctx = useCompanionConnection()
   useEffect(() => {
-    onUpdate({ isConnected: ctx.isConnected, reconnectState: ctx.reconnectState })
-  }, [ctx, onUpdate])
+    onReady(ctx)
+    onUpdate({ isConnected: ctx.isConnected, reconnectState: ctx.reconnectState, handshakeStatus: ctx.handshakeStatus })
+  }, [ctx, onReady, onUpdate])
   return null
 }
 
@@ -79,9 +87,10 @@ describe('CompanionConnectionProvider reconnect flow', () => {
 
   it('reconnects after a disconnect', async () => {
     const snapshots: ConnectionSnapshot[] = []
+    let latestCtx: ReturnType<typeof useCompanionConnection> | null = null
     const view = render(
       <CompanionConnectionProvider>
-        <ContextProbe onUpdate={(ctx) => snapshots.push(ctx)} />
+        <ContextProbe onReady={(ctx) => { latestCtx = ctx }} onUpdate={(ctx) => snapshots.push(ctx)} />
       </CompanionConnectionProvider>,
     )
 
@@ -104,7 +113,31 @@ describe('CompanionConnectionProvider reconnect flow', () => {
       await Promise.resolve()
     })
 
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500)
+    })
+    act(() => {
+      latestCtx?.markHandshakePending()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200)
+    })
+    act(() => {
+      socket.trigger('HANDSHAKE_ACK', {
+        type: 'HANDSHAKE_ACK',
+        success: true,
+        roomId: 'room-latency',
+        companionMode: 'show_control',
+        companionVersion: '0.1.0',
+        interfaceVersion: '1.2.0',
+        capabilities: { powerpoint: true, externalVideo: false, fileOperations: true },
+        systemInfo: { platform: 'darwin', hostname: 'local' },
+      })
+    })
+
     expect(socket.connect.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(snapshots[snapshots.length - 1]?.handshakeStatus).toBe('ack')
 
     view.unmount()
   })

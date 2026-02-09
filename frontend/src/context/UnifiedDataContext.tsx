@@ -1231,6 +1231,7 @@ const UnifiedDataResolver = ({ children }: { children: ReactNode }) => {
     markHandshakePending,
     capabilitiesRevision,
     reconnectChurn,
+    reconnectStartedAt,
   } = useCompanionConnection()
   const [roomAuthority, setRoomAuthority] = useState<Record<string, RoomAuthority>>({})
   const [companionRooms, setCompanionRooms] = useState<Record<string, CompanionRoomState>>({})
@@ -1322,6 +1323,22 @@ const activeRoomIntentRef = useRef<Set<string>>(new Set())
   const isViewerClient = useCallback(
     (roomId: string) => subscribedRoomsRef.current[roomId]?.clientType === 'viewer',
     [],
+  )
+  const logReconnectTrace = useCallback(
+    (event: string, meta?: Record<string, unknown>) => {
+      if (!debugCompanion) return
+      const ts = Date.now()
+      const reconnectStart = reconnectStartedAt ?? null
+      const deltaMs = reconnectStart ? ts - reconnectStart : 0
+      console.info('[companion][latency-trace]', {
+        event,
+        ts,
+        deltaMs,
+        reconnectStart,
+        ...meta,
+      })
+    },
+    [debugCompanion, reconnectStartedAt],
   )
 const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     activeRoomIntentRef.current = new Set(roomIds)
@@ -1549,6 +1566,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       return
     }
     if (!socket.connected && !socket.active) {
+      logReconnectTrace('join_room_deferred_waiting_socket', {
+        roomId: next.roomId,
+        clientType: next.clientType,
+      })
       joinQueueRef.current.unshift({ ...next, token: joinToken })
       socket.connect()
       return
@@ -1556,6 +1577,11 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     joinPendingRef.current = true
     activeJoinRef.current = { ...next, token: joinToken }
     markHandshakePending()
+    logReconnectTrace('join_room_emit', {
+      roomId: next.roomId,
+      clientType: next.clientType,
+      queueDepth: joinQueueRef.current.length,
+    })
     if (debugCompanion) {
       console.info('[companion] JOIN_ROOM', { roomId: next.roomId, clientType: next.clientType, clientId })
     }
@@ -1571,8 +1597,21 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       userName: user?.displayName,
       ownerId,
       interfaceVersion: INTERFACE_VERSION,
+      reconnectStartedAt,
     })
-  }, [clientId, debugCompanion, deviceName, firebase, markHandshakePending, socket, token, user?.displayName, user?.uid])
+  }, [
+    clientId,
+    debugCompanion,
+    deviceName,
+    firebase,
+    logReconnectTrace,
+    markHandshakePending,
+    reconnectStartedAt,
+    socket,
+    token,
+    user?.displayName,
+    user?.uid,
+  ])
 
   const enqueueJoin = useCallback(
     (
@@ -1586,9 +1625,14 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       if (active && active.roomId === roomId && active.clientType === clientType) return
       if (joinQueueRef.current.some((entry) => entry.roomId === roomId && entry.clientType === clientType)) return
       joinQueueRef.current.push({ roomId, clientType, token: joinToken, tokenSource })
+      logReconnectTrace('join_room_enqueue', {
+        roomId,
+        clientType,
+        queueDepth: joinQueueRef.current.length,
+      })
       processJoinQueue()
     },
-    [processJoinQueue],
+    [logReconnectTrace, processJoinQueue],
   )
 
   // Subscribe to cloud tombstones to prevent deleted rooms from resurrecting
@@ -2480,7 +2524,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
 
     const updated = Object.entries(saved).reduce<Record<string, CompanionSubscription>>((acc, [roomId, sub]) => {
         if (sub.tokenSource === 'controller') {
-          acc[roomId] = { ...sub, token }
+          acc[roomId] = { ...sub, token: token ?? sub.token }
         } else {
           acc[roomId] = sub
         }
@@ -3957,6 +4001,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
 
     const handleConnect = async () => {
       if (debugCompanion) console.info('[companion] connect')
+      logReconnectTrace('socket_connect_unified')
 
       const joinToken = (await resolveCompanionToken()) ?? null
       if (!joinToken && debugCompanion) {
@@ -4003,6 +4048,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
 
     const handleDisconnect = () => {
       if (debugCompanion) console.info('[companion] disconnect')
+      logReconnectTrace('socket_disconnect_unified')
       joinPendingRef.current = false
       reconnectSyncPendingRef.current = true
       seedFiredRef.current = false
@@ -4035,6 +4081,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     }
 
     const handleHandshakeError = (err: HandshakeError) => {
+      logReconnectTrace('handshake_error_unified', { code: err?.code ?? 'HANDSHAKE_ERROR' })
       joinPendingRef.current = false
       const failedJoin = activeJoinRef.current
       if (failedJoin) {
@@ -4098,6 +4145,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     }
 
     const handleHandshakeAckQueue = (ack?: { roomId?: string }) => {
+      logReconnectTrace('handshake_ack_unified', { roomId: ack?.roomId })
       joinPendingRef.current = false
       activeJoinRef.current = null
       const holdUntil = Date.now() + getConfidenceWindowMs(reconnectChurn)
@@ -4947,6 +4995,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     isCompanionLive,
     isHoldActive,
     isViewerClient,
+    logReconnectTrace,
     mode,
     processJoinQueue,
     reconnectChurn,
@@ -4971,6 +5020,15 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     syncLockFromCompanionCallable,
     token,
   ])
+
+  useEffect(() => {
+    logReconnectTrace('effective_mode_observed', {
+      mode,
+      effectiveMode,
+      handshakeStatus,
+      socketConnected: Boolean(socket?.connected),
+    })
+  }, [effectiveMode, handshakeStatus, logReconnectTrace, mode, socket?.connected])
 
   useEffect(() => {
     if (effectiveMode !== 'local') return

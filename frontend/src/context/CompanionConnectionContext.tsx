@@ -216,6 +216,24 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }))
   const reconnectEventsRef = useRef<number[]>([])
   const churnResetTimerRef = useRef<number | null>(null)
+  const reconnectTraceStartRef = useRef<number | null>(null)
+
+  const logReconnectTrace = useCallback(
+    (event: string, meta?: Record<string, unknown>) => {
+      if (!debugCompanion) return
+      const ts = Date.now()
+      const reconnectStart = reconnectTraceStartRef.current
+      const deltaMs = reconnectStart ? ts - reconnectStart : 0
+      console.info('[companion][latency-trace]', {
+        event,
+        ts,
+        deltaMs,
+        reconnectStart,
+        ...meta,
+      })
+    },
+    [debugCompanion],
+  )
 
   const clearToken = useCallback(() => {
     setToken(null)
@@ -375,7 +393,10 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       reconnectAttemptsRef.current = nextAttempt
       setReconnectAttempts(nextAttempt)
       if (nextAttempt === 1) {
-        setReconnectStartedAt(Date.now())
+        const startedAt = Date.now()
+        reconnectTraceStartRef.current = startedAt
+        setReconnectStartedAt(startedAt)
+        logReconnectTrace('reconnect_start', { reason, attempt: nextAttempt })
       }
       setReconnectStateSafe('reconnecting')
 
@@ -390,6 +411,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
             if (debugCompanion) {
               console.info('[companion] reconnect attempt', { attempt: nextAttempt, reason })
             }
+            logReconnectTrace('socket_connect_attempt', { reason, attempt: nextAttempt, lanViewer: true })
             socket.connect()
           }
           return
@@ -405,11 +427,12 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
           if (debugCompanion) {
             console.info('[companion] reconnect attempt', { attempt: nextAttempt, reason })
           }
+          logReconnectTrace('socket_connect_attempt', { reason, attempt: nextAttempt, lanViewer: false })
           socket.connect()
         }
       }, delay)
     },
-    [debugCompanion, fetchToken, isLanViewer, setReconnectStateSafe, socket, token],
+    [debugCompanion, fetchToken, isLanViewer, logReconnectTrace, setReconnectStateSafe, socket, token],
   )
 
   const retryConnection = useCallback(() => {
@@ -425,7 +448,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
 
   const markHandshakePending = useCallback(() => {
     setHandshakeStatus((prev) => (prev === 'pending' ? prev : 'pending'))
-  }, [])
+    logReconnectTrace('mark_handshake_pending')
+  }, [logReconnectTrace])
 
   useEffect(() => {
     if (!socket) return
@@ -525,6 +549,10 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     if (!socket) return
     const handleConnect = () => {
       if (debugCompanion) console.info('[companion] connect')
+      if (!reconnectTraceStartRef.current) {
+        reconnectTraceStartRef.current = Date.now()
+      }
+      logReconnectTrace('socket_connect')
       setIsConnected(true)
       setLastSeenAt(Date.now())
       // Stay idle until a room join drives a handshake ACK/ERROR.
@@ -541,6 +569,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleDisconnect = (reason?: string) => {
       if (debugCompanion) console.info('[companion] disconnect', reason)
+      logReconnectTrace('socket_disconnect', { reason })
       recordReconnectEvent('disconnect')
       if (reason === 'io server disconnect' || reason === 'server namespace disconnect') {
         clearToken()
@@ -558,6 +587,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleConnectError = () => {
       if (debugCompanion) console.warn('[companion] connect_error')
+      logReconnectTrace('socket_connect_error')
       recordReconnectEvent('connect_error')
       setIsConnected(false)
       setHandshakeStatus('error')
@@ -566,6 +596,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
     const handleHandshakeAck = (data: HandshakeAck) => {
       if (debugCompanion) console.info('[companion] HANDSHAKE_ACK', data)
+      logReconnectTrace('handshake_ack_receive', { roomId: data.roomId })
       const nextCapabilities = data.capabilities ?? {
         powerpoint: false,
         externalVideo: false,
@@ -609,6 +640,7 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     const handleHandshakeError = (error: HandshakeError) => {
       const code = error?.code ?? 'HANDSHAKE_ERROR'
       if (debugCompanion) console.warn('[companion] HANDSHAKE_ERROR', code)
+      logReconnectTrace('handshake_error_receive', { code })
       recordReconnectEvent(`handshake_${code}`)
       setLastErrorCode(code)
       if (code === 'INVALID_TOKEN') {
@@ -663,7 +695,17 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       clearReconnectTimer()
       socket.disconnect()
     }
-  }, [clearReconnectTimer, clearToken, debugCompanion, fetchToken, recordReconnectEvent, scheduleReconnect, setReconnectStateSafe, socket])
+  }, [
+    clearReconnectTimer,
+    clearToken,
+    debugCompanion,
+    fetchToken,
+    logReconnectTrace,
+    recordReconnectEvent,
+    scheduleReconnect,
+    setReconnectStateSafe,
+    socket,
+  ])
 
   useEffect(() => {
     if (!lastErrorCode) return
