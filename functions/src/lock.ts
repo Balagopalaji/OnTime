@@ -329,7 +329,6 @@ export const forceTakeover = functions.https.onCall(async (data, context) => {
   const deviceName = optionalString(data?.deviceName, 'deviceName');
   const userName = optionalString(data?.userName, 'userName');
   const pin = optionalString(data?.pin, 'pin');
-  const reauthenticated = Boolean(data?.reauthenticated);
   const now = admin.firestore.Timestamp.now();
 
   return db.runTransaction(async (tx) => {
@@ -373,7 +372,7 @@ export const forceTakeover = functions.https.onCall(async (data, context) => {
       }
     }
 
-    const authorized = pinMatches || reauthenticated || isStale || requestTimedOut;
+    const authorized = pinMatches || isStale || requestTimedOut;
     if (!authorized) {
       return { success: false, error: 'PERMISSION_DENIED' };
     }

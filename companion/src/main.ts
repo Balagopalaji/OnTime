@@ -59,7 +59,7 @@ const LAN_ENABLED = LAN_HOSTS.length > 0 && process.env.COMPANION_LAN_ENABLED !=
 const CACHE_VERSION = 2;
 const VIEWER_CACHE_DIR = 'viewer';
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
-const PENDING_HANDSHAKE_TTL_MS = 10_000;
+const PENDING_HANDSHAKE_TTL_MS = 2_500;
 const WS_LATENCY_TRACE_ENABLED = process.env.COMPANION_DEBUG_WS === 'true';
 const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 type ControlRequestClearReason =
@@ -408,7 +408,7 @@ type HandshakeAck = {
 
 type HandshakeError = {
   type: 'HANDSHAKE_ERROR';
-  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN';
+  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN' | 'HANDSHAKE_PENDING';
   message: string;
 };
 
@@ -951,7 +951,7 @@ type RoomClientEntry = {
 };
 
 const roomClientStore: Map<string, Map<string, RoomClientEntry>> = new Map();
-const pendingHandshakeStore: Map<string, { socketId: string; startedAt: number }> = new Map();
+const pendingHandshakeStore: Map<string, { socketId: string; roomId: string; startedAt: number }> = new Map();
 const pendingControlRequests: Map<string, PendingControlRequestEntry> = new Map();
 const pendingControlTimeouts: Map<string, NodeJS.Timeout> = new Map();
 const roomControlAuditStore: Map<string, Array<{
@@ -5281,19 +5281,22 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     pendingHandshakeStore.delete(clientId);
   }
   if (pendingDecision.reject) {
+    const sameClientRoomPending = pending?.roomId === payload.roomId;
     logWsLatencyTrace(
       'join_room_blocked_duplicate_pending',
-      { clientId, socketId: socket.id },
+      { clientId, roomId: payload.roomId, socketId: socket.id, sameClientRoomPending },
       reconnectStartedAt,
     );
     console.warn(`[ws] Duplicate pending handshake for clientId=${clientId}`);
     const error: HandshakeError = {
       type: 'HANDSHAKE_ERROR',
-      code: 'INVALID_PAYLOAD',
-      message: 'Handshake already pending.'
+      code: sameClientRoomPending ? 'HANDSHAKE_PENDING' : 'INVALID_PAYLOAD',
+      message: sameClientRoomPending ? 'Handshake still pending.' : 'Handshake already pending.'
     };
     socket.emit('HANDSHAKE_ERROR', error);
-    socket.disconnect(true);
+    if (!sameClientRoomPending) {
+      socket.disconnect(true);
+    }
     return;
   }
 
@@ -5395,7 +5398,7 @@ function handleJoinRoom(socket: Socket, payload: unknown) {
     scheduleRoomCacheWrite();
   }
 
-  pendingHandshakeStore.set(clientId, { socketId: socket.id, startedAt: Date.now() });
+  pendingHandshakeStore.set(clientId, { socketId: socket.id, roomId: payload.roomId, startedAt: Date.now() });
 
   socket.data.clientId = clientId;
   socket.data.clientType = isViewerToken ? 'viewer' : payload.clientType === 'controller' ? 'controller' : 'viewer';
@@ -5795,8 +5798,7 @@ function handleForceTakeover(socket: Socket, payload: unknown) {
   const normalizedPin = normalizeRoomPin(payload.pin);
   const storedPin = roomPinStore.get(roomId)?.pin ?? null;
   const allowByPin = Boolean(storedPin && normalizedPin && normalizedPin === storedPin);
-  const allowByReauth = payload.reauthenticated === true;
-  if (!allowByTimeout && !allowByPin && !allowByReauth) {
+  if (!allowByTimeout && !allowByPin) {
     appendControlAudit(roomId, {
       action: 'force',
       actorId: payload.clientId,
@@ -5806,7 +5808,7 @@ function handleForceTakeover(socket: Socket, payload: unknown) {
       deviceName: socket.data?.deviceName,
       status: 'denied',
     });
-    emitError(socket, 'PERMISSION_DENIED', 'Force takeover requires a valid room PIN, re-auth, or timeout.', roomId);
+    emitError(socket, 'PERMISSION_DENIED', 'Force takeover requires a valid room PIN or timeout.', roomId);
     return;
   }
   setControllerLock(
