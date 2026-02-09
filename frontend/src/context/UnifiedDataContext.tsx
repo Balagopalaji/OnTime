@@ -2284,6 +2284,9 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
               deviceName,
               userName: user.displayName,
               pin: options?.pin,
+              ...(options?.reauthenticated
+                ? { reauthenticated: true, reauthRequired: true }
+                : {}),
             })
             const data = response.data as { success?: boolean; error?: string }
             if (data?.success === false) {

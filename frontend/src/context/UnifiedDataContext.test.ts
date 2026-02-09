@@ -864,6 +864,288 @@ describe('ACK-LAT-002 join watchdog integration', () => {
   })
 })
 
+describe('secure-reauth-force-takeover', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
+    vi.doUnmock('../lib/firebase')
+    vi.doUnmock('firebase/functions')
+  })
+
+  const buildFirebaseValue = () => ({
+    rooms: [],
+    connectionStatus: 'online',
+    setConnectionStatus: vi.fn(),
+    pendingRooms: new Set<string>(),
+    pendingRoomPlaceholders: [],
+    pendingTimers: {},
+    pendingTimerPlaceholders: {},
+    undoRoomDelete: vi.fn(async () => {}),
+    redoRoomDelete: vi.fn(async () => {}),
+    undoTimerDelete: vi.fn(async () => {}),
+    redoTimerDelete: vi.fn(async () => {}),
+    clearUndoStacks: vi.fn(async () => {}),
+    getRoom: vi.fn(() => ({ id: 'room-a', tier: 'show_control', ownerId: 'user-1' })),
+    getTimers: vi.fn(() => []),
+    getCues: vi.fn(() => []),
+    getLiveCues: vi.fn(() => []),
+    getLiveCueRecords: vi.fn(() => []),
+    createRoom: vi.fn(async () => { throw new Error('not used') }),
+    deleteRoom: vi.fn(async () => {}),
+    createTimer: vi.fn(async () => undefined),
+    createCue: vi.fn(async () => undefined),
+    updateTimer: vi.fn(async () => {}),
+    updateCue: vi.fn(async () => {}),
+    updateRoomMeta: vi.fn(async () => {}),
+    restoreTimer: vi.fn(async () => {}),
+    resetTimerProgress: vi.fn(async () => {}),
+    deleteTimer: vi.fn(async () => {}),
+    deleteCue: vi.fn(async () => {}),
+    moveTimer: vi.fn(async () => {}),
+    reorderTimer: vi.fn(async () => {}),
+    reorderCues: vi.fn(async () => {}),
+    getSections: vi.fn(() => []),
+    getSegments: vi.fn(() => []),
+    createSection: vi.fn(async () => undefined),
+    updateSection: vi.fn(async () => {}),
+    deleteSection: vi.fn(async () => {}),
+    reorderSections: vi.fn(async () => {}),
+    createSegment: vi.fn(async () => undefined),
+    updateSegment: vi.fn(async () => {}),
+    deleteSegment: vi.fn(async () => {}),
+    reorderSegments: vi.fn(async () => {}),
+    setActiveTimer: vi.fn(async () => {}),
+    startTimer: vi.fn(async () => {}),
+    pauseTimer: vi.fn(async () => {}),
+    resetTimer: vi.fn(async () => {}),
+    nudgeTimer: vi.fn(async () => {}),
+    setClockMode: vi.fn(async () => {}),
+    setClockFormat: vi.fn(async () => {}),
+    updateMessage: vi.fn(async () => {}),
+    controllerLocks: {},
+    roomPins: {},
+    roomClients: {},
+    controlRequests: {},
+    pendingControlRequests: {},
+    controlDenials: {},
+    controlDisplacements: {},
+    controlErrors: {},
+    getControllerLock: vi.fn(() => null),
+    getControllerLockState: vi.fn(() => 'authoritative'),
+    getRoomPin: vi.fn(() => null),
+    setRoomPin: vi.fn(),
+    requestControl: vi.fn(),
+    forceTakeover: vi.fn(),
+    handOverControl: vi.fn(),
+    denyControl: vi.fn(),
+    enqueueOfflineAction: vi.fn(),
+    clearOfflineQueue: vi.fn(),
+    cloudSync: vi.fn(),
+    cloudSyncEnabled: false,
+    clearLiveCues: vi.fn(),
+    sendHeartbeat: vi.fn(),
+  })
+
+  const setupCloudProvider = async (mockCallable: ReturnType<typeof vi.fn>) => {
+    vi.doMock('../lib/firebase', () => ({
+      app: null,
+      auth: null,
+      db: null,
+      functions: { _mock: true },
+    }))
+
+    vi.doMock('firebase/functions', () => ({
+      httpsCallable: (_fns: unknown, name: string) => {
+        if (name === 'forceTakeover') return mockCallable
+        return vi.fn(async () => ({ data: { success: true } }))
+      },
+    }))
+
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => ({
+        socket: null,
+        isConnected: false,
+        handshakeStatus: 'idle' as const,
+        reconnectState: 'idle' as const,
+        reconnectAttempts: 0,
+        reconnectChurn: false,
+        token: null,
+        fetchToken: vi.fn(async () => null),
+        clearToken: vi.fn(),
+        markHandshakePending: vi.fn(),
+        retryConnection: vi.fn(),
+        protocolStatus: null,
+        companionMode: null,
+        capabilities: null,
+        capabilitiesRevision: 0,
+        systemInfo: null,
+        discoverCompanion: vi.fn(async () => null),
+      }),
+    }))
+
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'cloud', effectiveMode: 'cloud' }),
+    }))
+
+    const firebaseValue = buildFirebaseValue()
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    return module
+  }
+
+  it('unauthorized caller cannot takeover by setting reauthenticated=true (cloud sends reauthRequired which server verifies via auth_time)', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    // Simulate server rejecting: auth_time too old → PERMISSION_DENIED
+    const mockCallable = vi.fn(async () => ({ data: { success: false, error: 'PERMISSION_DENIED' } }))
+    const { UnifiedDataProvider, useUnifiedDataContext } = await setupCloudProvider(mockCallable)
+
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => { ctxRef = ctx }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => { await Promise.resolve() })
+    expect(ctxRef).not.toBeNull()
+
+    act(() => {
+      ctxRef?.forceTakeover('room-a', { reauthenticated: true })
+    })
+    await act(async () => { await Promise.resolve() })
+
+    // The callable is invoked with reauthRequired (server-side check, not raw boolean trust)
+    expect(mockCallable).toHaveBeenCalledWith(
+      expect.objectContaining({ reauthRequired: true }),
+    )
+    // Server returned PERMISSION_DENIED – the raw boolean alone doesn't grant access
+    await expect(mockCallable.mock.results[0].value).resolves.toEqual(
+      expect.objectContaining({ data: { success: false, error: 'PERMISSION_DENIED' } }),
+    )
+
+    view.unmount()
+  })
+
+  it('authorized reauth path succeeds on cloud (server verifies fresh auth_time)', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    // Simulate server accepting: auth_time is fresh
+    const mockCallable = vi.fn(async () => ({ data: { success: true, lock: { clientId: 'c1' } } }))
+    const { UnifiedDataProvider, useUnifiedDataContext } = await setupCloudProvider(mockCallable)
+
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => { ctxRef = ctx }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => { await Promise.resolve() })
+    expect(ctxRef).not.toBeNull()
+
+    act(() => {
+      ctxRef?.forceTakeover('room-a', { reauthenticated: true })
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(mockCallable).toHaveBeenCalledTimes(1)
+    expect(mockCallable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roomId: 'room-a',
+        clientId: expect.any(String),
+        userId: 'user-1',
+        reauthRequired: true,
+      }),
+    )
+
+    view.unmount()
+  })
+
+  it('PIN path still works (cloud forceTakeover sends pin without reauthRequired)', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    const mockCallable = vi.fn(async () => ({ data: { success: true } }))
+    const { UnifiedDataProvider, useUnifiedDataContext } = await setupCloudProvider(mockCallable)
+
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => { ctxRef = ctx }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => { await Promise.resolve() })
+    expect(ctxRef).not.toBeNull()
+
+    act(() => {
+      ctxRef?.forceTakeover('room-a', { pin: '1234' })
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(mockCallable).toHaveBeenCalledTimes(1)
+    const payload = mockCallable.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.pin).toBe('1234')
+    expect(payload.reauthRequired).toBeUndefined()
+
+    view.unmount()
+  })
+
+  it('timeout path still works (cloud forceTakeover without pin or reauth)', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+
+    const mockCallable = vi.fn(async () => ({ data: { success: true } }))
+    const { UnifiedDataProvider, useUnifiedDataContext } = await setupCloudProvider(mockCallable)
+
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => { ctxRef = ctx }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => { await Promise.resolve() })
+    expect(ctxRef).not.toBeNull()
+
+    act(() => {
+      ctxRef?.forceTakeover('room-a')
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(mockCallable).toHaveBeenCalledTimes(1)
+    const payload = mockCallable.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.pin).toBeUndefined()
+    expect(payload.reauthRequired).toBeUndefined()
+
+    view.unmount()
+  })
+})
+
 describe('offline companion room bootstrap helpers', () => {
   it('normalizes cached subscriptions from localStorage', () => {
     localStorage.setItem('ontime:companionSubs.v2', JSON.stringify({

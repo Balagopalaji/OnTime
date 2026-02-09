@@ -4,12 +4,11 @@ import * as functions from 'firebase-functions';
 const STALE_THRESHOLD_MS = 90_000;
 const FORCE_TAKEOVER_TIMEOUT_MS = 30_000;
 const HANDOVER_PRESENCE_FRESH_MS = 30_000;
+const REAUTH_WINDOW_S = 300; // 5 minutes – how recently auth_time must be
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
-
-const db = admin.firestore();
 
 type ControlPolicy = 'exclusive';
 
@@ -28,6 +27,26 @@ type ControlRequest = {
   requesterClientId: string;
   requestedAt: admin.firestore.Timestamp;
   status: 'pending' | 'denied' | 'fulfilled' | 'expired';
+};
+
+type ControlRequestIdentity = Pick<ControlRequest, 'requesterId' | 'requesterClientId'>;
+
+type ForceTakeoverDecisionInput = {
+  nowMs: number;
+  authTime: unknown;
+  reauthenticated?: boolean;
+  reauthRequired?: boolean;
+  pinMatches: boolean;
+  isStale: boolean;
+  request: Partial<ControlRequest> | null;
+  callerUserId: string;
+  callerClientId: string;
+};
+
+type ForceTakeoverDecision = {
+  authorized: boolean;
+  reauthVerified: boolean;
+  requestTimedOut: boolean;
 };
 
 type ControllerPresence = {
@@ -105,6 +124,81 @@ const isLockStale = (lock: Partial<ControllerLock>, now: admin.firestore.Timesta
   return now.toMillis() - baselineMs >= STALE_THRESHOLD_MS;
 };
 
+const hasFreshReauth = ({
+  authTime,
+  nowMs,
+}: {
+  authTime: unknown;
+  nowMs: number;
+}): boolean => {
+  if (typeof authTime !== 'number' || !Number.isFinite(authTime) || authTime <= 0) {
+    return false;
+  }
+  const nowS = Math.floor(nowMs / 1000);
+  return nowS >= authTime && (nowS - authTime) <= REAUTH_WINDOW_S;
+};
+
+const isPendingRequestCallerMatch = ({
+  request,
+  callerUserId,
+  callerClientId,
+}: {
+  request: Partial<ControlRequestIdentity>;
+  callerUserId: string;
+  callerClientId: string;
+}): boolean => {
+  const requesterClientId =
+    typeof request.requesterClientId === 'string' ? request.requesterClientId : undefined;
+  const requesterId = typeof request.requesterId === 'string' ? request.requesterId : undefined;
+
+  // Timeout authorization is strictly requester-client bound. Legacy/malformed
+  // requests without requesterClientId are denied.
+  if (!requesterClientId) {
+    return false;
+  }
+  if (requesterClientId !== callerClientId) {
+    return false;
+  }
+  // requesterId, when present, must also match the authenticated caller.
+  if (requesterId && requesterId !== callerUserId) {
+    return false;
+  }
+  return true;
+};
+
+export const evaluateForceTakeoverDecision = (
+  input: ForceTakeoverDecisionInput
+): ForceTakeoverDecision => {
+  const reauthRequested = Boolean(input.reauthenticated ?? input.reauthRequired);
+  const reauthVerified = reauthRequested
+    ? hasFreshReauth({ authTime: input.authTime, nowMs: input.nowMs })
+    : false;
+
+  let requestTimedOut = false;
+  if (input.request?.status === 'pending') {
+    const requestedAtMs = toMillis(input.request.requestedAt);
+    if (requestedAtMs !== null) {
+      const elapsedMs = input.nowMs - requestedAtMs;
+      if (
+        elapsedMs >= FORCE_TAKEOVER_TIMEOUT_MS &&
+        isPendingRequestCallerMatch({
+          request: input.request,
+          callerUserId: input.callerUserId,
+          callerClientId: input.callerClientId,
+        })
+      ) {
+        requestTimedOut = true;
+      }
+    }
+  }
+
+  return {
+    reauthVerified,
+    requestTimedOut,
+    authorized: input.pinMatches || input.isStale || requestTimedOut || reauthVerified,
+  };
+};
+
 const buildLockData = (params: {
   clientId: string;
   userId: string;
@@ -124,12 +218,12 @@ const buildLockData = (params: {
   return data as ControllerLock;
 };
 
-const lockRef = (roomId: string) => db.doc(`rooms/${roomId}/lock/current`);
-const pinRef = (roomId: string) => db.doc(`rooms/${roomId}/config/pin`);
+const lockRef = (roomId: string) => admin.firestore().doc(`rooms/${roomId}/lock/current`);
+const pinRef = (roomId: string) => admin.firestore().doc(`rooms/${roomId}/config/pin`);
 const controlRequestRef = (roomId: string) =>
-  db.doc(`rooms/${roomId}/controlRequest/current`);
+  admin.firestore().doc(`rooms/${roomId}/controlRequest/current`);
 const clientRef = (roomId: string, clientId: string) =>
-  db.doc(`rooms/${roomId}/clients/${clientId}`);
+  admin.firestore().doc(`rooms/${roomId}/clients/${clientId}`);
 
 export const acquireLock = functions.https.onCall(async (data, context) => {
   const roomId = requireString(data?.roomId, 'roomId');
@@ -140,7 +234,7 @@ export const acquireLock = functions.https.onCall(async (data, context) => {
   const forceIfStale = Boolean(data?.forceIfStale);
   const now = admin.firestore.Timestamp.now();
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const snap = await tx.get(lockRef(roomId));
     if (!snap.exists) {
       const newLock = buildLockData({ clientId, userId, deviceName, userName, now });
@@ -181,7 +275,7 @@ export const releaseLock = functions.https.onCall(async (data, context) => {
   const roomId = requireString(data?.roomId, 'roomId');
   const clientId = requireString(data?.clientId, 'clientId');
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const snap = await tx.get(lockRef(roomId));
     if (!snap.exists) {
       return { success: true };
@@ -201,7 +295,7 @@ export const updateHeartbeat = functions.https.onCall(async (data, context) => {
   const clientId = requireString(data?.clientId, 'clientId');
   const now = admin.firestore.Timestamp.now();
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const snap = await tx.get(lockRef(roomId));
     if (!snap.exists) {
       return { success: false, error: 'NOT_LOCK_HOLDER' };
@@ -245,7 +339,7 @@ export const denyControl = functions.https.onCall(async (data, context) => {
   const roomId = requireString(data?.roomId, 'roomId');
   const authUid = requireAuthUid(context);
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const lockSnap = await tx.get(lockRef(roomId));
     if (!lockSnap.exists) {
       throw new functions.https.HttpsError(
@@ -283,7 +377,7 @@ export const handoverLock = functions.https.onCall(async (data, context) => {
   const userId = resolveUserId(data?.userId, context);
   const now = admin.firestore.Timestamp.now();
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const lockSnap = await tx.get(lockRef(roomId));
     if (!lockSnap.exists) {
       return { success: false, error: 'NO_ACTIVE_LOCK' };
@@ -329,9 +423,11 @@ export const forceTakeover = functions.https.onCall(async (data, context) => {
   const deviceName = optionalString(data?.deviceName, 'deviceName');
   const userName = optionalString(data?.userName, 'userName');
   const pin = optionalString(data?.pin, 'pin');
+  const reauthenticated = Boolean(data?.reauthenticated ?? data?.reauthRequired);
   const now = admin.firestore.Timestamp.now();
+  const authTime: unknown = context.auth?.token?.auth_time;
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const lockSnap = await tx.get(lockRef(roomId));
     const requestSnap = await tx.get(controlRequestRef(roomId));
     const pinSnap = await tx.get(pinRef(roomId));
@@ -354,26 +450,26 @@ export const forceTakeover = functions.https.onCall(async (data, context) => {
       pinMatches = typeof storedPin === 'string' && storedPin === pin;
     }
 
-    let requestTimedOut = false;
-    if (requestSnap.exists) {
-      const request = requestSnap.data() as ControlRequest;
-      if (request.status === 'pending') {
-        const requestedAtMs = toMillis(request.requestedAt);
-        if (requestedAtMs) {
-          const elapsedMs = now.toMillis() - requestedAtMs;
-          if (elapsedMs >= FORCE_TAKEOVER_TIMEOUT_MS) {
-            tx.set(controlRequestRef(roomId), {
-              ...request,
-              status: 'expired',
-            });
-            requestTimedOut = true;
-          }
-        }
-      }
+    const request = requestSnap.exists ? (requestSnap.data() as ControlRequest) : null;
+    const decision = evaluateForceTakeoverDecision({
+      nowMs: now.toMillis(),
+      authTime,
+      reauthenticated,
+      pinMatches,
+      isStale,
+      request,
+      callerUserId: userId,
+      callerClientId: clientId,
+    });
+
+    if (decision.requestTimedOut && request) {
+      tx.set(controlRequestRef(roomId), {
+        ...request,
+        status: 'expired',
+      });
     }
 
-    const authorized = pinMatches || isStale || requestTimedOut;
-    if (!authorized) {
+    if (!decision.authorized) {
       return { success: false, error: 'PERMISSION_DENIED' };
     }
 
@@ -400,7 +496,7 @@ export const syncLockFromCompanion = functions.https.onCall(async (data, context
   const now = admin.firestore.Timestamp.now();
   const lockedAt = admin.firestore.Timestamp.fromMillis(lockedAtMs);
 
-  return db.runTransaction(async (tx) => {
+  return admin.firestore().runTransaction(async (tx) => {
     const snap = await tx.get(lockRef(roomId));
 
     if (!snap.exists) {
