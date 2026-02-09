@@ -1,3 +1,25 @@
+## Date: 2026-02-09
+
+### Scope/Pass label
+reconnect-fallback-contract-clarification
+
+### Summary
+- Clarified the reconnect room rejoin contract in `docs/local-mode.md` to explicitly define two scenarios: cold-start reconnect with no active intents and normal reconnect with active intent(s).
+- No runtime behavior change; documentation now matches implemented `includeAllWhenNoIntents` reconnect fallback behavior.
+
+### Files touched
+- `/Users/radhabalagopala/Dev/OnTime/docs/local-mode.md`
+- `/Users/radhabalagopala/Dev/OnTime/docs/changelog.md`
+
+### Risks / Regression potential
+- Docs-only clarification; no code-path or runtime logic modifications.
+
+### Verification (commands + pass/fail)
+- `code/doc contract spot-check (UnifiedDataContext reconnect path at line 3984)`: PASS
+
+### Follow-ups
+- None.
+
 ## Date: 2026-02-08
 
 ### Scope/Pass label

@@ -127,7 +127,7 @@ The frontend uses a Unified Data Provider architecture where Firebase and Compan
 **These are active and must be preserved.**
 - **Truthful timestamps:** `SYNC_ROOM_STATE` preserves Cloud `state.lastUpdate` and uses it for payload timestamps. Companion must not mint new timestamps for synced data.
 - **Room-aware handshake:** `HANDSHAKE_ACK` includes `roomId`. Hold windows are per-room (no global `'*'`).
-- **Lazy join (active-intent default + safe fallback):** on reconnect, join only the active-intent room by default and join other rooms on navigation (prevents JOIN storms). Exception: if reconnect occurs with no active intents, permit an include-all fallback from cached subscriptions to avoid offline pre-ACK/bootstrap deadlock.
+- **Reconnect room rejoin contract (canonical):** Scenario 1 (cold-start, no active intents): on reconnect, rejoin all cached subscriptions as a safe fallback (`includeAllWhenNoIntents`) to avoid offline pre-ACK/bootstrap deadlock. Scenario 2 (normal reconnect, active intent(s) present): on reconnect, rejoin only active-intent rooms; non-intent rooms rejoin lazily on navigation to prevent JOIN storms.
 - **Idempotent join queue:** duplicate joins for the same room+clientType are ignored.
 - **Seed companion cache:** `SEED_COMPANION_CACHE` bulk-pushes cloud rooms + tombstones to Companion after handshake. Overwrite-safe (newer wins). No JOIN/handshake side effects.
 - **Tombstones:** cloud deletes write `deleted_rooms/{roomId}` with TTL (`expiresAt`). Firestore TTL must be enabled on `deleted_rooms.expiresAt` and the field is stored as a Firestore Timestamp; the app normalizes to ms at the boundary. Local tombstones are queued offline and uploaded on reconnect. Companion applies tombstones to purge local cache.
