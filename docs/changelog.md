@@ -36,30 +36,30 @@ bug-offline-companion-room-bootstrap
 
 ### Summary
 - Findings fixed: offline pre-ACK bootstrap deadlock, dashboard visibility for companion-origin local-owner rooms, and deterministic helper coverage additions.
+- Commit refs (optional): f48a470, d090ba1
 
 ### Files touched
 - `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.tsx`
 - `/Users/radhabalagopala/Dev/OnTime/frontend/src/routes/DashboardPage.tsx`
 - `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.test.ts`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/CompanionConnectionContext.tsx`
-- `/Users/radhabalagopala/Dev/OnTime/companion/src/main.ts`
 - `/Users/radhabalagopala/Dev/OnTime/docs/local-mode.md`
+- `/Users/radhabalagopala/Dev/OnTime/docs/changelog.md`
 
 ### Risks / Regression potential
 - No direct `DashboardPage` assertion exists in the current automated verification scope.
 - No dedicated companion runtime test script is available; companion verification in this pass remains build-only evidence.
 
 ### Verification (commands + pass/fail)
-- `re_sweep`: GO (Gate PASS)
+- `re-sweep`: GO (Gate PASS)
 - `prd-contract-check`: PASS WITH NOTES
 - `smoke-checks-auto`: PASS WITH NOTES (report: `/Users/radhabalagopala/Dev/OnTime/docs/qa/bug-offline-companion-room-bootstrap-auto-smoke.md`)
 
 ### Follow-ups
 - Bug IDs touched this pass: `bug-offline-companion-room-bootstrap`
-- Ledger update pending commit SHA assignment for `first_fixed_in`; keep status `monitoring` until dashboard assertion coverage and companion runtime script coverage are added.
+- Ledger updates needed: set `first_fixed_in=f48a470`; keep status `monitoring` until dashboard assertion coverage and companion runtime script coverage are added.
 
 ## Regression Ledger
 | bug_id | first_fixed_in | regressed_in | root_cause_class | status |
 |---|---|---|---|---|
 | bug-ctrl-selected-reset | 07ad171 | none | scope drift | monitoring |
-| bug-offline-companion-room-bootstrap | pending | none | reconnect/bootstrap guardrail gap | monitoring |
+| bug-offline-companion-room-bootstrap | f48a470 | none | reconnect/bootstrap guardrail gap | monitoring |
