@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  getPendingControlReplacementReason,
-  shouldClearPendingControlByTimeout,
-  shouldClearPendingControlForRequester,
-} from './main'
 
-test('queued pending request is cleared as superseded when another requester arrives', () => {
+const loadLifecycleHelpers = async () => {
+  process.env.ONTIME_COMPANION_DISABLE_BOOTSTRAP = '1'
+  return import('./main.js')
+}
+
+test('queued pending request is cleared as superseded when another requester arrives', async () => {
+  const { getPendingControlReplacementReason } = await loadLifecycleHelpers()
   const reason = getPendingControlReplacementReason(
     {
       requesterId: 'requester-a',
@@ -19,7 +20,11 @@ test('queued pending request is cleared as superseded when another requester arr
   assert.equal(reason, 'superseded')
 })
 
-test('queued pending request is cleared as timeout when stale', () => {
+test('queued pending request is cleared as timeout when stale', async () => {
+  const {
+    getPendingControlReplacementReason,
+    shouldClearPendingControlByTimeout,
+  } = await loadLifecycleHelpers()
   const reason = getPendingControlReplacementReason(
     {
       requesterId: 'requester-a',
@@ -44,7 +49,8 @@ test('queued pending request is cleared as timeout when stale', () => {
   )
 })
 
-test('deny/disconnect clear actions only target the queued requester', () => {
+test('deny/disconnect clear actions only target the queued requester', async () => {
+  const { shouldClearPendingControlForRequester } = await loadLifecycleHelpers()
   const pending = {
     requesterId: 'requester-a',
     requestedAt: 1_000,
@@ -54,7 +60,8 @@ test('deny/disconnect clear actions only target the queued requester', () => {
   assert.equal(shouldClearPendingControlForRequester(pending, 'requester-b'), false)
 })
 
-test('fresh re-request by same requester does not emit superseded clear', () => {
+test('fresh re-request by same requester does not emit superseded clear', async () => {
+  const { getPendingControlReplacementReason } = await loadLifecycleHelpers()
   const reason = getPendingControlReplacementReason(
     {
       requesterId: 'requester-a',

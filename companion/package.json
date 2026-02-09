@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron ./electron-dev.js",
     "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/main.lifecycle.test.js",
     "build:viewer": "node ./scripts/build-viewer.js",
     "dist": "npm run build:viewer && npm run build && electron-builder",
     "dist:dev": "npm version prerelease --preid dev --no-git-tag-version && npm run dist",
