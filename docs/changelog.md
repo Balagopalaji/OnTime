@@ -80,8 +80,44 @@ bug-offline-companion-room-bootstrap
 - Bug IDs touched this pass: `bug-offline-companion-room-bootstrap`
 - Ledger updates needed: set `first_fixed_in=f48a470`; keep status `monitoring` until dashboard assertion coverage and companion runtime script coverage are added.
 
+## Date: 2026-02-09
+
+### Scope/Pass label
+ack-latency-recovery
+
+### Summary
+- Findings fixed: added join replay watchdog recovery to clear stalled in-flight joins, requeue to tail deterministically, and resume queue processing under ACK latency.
+- Commit refs (optional): none
+
+### Files touched
+- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.tsx`
+- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.test.ts`
+
+### Risks / Regression potential
+- Watchdog behavior is validated in unit/integration tests but not yet exercised in full LAN runtime soak conditions.
+- Companion reconnect behavior remains sensitive to real network turbulence beyond automated suite coverage.
+
+### Verification (commands + pass/fail)
+- `prd-contract-check (ack-latency-recovery scope)`: PASS WITH NOTES
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run lint -- --max-warnings=0`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- AppModeContext.test.tsx`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- UnifiedDataContext.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- controller-permissions.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- controller-join-intent.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- arbitration.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/companion && npm run build`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/companion && npm run test`: PASS
+- `smoke-checks-auto report`: PASS (`/Users/radhabalagopala/Dev/OnTime/docs/qa/ack-latency-recovery-auto-smoke.md`)
+
+### Follow-ups
+- Bug IDs touched this pass: `ack-lat-002`
+- Ledger updates needed: set `first_fixed_in=pending`; status `monitoring` until commit SHA is assigned and LAN/runtime soak verification is captured.
+- Add targeted reconnect soak evidence for repeated delayed `HANDSHAKE_ACK` under packet loss.
+
 ## Regression Ledger
 | bug_id | first_fixed_in | regressed_in | root_cause_class | status |
 |---|---|---|---|---|
 | bug-ctrl-selected-reset | 07ad171 | none | scope drift | monitoring |
 | bug-offline-companion-room-bootstrap | f48a470 | none | reconnect/bootstrap guardrail gap | monitoring |
+| ack-lat-002 | pending | none | state race | monitoring |
