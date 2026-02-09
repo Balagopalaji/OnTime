@@ -357,6 +357,9 @@ Notes:
 ```
 Notes:
 - Authorization requires one of: valid PIN, `reauthenticated: true`, stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
+- `reauthenticated` is a client hint only; it never authorizes takeover by itself.
+- Server verifies reauth using Firebase Auth token `auth_time` within a bounded recency window.
+- Callable contract canonical key is `reauthenticated`; `reauthRequired` is accepted temporarily as a backward-compatible alias.
 - `controlRequest` lifecycle: `requestControl` creates/updates `rooms/{roomId}/controlRequest/current`; `forceTakeover` and `deny` delete it; timeout sets `status: 'expired'`.
 
 **`handoverLock`** - Transfer lock to a target client
@@ -638,6 +641,7 @@ Notes:
 ```
 Notes:
 - Provide either `pin` or `reauthenticated` for immediate takeover.
+- `reauthenticated` is canonical; `reauthRequired` is legacy alias support for older clients.
 
 **Client → Server: `HAND_OVER`**
 ```json

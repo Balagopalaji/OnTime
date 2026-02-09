@@ -449,7 +449,9 @@ When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcem
 
 **UX parity:**
 - Cloud mode produces the same `controllerLockState` values: `authoritative`, `read-only`, `requesting`, `displaced`
-- Request/force takeover UI works identically in both modes
+- Request/force takeover UX remains aligned, but immediate takeover auth differs by authority source
+- Cloud immediate takeover can use PIN or server-verified reauth (`auth_time`-based)
+- Local-only Companion immediate takeover cannot use Firebase reauth and relies on PIN/stale/timeout policy
 - Frontend subscribes to lock document for real-time state updates
 
 **Planned (Follow-up): Cloud handover presence**

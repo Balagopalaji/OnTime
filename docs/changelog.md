@@ -115,9 +115,50 @@ ack-latency-recovery
 - Ledger updates needed: set `first_fixed_in=pending`; status `monitoring` until commit SHA is assigned and LAN/runtime soak verification is captured.
 - Add targeted reconnect soak evidence for repeated delayed `HANDSHAKE_ACK` under packet loss.
 
+## Date: 2026-02-09
+
+### Scope/Pass label
+secure-reauth-force-takeover-remediation
+
+### Summary
+- Findings fixed: aligned cloud force-takeover reauth contract to canonical `reauthenticated`, preserved temporary backward-compat alias `reauthRequired`, and updated docs to clarify server-side `auth_time` verification plus local/cloud auth-path parity.
+- Commit refs (optional): none
+
+### Files touched
+- `/Users/radhabalagopala/Dev/OnTime/functions/src/lock.ts`
+- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.tsx`
+- `/Users/radhabalagopala/Dev/OnTime/docs/interface.md`
+- `/Users/radhabalagopala/Dev/OnTime/docs/local-mode.md`
+- `/Users/radhabalagopala/Dev/OnTime/functions/lib/lock.js`
+- `/Users/radhabalagopala/Dev/OnTime/docs/qa/secure-reauth-force-takeover-remediation-auto-smoke.md`
+
+### Risks / Regression potential
+- Backward-compat alias support (`reauthRequired`) is temporary and must be removed only after all callers migrate to canonical `reauthenticated`.
+- Full suite remains green, but sandbox Firestore connectivity warnings still appear in test stderr and should continue to be monitored.
+
+### Verification (commands + pass/fail)
+- `prd-contract-check (secure-reauth-force-takeover-remediation scope)`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/functions && npm run build`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run lint -- --max-warnings=0`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- AppModeContext.test.tsx`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- UnifiedDataContext.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- controller-permissions.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- controller-join-intent.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/frontend && npm run test -- arbitration.test.ts`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/companion && npm run build`: PASS
+- `cd /Users/radhabalagopala/Dev/OnTime/companion && npm run test`: PASS
+- `smoke-checks-auto report`: PASS (`/Users/radhabalagopala/Dev/OnTime/docs/qa/secure-reauth-force-takeover-remediation-auto-smoke.md`)
+
+### Follow-ups
+- Bug IDs touched this pass: `secure-reauth-force-takeover-remediation`
+- Ledger updates needed: set `first_fixed_in=pending`; status `monitoring` until legacy alias removal is completed in a future cleanup pass.
+- Plan alias-removal pass after confirming no remaining callers depend on `reauthRequired`.
+
 ## Regression Ledger
 | bug_id | first_fixed_in | regressed_in | root_cause_class | status |
 |---|---|---|---|---|
 | bug-ctrl-selected-reset | 07ad171 | none | scope drift | monitoring |
 | bug-offline-companion-room-bootstrap | f48a470 | none | reconnect/bootstrap guardrail gap | monitoring |
 | ack-lat-002 | pending | none | state race | monitoring |
+| secure-reauth-force-takeover-remediation | pending | none | contract drift | monitoring |
