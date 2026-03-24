@@ -74,3 +74,27 @@ test('fresh re-request by same requester does not emit superseded clear', async 
 
   assert.equal(reason, null)
 })
+
+test('legacy trust flags without a fingerprint do not count as current', async () => {
+  const { isTrustFlagCurrent } = await loadLifecycleHelpers()
+  assert.equal(
+    isTrustFlagCurrent(
+      'trusted-system at 2026-01-21T11:54:14.613Z for /tmp/localhost-cert.pem',
+      'AA:BB:CC',
+    ),
+    false,
+  )
+})
+
+test('trust flags are tied to the current certificate fingerprint', async () => {
+  const { buildTrustFlagContents, isTrustFlagCurrent } = await loadLifecycleHelpers()
+  const trustFlag = buildTrustFlagContents(
+    'trusted-system',
+    '/tmp/localhost-cert.pem',
+    'AA:BB:CC',
+    '2026-03-24T06:00:00.000Z',
+  )
+
+  assert.equal(isTrustFlagCurrent(trustFlag, 'AA:BB:CC'), true)
+  assert.equal(isTrustFlagCurrent(trustFlag, 'DD:EE:FF'), false)
+})

@@ -32,7 +32,7 @@ type ViewerBundleState = {
 
 const APP_LABEL = 'OnTime Companion';
 let currentCompanionMode: CompanionMode = 'show_control';
-const COMPANION_VERSION = '0.1.0';
+const COMPANION_VERSION = '0.1.1-dev.2';
 const INTERFACE_VERSION = '1.2.0';
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -126,7 +126,7 @@ const COMPANION_CAPABILITIES_BY_MODE: Record<
   { powerpoint: boolean; externalVideo: boolean; fileOperations: boolean }
 > = {
   minimal: {
-    powerpoint: false,
+    powerpoint: true,
     externalVideo: false,
     fileOperations: true
   },
@@ -2072,6 +2072,27 @@ type CertMeta = {
   generatedAt: string;
 };
 
+export function getCertFingerprint(certPem: string): string | null {
+  try {
+    return new crypto.X509Certificate(certPem).fingerprint256;
+  } catch {
+    return null;
+  }
+}
+
+export function buildTrustFlagContents(
+  status: string,
+  certPath: string,
+  certFingerprint: string,
+  generatedAt = new Date().toISOString(),
+): string {
+  return `${status} at ${generatedAt} for ${certPath}\nfingerprint=${certFingerprint}\n`;
+}
+
+export function isTrustFlagCurrent(flagContents: string, certFingerprint: string): boolean {
+  return flagContents.includes(`fingerprint=${certFingerprint}`);
+}
+
 function parseSubjectAltNames(subjectAltName?: string): string[] {
   if (!subjectAltName) return [];
   return subjectAltName
@@ -2273,19 +2294,33 @@ async function loadOrCreateLocalhostCert(): Promise<TlsBundle> {
   return { cert: next.cert, key: next.key, source: 'self_signed', certPath, keyPath };
 }
 
-async function installTrustIfNeeded(certPath: string): Promise<boolean> {
-  const { trustInstalledFlagPath, trustSkipFlagPath } = getLocalhostCertPaths();
+async function hasCurrentTrustFlag(flagPath: string, certPem: string): Promise<boolean> {
+  const certFingerprint = getCertFingerprint(certPem);
+  if (!certFingerprint) return false;
   try {
-    await fs.access(trustSkipFlagPath);
-    return false; // user skipped OS trust
+    const flagContents = await fs.readFile(flagPath, 'utf8');
+    if (isTrustFlagCurrent(flagContents, certFingerprint)) {
+      return true;
+    }
   } catch {
-    // continue
+    return false;
   }
+
   try {
-    await fs.access(trustInstalledFlagPath);
-    return true; // already trusted
+    await fs.unlink(flagPath);
   } catch {
-    // continue
+    // ignore stale flag cleanup failure
+  }
+  return false;
+}
+
+async function installTrustIfNeeded(certPath: string, certPem: string): Promise<boolean> {
+  const { trustInstalledFlagPath, trustSkipFlagPath } = getLocalhostCertPaths();
+  if (await hasCurrentTrustFlag(trustSkipFlagPath, certPem)) {
+    return false; // user skipped OS trust
+  }
+  if (await hasCurrentTrustFlag(trustInstalledFlagPath, certPem)) {
+    return true; // already trusted
   }
 
   const platform = process.platform;
@@ -2307,8 +2342,15 @@ async function installTrustIfNeeded(certPath: string): Promise<boolean> {
     proc.on('exit', async (code) => {
       if (code === 0) {
         try {
+          const certFingerprint = getCertFingerprint(certPem);
           await ensureDir(trustInstalledFlagPath);
-          await fs.writeFile(trustInstalledFlagPath, `trusted at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+          if (certFingerprint) {
+            await fs.writeFile(
+              trustInstalledFlagPath,
+              buildTrustFlagContents('trusted', certPath, certFingerprint),
+              'utf8',
+            );
+          }
         } catch {
           // ignore flag errors
         }
@@ -2321,7 +2363,7 @@ async function installTrustIfNeeded(certPath: string): Promise<boolean> {
   });
 }
 
-async function installSystemTrust(certPath: string): Promise<boolean> {
+async function installSystemTrust(certPath: string, certPem: string): Promise<boolean> {
   const { trustInstalledFlagPath, trustSkipFlagPath } = getLocalhostCertPaths();
   const platform = process.platform;
   const args: string[] = [];
@@ -2342,16 +2384,30 @@ async function installSystemTrust(certPath: string): Promise<boolean> {
     proc.on('exit', async (code) => {
       if (code === 0) {
         try {
+          const certFingerprint = getCertFingerprint(certPem);
           await ensureDir(trustInstalledFlagPath);
-          await fs.writeFile(trustInstalledFlagPath, `trusted-system at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+          if (certFingerprint) {
+            await fs.writeFile(
+              trustInstalledFlagPath,
+              buildTrustFlagContents('trusted-system', certPath, certFingerprint),
+              'utf8',
+            );
+          }
         } catch {
           // ignore
         }
         resolve(true);
       } else {
         try {
+          const certFingerprint = getCertFingerprint(certPem);
           await ensureDir(trustSkipFlagPath);
-          await fs.writeFile(trustSkipFlagPath, `system trust failed at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+          if (certFingerprint) {
+            await fs.writeFile(
+              trustSkipFlagPath,
+              buildTrustFlagContents('system trust failed', certPath, certFingerprint),
+              'utf8',
+            );
+          }
         } catch {
           // ignore
         }
@@ -2360,8 +2416,15 @@ async function installSystemTrust(certPath: string): Promise<boolean> {
     });
     proc.on('error', async () => {
       try {
+        const certFingerprint = getCertFingerprint(certPem);
         await ensureDir(trustSkipFlagPath);
-        await fs.writeFile(trustSkipFlagPath, `system trust error at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+        if (certFingerprint) {
+          await fs.writeFile(
+            trustSkipFlagPath,
+            buildTrustFlagContents('system trust error', certPath, certFingerprint),
+            'utf8',
+          );
+        }
       } catch {
         // ignore
       }
@@ -2383,13 +2446,6 @@ async function maybePromptTrust(_certPath: string) {
   }
 }
 
-function hasFile(pathToCheck: string): Promise<boolean> {
-  return fs
-    .access(pathToCheck)
-    .then(() => true)
-    .catch(() => false);
-}
-
 async function openTrustPages(url: string) {
   // Always open in default browser
   await shell.openExternal(url);
@@ -2406,14 +2462,14 @@ async function openTrustPages(url: string) {
   }
 }
 
-async function maybeHandleTrust(certPath: string): Promise<void> {
+async function maybeHandleTrust(certPath: string, certPem: string): Promise<void> {
   const { trustSkipFlagPath, trustInstalledFlagPath } = getLocalhostCertPaths();
 
-  const alreadyTrusted = await hasFile(trustInstalledFlagPath);
+  const alreadyTrusted = await hasCurrentTrustFlag(trustInstalledFlagPath, certPem);
   if (alreadyTrusted) return;
 
 
-  const skipped = await hasFile(trustSkipFlagPath);
+  const skipped = await hasCurrentTrustFlag(trustSkipFlagPath, certPem);
   if (skipped) return;
 
   const lanGuidance =
@@ -2438,21 +2494,28 @@ async function maybeHandleTrust(certPath: string): Promise<void> {
   });
 
   if (result.response === 0) {
-    const trusted = await installTrustIfNeeded(certPath);
+    const trusted = await installTrustIfNeeded(certPath, certPem);
     if (!trusted) {
       await maybePromptTrust(certPath);
     }
   } else if (result.response === 1) {
     await maybePromptTrust(certPath);
   } else if (result.response === 2) {
-    const osTrusted = await installSystemTrust(certPath);
+    const osTrusted = await installSystemTrust(certPath, certPem);
     if (!osTrusted) {
       await maybePromptTrust(certPath);
     }
   } else {
     try {
+      const certFingerprint = getCertFingerprint(certPem);
       await ensureDir(trustSkipFlagPath);
-      await fs.writeFile(trustSkipFlagPath, `skipped at ${new Date().toISOString()} for ${certPath}`, 'utf8');
+      if (certFingerprint) {
+        await fs.writeFile(
+          trustSkipFlagPath,
+          buildTrustFlagContents('skipped', certPath, certFingerprint),
+          'utf8',
+        );
+      }
     } catch {
       // ignore
     }
@@ -3166,7 +3229,7 @@ async function bootstrap() {
   const tls = customTls ?? await loadOrCreateLocalhostCert();
   if (tls.source === 'self_signed') {
     const { certPath } = getLocalhostCertPaths();
-    await maybeHandleTrust(certPath);
+    await maybeHandleTrust(certPath, tls.cert);
   } else {
     console.log('[tls] Custom certificate active; skipping automatic trust prompts.');
   }
