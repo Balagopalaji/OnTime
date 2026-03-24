@@ -40,7 +40,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_FEATURES = {
   localMode: true,
   showControl: false,
-  powerpoint: false,
+  powerpoint: true,
   externalVideo: false,
 }
 
@@ -940,14 +940,13 @@ export const FirebaseDataProvider = ({
   )
 
   const updateRoomTier: DataContextValue['updateRoomTier'] = useCallback(
-    async (roomId, tier) => {
+    async (roomId: string, tier: Room['tier']) => {
       if (migratingRoomsRef.current.has(roomId) || !firestore) return
-      const features =
-        tier === 'basic'
-          ? { showControl: false, powerpoint: false, externalVideo: false }
-          : tier === 'production'
-            ? { showControl: false, powerpoint: false, externalVideo: true }
-            : { showControl: true, powerpoint: true, externalVideo: true }
+      const features = {
+        showControl: false,
+        powerpoint: true,
+        externalVideo: false,
+      }
 
       await updateDoc(doc(firestore, 'rooms', roomId), {
         tier,
@@ -1507,6 +1506,7 @@ export const FirebaseDataProvider = ({
   const controlErrors = useMemo<Record<string, null>>(() => ({}), [])
   const getControllerLock = useCallback(() => null, [])
   const getControllerLockState = useCallback(() => 'authoritative', [])
+  const getLockAuthoritySource = useCallback(() => 'cloud' as const, [])
   const getRoomPin = useCallback(() => null, [])
   const setRoomPin = useCallback(() => {}, [])
   const requestControl = useCallback(() => {}, [])
@@ -1584,6 +1584,7 @@ export const FirebaseDataProvider = ({
       controlErrors,
       getControllerLock,
       getControllerLockState,
+      getLockAuthoritySource,
       getRoomPin,
       setRoomPin,
       requestControl,
@@ -1658,6 +1659,7 @@ export const FirebaseDataProvider = ({
       controlErrors,
       getControllerLock,
       getControllerLockState,
+      getLockAuthoritySource,
       getRoomPin,
       setRoomPin,
       requestControl,

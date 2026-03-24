@@ -64,7 +64,7 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
     },
     _version: data._version ?? 1,
     tier: data.tier ?? 'basic',
-    features: data.features ?? { localMode: true, showControl: false, powerpoint: false, externalVideo: false },
+    features: data.features ?? { localMode: true, showControl: false, powerpoint: true, externalVideo: false },
     state: {
       activeTimerId: data.state?.activeTimerId ?? null,
       isRunning: data.state?.isRunning ?? false,

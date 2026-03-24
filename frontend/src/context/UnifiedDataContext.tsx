@@ -176,6 +176,19 @@ export const reduceControlDisplacementsForLockUpdate = ({
   return current
 }
 
+export const resolveLockAuthoritySource = ({
+  room,
+  connectionStatus,
+}: {
+  room?: Pick<Room, 'id'>
+  connectionStatus: DataContextValue['connectionStatus']
+}): 'cloud' | 'companion' => {
+  if (room && connectionStatus === 'online') {
+    return 'cloud'
+  }
+  return 'companion'
+}
+
 type TimerCreatedPayload = {
   type: 'TIMER_CREATED'
   roomId: string
@@ -719,7 +732,7 @@ const DEFAULT_ROOM_CONFIG = {
 const DEFAULT_FEATURES = {
   localMode: true,
   showControl: false,
-  powerpoint: false,
+  powerpoint: true,
   externalVideo: false,
 }
 
@@ -1482,21 +1495,31 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
   const isCloudLockEligible = useCallback(
     (roomId: string) => {
       const room = firebase.getRoom(roomId)
-      const tier = room?.tier
-      return tier === 'show_control' || tier === 'production'
+      // Interview/demo branch: keep controller lock available for all active rooms,
+      // even when show-control UI is hidden. Timer state may still arbitrate
+      // between cloud and Companion, but lock authority should not split.
+      return Boolean(room)
     },
     [firebase],
   )
 
   const shouldUseCloudLock = useCallback(
     (roomId: string) => {
-      const authority = roomAuthority[roomId] ?? DEFAULT_AUTHORITY
-      const cloudAuthority = authority.source === 'cloud'
-      const pendingCloud = authority.source === 'pending' && effectiveMode === 'cloud'
-      if (!cloudAuthority && !pendingCloud) return false
-      return isCloudLockEligible(roomId)
+      if (!isCloudLockEligible(roomId)) return false
+      return (
+        resolveLockAuthoritySource({
+          room: firebase.getRoom(roomId),
+          connectionStatus: firebase.connectionStatus,
+        }) === 'cloud'
+      )
     },
-    [effectiveMode, isCloudLockEligible, roomAuthority],
+    [firebase, isCloudLockEligible],
+  )
+
+  const getLockAuthoritySource = useCallback(
+    (roomId: string): 'cloud' | 'companion' =>
+      shouldUseCloudLock(roomId) ? 'cloud' : 'companion',
+    [shouldUseCloudLock],
   )
 
   const isCloudController = useCallback(
@@ -2682,7 +2705,13 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const room = firebase.getRoom(roomId)
       const tier = room?.tier
       const features = room?.features
-      return Boolean(features?.showControl || tier === 'show_control' || tier === 'production')
+      return Boolean(
+        features?.showControl ||
+          features?.powerpoint ||
+          features?.externalVideo ||
+          tier === 'show_control' ||
+          tier === 'production',
+      )
     },
     [firebase],
   )
@@ -4820,6 +4849,16 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     }
 
     const handleControllerLockState = (payload: ControllerLockStatePayload) => {
+      if (shouldUseCloudLock(payload.roomId)) {
+        if (debugCompanion) {
+          console.info('[companion] CONTROLLER_LOCK_STATE ignored while cloud lock is authoritative', {
+            roomId: payload.roomId,
+            companionLock: payload.lock ?? null,
+            cloudLock: controllerLocksRef.current[payload.roomId] ?? null,
+          })
+        }
+        return
+      }
       if (ARBITRATION_FLAGS.lock) {
         // Hold conflict guard: during reconnect churn, if cloud already has a lock
         // held by a different client, ignore the companion lock to prevent stale
@@ -6806,6 +6845,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         controlErrors,
         getControllerLock,
         getControllerLockState,
+        getLockAuthoritySource,
         getRoomPin,
         setRoomPin,
         requestControl,
@@ -6845,6 +6885,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       getRoomAuthority,
       getControllerLock,
       getControllerLockState,
+      getLockAuthoritySource,
       getRoomPin,
       getTimers,
       getCues,

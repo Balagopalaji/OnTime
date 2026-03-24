@@ -777,12 +777,11 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
 
   const updateRoomTier = useCallback(
     async (roomId: string, tier: Room['tier']) => {
-      const nextFeatures =
-        tier === 'basic'
-          ? { showControl: false, powerpoint: false, externalVideo: false }
-          : tier === 'production'
-            ? { showControl: false, powerpoint: false, externalVideo: true }
-            : { showControl: true, powerpoint: true, externalVideo: true }
+      const nextFeatures = {
+        showControl: false,
+        powerpoint: true,
+        externalVideo: false,
+      }
 
       updateRoom(roomId, (room) => ({
         ...room,
@@ -1813,6 +1812,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
   const controlErrors = useMemo<Record<string, null>>(() => ({}), [])
   const getControllerLock = useCallback(() => null, [])
   const getControllerLockState = useCallback(() => 'authoritative', [])
+  const getLockAuthoritySource = useCallback(() => 'cloud' as const, [])
   const getRoomPin = useCallback(() => null, [])
   const setRoomPin = useCallback(() => {}, [])
   const requestControl = useCallback(() => {}, [])
@@ -1888,6 +1888,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       controlErrors,
       getControllerLock,
       getControllerLockState,
+      getLockAuthoritySource,
       getRoomPin,
       setRoomPin,
       requestControl,
@@ -1961,6 +1962,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       controlErrors,
       getControllerLock,
       getControllerLockState,
+      getLockAuthoritySource,
       getRoomPin,
       setRoomPin,
       requestControl,

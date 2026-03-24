@@ -136,7 +136,7 @@ describe('CompanionConnectionProvider reconnect flow', () => {
         success: true,
         roomId: 'room-latency',
         companionMode: 'show_control',
-        companionVersion: '0.1.0',
+        companionVersion: '0.1.1-dev.2',
         interfaceVersion: '1.2.0',
         capabilities: { powerpoint: true, externalVideo: false, fileOperations: true },
         systemInfo: { platform: 'darwin', hostname: 'local' },

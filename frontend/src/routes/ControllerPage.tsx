@@ -52,6 +52,7 @@ import {
 } from './controller-permissions'
 import { resolveControllerJoinIntent, shouldIssueForcedControllerJoin } from './controller-join-intent'
 import { resolveControllerTimerTargetId } from './controller-timer-target'
+import { buildControllerRundownOrder } from './controller-rundown-order'
 import type { LiveCueRecord, ControllerClient, Segment as SegmentType, Timer as TimerType, Cue } from '../types'
 
 type PresentationEntry = {
@@ -192,6 +193,7 @@ export const ControllerPage = () => {
   const companion = useCompanionConnection()
   const { handshakeStatus } = companion
   const companionReady = companion.isConnected && handshakeStatus === 'ack'
+  const lanViewerReady = companion.isConnected || Boolean(companion.token)
   const ctx = useDataContext()
   const {
     getRoom,
@@ -219,6 +221,7 @@ export const ControllerPage = () => {
     controlDenials,
     getControllerLock,
     getControllerLockState,
+    getLockAuthoritySource,
     getRoomPin,
     setRoomPin,
     requestControl,
@@ -295,7 +298,10 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
           [roomId]: forceDecision.nextForcedJoinAt,
         }
       }
-      const intent = resolveControllerJoinIntent(lastJoinKeyRef.current, roomId, options)
+      const intent = resolveControllerJoinIntent(lastJoinKeyRef.current, roomId, {
+        ...options,
+        handshakeStatus,
+      })
       if (!intent.shouldJoin) return
       lastJoinKeyRef.current = intent.nextKey
       if (debugCompanion) {
@@ -305,7 +311,7 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
       }
       subscribeToCompanionRoom(roomId, 'controller')
     },
-    [debugCompanion, roomId, subscribeToCompanionRoom],
+    [debugCompanion, handshakeStatus, roomId, subscribeToCompanionRoom],
   )
 
   const bumpCompanionOnActivity = useCallback(
@@ -322,12 +328,13 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
 
   const room = roomId ? getRoom(roomId) : undefined
   const roomAuthority = roomId && getRoomAuthority ? getRoomAuthority(roomId) : undefined
+  const lockAuthoritySource = roomId && getLockAuthoritySource
+    ? getLockAuthoritySource(roomId)
+    : roomAuthority?.source
 
   useEffect(() => {
     if (!roomId || !registerCloudRoom) return
-    const cloudActive =
-      roomAuthority?.source === 'cloud' || (effectiveMode === 'cloud' && roomAuthority?.source !== 'companion')
-    if (!cloudActive) {
+    if (lockAuthoritySource !== 'cloud') {
       unregisterCloudRoom?.(roomId)
       return
     }
@@ -335,11 +342,11 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     return () => {
       unregisterCloudRoom?.(roomId)
     }
-  }, [effectiveMode, registerCloudRoom, roomAuthority?.source, roomId, unregisterCloudRoom])
+  }, [lockAuthoritySource, registerCloudRoom, roomId, unregisterCloudRoom])
   const controllerLock = roomId ? getControllerLock(roomId) : null
-  const isCloudOffline = connectionStatus !== 'online' && roomAuthority?.source === 'cloud'
+  const isCloudOffline = connectionStatus !== 'online' && lockAuthoritySource === 'cloud'
   const canHandOver = canHandOverForAuthoritySource({
-    authoritySource: roomAuthority?.source,
+    authoritySource: lockAuthoritySource,
     isCloudOffline,
   })
   const lockState = roomId ? getControllerLockState(roomId) : 'authoritative'
@@ -373,6 +380,10 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
   const cues = useMemo(
     () => (roomId ? getCues(roomId) : []),
     [getCues, roomId],
+  )
+  const navigationTimers = useMemo(
+    () => buildControllerRundownOrder({ timers, sections, segments }),
+    [segments, sections, timers],
   )
 
   // ---- Bootstrapping: auto-create default section when none exist ----
@@ -537,12 +548,11 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     })
   }, [controlNow, roomClientList])
   const displayRoomClients = useMemo(() => {
-    const source =
-      roomAuthority?.source === 'cloud' || roomAuthority?.source === 'companion'
-        ? roomAuthority.source
-        : undefined
+    const source = lockAuthoritySource === 'cloud' || lockAuthoritySource === 'companion'
+      ? lockAuthoritySource
+      : undefined
     return mergeClientSourcesForDisplay(activeRoomClients, source)
-  }, [activeRoomClients, roomAuthority?.source])
+  }, [activeRoomClients, lockAuthoritySource])
   const [ignoredRequestTs, setIgnoredRequestTs] = useState<number | null>(null)
   const [dismissedDenialTs, setDismissedDenialTs] = useState<number | null>(null)
   const [dismissedDisplacementTs, setDismissedDisplacementTs] = useState<number | null>(null)
@@ -652,6 +662,12 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     lastActivityRef.current = Date.now()
     ensureCompanionJoin({ reason: 'auto' })
   }, [ensureCompanionJoin, roomId])
+
+  useEffect(() => {
+    if (!roomId || !companion.isConnected) return
+    if (handshakeStatus === 'ack') return
+    ensureCompanionJoin({ reason: `handshake:${handshakeStatus}` })
+  }, [companion.isConnected, ensureCompanionJoin, handshakeStatus, roomId])
 
   useEffect(() => {
 if (roomId) addActiveRoomIntent?.(roomId)
@@ -894,7 +910,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
     shortcutScope,
     selectedTimerId: effectiveSelectedTimerId,
     activeTimerId: room?.state.activeTimerId ?? null,
-    timers,
+    timers: navigationTimers,
   })
 
   const startControlTimer = () => {
@@ -1013,12 +1029,12 @@ if (roomId) addActiveRoomIntent?.(roomId)
   const clockTime = useClock(room?.timezone ?? 'UTC', room?.state.clockMode ?? '24h')
 
   const activeIndex = activeTimer
-    ? timers.findIndex((timer) => timer.id === activeTimer.id)
+    ? navigationTimers.findIndex((timer) => timer.id === activeTimer.id)
     : -1
-  const prevTimer = activeIndex > 0 ? timers[activeIndex - 1] : null
+  const prevTimer = activeIndex > 0 ? navigationTimers[activeIndex - 1] : null
   const nextTimer =
-    activeIndex >= 0 && activeIndex < timers.length - 1
-      ? timers[activeIndex + 1]
+    activeIndex >= 0 && activeIndex < navigationTimers.length - 1
+      ? navigationTimers[activeIndex + 1]
       : null
 
   const handleStartPrevTimer = useCallback(() => {
@@ -1096,9 +1112,13 @@ if (roomId) addActiveRoomIntent?.(roomId)
     : '00:00'
 
   const isBasicTier = room?.tier === 'basic'
+  const cueFeaturesEnabled = false
   const showControlTier = room?.tier === 'show_control' || room?.tier === 'production'
   const showControlEnabled = showControlTier && room?.features?.showControl
   const presentationFeatureEnabled = Boolean(room?.features?.powerpoint)
+  const presentationSurfaceEnabled = Boolean(
+    room && (presentationFeatureEnabled || companionReady || canClearPresentation),
+  )
   const presentationCapability =
     companion.capabilities.powerpoint || companion.capabilities.externalVideo
   const capabilityMissing = companionReady && !presentationCapability
@@ -1447,9 +1467,9 @@ if (roomId) addActiveRoomIntent?.(roomId)
 
   useEffect(() => {
     if (!lanModalOpen) return
-    if (!companionReady) return
+    if (!lanViewerReady) return
     void loadLanPairing()
-  }, [companionReady, lanModalOpen, loadLanPairing])
+  }, [lanModalOpen, lanViewerReady, loadLanPairing])
 
   const refreshLanStatus = useCallback(async () => {
     if (!roomId) return
@@ -2402,7 +2422,52 @@ if (roomId) addActiveRoomIntent?.(roomId)
             <ShareLinkButton roomId={room.id} />
           </div>
         </div>
-        {showControlTier ? (
+        {presentationSurfaceEnabled ? (
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+            <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Presentation-ready timer</p>
+              <p className="text-sm font-semibold text-white">
+                {activeTimer ? activeTimer.title : 'Standby'}
+              </p>
+              <p className="mt-2 text-3xl font-semibold text-white">{mainDisplay}</p>
+              <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">
+                {mainStatusLabel}
+              </p>
+              <p className="mt-3 text-xs text-slate-400">
+                {activeTimer?.speaker ? `Speaker: ${activeTimer.speaker}` : 'Keep the controller focused on timers and slide follow.'}
+              </p>
+            </div>
+            {companionReady ? (
+              <PresentationStatusPanel
+                cue={activeLiveCue}
+                isCapabilityMissing={capabilityMissing}
+                isMacPlatform={Boolean(isMacPlatform)}
+              />
+            ) : (
+              <div className={`rounded-2xl border p-4 text-left ${simplePanelTone}`}>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                  Presentation status
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">Companion required</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Connect Companion to track slides and PowerPoint timing.
+                </p>
+                {canClearPresentation ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (room) clearLiveCues?.(room.id)
+                    }}
+                    className="mt-3 inline-flex items-center justify-center rounded-full border border-amber-300/60 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-200"
+                  >
+                    Clear presentation status
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
+        {cueFeaturesEnabled && showControlTier ? (
           <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
             {showControlUi ? (
               <>
@@ -2499,7 +2564,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
             </div>
           </div>
         ) : null}
-        {showControlEnabled && presentationFeatureEnabled && powerpointMissing && !showControlBlocked ? (
+        {cueFeaturesEnabled && showControlEnabled && presentationFeatureEnabled && powerpointMissing && !showControlBlocked ? (
           <div className="mt-4 rounded-2xl border border-amber-800/50 bg-amber-950/40 p-4 text-left text-xs text-amber-200">
             <p className="font-semibold">
               Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
@@ -2515,7 +2580,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
             </Link>
           </div>
         ) : null}
-        {showPresentationBanner ? (
+        {cueFeaturesEnabled && showPresentationBanner ? (
           <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -2562,7 +2627,8 @@ if (roomId) addActiveRoomIntent?.(roomId)
             </div>
           </div>
         ) : null}
-        {showControlEnabled &&
+        {cueFeaturesEnabled &&
+        showControlEnabled &&
         presentationFeatureEnabled &&
         presentationImportOpen &&
         presentationEntries.length > 0 ? (
@@ -3024,7 +3090,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:mt-0">
             <span className="text-xs font-semibold text-slate-300">
-              {activeIndex >= 0 ? activeIndex + 1 : 0} / {timers.length}
+              {activeIndex >= 0 ? activeIndex + 1 : 0} / {navigationTimers.length}
             </span>
             <Tooltip content={room.state.showClock ? 'Hide big clock' : 'Show big clock'}>
               <button
@@ -3056,14 +3122,14 @@ if (roomId) addActiveRoomIntent?.(roomId)
                   <Share2 size={20} />
                 </button>
               </Tooltip>
-              <Tooltip content={companionReady ? 'Share LAN viewer' : 'Connect Companion to share LAN viewer'}>
+              <Tooltip content={lanViewerReady ? 'Share LAN viewer' : 'Connect Companion to share LAN viewer'}>
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation()
                     setLanModalOpen(true)
                   }}
-                  disabled={!companionReady}
+                  disabled={!lanViewerReady}
                   className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-40`}
                   aria-label="Share LAN viewer"
                 >
@@ -3187,7 +3253,7 @@ if (roomId) addActiveRoomIntent?.(roomId)
                   ×
                 </button>
               </div>
-              {!companionReady ? (
+              {!lanViewerReady ? (
                 <div className="mt-5 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                   Connect Companion to enable LAN viewers.
                 </div>
@@ -3412,19 +3478,21 @@ if (roomId) addActiveRoomIntent?.(roomId)
               message={room.state.message}
               timezone={room.timezone}
             />
-            <CuesPanel
-              roomId={room.id}
-              cues={cues}
-              sections={sections}
-              segments={segments}
-              readOnly={isReadOnly}
-              isOwner={isOwner}
-              currentUserId={user?.uid ?? null}
-              onCreateCue={handleCreateCue}
-              onUpdateCue={handleUpdateCue}
-              onDeleteCue={handleDeleteCue}
-              onReorderCues={handleReorderCues}
-            />
+            {cueFeaturesEnabled ? (
+              <CuesPanel
+                roomId={room.id}
+                cues={cues}
+                sections={sections}
+                segments={segments}
+                readOnly={isReadOnly}
+                isOwner={isOwner}
+                currentUserId={user?.uid ?? null}
+                onCreateCue={handleCreateCue}
+                onUpdateCue={handleUpdateCue}
+                onDeleteCue={handleDeleteCue}
+                onReorderCues={handleReorderCues}
+              />
+            ) : null}
           </div>
         </div>
       </section>

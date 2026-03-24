@@ -215,6 +215,7 @@ export type DataContextValue = {
   controlErrors: Record<string, ControlError | null>
   getControllerLock: (roomId: string) => ControllerLock | null
   getControllerLockState: (roomId: string) => ControllerLockState
+  getLockAuthoritySource?: (roomId: string) => 'cloud' | 'companion'
   getRoomPin: (roomId: string) => RoomPinMeta | null
   setRoomPin: (roomId: string, pin: string | null) => void
   requestControl: (roomId: string, deviceName?: string) => void

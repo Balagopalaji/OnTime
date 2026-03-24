@@ -29,10 +29,13 @@ export const shouldIssueForcedControllerJoin = ({
 export const resolveControllerJoinIntent = (
   lastJoinKey: string | null,
   roomId: string,
-  options?: { force?: boolean },
+  options?: { force?: boolean; handshakeStatus?: 'idle' | 'pending' | 'ack' | 'error' },
 ): { shouldJoin: boolean; nextKey: string } => {
   const nextKey = buildControllerJoinIntentKey(roomId)
   if (options?.force) {
+    return { shouldJoin: true, nextKey }
+  }
+  if (options?.handshakeStatus && options.handshakeStatus !== 'ack') {
     return { shouldJoin: true, nextKey }
   }
   return { shouldJoin: lastJoinKey !== nextKey, nextKey }

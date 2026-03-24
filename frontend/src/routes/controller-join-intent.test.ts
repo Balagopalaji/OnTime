@@ -24,6 +24,15 @@ describe('resolveControllerJoinIntent', () => {
     expect(forced.nextKey).toBe(current.nextKey)
   })
 
+  it('rejoins the same room when the handshake is no longer acknowledged', () => {
+    const current = resolveControllerJoinIntent(null, 'room-1')
+    const reconnecting = resolveControllerJoinIntent(current.nextKey, 'room-1', {
+      handshakeStatus: 'idle',
+    })
+    expect(reconnecting.shouldJoin).toBe(true)
+    expect(reconnecting.nextKey).toBe(current.nextKey)
+  })
+
   it('joins when room intent changes', () => {
     const current = resolveControllerJoinIntent(null, 'room-1')
     const nextRoom = resolveControllerJoinIntent(current.nextKey, 'room-2')

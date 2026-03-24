@@ -17,6 +17,7 @@ import {
   reducePendingControlRequestByStatus,
   resolveQueuedCompanionLockReplayCallbackState,
   resolveQueuedCompanionLockReplayState,
+  resolveLockAuthoritySource,
   resolveControllerLockState,
   resolveRoomSource,
   shouldBootstrapCachedSubscriptions,
@@ -95,6 +96,35 @@ describe('resolveControllerLockState', () => {
         controlDisplacements: { 'room-1': { takenAt: Date.now() } },
       }),
     ).toBe('authoritative')
+  })
+})
+
+describe('resolveLockAuthoritySource', () => {
+  it('uses cloud lock authority for active rooms while cloud is online', () => {
+    expect(
+      resolveLockAuthoritySource({
+        room: { id: 'room-1' },
+        connectionStatus: 'online',
+      }),
+    ).toBe('cloud')
+  })
+
+  it('falls back to companion lock authority when cloud is offline', () => {
+    expect(
+      resolveLockAuthoritySource({
+        room: { id: 'room-1' },
+        connectionStatus: 'offline',
+      }),
+    ).toBe('companion')
+  })
+
+  it('falls back to companion lock authority before the room is loaded', () => {
+    expect(
+      resolveLockAuthoritySource({
+        room: undefined,
+        connectionStatus: 'online',
+      }),
+    ).toBe('companion')
   })
 })
 

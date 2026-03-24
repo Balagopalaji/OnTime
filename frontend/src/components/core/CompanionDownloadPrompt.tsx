@@ -11,9 +11,7 @@ export const CompanionDownloadPrompt = ({
 
   // Simple OS detection
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
-  const downloadUrl = isMac
-    ? 'https://github.com/Balagopalaji/OnTime/releases/download/v0.1.0/OnTime.Companion-0.1.0-arm64-mac.zip'
-    : 'https://github.com/Balagopalaji/OnTime/releases/download/v0.1.0/OnTime.Companion%20Setup%200.1.0.exe' 
+  const downloadUrl = 'https://github.com/Balagopalaji/OnTime/releases/latest'
   
   const osLabel = isMac ? 'Mac (Apple Silicon)' : 'Windows'
 
@@ -40,7 +38,7 @@ export const CompanionDownloadPrompt = ({
 
         <h3 className="text-lg font-semibold text-white">Companion App Required</h3>
         <p className="mt-2 text-sm text-slate-400">
-          To control PowerPoint and run local timers, you need the free Companion App running on this computer.
+          To control local timers and presentation sync, you need the Companion App running on this computer.
         </p>
 
         <div className="mt-6 space-y-3">
@@ -49,7 +47,7 @@ export const CompanionDownloadPrompt = ({
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
           >
             <Download size={18} />
-            Download for {osLabel}
+            Get the current build for {osLabel}
           </a>
           
           <button

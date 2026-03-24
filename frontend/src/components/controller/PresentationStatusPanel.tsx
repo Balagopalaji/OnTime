@@ -33,10 +33,10 @@ export const PresentationStatusPanel = ({
       {isCapabilityMissing ? (
         <div className="mt-3 rounded-xl border border-amber-800/50 bg-amber-950/40 px-3 py-3 text-xs text-amber-200">
           <p className="font-semibold">
-            Feature unavailable in Minimal Mode — upgrade or restart Companion in Show Control mode.
+            PowerPoint follow is unavailable in the current Companion mode.
           </p>
           <p className="mt-1 text-amber-100/80">
-            Show Control mode is required for live presentation status.
+            Restart Companion with PowerPoint support enabled to restore live presentation status.
           </p>
           <Link
             to="/local"

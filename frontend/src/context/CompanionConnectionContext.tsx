@@ -89,6 +89,31 @@ const RECONNECT_CHURN_WINDOW_MS = 30_000
 const RECONNECT_CHURN_THRESHOLD = 3
 const RECONNECT_TOKEN_MIN_TTL_MS = 5_000
 
+export const buildSocketCandidates = (locationInfo: {
+  origin: string
+  securePage: boolean
+  isCompanionHosted: boolean
+}) => {
+  if (locationInfo.isCompanionHosted) {
+    return [locationInfo.origin]
+  }
+
+  const secureCandidates = [
+    'https://localhost:4440',
+    'https://127.0.0.1:4440',
+    'https://[::1]:4440',
+  ]
+  const insecureCandidates = [
+    'http://localhost:4000',
+    'http://127.0.0.1:4000',
+    'http://[::1]:4000',
+  ]
+
+  return locationInfo.securePage
+    ? [...secureCandidates, ...insecureCandidates]
+    : [...insecureCandidates, ...secureCandidates]
+}
+
 export const getReconnectDelayMs = (attempt: number) => {
   if (attempt <= 1) return 0
   if (attempt <= 5) return BACKOFF_FAST_MS
@@ -170,27 +195,20 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     }
   }, [])
   const isLanViewer = locationInfo.isCompanionHosted && !locationInfo.isLoopbackHost
+  const socketCandidates = useMemo(() => buildSocketCandidates(locationInfo), [locationInfo])
+  const [socketCandidateIndex, setSocketCandidateIndex] = useState(0)
   const socket = useMemo<Socket | null>(() => {
     if (typeof window === 'undefined') return null
-    const socketUrl = locationInfo.isCompanionHosted
-      ? locationInfo.origin
-      : locationInfo.securePage
-        ? 'https://localhost:4440'
-        : 'http://localhost:4000'
-    const allowUpgrade = locationInfo.isCompanionHosted
+    const socketUrl = socketCandidates[Math.min(socketCandidateIndex, socketCandidates.length - 1)]
     // When hosted by Companion, prefer websocket directly to avoid polling handshake failures.
-    const transports = locationInfo.isCompanionHosted
-      ? ['websocket']
-      : locationInfo.securePage && !allowUpgrade
-        ? ['polling']
-        : ['websocket', 'polling']
+    const transports = locationInfo.isCompanionHosted ? ['websocket'] : ['websocket', 'polling']
     return io(socketUrl, {
       transports,
-      upgrade: allowUpgrade || !locationInfo.securePage,
+      upgrade: !locationInfo.isCompanionHosted,
       autoConnect: false,
       reconnection: false,
     })
-  }, [locationInfo])
+  }, [locationInfo.isCompanionHosted, socketCandidateIndex, socketCandidates])
   const [isConnected, setIsConnected] = useState(false)
   const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('idle')
   const [reconnectState, setReconnectState] = useState<ReconnectState>('idle')
@@ -469,6 +487,10 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
   }, [logReconnectTrace])
 
   useEffect(() => {
+    setSocketCandidateIndex(0)
+  }, [socketCandidates])
+
+  useEffect(() => {
     if (!socket) return
     const shouldReconnect = !isConnected || handshakeStatus === 'error'
     if (!shouldReconnect) {
@@ -606,6 +628,18 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
       if (debugCompanion) console.warn('[companion] connect_error')
       logReconnectTrace('socket_connect_error')
       recordReconnectEvent('connect_error')
+      if (socketCandidateIndex + 1 < socketCandidates.length) {
+        if (debugCompanion) {
+          console.info('[companion] socket fallback', {
+            from: socketCandidates[socketCandidateIndex],
+            to: socketCandidates[socketCandidateIndex + 1],
+          })
+        }
+        clearReconnectTimer()
+        setLastErrorCode(null)
+        setSocketCandidateIndex((current) => Math.min(current + 1, socketCandidates.length - 1))
+        return
+      }
       setIsConnected(false)
       setHandshakeStatus('error')
       setLastErrorCode('CONNECT_ERROR')
@@ -721,6 +755,8 @@ export const CompanionConnectionProvider = ({ children }: { children: ReactNode 
     recordReconnectEvent,
     scheduleReconnect,
     setReconnectStateSafe,
+    socketCandidateIndex,
+    socketCandidates,
     socket,
   ])
 
