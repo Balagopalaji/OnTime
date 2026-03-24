@@ -123,11 +123,13 @@ describe('SEED_COMPANION_CACHE overwrite rules', () => {
 // ---------------------------------------------------------------------------
 
 describe('seedCompanion guard behavior', () => {
+  type EmitMock = ReturnType<typeof vi.fn<(event: string, payload: unknown) => void>>
+  type RoomLookupMock = ReturnType<typeof vi.fn<(roomId: string) => unknown[]>>
   let seedFired: { current: boolean }
-  let mockSocket: { connected: boolean; emit: ReturnType<typeof vi.fn> }
+  let mockSocket: { connected: boolean; emit: EmitMock }
   let mockFirebaseRooms: Array<{ id: string; state: { lastUpdate: number } }>
-  let mockGetTimers: ReturnType<typeof vi.fn>
-  let mockGetCues: ReturnType<typeof vi.fn>
+  let mockGetTimers: RoomLookupMock
+  let mockGetCues: RoomLookupMock
 
   /** Mirrors the seedCompanion callback logic from UnifiedDataContext */
   function seedCompanion() {
@@ -150,10 +152,10 @@ describe('seedCompanion guard behavior', () => {
 
   beforeEach(() => {
     seedFired = { current: false }
-    mockSocket = { connected: true, emit: vi.fn() }
+    mockSocket = { connected: true, emit: vi.fn<(event: string, payload: unknown) => void>() }
     mockFirebaseRooms = [{ id: 'room-1', state: { lastUpdate: 100 } }]
-    mockGetTimers = vi.fn().mockReturnValue([])
-    mockGetCues = vi.fn().mockReturnValue([])
+    mockGetTimers = vi.fn<(roomId: string) => unknown[]>().mockReturnValue([])
+    mockGetCues = vi.fn<(roomId: string) => unknown[]>().mockReturnValue([])
   })
 
   it('emits SEED_COMPANION_CACHE when socket is connected and rooms exist', () => {

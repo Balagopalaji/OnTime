@@ -109,7 +109,7 @@ export const useSortableList = <T,>({
       activeDrag.itemType === (itemType ?? '') &&
       activeDrag.groupId !== (groupId ?? '') &&
       targetIndex !== null
-    if (foreignAllowed && !itemIds.has(activeDrag.id)) {
+    if (foreignAllowed && activeDrag && !itemIds.has(activeDrag.id)) {
       handledDragId = activeDrag.id
       onForeignDrop(activeDrag.id, activeDrag.groupId, Math.max(0, targetIndex))
       activeDrag = null

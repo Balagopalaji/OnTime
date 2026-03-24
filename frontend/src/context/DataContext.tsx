@@ -18,13 +18,13 @@ import type {
   ControllerClient,
 } from '../types'
 
-type CreateRoomInput = {
+export type CreateRoomInput = {
   title: string
   timezone: string
   ownerId: string
 }
 
-type CreateTimerInput = {
+export type CreateTimerInput = {
   title: string
   duration: number
   speaker?: string
@@ -32,7 +32,7 @@ type CreateTimerInput = {
   segmentId?: string
 }
 
-type CreateCueInput = {
+export type CreateCueInput = {
   title: string
   role: OperatorRole
   triggerType: CueTriggerType
@@ -49,7 +49,7 @@ type CreateCueInput = {
   createdByRole?: OperatorRole
 }
 
-type CreateSectionInput = {
+export type CreateSectionInput = {
   title: string
   notes?: string
   plannedDurationSec?: number
@@ -57,7 +57,7 @@ type CreateSectionInput = {
   order?: number
 }
 
-type CreateSegmentInput = {
+export type CreateSegmentInput = {
   title: string
   sectionId?: string
   plannedStartAt?: number
@@ -242,5 +242,5 @@ export const DataProviderBoundary = ({
   children,
 }: {
   value: DataContextValue
-  children: ReactNode
+  children?: ReactNode
 }) => <DataContext.Provider value={value}>{children}</DataContext.Provider>

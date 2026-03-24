@@ -1137,7 +1137,10 @@ describe('secure-reauth-force-takeover', () => {
     await act(async () => { await Promise.resolve() })
 
     expect(mockCallable).toHaveBeenCalledTimes(1)
-    const payload = mockCallable.mock.calls[0][0] as Record<string, unknown>
+    const calls = (mockCallable as unknown as { mock: { calls: Array<[Record<string, unknown>]> } }).mock.calls
+    const payload = calls[0]?.[0]
+    expect(payload).toBeDefined()
+    if (!payload) throw new Error('missing callable payload')
     expect(payload.pin).toBe('1234')
     expect(payload.reauthRequired).toBeUndefined()
 
@@ -1168,7 +1171,10 @@ describe('secure-reauth-force-takeover', () => {
     await act(async () => { await Promise.resolve() })
 
     expect(mockCallable).toHaveBeenCalledTimes(1)
-    const payload = mockCallable.mock.calls[0][0] as Record<string, unknown>
+    const calls = (mockCallable as unknown as { mock: { calls: Array<[Record<string, unknown>]> } }).mock.calls
+    const payload = calls[0]?.[0]
+    expect(payload).toBeDefined()
+    if (!payload) throw new Error('missing callable payload')
     expect(payload.pin).toBeUndefined()
     expect(payload.reauthRequired).toBeUndefined()
 

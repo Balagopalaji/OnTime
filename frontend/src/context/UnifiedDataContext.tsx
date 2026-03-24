@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
+import type { Room, RoomState, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { ARBITRATION_FLAGS, arbitrate } from '../lib/arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
@@ -3405,7 +3405,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
             nextLock,
             clientId,
             timestamp: payload.timestamp,
-          }),
+          }) as typeof prev,
         )
       }
 
@@ -4840,6 +4840,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
           queueCompanionLockPayload(replayState.queuedPayload)
           return
         }
+        if (!replayState.replayPayload) return
         handleControllerLockState(replayState.replayPayload)
       }, delay)
       queuedCompanionLockTimerRef.current = {

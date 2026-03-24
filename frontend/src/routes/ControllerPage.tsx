@@ -388,8 +388,9 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
 
   // ---- Bootstrapping: auto-create default section when none exist ----
   const bootstrappedRef = useRef<Set<string>>(new Set())
+  const firestoreDb = db
   useEffect(() => {
-    if (!room || !roomId || isReadOnly) return
+    if (!firestoreDb || !room || !roomId || isReadOnly) return
     if (sections.length > 0) return
     if (bootstrappedRef.current.has(roomId)) return
     bootstrappedRef.current.add(roomId)
@@ -397,7 +398,7 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     const bootstrap = async () => {
       try {
         const existingSections = await getDocs(
-          query(collection(db, 'rooms', roomId, 'sections'), limit(1)),
+          query(collection(firestoreDb, 'rooms', roomId, 'sections'), limit(1)),
         )
         if (!existingSections.empty) {
           return
@@ -452,7 +453,7 @@ const addActiveRoomIntent = (ctx as typeof ctx & {
     }
     void bootstrap()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room, roomId, sections.length, isReadOnly])
+  }, [firestoreDb, room, roomId, sections.length, isReadOnly])
 
   // ---- Migration: ensure section-level cues have a sectionId ----
   useEffect(() => {

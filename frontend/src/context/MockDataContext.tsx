@@ -756,6 +756,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
           roomStackRef.current = stack
           if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
             setState((prev) => ({
+              ...prev,
               rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
               timers: Object.fromEntries(
                 Object.entries(prev.timers).filter(([id]) => id !== evicted.roomId),
@@ -887,6 +888,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       }
 
       setState((prev) => ({
+        ...prev,
         rooms: [...prev.rooms, room],
         timers: {
           ...prev.timers,
@@ -906,6 +908,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       roomStackRef.current = stack
       if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
         setState((prev) => ({
+          ...prev,
           rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
           timers: Object.fromEntries(
             Object.entries(prev.timers).filter(([idToKeep]) => idToKeep !== evicted.roomId),
@@ -941,6 +944,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       roomStackRef.current = stack
       if (evicted && evicted.kind === 'room' && evicted.action === 'delete') {
         setState((prev) => ({
+          ...prev,
           rooms: prev.rooms.filter((candidate) => candidate.id !== evicted.roomId),
           timers: Object.fromEntries(Object.entries(prev.timers).filter(([id]) => id !== evicted.roomId)),
         }))
@@ -1259,6 +1263,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         state: snapshot.state,
       }
       setState((prev) => ({
+        ...prev,
         rooms: [...prev.rooms, restoredRoom],
         timers: {
           ...prev.timers,
@@ -1269,6 +1274,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
       await safeDelayRef.current?.(50)
     } else if (entry.action === 'create') {
       setState((prev) => ({
+        ...prev,
         rooms: prev.rooms.filter((candidate) => candidate.id !== entry.roomId),
         timers: Object.fromEntries(
           Object.entries(prev.timers).filter(([id]) => id !== entry.roomId),
@@ -1311,6 +1317,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
     if (entry.action === 'delete') {
       syncPendingState()
       setState((prev) => ({
+        ...prev,
         rooms: prev.rooms.filter((candidate) => candidate.id !== entry?.roomId),
         timers: Object.fromEntries(
           Object.entries(prev.timers).filter(([id]) => id !== entry?.roomId),
@@ -1331,6 +1338,7 @@ export const MockDataProvider = ({ children }: { children: ReactNode }) => {
         state: snapshot.state,
       }
       setState((prev) => ({
+        ...prev,
         rooms: [...prev.rooms, restoredRoom],
         timers: {
           ...prev.timers,

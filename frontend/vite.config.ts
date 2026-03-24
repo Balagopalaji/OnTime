@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -7,10 +6,6 @@ const appBase = process.env.VITE_APP_BASE ?? '/'
 export default defineConfig({
   base: appBase,
   plugins: [react()],
-  test: {
-    environment: 'happy-dom',
-    setupFiles: './src/setupTests.ts',
-  },
   server: {
     headers: {},
   },
