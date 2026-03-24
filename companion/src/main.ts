@@ -316,31 +316,26 @@ function getLocalhostCertPaths() {
 }
 
 async function generateLocalhostCert(): Promise<{ key: string; cert: string }> {
-  try {
-    const mod = await import('selfsigned');
-    const selfsigned = (mod as any).default ?? mod;
-    const attrs = [{ name: 'commonName', value: 'localhost' }];
-    const pems = selfsigned.generate(attrs, {
-      days: 825, // within Chrome's 825-day cap
-      keySize: 2048,
-      extensions: [
-        { name: 'basicConstraints', cA: false },
-        { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true },
-        {
-          name: 'subjectAltName',
-          altNames: [
-            { type: 2, value: 'localhost' }, // DNS
-            { type: 7, ip: '127.0.0.1' }, // IPv4
-            { type: 7, ip: '::1' } // IPv6
-          ]
-        }
-      ]
-    });
-    return { key: pems.private, cert: pems.cert };
-  } catch (error) {
-    console.warn('[tls] selfsigned unavailable, using bundled localhost certificate');
-    return { key: BUNDLED_LOCALHOST_KEY, cert: BUNDLED_LOCALHOST_CERT };
-  }
+  const mod = await import('selfsigned');
+  const selfsigned = (mod as any).default ?? mod;
+  const attrs = [{ name: 'commonName', value: 'localhost' }];
+  const pems = selfsigned.generate(attrs, {
+    days: 825, // within Chrome's 825-day cap
+    keySize: 2048,
+    extensions: [
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true },
+      {
+        name: 'subjectAltName',
+        altNames: [
+          { type: 2, value: 'localhost' }, // DNS
+          { type: 7, ip: '127.0.0.1' }, // IPv4
+          { type: 7, ip: '::1' } // IPv6
+        ]
+      }
+    ]
+  });
+  return { key: pems.private, cert: pems.cert };
 }
 
 function isCertExpiring(certPem: string, minMsRemaining = 30 * 24 * 60 * 60 * 1000): boolean {
