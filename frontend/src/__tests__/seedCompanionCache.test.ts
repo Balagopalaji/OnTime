@@ -124,10 +124,10 @@ describe('SEED_COMPANION_CACHE overwrite rules', () => {
 
 describe('seedCompanion guard behavior', () => {
   let seedFired: { current: boolean }
-  let mockSocket: { connected: boolean; emit: ReturnType<typeof vi.fn> }
+  let mockSocket: { connected: boolean; emit: (...args: unknown[]) => void }
   let mockFirebaseRooms: Array<{ id: string; state: { lastUpdate: number } }>
-  let mockGetTimers: ReturnType<typeof vi.fn>
-  let mockGetCues: ReturnType<typeof vi.fn>
+  let mockGetTimers: (id: string) => unknown[]
+  let mockGetCues: (id: string) => unknown[]
 
   /** Mirrors the seedCompanion callback logic from UnifiedDataContext */
   function seedCompanion() {
