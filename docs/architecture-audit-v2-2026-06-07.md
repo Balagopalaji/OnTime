@@ -13,6 +13,15 @@ _Audit date: 2026-06-07 · Reviewer: deep full-repo audit · Supersedes
 > under-informed**. This v2 is grounded in a full repository inventory and the design-doc
 > corpus. Where v1 and v2 differ, **v2 wins.**
 
+> **Corrections applied 2026-06-07 (post-review, git-verified).** Three load-bearing errors
+> in the first v2 draft were fixed: (1) `stable-cloud` does **not** contain the progress fix
+> and is **not** cue-free — both branch tips share the same buggy merge order, and the fix is
+> only an uncommitted working-tree change (§8, §11); (2) `docs/archive/modularity-architecture.md`
+> is **archived** and not authoritative per `AGENTS.md` — tier authority is `interface.md` /
+> `app-prd.md` (§0); (3) Stage 0 / §8 reworded accordingly. **Rebuild vs. continue:** there is
+> no clean branch to escape to — the rebuild *continues on `main`* (stabilize, then extract
+> modules); it is not a from-scratch rewrite.
+
 ---
 
 ## 0. The single most important correction
@@ -21,12 +30,18 @@ _Audit date: 2026-06-07 · Reviewer: deep full-repo audit · Supersedes
 already built.** The implementation tangled it; the rebuild's job is to *realize the
 existing design* with clean module boundaries, not to dream up a new product structure.
 
-Evidence I had not read when writing v1:
-- `docs/archive/modularity-architecture.md` (status: **current**) already defines tiers
-  **Basic / Show Control / Production**, a `RoomFeatures` flag matrix, Companion **modes**
-  (`minimal` / `show-control` / `production`), and a subcollection cost model.
+Evidence I had not read when writing v1 (authoritative = non-archived docs):
 - `docs/interface.md` (v1.4.0) is a **canonical, versioned protocol contract** — Firestore
-  schemas, Cloud Functions API, Companion WebSocket events, REST API, bridge protocol.
+  schemas (incl. `tier` + `features` on `rooms`), Cloud Functions API, Companion WebSocket
+  events, REST API, bridge protocol. **This is the authoritative tier/feature source.**
+- `docs/app-prd.md` (current) defines the tiered modular product (timer core / show control /
+  planner) and the gating in "Planned Phases."
+- `docs/archive/modularity-architecture.md` describes the Basic/Show-Control/Production tier
+  model and Companion `minimal/show-control/production` modes in detail — but it is
+  **archived**. Per `AGENTS.md`, archive docs are historical only and **must not** be treated
+  as source of truth; current docs win on conflict. Cite it as *evidence of prior design
+  intent*, and confirm any specifics against `interface.md`/`app-prd.md` before relying on
+  them.
 - `docs/phase-3-standalone-ppt-timer.md` already specs a **standalone free Windows PPT
   timer as an upsell funnel** ("native helper already exists") — i.e. Codex's "OnTime PPT"
   product was already planned.
@@ -191,17 +206,19 @@ or wire it as the single nudge path in `timer-core`.
 
 ## 7. Migration plan (reconciled; Codex ordering + v2 safety net)
 
-- **Stage 0 — stabilize the active line (`main`):** port `stable-cloud`'s fresh-wins
-  progress merge to `main` (main still has the bug); kill the two elapsed clamps; remove
-  dead `applyNudge`; make `useTimerEngine` + Mock call `timer-utils`; regression-test
-  negative elapsed, cache priority, and the `mergeCueVideos` empty-overwrite case.
+- **Stage 0 — stabilize the active line (`main`):** the fresh-wins progress merge fix is
+  currently **uncommitted in the working tree** (both branch tips still have the buggy
+  `mergeProgress(roomProgress, cachedProgress)` order) — isolate it from the file's
+  line-ending churn and **commit it on `main`**; kill the two elapsed clamps; remove dead
+  `applyNudge`; make `useTimerEngine` + Mock call `timer-utils`; regression-test negative
+  elapsed, cache priority, and the `mergeCueVideos` empty-overwrite case.
 - **Stage 0.5 — lock the `main`-only fixes** (v1 §A.3 list: reauth/takeover contract,
   removed bundled TLS key, join-watchdog, takeover-arbitration regression, mode-flap loops,
   offline bootstrap) into a regression suite **before** extraction.
 - **Stage 1 — `timer-core`:** pure reducer + math; adapters persist, never re-derive.
 - **Stage 2 — OnTime Cloud:** Firestore-only path, no Companion/arbitration/queue/cue.
-  Reuse `controller/` shell for desktop. Validates the commercial core. **Scope ≈
-  `stable-cloud`.**
+  Reuse `controller/` shell for desktop. Validates the commercial core. (Cue-free scope is a
+  **deliberate rebuild decision**, not a property of any existing branch — see §8.)
 - **Stage 3 — OnTime Viewer:** standalone read-only PWA; `ViewerTheme` first-class; kiosk/Pi
   recovery; reuse the public-read path.
 - **Stage 4 — OnTime Local:** add `local-sync-arbitration` + Companion adapter + cache + LAN
@@ -213,17 +230,27 @@ or wire it as the single nudge path in `timer-core`.
 
 ---
 
-## 8. The `stable-cloud` ↔ `main` synthesis (carried from v1, still load-bearing)
+## 8. The `stable-cloud` ↔ `main` synthesis (CORRECTED 2026-06-07)
 
-- `main` = phase-3 culmination + ~50 hardening commits; **still carries the cached-progress
-  bug**; **larger** god-modules; CI red.
-- `stable-cloud` = Feb-1 phase-3 tip + deploy + the progress fix; **deliberately dropped
-  cues/sections** → closer to the **OnTime Cloud scope**.
-- Therefore: **OnTime Cloud ≈ `stable-cloud` scope (cue-free) + `main`'s hardening fixes +
-  the progress fix.** `stable-cloud` is a scope template, not just a deploy reference.
-- Behavioral source of truth = `main` (most fixes); port the progress fix; harvest
-  `research/ppt-video-timing` (Swift probe) and review `fix/companion-cloud-issues`
-  (`b832ccc`, authority handling) before rebuilding sync.
+> Earlier drafts of this section were wrong on two facts (caught in review, verified by git).
+> Corrected below.
+
+- **Both branch tips are essentially the same tangled code, and both carry the
+  cached-progress bug.** `stable-cloud` tip and `main` tip both have
+  `mergeProgress(roomProgress, cachedProgress)` (cache wins). There is **no clean branch**.
+- **The fresh-wins progress fix is NOT committed on either branch.** It exists only as an
+  **uncommitted change in the working tree** (inside a whole-file churn of
+  `UnifiedDataContext.tsx`). It must be isolated from the line-ending churn and committed —
+  right now it is one `git checkout` from being lost.
+- **`stable-cloud` is NOT cue-free.** Its `firestore.rules` and `types/index.ts` still carry
+  `sections`/`segments`/`cues`/`liveCues`. It is *not* a reduced "cloud-only scope" template;
+  it is simply an older `main` (Feb-1 phase-3 tip) + a deploy workflow + a TS build fix.
+- Therefore the OnTime Cloud **cue-free scope is a deliberate design decision to make during
+  the rebuild**, not a property `stable-cloud` already has. Do not treat `stable-cloud` as a
+  scope template — treat it only as a "this built and deployed" reference point.
+- Behavioral source of truth = **`main`** (most hardening). The rebuild continues on `main`:
+  commit the progress fix, then extract. Harvest `research/ppt-video-timing` (probe work) and
+  preserve the `fix/companion-cloud-issues` authority *requirement* (§11).
 
 ---
 
@@ -275,7 +302,7 @@ without re-verifying unique commits here._
 | Branch | Unique commits vs `main` | Role in rebuild |
 |---|---:|---|
 | **`main`** | — (baseline) | **Behavioral source of truth.** Phase-3 line + hardening (reauth/takeover, handshake, join-watchdog, offline bootstrap, selected-reset, demo stabilization, PPT restore). Architecturally tangled; behaviorally richest. Still carries the cached-progress merge bug; CI red. |
-| **`stable-cloud`** | 2 ahead / 50 behind | **Scope/deploy reference only.** The 2 commits = a Firebase deploy workflow + a TS build fix, plus the fresh-wins progress fix. Cue-free → ≈ OnTime Cloud scope. **Not newer, not a clean architecture reference.** |
+| **`stable-cloud`** | 2 ahead / 50 behind | **Deploy reference only.** The 2 commits = a Firebase deploy workflow + a TS build fix. **NOT cue-free** (rules/types still carry sections/segments/cues) and does **not** contain the progress fix (its tip has the same buggy merge order as `main`). Not newer, not cleaner, not a scope template. |
 | **`research/ppt-video-timing`** | **11** | **Presentation salvage (informational, not a merge).** Keepers: `companion/ppt-probe/ppt-probe-mac.swift`, `companion/ppt-probe/diagnose-ax.swift`, `docs/ppt-video-macos-plan.md`, `docs/ppt-video-debug-macos.md`. Feeds `presentation-core`/`ppt-bridge`. Cumulative diff is noisy (forked before later `main` work) — harvest, don't merge wholesale. |
 | **`fix/companion-cloud-issues`** | **1** (`b832ccc`, Jan 28) | **Preserve the requirement, not the code.** A 314-line rewrite of `UnifiedDataContext` authority handling — too far behind `main` to cherry-pick. Capture the *rule*: pending/Companion state must not casually override cloud authority when a cloud lock / online authority should hold. Encode as an **arbitration requirement** + test in `local-sync-arbitration`. |
 | **`salvage-m1-passb-attempt`** | **1** (WIP) | Mostly superseded by `main`'s lock/takeover work. Only minor idea: room-ordering/reorder utilities (`reorderRoom.mock.test.tsx`). Not a primary salvage source. |
