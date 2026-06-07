@@ -263,3 +263,24 @@ implementing collaboration/control or arbitration in depth should read those thr
 modularity/tier design, `interface.md`, the LAN/offline plan, and the standalone-PPT plan.
 The conclusion is unchanged and stronger: **structurally rewrite around a pure core and
 realize the already-designed modular suite; do not refactor `UnifiedDataContext` in place.**
+
+---
+
+## 11. Branch Ledger (canonical — do not treat old phase branches as rebuild sources)
+
+_Verified 2026-06-07 against `origin/*` via `git rev-list --count <branch> --not origin/main`.
+Reconciles v1 §A and the Codex second-run ledger. Add no other branch to the "source" set
+without re-verifying unique commits here._
+
+| Branch | Unique commits vs `main` | Role in rebuild |
+|---|---:|---|
+| **`main`** | — (baseline) | **Behavioral source of truth.** Phase-3 line + hardening (reauth/takeover, handshake, join-watchdog, offline bootstrap, selected-reset, demo stabilization, PPT restore). Architecturally tangled; behaviorally richest. Still carries the cached-progress merge bug; CI red. |
+| **`stable-cloud`** | 2 ahead / 50 behind | **Scope/deploy reference only.** The 2 commits = a Firebase deploy workflow + a TS build fix, plus the fresh-wins progress fix. Cue-free → ≈ OnTime Cloud scope. **Not newer, not a clean architecture reference.** |
+| **`research/ppt-video-timing`** | **11** | **Presentation salvage (informational, not a merge).** Keepers: `companion/ppt-probe/ppt-probe-mac.swift`, `companion/ppt-probe/diagnose-ax.swift`, `docs/ppt-video-macos-plan.md`, `docs/ppt-video-debug-macos.md`. Feeds `presentation-core`/`ppt-bridge`. Cumulative diff is noisy (forked before later `main` work) — harvest, don't merge wholesale. |
+| **`fix/companion-cloud-issues`** | **1** (`b832ccc`, Jan 28) | **Preserve the requirement, not the code.** A 314-line rewrite of `UnifiedDataContext` authority handling — too far behind `main` to cherry-pick. Capture the *rule*: pending/Companion state must not casually override cloud authority when a cloud lock / online authority should hold. Encode as an **arbitration requirement** + test in `local-sync-arbitration`. |
+| **`salvage-m1-passb-attempt`** | **1** (WIP) | Mostly superseded by `main`'s lock/takeover work. Only minor idea: room-ordering/reorder utilities (`reorderRoom.mock.test.tsx`). Not a primary salvage source. |
+| `phase-3`, `phase-3-arbitration`, `phase-3-save-load-sessions`, `phase-3c`, `phase-2-implementation`, `parallel-sync-fix`, `ui-overhaul`, `connect-loop-debug-session` | **0 each** | **Fully contained by `main`.** Historical sequencing only — no unique code to harvest. Do not treat as competing sources of truth. |
+
+**Source model for the rebuild:** behavior ← `main`; cloud scope ← `stable-cloud`;
+presentation/probe ← `research/ppt-video-timing`; one authority rule ← `fix/companion-cloud-issues`
+(as a requirement); everything else = historical context.
