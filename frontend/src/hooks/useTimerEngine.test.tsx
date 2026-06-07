@@ -56,6 +56,22 @@ describe('useTimerEngine', () => {
     expect(result.current.progress).toBeGreaterThan(1)
   })
 
+  it('treats negative elapsed as bonus time (no clamp): remaining exceeds duration', () => {
+    const { result } = renderHook(() =>
+      useTimerEngine({
+        ...base,
+        isRunning: false,
+        startedAt: null,
+        elapsedOffset: -30_000, // 30s of bonus time
+      }),
+    )
+
+    // duration 300s + 30s bonus => 5:30 remaining, default status (not clamped to 5:00)
+    expect(result.current.remainingMs).toBe(330_000)
+    expect(result.current.display).toBe('05:30')
+    expect(result.current.status).toBe('default')
+  })
+
   it('keeps progress under control for long-running timers', () => {
     const { result } = renderHook(() =>
       useTimerEngine({

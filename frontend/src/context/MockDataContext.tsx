@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { randomId } from '../lib/utils'
 import { getTimezoneSuggestion } from '../lib/time'
+import { computeElapsed } from '../utils/timer-utils'
 import type { Room, Timer, LiveCue, LiveCueRecord, Cue, Section, Segment, MessageColor, ConnectionStatus, ControllerClient } from '../types'
 import {
   clearStack,
@@ -299,11 +300,12 @@ const captureProgress = (room: Room) => {
   const progress = { ...(room.state.progress ?? {}) }
   const activeId = room.state.activeTimerId
   if (activeId) {
-    let elapsed = room.state.elapsedOffset
-    if (room.state.isRunning && room.state.startedAt) {
-      elapsed += Date.now() - room.state.startedAt
-    }
-    progress[activeId] = Math.max(0, elapsed)
+    // Canonical elapsed math (timer-utils). Do NOT clamp: negative elapsed is valid bonus time.
+    progress[activeId] = computeElapsed({
+      isRunning: room.state.isRunning,
+      startedAt: room.state.startedAt,
+      elapsedOffset: room.state.elapsedOffset,
+    })
   }
   return progress
 }
