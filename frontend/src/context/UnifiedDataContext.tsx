@@ -2891,11 +2891,11 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const cachedEntry = cachedSnapshotsRef.current[roomId]
       const timers = (freshTimers ?? []).length > 0 ? freshTimers : (cachedEntry?.timers ?? [])
 
-      // Preserve cached progress if fresh room has empty progress
+      // Preserve cached progress only as fallback data; fresh room progress must win when present.
       const cachedProgress = cachedEntry?.room?.state.progress ?? {}
       const roomProgress = resolvedRoom.state.progress ?? {}
       const hasCachedProgress = Object.keys(cachedProgress).length > 0
-      const progressToUse = hasCachedProgress ? mergeProgress(roomProgress, cachedProgress) : roomProgress
+      const progressToUse = hasCachedProgress ? mergeProgress(cachedProgress, roomProgress) : roomProgress
 
       const finalRoom: Room = {
         ...resolvedRoom,
@@ -5249,19 +5249,19 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         }
       }
 
-      // Helper to merge cached progress into a room, giving priority to cached values
-      // This ensures bonus time (negative elapsed) and other progress is preserved
+      // Helper to merge cached progress into a room as fallback data only.
+      // Fresh Firebase/room progress must win when both sources have the same timer key.
       const mergeProgressFromCache = (room: Room): Room => {
         const cachedProgress = cachedRoom?.state.progress ?? {}
         const hasCachedProgress = Object.keys(cachedProgress).length > 0
         if (!hasCachedProgress) return room
-        // Use shared mergeProgress helper (cached values take priority)
+        // Shared mergeProgress helper: priority (fresh room progress) overrides base (cache).
         const roomProgress = room.state.progress ?? {}
         return {
           ...room,
           state: {
             ...room.state,
-            progress: mergeProgress(roomProgress, cachedProgress),
+            progress: mergeProgress(cachedProgress, roomProgress),
           },
         }
       }

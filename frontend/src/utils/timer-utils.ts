@@ -64,19 +64,6 @@ export function computeCompanionElapsed(
 }
 
 /**
- * Apply a nudge (time adjustment) to elapsed.
- * deltaMs > 0: adds time back (reduces elapsed)
- * deltaMs < 0: subtracts time (increases elapsed)
- *
- * @param currentElapsed - current elapsed in ms
- * @param deltaMs - adjustment in ms (positive = add time, negative = subtract)
- * @returns new elapsed (can be negative for bonus time)
- */
-export function applyNudge(currentElapsed: number, deltaMs: number): number {
-  return currentElapsed - deltaMs
-}
-
-/**
  * Resolve elapsed for a specific timer.
  * - If timer is active: compute live elapsed from state
  * - If timer is not active: read from progress map

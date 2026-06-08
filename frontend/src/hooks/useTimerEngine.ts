@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatDuration } from '../lib/time'
+import { computeElapsed } from '../utils/timer-utils'
 
 export type TimerEngineArgs = {
   durationSec: number
@@ -49,9 +50,8 @@ export const useTimerEngine = ({
       : criticalSec
     const warningMs = adaptiveWarningSec * 1000
     const criticalMs = adaptiveCriticalSec * 1000
-    const elapsedFromStart =
-      isRunning && startedAt ? Math.max(0, timestamp - startedAt) : 0
-    const totalElapsed = elapsedOffset + elapsedFromStart
+    // Canonical elapsed math (timer-utils). Do NOT clamp: negative elapsed is valid bonus time.
+    const totalElapsed = computeElapsed({ isRunning, startedAt, elapsedOffset }, timestamp)
     const remainingMs = durationMs - totalElapsed
 
     let status: TimerEngineState['status'] = 'default'
