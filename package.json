@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "scripts": {
+    "guardrails": "node scripts/check-rebuild-guardrails.mjs"
+  }
+}
