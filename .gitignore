@@ -7,3 +7,4 @@ docs/temp/
 controller/.dev-version.json
 companion/docs/temp/
 .opencode/
+prompt-exports/
