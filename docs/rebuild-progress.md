@@ -1,13 +1,13 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-09._
+_Updated: 2026-06-10._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild
 PR.
 
 ## Current Stage
 
-Stage 0.5: CI correctness gate before Stage 1a extraction.
+Stage 1a: first pure package extraction.
 
 ## Landed
 
@@ -15,20 +15,21 @@ Stage 0.5: CI correctness gate before Stage 1a extraction.
 - PR #2: Stage 0 timer stabilization on `main`
 - PR #3: rebuild architecture and extraction rules on `main`
 - PR #4: rebuild guardrail enforcement on `main`
+- PR #5: frontend lint/typecheck CI correctness gate on `main`
 
 ## Active Work
 
-- CI correctness gate PR: run frontend lint and typecheck in the rebuild guardrail workflow
+- Stage 1a timer-core extraction PR: create `packages/timer-core` from allowlisted timer helpers, keep a frontend legacy shim, and add scoped package checks.
 
 ## Next Gates
 
-1. Land CI correctness gate.
-2. Confirm guardrail, lint, and typecheck checks run in CI.
-3. Only then start Stage 1a.
+1. Land `packages/timer-core` with tests and a legacy re-export shim.
+2. Confirm guardrail, frontend lint/typecheck, timer-core typecheck, and scoped timer tests run in CI.
+3. Continue Stage 1a with `shared-types` only after timer-core is reviewed and merged.
 
 ## Not Started
 
-- Stage 1a package extraction
+- `shared-types` extraction
 - Stage 1b god-file carve-outs
 - app folder moves
 - fresh repo split
