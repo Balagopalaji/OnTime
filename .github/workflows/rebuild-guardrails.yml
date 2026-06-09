@@ -50,6 +50,14 @@ jobs:
         working-directory: frontend
         run: npx tsc -p ../packages/shared-types/tsconfig.json --noEmit
 
+      - name: Local-sync arbitration typecheck
+        working-directory: frontend
+        run: npx tsc -p ../packages/local-sync-arbitration/tsconfig.json --noEmit
+
+      - name: Local-sync arbitration tests
+        working-directory: frontend
+        run: npx vitest --run --root .. packages/local-sync-arbitration/src/index.test.ts frontend/src/lib/arbitration.test.ts frontend/src/lib/arbitration.mode-bias.test.ts
+
       - name: Diff whitespace check
         if: github.event_name == 'pull_request'
         run: git diff --check "origin/${{ github.base_ref }}...HEAD"

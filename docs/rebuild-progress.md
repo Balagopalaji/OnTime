@@ -17,16 +17,17 @@ Stage 1a: first pure package extraction.
 - PR #4: rebuild guardrail enforcement on `main`
 - PR #5: frontend lint/typecheck CI correctness gate on `main`
 - PR #6: Stage 1a `timer-core` extraction on `main`
+- PR #7: Stage 1a `shared-types` extraction on `main`
 
 ## Active Work
 
-- Stage 1a `shared-types` extraction PR: create `packages/shared-types` from the reviewed type-only frontend contract surface, keep a frontend legacy shim, and add scoped package typecheck.
+- Stage 1a `local-sync-arbitration` extraction PR: create a Local-owned pure arbitration package from the reviewed frontend helper, keep Vite debug logging in the frontend shim, preserve `ARBITRATION_FLAGS`, and add scoped package checks.
 
 ## Next Gates
 
-1. Land `packages/shared-types` with compile-time fixtures and a legacy type-only re-export shim.
-2. Confirm guardrail, frontend lint/typecheck, timer-core checks, and shared-types typecheck run in CI.
-3. Choose the next Stage 1a pure extraction candidate only after `shared-types` is reviewed and merged.
+1. Land `packages/local-sync-arbitration` with existing arbitration characterization coverage and a frontend legacy shim.
+2. Confirm Cloud does not import `local-sync-arbitration` and `ARBITRATION_FLAGS` remain frozen.
+3. Decide whether any Stage 1a pure extraction remains; otherwise stop before Stage 1b god-file carve-outs.
 
 ## Not Started
 
