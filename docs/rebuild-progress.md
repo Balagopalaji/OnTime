@@ -16,20 +16,20 @@ Stage 1a: first pure package extraction.
 - PR #3: rebuild architecture and extraction rules on `main`
 - PR #4: rebuild guardrail enforcement on `main`
 - PR #5: frontend lint/typecheck CI correctness gate on `main`
+- PR #6: Stage 1a `timer-core` extraction on `main`
 
 ## Active Work
 
-- Stage 1a timer-core extraction PR: create `packages/timer-core` from allowlisted timer helpers, keep a frontend legacy shim, and add scoped package checks.
+- Stage 1a `shared-types` extraction PR: create `packages/shared-types` from the reviewed type-only frontend contract surface, keep a frontend legacy shim, and add scoped package typecheck.
 
 ## Next Gates
 
-1. Land `packages/timer-core` with tests and a legacy re-export shim.
-2. Confirm guardrail, frontend lint/typecheck, timer-core typecheck, and scoped timer tests run in CI.
-3. Continue Stage 1a with `shared-types` only after timer-core is reviewed and merged.
+1. Land `packages/shared-types` with compile-time fixtures and a legacy type-only re-export shim.
+2. Confirm guardrail, frontend lint/typecheck, timer-core checks, and shared-types typecheck run in CI.
+3. Choose the next Stage 1a pure extraction candidate only after `shared-types` is reviewed and merged.
 
 ## Not Started
 
-- `shared-types` extraction
 - Stage 1b god-file carve-outs
 - app folder moves
 - fresh repo split

@@ -46,6 +46,10 @@ jobs:
         working-directory: frontend
         run: npx vitest --run --root .. packages/timer-core/src/index.test.ts frontend/src/utils/timer-utils.test.ts
 
+      - name: Shared-types typecheck
+        working-directory: frontend
+        run: npx tsc -p ../packages/shared-types/tsconfig.json --noEmit
+
       - name: Diff whitespace check
         if: github.event_name == 'pull_request'
         run: git diff --check "origin/${{ github.base_ref }}...HEAD"
