@@ -38,6 +38,14 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
+      - name: Timer-core typecheck
+        working-directory: frontend
+        run: npx tsc -p ../packages/timer-core/tsconfig.json --noEmit
+
+      - name: Timer-core tests
+        working-directory: frontend
+        run: npx vitest --run --root .. packages/timer-core/src/index.test.ts frontend/src/utils/timer-utils.test.ts
+
       - name: Diff whitespace check
         if: github.event_name == 'pull_request'
         run: git diff --check "origin/${{ github.base_ref }}...HEAD"
