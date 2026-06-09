@@ -7,27 +7,24 @@ PR.
 
 ## Current Stage
 
-Stage 0.5: guardrail enforcement before extraction.
+Stage 0.5: CI correctness gate before Stage 1a extraction.
 
 ## Landed
 
 - PR #1: architecture/product audit set on `main`
 - PR #2: Stage 0 timer stabilization on `main`
-
-## In Review
-
-- PR #3: rebuild architecture and extraction rules
+- PR #3: rebuild architecture and extraction rules on `main`
+- PR #4: rebuild guardrail enforcement on `main`
 
 ## Active Work
 
-- Guardrail enforcement PR, stacked after PR #3 until PR #3 lands
+- CI correctness gate PR: run frontend lint and typecheck in the rebuild guardrail workflow
 
 ## Next Gates
 
-1. Land PR #3.
-2. Land guardrail enforcement.
-3. Confirm guardrail checks run in CI.
-4. Only then start Stage 1a.
+1. Land CI correctness gate.
+2. Confirm guardrail, lint, and typecheck checks run in CI.
+3. Only then start Stage 1a.
 
 ## Not Started
 
@@ -35,6 +32,13 @@ Stage 0.5: guardrail enforcement before extraction.
 - Stage 1b god-file carve-outs
 - app folder moves
 - fresh repo split
+
+## Deferred
+
+- full test-suite gating, blocked by known pre-existing `main` failures
+- line-ending normalization hygiene PR
+- `mergeCueVideos` regression during `presentation-core` extraction
+- iPad viewer polish branch
 
 ## Standing Stop Conditions
 
