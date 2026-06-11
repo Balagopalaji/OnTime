@@ -26,6 +26,14 @@ jobs:
       - name: Rebuild boundary and pattern checks
         run: npm run guardrails
 
+      - name: Install companion dependencies
+        working-directory: companion
+        run: npm ci
+
+      - name: Companion typecheck
+        working-directory: companion
+        run: npx tsc -p tsconfig.json --noEmit
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci

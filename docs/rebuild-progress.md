@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-11._
+_Updated: 2026-06-12._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -27,6 +27,8 @@ gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any S
 - PR #12 chore(shared-types): add test script for parity (M1 audit L1)
 - PR #13 docs(ledger): M1 completion + audit fixes + Stage 1b worklist
 - PR #14 fix(test): resurrect + gate UnifiedDataContext characterization harness (Fable C-1)
+- PR #15 docs(ledger): Fable review + corrective backlog + Codex baton handoff
+- PR #16 ci(companion): add no-emit TypeScript check to required guardrails (Fable M-3)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -60,11 +62,11 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   baseline) was DEAD — missing `afterEach` import → 0 tests ran; this ledger mislabeled it as a
   "pre-existing failure." Fixed; the full frontend suite (incl. the 51-test harness) is now gated in
   the required check, excluding 3 genuinely-failing files (useSortableList/CuesPanel/AppModeContext).
+- **M-3 (Medium, fixed #16):** companion now runs `npm ci` + `npx tsc -p tsconfig.json --noEmit`
+  inside the required `Guardrail checks` job. Companion source can no longer merge through the
+  rebuild gate with a TypeScript compile error.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
-- **M-3 (do NEXT):** add `companion tsc --noEmit` to the required Guardrail-checks job. Companion has
-  ZERO CI verification; PR #9 changed `companion/src/main.ts` with no compile check. ~5 lines YAML +
-  `npm ci` in companion. Prerequisite for carving companion in 1b.
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
   required reviews + `strict:false`, so the baton is convention-only (the consultant's C1 mistake
   merged solo). `strict:true` is safe (prevents stale merges, does NOT block self-merge). Required
@@ -97,10 +99,11 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 ### Codex — baton handoff / next heartbeat
 The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
 corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
-for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Start
-with **M-3 (companion tsc in CI)** → **M-1 (Dashboard correctness)** → **H-1 (timestamp validation)**.
-The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
-M-3 + H-1 + M-1 land.** Fable's full review is in this thread; brief at `prompt-exports/fable-review-brief.md`.
+for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
+**H-1 (timestamp validation)** → **M-1 (Dashboard correctness)**. The harness is gated now, so behavior
+regressions go red. **Do NOT begin Stage 1b carve-outs until H-1 + M-1 land.** The actionable Fable
+review summary is captured in this ledger; the local `prompt-exports/` brief is not tracked because
+guardrails intentionally forbid tracked prompt-export artifacts.
 
 ## Deferred (unchanged)
 
