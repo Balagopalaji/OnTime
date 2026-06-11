@@ -6,9 +6,10 @@ This ledger keeps rebuild state outside chat context. Update it at the end of ea
 
 ## Current Stage
 
-**Stage 1a COMPLETE (milestone M1, tag `M1-stage-1a`).** M1 audit ran; critical/systemic
-follow-ups landed. Ready for **Stage 1b** (god-file carve-outs) — but see the Stage 1b
-worklist below (collapse the duplication M1 found) and run an anti-duplication CI check after.
+**Stage 1a COMPLETE (M1, tag `M1-stage-1a`).** TWO reviews ran: an internal M1 audit (Opus) and
+an INDEPENDENT review (Fable). **Fable caught real issues the M1 audit missed** — a DEAD
+characterization harness and a misclassified "fix" (C1). The test safety net is now resurrected +
+gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any Stage 1b carve-out.**
 
 ## Landed (on `main`)
 
@@ -24,6 +25,8 @@ worklist below (collapse the duplication M1 found) and run an anti-duplication C
 - PR #10 ci(companion): stop installer-build failures on every push (ffprobe/companion-build)
 - PR #11 ci(guardrails): extend bug-pattern checks to `companion/src` + broaden clamp regex (M1)
 - PR #12 chore(shared-types): add test script for parity (M1 audit L1)
+- PR #13 docs(ledger): M1 completion + audit fixes + Stage 1b worklist
+- PR #14 fix(test): resurrect + gate UnifiedDataContext characterization harness (Fable C-1)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -45,26 +48,63 @@ While Codex was offline I (Claude/consultant) did, with the user's authorization
 - I did the above PRs **solo** (you were offline) — they had no independent review beyond CI +
   the user. Worth a second look if anything seems off.
 
-## Stage 1b worklist (the collapses M1 found — NOT yet done; do under the baton, each its own PR)
+## Fable independent review (2026-06-11) — corrective backlog (do BEFORE Stage 1b carve-outs)
 
-1. **H1 — remove dead arbitration fallback chain.** `frontend/src/context/UnifiedDataContext.tsx`
-   `resolveRoomSource`: the `else` branch after `if (ARBITRATION_FLAGS.room) { … return decision.acceptSource }`
-   is unreachable (room flag is `true`) and duplicates `arbitrate()`. Delete it. (Mind mixed CRLF/LF.)
-2. **H2 — route inline remaining-math through `computeRemaining`.** 8 sites of `<timer>.duration * 1000 - <elapsed>`
-   in `frontend/src/routes/ControllerPage.tsx` (~1080, 1084) and `DashboardPage.tsx` (~1020, 1053, 1074, 1102, 1124, 1393).
-3. **Inline `computeElapsed` (found beyond the audit):** `DashboardPage.tsx` (~1122) reimplements elapsed
-   as `now - room.state.startedAt + baseElapsed` instead of using `computeElapsed`/the shim. Collapse it.
-4. **Anti-duplication CI check (do AFTER 1–3, else it false-positives):** add a positive guardrail in
-   `scripts/check-rebuild-guardrails.mjs` flagging inline elapsed/remaining math (`now - startedAt`,
-   `* 1000 - …elapsed`) outside `packages/`/shims, + an extraction-rule line in `rebuild-extraction-rules.md`.
-   Verify FP-free before enabling (the broadened clamp regex + companion scope are already in #11).
-5. **M2 — module-level mutable state** `lastAcceptedSource` in `packages/local-sync-arbitration/src/index.ts`:
-   consider injecting the cache via options when multiple apps consume the package. No behavior change for 1a.
+An independent reviewer (Fable) found issues the M1 audit + the consultant missed. Priority-ordered.
+The CORE lesson: the grep guardrails are tripwires, not a safety net — **the test suite is the net**
+(now gated, #14). Several M1-audit conclusions were wrong (C1 misclassified; "pre-existing test
+failures" was a one-line import bug). Trust tests over pattern-matching.
+
+**DONE:**
+- **C-1 (Critical, fixed #14):** `UnifiedDataContext.test.ts` (the named Stage 1b characterization
+  baseline) was DEAD — missing `afterEach` import → 0 tests ran; this ledger mislabeled it as a
+  "pre-existing failure." Fixed; the full frontend suite (incl. the 51-test harness) is now gated in
+  the required check, excluding 3 genuinely-failing files (useSortableList/CuesPanel/AppModeContext).
+
+**TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
+- **M-3 (do NEXT):** add `companion tsc --noEmit` to the required Guardrail-checks job. Companion has
+  ZERO CI verification; PR #9 changed `companion/src/main.ts` with no compile check. ~5 lines YAML +
+  `npm ci` in companion. Prerequisite for carving companion in 1b.
+- **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
+  required reviews + `strict:false`, so the baton is convention-only (the consultant's C1 mistake
+  merged solo). `strict:true` is safe (prevents stale merges, does NOT block self-merge). Required
+  reviews WOULD block orchestrator self-merge → changes heartbeat autonomy. Tradeoff is the user's call.
+
+**TODO — correctness fixes (each its own PR + a test; harness must stay green):**
+- **H-1 (High):** companion PAUSE uses client-supplied `payload.timestamp` (NOT validated by
+  `isValidTimerActionPayload`) in a CROSS-CLOCK delta `pauseNow - state.lastUpdate`. **PR #9 wrongly
+  removed the protective clamp** (it pattern-matched the elapsed-clamp shape). Proper fix: VALIDATE
+  `payload.timestamp` (finite, within a sanity window of companion `now`) or compute the delta on the
+  companion's OWN clock. Do NOT re-add the clamp (#11's guardrail forbids it). A skewed/0/NaN
+  timestamp currently corrupts → persists → broadcasts room state mid-show.
+- **M-1 (suspected LIVE bug — do before the inert H1):** `DashboardPage` inline elapsed is a
+  DIFFERENT formula (`now - startedAt + progress[active]`, ~1017-1122, 1388-1393) vs canonical
+  (`elapsedOffset + (now - startedAt)`). They agree only if `progress[activeTimerId]` stays frozen at
+  `elapsedOffset` for the run; if any UnifiedDataContext path writes the active timer's live elapsed
+  while running, the dashboard double-counts. Collapse to `computeElapsed` with a test pinning the invariant.
+
+**TODO — then structure + inert cleanups:**
+- **M2:** inject the arbitration `lastAcceptedSource` cache via options NOW (one consumer) — it's
+  module-global, never evicted, makes `arbitrate()` history-dependent / non-reproducible.
+- **M-4 (before Stage 2):** adopt npm workspaces + `@ontime/*` aliases (replace `../../../packages/*/src`).
+  Aliasing is NOT the Stage-4 folder rename — do it now while cheap (3 packages/shims). Add
+  dependency-cruiser for real (transitive) boundary enforcement; grep can't catch indirection.
+- **H1 (inert dead code):** delete the unreachable arbitration fallback chain in `resolveRoomSource`.
+- **H2 (low value):** route inline `*1000 - elapsed` through `computeRemaining` (Controller/Dashboard).
+- **Anti-duplication CI check:** add only AFTER H2 + M-1 collapse (else false-positives).
+- **L-2:** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` (fail if they grow).
+
+### Codex — baton handoff / next heartbeat
+The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
+corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
+for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Start
+with **M-3 (companion tsc in CI)** → **M-1 (Dashboard correctness)** → **H-1 (timestamp validation)**.
+The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
+M-3 + H-1 + M-1 land.** Fable's full review is in this thread; brief at `prompt-exports/fable-review-brief.md`.
 
 ## Deferred (unchanged)
 
-- full test-suite gating, blocked by known pre-existing `main` failures (useSortableList, CuesPanel, AppModeContext, UnifiedDataContext.test)
-- companion typecheck in CI (companion is not typecheck-gated; add when convenient)
+- triage + fix the 3 genuinely-failing test files (useSortableList, CuesPanel, AppModeContext) and remove them from the CI exclude list once green (note: the "UnifiedDataContext.test" entry was a FALSE premise — it was a one-line missing import, fixed in #14)
 - line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)
 - `mergeCueVideos` regression during `presentation-core` extraction
 - iPad viewer polish branch (stashed)
