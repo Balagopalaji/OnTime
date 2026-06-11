@@ -58,6 +58,14 @@ jobs:
         working-directory: frontend
         run: npx vitest --run --root .. packages/local-sync-arbitration/src/index.test.ts frontend/src/lib/arbitration.test.ts frontend/src/lib/arbitration.mode-bias.test.ts
 
+      # Stage 1b safety net: run the FULL frontend suite (including the UnifiedDataContext
+      # characterization harness, 51 tests) so any carve-out that changes behavior turns this
+      # required check red. Excludes 3 long-standing pre-existing failures (tracked for triage:
+      # useSortableList, CuesPanel, AppModeContext) so they don't mask new regressions.
+      - name: Frontend test suite (characterization safety net)
+        working-directory: frontend
+        run: npx vitest run --exclude '**/useSortableList.test.ts' --exclude '**/CuesPanel.test.tsx' --exclude '**/AppModeContext.test.tsx'
+
       - name: Diff whitespace check
         if: github.event_name == 'pull_request'
         run: git diff --check "origin/${{ github.base_ref }}...HEAD"
