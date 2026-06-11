@@ -165,7 +165,8 @@ function checkForbiddenBugPatterns() {
     return (
       file.startsWith('frontend/src/') ||
       file.startsWith('packages/') ||
-      file.startsWith('apps/')
+      file.startsWith('apps/') ||
+      file.startsWith('companion/src/')
     )
   })
 
@@ -174,7 +175,7 @@ function checkForbiddenBugPatterns() {
     if (/mergeProgress\(\s*roomProgress\s*,\s*cachedProgress\s*\)/.test(content)) {
       fail(`stale cache-wins progress merge order found: ${file}`)
     }
-    if (/Math\.max\(\s*0\s*,[^)\n]*(elapsed|elapsedOffset|currentTime)/.test(content)) {
+    if (/Math\.max\(\s*0\s*,[^)\n]*(elapsed|elapsedOffset|currentTime|startedAt|lastUpdate)/.test(content)) {
       fail(`timer elapsed clamping pattern found outside timer contract: ${file}`)
     }
     if (/\bapplyNudge\b/.test(content)) {
