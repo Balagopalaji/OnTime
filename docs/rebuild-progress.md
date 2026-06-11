@@ -71,6 +71,7 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   timestamps remain accepted for protocol compatibility but are classified/ignored when missing,
   invalid, stale, or future-skewed; PAUSE computes elapsed only from companion `now - lastUpdate`
   and invalid stored anchors produce zero additional elapsed instead of corrupting room state.
+  The companion lifecycle tests covering this behavior run in the required guardrail CI check.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no

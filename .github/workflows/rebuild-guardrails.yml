@@ -34,6 +34,10 @@ jobs:
         working-directory: companion
         run: npx tsc -p tsconfig.json --noEmit
 
+      - name: Companion tests
+        working-directory: companion
+        run: npm test
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
