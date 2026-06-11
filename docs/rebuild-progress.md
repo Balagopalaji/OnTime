@@ -29,6 +29,7 @@ gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any S
 - PR #14 fix(test): resurrect + gate UnifiedDataContext characterization harness (Fable C-1)
 - PR #15 docs(ledger): Fable review + corrective backlog + Codex baton handoff
 - PR #16 ci(companion): add no-emit TypeScript check to required guardrails (Fable M-3)
+- PR #17 fix(companion): ignore unsafe client timer-action timestamps (Fable H-1)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -65,6 +66,12 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 - **M-3 (Medium, fixed #16):** companion now runs `npm ci` + `npx tsc -p tsconfig.json --noEmit`
   inside the required `Guardrail checks` job. Companion source can no longer merge through the
   rebuild gate with a TypeScript compile error.
+- **H-1 (High, fixed #17):** companion `TIMER_ACTION` now treats the companion process clock as
+  authoritative for START/PAUSE/RESET state transitions and delta timestamps. Client-supplied
+  timestamps remain accepted for protocol compatibility but are classified/ignored when missing,
+  invalid, stale, or future-skewed; PAUSE computes elapsed only from companion `now - lastUpdate`
+  and invalid stored anchors produce zero additional elapsed instead of corrupting room state.
+  The companion lifecycle tests covering this behavior run in the required guardrail CI check.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
@@ -73,12 +80,6 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   reviews WOULD block orchestrator self-merge → changes heartbeat autonomy. Tradeoff is the user's call.
 
 **TODO — correctness fixes (each its own PR + a test; harness must stay green):**
-- **H-1 (High):** companion PAUSE uses client-supplied `payload.timestamp` (NOT validated by
-  `isValidTimerActionPayload`) in a CROSS-CLOCK delta `pauseNow - state.lastUpdate`. **PR #9 wrongly
-  removed the protective clamp** (it pattern-matched the elapsed-clamp shape). Proper fix: VALIDATE
-  `payload.timestamp` (finite, within a sanity window of companion `now`) or compute the delta on the
-  companion's OWN clock. Do NOT re-add the clamp (#11's guardrail forbids it). A skewed/0/NaN
-  timestamp currently corrupts → persists → broadcasts room state mid-show.
 - **M-1 (suspected LIVE bug — do before the inert H1):** `DashboardPage` inline elapsed is a
   DIFFERENT formula (`now - startedAt + progress[active]`, ~1017-1122, 1388-1393) vs canonical
   (`elapsedOffset + (now - startedAt)`). They agree only if `progress[activeTimerId]` stays frozen at
@@ -100,10 +101,10 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
 corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
 for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
-**H-1 (timestamp validation)** → **M-1 (Dashboard correctness)**. The harness is gated now, so behavior
-regressions go red. **Do NOT begin Stage 1b carve-outs until H-1 + M-1 land.** The actionable Fable
-review summary is captured in this ledger; the local `prompt-exports/` brief is not tracked because
-guardrails intentionally forbid tracked prompt-export artifacts.
+**M-1 (Dashboard correctness)**. The harness is gated now, so behavior regressions go red. **Do NOT
+begin Stage 1b carve-outs until M-1 lands.** The actionable Fable review summary is captured in this
+ledger; the local `prompt-exports/` brief is not tracked because guardrails intentionally forbid
+tracked prompt-export artifacts.
 
 ## Deferred (unchanged)
 
