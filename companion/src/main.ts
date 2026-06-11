@@ -6442,7 +6442,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
       const pauseNow = payload.timestamp ?? now;
       const elapsedSinceLast =
         state.isRunning && typeof state.lastUpdate === 'number'
-          ? Math.max(0, pauseNow - state.lastUpdate)
+          ? pauseNow - state.lastUpdate
           : 0;
       const nextCurrentTime = baseCurrent + elapsedSinceLast;
       changes = {
