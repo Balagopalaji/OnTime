@@ -98,3 +98,109 @@ test('trust flags are tied to the current certificate fingerprint', async () => 
   assert.equal(isTrustFlagCurrent(trustFlag, 'AA:BB:CC'), true)
   assert.equal(isTrustFlagCurrent(trustFlag, 'DD:EE:FF'), false)
 })
+
+test('timer action clock classifies client timestamps but keeps companion time authoritative', async () => {
+  const { resolveTimerActionClock } = await loadLifecycleHelpers()
+  const now = 1_000_000
+
+  assert.deepEqual(resolveTimerActionClock(undefined, now), {
+    now,
+    clientTimestampIssue: 'missing',
+  })
+  assert.deepEqual(resolveTimerActionClock('1000', now), {
+    now,
+    clientTimestampIssue: 'non_number',
+  })
+  assert.deepEqual(resolveTimerActionClock(Number.NaN, now), {
+    now,
+    clientTimestampIssue: 'non_finite',
+  })
+  assert.deepEqual(resolveTimerActionClock(0, now), {
+    now,
+    clientTimestampIssue: 'zero_or_negative',
+  })
+  assert.deepEqual(resolveTimerActionClock(now - 300_001, now), {
+    now,
+    clientTimestampIssue: 'stale',
+  })
+  assert.deepEqual(resolveTimerActionClock(now + 30_001, now), {
+    now,
+    clientTimestampIssue: 'future_skew',
+  })
+  assert.deepEqual(resolveTimerActionClock(now - 1_000, now), {
+    now,
+    clientTimestampIssue: 'valid_ignored',
+  })
+})
+
+test('pause timer action uses companion clock for elapsed delta', async () => {
+  const { resolveTimerActionChanges } = await loadLifecycleHelpers()
+  const changes = resolveTimerActionChanges({
+    action: 'PAUSE',
+    timerId: 'timer-a',
+    state: {
+      activeTimerId: 'timer-a',
+      isRunning: true,
+      currentTime: 5_000,
+      lastUpdate: 100_000,
+    },
+    companionNow: 103_000,
+  })
+
+  assert.equal(changes.isRunning, false)
+  assert.equal(changes.currentTime, 8_000)
+  assert.equal(changes.lastUpdate, 103_000)
+})
+
+test('pause timer action does not propagate invalid stored lastUpdate anchors', async () => {
+  const { resolveTimerActionChanges } = await loadLifecycleHelpers()
+  const invalidAnchors = [Number.NaN, Number.POSITIVE_INFINITY, 0, 104_000]
+
+  for (const lastUpdate of invalidAnchors) {
+    const changes = resolveTimerActionChanges({
+      action: 'PAUSE',
+      timerId: 'timer-a',
+      state: {
+        activeTimerId: 'timer-a',
+        isRunning: true,
+        currentTime: 5_000,
+        lastUpdate,
+      },
+      companionNow: 103_000,
+    })
+
+    assert.equal(changes.isRunning, false)
+    assert.equal(changes.currentTime, 5_000)
+    assert.equal(changes.lastUpdate, 103_000)
+    assert.equal(Number.isFinite(changes.currentTime), true)
+  }
+})
+
+test('start and reset timer actions anchor lastUpdate on companion clock', async () => {
+  const { resolveTimerActionChanges } = await loadLifecycleHelpers()
+  const state = {
+    activeTimerId: 'timer-a',
+    isRunning: false,
+    currentTime: 5_000,
+    lastUpdate: 100_000,
+  }
+
+  const startChanges = resolveTimerActionChanges({
+    action: 'START',
+    timerId: 'timer-a',
+    state,
+    companionNow: 103_000,
+    currentTime: 7_000,
+  })
+  const resetChanges = resolveTimerActionChanges({
+    action: 'RESET',
+    timerId: 'timer-b',
+    state,
+    companionNow: 104_000,
+  })
+
+  assert.equal(startChanges.currentTime, 7_000)
+  assert.equal(startChanges.lastUpdate, 103_000)
+  assert.equal(resetChanges.currentTime, 0)
+  assert.equal(resetChanges.lastUpdate, 104_000)
+})

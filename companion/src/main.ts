@@ -527,15 +527,114 @@ type PresentationSnapshot = {
   videoTimingUnavailable?: boolean;
 };
 
+type TimerActionKind = 'START' | 'PAUSE' | 'RESET';
+
 type TimerActionPayload = {
   type: 'TIMER_ACTION';
-  action: 'START' | 'PAUSE' | 'RESET';
+  action: TimerActionKind;
   roomId: string;
   timerId: string;
   timestamp?: number;
   clientId?: string;
   currentTime?: number; // Optional: elapsed time to use when starting (for stored progress)
 };
+
+export type TimerActionClientTimestampIssue =
+  | 'missing'
+  | 'non_number'
+  | 'non_finite'
+  | 'zero_or_negative'
+  | 'stale'
+  | 'future_skew'
+  | 'valid_ignored';
+
+export type TimerActionClockResolution = {
+  now: number;
+  clientTimestampIssue: TimerActionClientTimestampIssue;
+};
+
+const TIMER_ACTION_MAX_PAST_SKEW_MS = 5 * 60 * 1000;
+const TIMER_ACTION_MAX_FUTURE_SKEW_MS = 30 * 1000;
+
+export function resolveTimerActionClock(
+  clientTimestamp: unknown,
+  companionNow: number,
+  options: {
+    maxPastSkewMs?: number;
+    maxFutureSkewMs?: number;
+  } = {},
+): TimerActionClockResolution {
+  const maxPastSkewMs = options.maxPastSkewMs ?? TIMER_ACTION_MAX_PAST_SKEW_MS;
+  const maxFutureSkewMs = options.maxFutureSkewMs ?? TIMER_ACTION_MAX_FUTURE_SKEW_MS;
+
+  if (clientTimestamp === undefined || clientTimestamp === null) {
+    return { now: companionNow, clientTimestampIssue: 'missing' };
+  }
+  if (typeof clientTimestamp !== 'number') {
+    return { now: companionNow, clientTimestampIssue: 'non_number' };
+  }
+  if (!Number.isFinite(clientTimestamp)) {
+    return { now: companionNow, clientTimestampIssue: 'non_finite' };
+  }
+  if (clientTimestamp <= 0) {
+    return { now: companionNow, clientTimestampIssue: 'zero_or_negative' };
+  }
+  if (clientTimestamp < companionNow - maxPastSkewMs) {
+    return { now: companionNow, clientTimestampIssue: 'stale' };
+  }
+  if (clientTimestamp > companionNow + maxFutureSkewMs) {
+    return { now: companionNow, clientTimestampIssue: 'future_skew' };
+  }
+
+  return { now: companionNow, clientTimestampIssue: 'valid_ignored' };
+}
+
+export function resolveTimerActionChanges(args: {
+  action: TimerActionKind;
+  timerId: string;
+  state: Pick<RoomState, 'activeTimerId' | 'isRunning' | 'currentTime' | 'lastUpdate'>;
+  companionNow: number;
+  currentTime?: unknown;
+}): Partial<RoomState> {
+  const baseCurrent = Number.isFinite(args.state.currentTime) ? (args.state.currentTime as number) : 0;
+
+  switch (args.action) {
+    case 'START': {
+      const isSwitchingTimer = args.timerId !== args.state.activeTimerId;
+      const startTime = typeof args.currentTime === 'number' && Number.isFinite(args.currentTime)
+        ? args.currentTime
+        : (isSwitchingTimer ? 0 : baseCurrent);
+      return {
+        activeTimerId: args.timerId,
+        isRunning: true,
+        currentTime: startTime,
+        lastUpdate: args.companionNow
+      };
+    }
+    case 'PAUSE': {
+      const lastUpdate = Number.isFinite(args.state.lastUpdate)
+        && (args.state.lastUpdate as number) > 0
+        && (args.state.lastUpdate as number) <= args.companionNow
+        ? (args.state.lastUpdate as number)
+        : args.companionNow;
+      const elapsedSinceLast = args.state.isRunning ? args.companionNow - lastUpdate : 0;
+      return {
+        isRunning: false,
+        currentTime: baseCurrent + elapsedSinceLast,
+        lastUpdate: args.companionNow
+      };
+    }
+    case 'RESET':
+      return {
+        activeTimerId: args.timerId,
+        isRunning: false,
+        currentTime: 0,
+        lastUpdate: args.companionNow
+      };
+    default:
+      return {};
+  }
+}
 
 type RoomStateSnapshot = {
   type: 'ROOM_STATE_SNAPSHOT';
@@ -6413,55 +6512,21 @@ function handleTimerAction(socket: Socket, payload: unknown) {
     socket.join(payload.roomId);
   }
 
-  const now = Date.now();
-  const state = getRoomState(payload.roomId);
-  let changes: Partial<RoomState> = {};
-  const baseCurrent = Number.isFinite(state.currentTime) ? (state.currentTime as number) : 0;
-
-  switch (payload.action) {
-    case 'START': {
-      // Use provided currentTime if available (for stored progress when switching timers).
-      // Otherwise, if resuming the same timer, preserve the elapsed time.
-      // If switching without provided currentTime, reset to 0.
-      const isSwitchingTimer = payload.timerId !== state.activeTimerId;
-      const startTime = typeof payload.currentTime === 'number' && Number.isFinite(payload.currentTime)
-        ? payload.currentTime
-        : (isSwitchingTimer ? 0 : baseCurrent);
-      changes = {
-        activeTimerId: payload.timerId,
-        isRunning: true,
-        currentTime: startTime,
-        lastUpdate: payload.timestamp ?? now
-      };
-      break;
-    }
-    case 'PAUSE':
-      // Persist the computed elapsed time so switching modes (Cloud↔Local) while paused does not "reset" the timer.
-      // We can compute elapsed using the last running anchor (lastUpdate) and the stored base (currentTime).
-      // Note: state.currentTime is treated as elapsed-at-lastUpdate.
-      const pauseNow = payload.timestamp ?? now;
-      const elapsedSinceLast =
-        state.isRunning && typeof state.lastUpdate === 'number'
-          ? pauseNow - state.lastUpdate
-          : 0;
-      const nextCurrentTime = baseCurrent + elapsedSinceLast;
-      changes = {
-        isRunning: false,
-        currentTime: nextCurrentTime,
-        lastUpdate: pauseNow
-      };
-      break;
-    case 'RESET':
-      changes = {
-        activeTimerId: payload.timerId,
-        isRunning: false,
-        currentTime: 0,
-        lastUpdate: payload.timestamp ?? now
-      };
-      break;
-    default:
-      return;
+  const clock = resolveTimerActionClock(payload.timestamp, Date.now());
+  if (clock.clientTimestampIssue !== 'missing' && clock.clientTimestampIssue !== 'valid_ignored') {
+    console.warn(
+      `[ws] TIMER_ACTION ignored unsafe client timestamp: room=${payload.roomId}, timer=${payload.timerId}, issue=${clock.clientTimestampIssue}`
+    );
   }
+  const now = clock.now;
+  const state = getRoomState(payload.roomId);
+  const changes = resolveTimerActionChanges({
+    action: payload.action,
+    timerId: payload.timerId,
+    state,
+    companionNow: now,
+    currentTime: payload.currentTime,
+  });
 
   const updated = { ...state, ...changes };
   roomStateStore.set(payload.roomId, updated);
@@ -6472,7 +6537,7 @@ function handleTimerAction(socket: Socket, payload: unknown) {
     roomId: payload.roomId,
     changes,
     clientId: socket.data.clientId ?? payload.clientId,
-    timestamp: payload.timestamp ?? now
+    timestamp: now
   };
 
   console.log(
