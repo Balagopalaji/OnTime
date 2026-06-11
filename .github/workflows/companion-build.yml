@@ -1,11 +1,13 @@
 name: Build Companion installers
 
 on:
+  # Installer builds run on demand and on release tags only — not on every push.
+  # (Per-commit installer builds were noisy and the cross-platform packaging is not
+  # release-ready: it needs the tsc build + viewer-bundle steps and ffprobe sourcing.)
   workflow_dispatch:
   push:
-    paths:
-      - "companion/**"
-      - ".github/workflows/companion-build.yml"
+    tags:
+      - "v*"
 
 jobs:
   build:
@@ -33,6 +35,9 @@ jobs:
 
       # ffprobe URLs can be overridden with repo/environment variables if you host vetted LGPL-only binaries.
       - name: Fetch ffprobe
+        # Best-effort: the app degrades gracefully without ffprobe and the public LGPL
+        # mirror URLs are flaky. Don't fail the installer build on a fetch miss.
+        continue-on-error: true
         working-directory: companion
         env:
           FFPROBE_URL_MAC: ${{ vars.FFPROBE_URL_MAC }}
