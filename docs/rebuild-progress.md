@@ -31,9 +31,6 @@ gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any S
 - PR #16 ci(companion): add no-emit TypeScript check to required guardrails (Fable M-3)
 - PR #17 fix(companion): ignore unsafe client timer-action timestamps (Fable H-1)
 - PR #18 fix(dashboard): use canonical active timer elapsed (Fable M-1)
-
-## Pending Baton PR
-
 - PR #19 refactor(arbitration): inject last accepted source cache (Fable M2)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
@@ -81,7 +78,7 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   the shared timer helpers (`resolveTimerElapsed` + `computeRemaining`) instead of the stale
   `progress[activeTimerId] + (now - startedAt)` formula. A Dashboard regression pins the invariant
   where active progress diverges from `elapsedOffset`.
-- **M2 (pending #19):** `local-sync-arbitration` no longer owns a module-global
+- **M2 (fixed #19):** `local-sync-arbitration` no longer owns a module-global
   `lastAcceptedSource` cache. The core accepts an injected cache through arbitration options, making
   bare `arbitrate()` calls deterministic/reproducible, while the frontend shim owns the one current
   cache instance to preserve app behavior. Tests cover both injected last-accepted behavior and the
@@ -94,7 +91,10 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   reviews WOULD block orchestrator self-merge → changes heartbeat autonomy. Tradeoff is the user's call.
 
 **TODO — correctness fixes (each its own PR + a test; harness must stay green):**
-- All priority correctness fixes from the Fable review are either landed or in the current baton PR.
+- **H-1b (triage before Stage 1b sync carve-outs):** decide whether to extend the companion-clock
+  validation pattern from `TIMER_ACTION` to `SYNC_ROOM_STATE`, `ROOM_STATE_PATCH`, and START
+  `currentTime`; if accepted, implement as a scoped correctness PR with companion lifecycle coverage.
+- All other priority correctness fixes from the Fable review are landed.
 
 **TODO — then structure + inert cleanups:**
 - **M-4 (before Stage 2):** adopt npm workspaces + `@ontime/*` aliases (replace `../../../packages/*/src`).
