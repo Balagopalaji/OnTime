@@ -1074,6 +1074,243 @@ describe('ACK-LAT-002 join watchdog integration', () => {
     vi.doUnmock('./AppModeContext')
     vi.doUnmock('./FirebaseDataContext')
   })
+
+  it('keeps timer anchor stable on receiving metadata-only room deltas', async () => {
+    vi.useFakeTimers()
+    // T0 stays within the arbitration skew threshold of the (zero) cloud timestamp
+    // so the companion delta is accepted as "companion newer" rather than skew-rejected.
+    vi.setSystemTime(100_000)
+    vi.resetModules()
+
+    class FakeSocket {
+      connected = true
+      active = true
+      connect = vi.fn()
+      disconnect = vi.fn()
+      emit = vi.fn()
+      private listeners = new Map<string, Set<(...args: unknown[]) => void>>()
+
+      on(event: string, cb: (...args: unknown[]) => void) {
+        const list = this.listeners.get(event) ?? new Set()
+        list.add(cb)
+        this.listeners.set(event, list)
+      }
+
+      off(event: string, cb: (...args: unknown[]) => void) {
+        this.listeners.get(event)?.delete(cb)
+      }
+
+      trigger(event: string, payload?: unknown) {
+        this.listeners.get(event)?.forEach((cb) => cb(payload))
+      }
+    }
+
+    const socket = new FakeSocket()
+    const companionMock = {
+      socket,
+      isConnected: true,
+      handshakeStatus: 'ack' as const,
+      reconnectState: 'idle' as const,
+      reconnectAttempts: 0,
+      reconnectChurn: false,
+      token: 'cached-token',
+      fetchToken: vi.fn(async () => 'cached-token'),
+      clearToken: vi.fn(),
+      markHandshakePending: vi.fn(),
+      retryConnection: vi.fn(),
+      protocolStatus: { clientVersion: '1.2.0', serverVersion: '1.2.0', compatibility: 'ok' as const },
+      companionMode: 'show_control',
+      capabilities: { powerpoint: false, externalVideo: false, fileOperations: true },
+      capabilitiesRevision: 0,
+      systemInfo: null,
+      discoverCompanion: vi.fn(async () => 'cached-token'),
+    }
+    const firebaseValue = {
+      rooms: [],
+      connectionStatus: 'online',
+      setConnectionStatus: vi.fn(),
+      pendingRooms: new Set<string>(),
+      pendingRoomPlaceholders: [],
+      pendingTimers: {},
+      pendingTimerPlaceholders: {},
+      undoRoomDelete: vi.fn(async () => {}),
+      redoRoomDelete: vi.fn(async () => {}),
+      undoTimerDelete: vi.fn(async () => {}),
+      redoTimerDelete: vi.fn(async () => {}),
+      clearUndoStacks: vi.fn(async () => {}),
+      getRoom: vi.fn(() => undefined),
+      getTimers: vi.fn(() => []),
+      getCues: vi.fn(() => []),
+      getLiveCues: vi.fn(() => []),
+      getLiveCueRecords: vi.fn(() => []),
+      createRoom: vi.fn(async () => { throw new Error('not used') }),
+      deleteRoom: vi.fn(async () => {}),
+      createTimer: vi.fn(async () => undefined),
+      createCue: vi.fn(async () => undefined),
+      updateTimer: vi.fn(async () => {}),
+      updateCue: vi.fn(async () => {}),
+      updateRoomMeta: vi.fn(async () => {}),
+      restoreTimer: vi.fn(async () => {}),
+      resetTimerProgress: vi.fn(async () => {}),
+      deleteTimer: vi.fn(async () => {}),
+      deleteCue: vi.fn(async () => {}),
+      moveTimer: vi.fn(async () => {}),
+      reorderTimer: vi.fn(async () => {}),
+      reorderCues: vi.fn(async () => {}),
+      getSections: vi.fn(() => []),
+      getSegments: vi.fn(() => []),
+      createSection: vi.fn(async () => undefined),
+      updateSection: vi.fn(async () => {}),
+      deleteSection: vi.fn(async () => {}),
+      reorderSections: vi.fn(async () => {}),
+      createSegment: vi.fn(async () => undefined),
+      updateSegment: vi.fn(async () => {}),
+      deleteSegment: vi.fn(async () => {}),
+      reorderSegments: vi.fn(async () => {}),
+      setActiveTimer: vi.fn(async () => {}),
+      startTimer: vi.fn(async () => {}),
+      pauseTimer: vi.fn(async () => {}),
+      resetTimer: vi.fn(async () => {}),
+      nudgeTimer: vi.fn(async () => {}),
+      setClockMode: vi.fn(async () => {}),
+      setClockFormat: vi.fn(async () => {}),
+      updateMessage: vi.fn(async () => {}),
+      controllerLocks: {},
+      roomPins: {},
+      roomClients: {},
+      controlRequests: {},
+      pendingControlRequests: {},
+      controlDenials: {},
+      controlDisplacements: {},
+      controlErrors: {},
+      getControllerLock: vi.fn(() => null),
+      getControllerLockState: vi.fn(() => 'authoritative'),
+      getRoomPin: vi.fn(() => null),
+      setRoomPin: vi.fn(),
+      requestControl: vi.fn(),
+      forceTakeover: vi.fn(),
+      handOverControl: vi.fn(),
+      denyControl: vi.fn(),
+      enqueueOfflineAction: vi.fn(),
+      clearOfflineQueue: vi.fn(),
+      cloudSync: vi.fn(),
+      cloudSyncEnabled: false,
+      clearLiveCues: vi.fn(),
+      sendHeartbeat: vi.fn(),
+    }
+
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => companionMock,
+    }))
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'auto', effectiveMode: 'local' }),
+    }))
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    const { UnifiedDataProvider, useUnifiedDataContext } = module
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => {
+        ctxRef = ctx
+      }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(ctxRef).not.toBeNull()
+    const ctx = ctxRef as unknown as ReturnType<typeof useUnifiedDataContext>
+
+    await act(async () => {
+      ctx.subscribeToCompanionRoom('room-a', 'controller')
+      await Promise.resolve()
+    })
+
+    // Seed a running-timer anchor at T0 (100_000).
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-a',
+        changes: {
+          activeTimerId: 't1',
+          isRunning: true,
+          currentTime: 5000,
+          lastUpdate: 100_000,
+        },
+        timestamp: 100_000,
+      })
+      await Promise.resolve()
+    })
+
+    const seeded = ctx.getRoom('room-a')
+    expect(seeded?.state.lastUpdate).toBe(100_000)
+    expect(seeded?.state.currentTime).toBe(5000)
+
+    // Advance the clock and apply a metadata-only delta (no timer anchor fields).
+    // This mirrors exactly what the H-1b companion send-side now emits.
+    vi.setSystemTime(150_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-a',
+        changes: {
+          message: { text: 'Hold' },
+        },
+        timestamp: 150_000,
+      })
+      await Promise.resolve()
+    })
+
+    const afterMeta = ctx.getRoom('room-a')
+    // Anchor must be PRESERVED, not smeared to delta-receipt time.
+    expect(afterMeta?.state.lastUpdate).toBe(100_000)
+    expect(afterMeta?.state.currentTime).toBe(5000)
+    expect(afterMeta?.state.message?.text).toBe('Hold')
+
+    // Positive control: a delta carrying an explicit timer anchor DOES move it.
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-a',
+        changes: {
+          activeTimerId: 't1',
+          isRunning: true,
+          currentTime: 7000,
+          lastUpdate: 150_000,
+        },
+        timestamp: 150_000,
+      })
+      await Promise.resolve()
+    })
+
+    const afterAnchor = ctx.getRoom('room-a')
+    expect(afterAnchor?.state.lastUpdate).toBe(150_000)
+    expect(afterAnchor?.state.currentTime).toBe(7000)
+
+    view.unmount()
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
+  })
 })
 
 describe('secure-reauth-force-takeover', () => {

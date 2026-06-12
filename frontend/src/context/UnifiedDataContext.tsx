@@ -4435,6 +4435,11 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     const handleRoomStateDelta = (payload: RoomStateDeltaPayload) => {
       if (payload.clientId && payload.clientId === clientId) return
       const incomingTs = payload.changes.lastUpdate ?? payload.timestamp ?? Date.now()
+      const carriesTimerAnchor =
+        payload.changes.lastUpdate !== undefined ||
+        payload.changes.currentTime !== undefined ||
+        payload.changes.isRunning !== undefined ||
+        payload.changes.activeTimerId !== undefined
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
       const firebaseTs = firebase.getRoom(payload.roomId)?.state.lastUpdate ?? 0
       const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
@@ -4515,8 +4520,9 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
           timezone: payload.changes.timezone ?? existing.timezone,
           currentTime:
             payload.changes.currentTime ?? existing.currentTime ?? 0,
-          lastUpdate:
-            payload.changes.lastUpdate ?? incomingTs,
+          lastUpdate: carriesTimerAnchor
+            ? (payload.changes.lastUpdate ?? incomingTs)
+            : (existing.lastUpdate ?? incomingTs),
         }
         return { ...prev, [payload.roomId]: next }
       })
