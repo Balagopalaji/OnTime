@@ -83,7 +83,7 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   bare `arbitrate()` calls deterministic/reproducible, while the frontend shim owns the one current
   cache instance to preserve app behavior. Tests cover both injected last-accepted behavior and the
   no-cache deterministic core path.
-- **H-1b (pending #21):** Companion extends the H-1 companion-clock authority pattern to
+- **H-1b (fixed #21):** Companion extends the H-1 companion-clock authority pattern to
   `SYNC_ROOM_STATE` and timer-affecting `ROOM_STATE_PATCH` anchors: payload timestamps remain
   protocol-compatible, but local `{ currentTime, lastUpdate }` timer tuples are re-anchored on the
   Companion receipt clock. Non-timer metadata patches no longer mutate timer `lastUpdate`, START
@@ -112,7 +112,7 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
 corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
 for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
-**M-4 (workspace aliases + real boundary enforcement)** after M2 lands and only if no PR is waiting
+**M-4 (workspace aliases + real boundary enforcement)** now that H-1b has landed and only if no PR is waiting
 on Claude/human.
 The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
 M-1 lands.** The actionable Fable review summary is captured in this ledger; the local
