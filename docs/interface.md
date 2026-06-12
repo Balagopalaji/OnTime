@@ -696,6 +696,7 @@ Notes:
 ```
 Notes:
 - `currentTime` is optional and used when switching timers to preserve stored progress; if omitted while switching, the server resets `currentTime` to 0.
+- `currentTime` is elapsed time, not a wall-clock timestamp. Companion accepts finite elapsed values, including negative elapsed for bonus time, and anchors `lastUpdate` on its own receipt clock.
 
 **Client → Server: `ROOM_STATE_PATCH`**
 ```json
@@ -713,8 +714,9 @@ Notes:
 }
 ```
 Notes:
-- `timestamp` is optional; server uses `Date.now()` if omitted.
-- Only the following change keys are accepted: `activeTimerId`, `isRunning`, `currentTime`, `lastUpdate`.
+- `timestamp` and `changes.lastUpdate` are accepted for protocol compatibility. Companion uses its own receipt clock for timer anchors.
+- Non-timer metadata patches do not update timer `lastUpdate`.
+- Only the following change keys are accepted: `activeTimerId`, `isRunning`, `currentTime`, `lastUpdate`, `showClock`, `message`, `title`, `timezone`.
 
 **Planned Phase 3 events (Companion offline support, optional)**
 - Cue CRUD: `CREATE_CUE`, `CUE_CREATED`, `UPDATE_CUE`, `CUE_UPDATED`, `DELETE_CUE`, `CUE_DELETED`, `REORDER_CUES`, `CUES_REORDERED`.
@@ -787,6 +789,7 @@ Notes:
 ```
 Notes:
 - `timers` is optional; when omitted, only state is applied.
+- Companion re-anchors local timer `lastUpdate` to its own receipt clock when applying the state snapshot. This keeps `{ currentTime, lastUpdate }` coherent locally without changing stale-source arbitration.
 
 **Timer CRUD (Client → Server)**
 - `CREATE_TIMER`, `UPDATE_TIMER`, `DELETE_TIMER`, `REORDER_TIMERS`

@@ -5583,7 +5583,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         [roomId]: {
           ...state,
           showClock: enabled,
-          lastUpdate: now,
         },
       }))
 
@@ -5592,7 +5591,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         roomId,
         changes: {
           showClock: enabled,
-          lastUpdate: now,
         },
         timestamp: now,
         clientId,
@@ -5645,7 +5643,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         [roomId]: {
           ...state,
           message: nextMessage,
-          lastUpdate: now,
         },
       }))
 
@@ -5654,7 +5651,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         roomId,
         changes: {
           message,
-          lastUpdate: now,
         },
         timestamp: now,
         clientId,
@@ -5704,11 +5700,10 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
           ...state,
           title: patch.title ?? state.title,
           timezone: patch.timezone ?? state.timezone,
-          lastUpdate: now,
         },
       }))
 
-      const changes: Partial<CompanionRoomState> = { lastUpdate: now }
+      const changes: Partial<CompanionRoomState> = {}
       if (patch.title !== undefined) changes.title = patch.title
       if (patch.timezone !== undefined) changes.timezone = patch.timezone
 
