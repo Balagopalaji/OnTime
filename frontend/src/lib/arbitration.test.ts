@@ -49,8 +49,13 @@ describe('arbitrate', () => {
   it('uses last accepted when both offline', async () => {
     vi.resetModules()
     const { arbitrate } = await import('./arbitration')
-    const online = arbitrate({ ...baseInput(), companionTs: 1500 })
-    expect(online.acceptSource).toBe('cloud')
+    const online = arbitrate({
+      ...baseInput(),
+      cloudTs: 1000,
+      companionTs: 10_000,
+      confidenceWindowMs: 10,
+    })
+    expect(online.acceptSource).toBe('companion')
 
     const offline = arbitrate({
       ...baseInput(),
@@ -59,7 +64,7 @@ describe('arbitrate', () => {
       cloudTs: null,
       companionTs: null,
     })
-    expect(offline.acceptSource).toBe('cloud')
+    expect(offline.acceptSource).toBe('companion')
     expect(offline.reason).toBe('no data')
   })
 
@@ -123,10 +128,11 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./arbitration')
     const initial = arbitrate({
       ...baseInput(),
-      cloudTs: 2000,
-      companionTs: 1000,
+      cloudTs: 1000,
+      companionTs: 10_000,
+      confidenceWindowMs: 10,
     })
-    expect(initial.acceptSource).toBe('cloud')
+    expect(initial.acceptSource).toBe('companion')
 
     const decision = arbitrate({
       ...baseInput(),
@@ -136,7 +142,7 @@ describe('arbitrate', () => {
       cloudOnline: true,
     })
 
-    expect(decision.acceptSource).toBe('cloud')
+    expect(decision.acceptSource).toBe('companion')
     expect(decision.reason).toBe('no data')
   })
 

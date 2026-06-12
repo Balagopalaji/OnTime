@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { ArbitrationDecision, ArbitrationLastAcceptedCache } from './index'
 
 const baseInput = () => ({
   roomId: 'room-1',
@@ -12,6 +13,17 @@ const baseInput = () => ({
   cloudOnline: true,
   confidenceWindowMs: 2000,
 })
+
+const createLastAcceptedSourceCache = (): ArbitrationLastAcceptedCache => {
+  const cache = new Map<string, ArbitrationDecision['acceptSource']>()
+
+  return {
+    get: (key) => cache.get(key),
+    set: (key, source) => {
+      cache.set(key, source)
+    },
+  }
+}
 
 describe('arbitrate', () => {
   it('preserves the current rollout flags', async () => {
@@ -75,8 +87,14 @@ describe('arbitrate', () => {
   it('uses last accepted when both offline', async () => {
     vi.resetModules()
     const { arbitrate } = await import('./index')
-    const online = arbitrate({ ...baseInput(), companionTs: 1500 })
-    expect(online.acceptSource).toBe('cloud')
+    const options = { lastAcceptedSourceCache: createLastAcceptedSourceCache() }
+    const online = arbitrate({
+      ...baseInput(),
+      cloudTs: 1000,
+      companionTs: 10_000,
+      confidenceWindowMs: 10,
+    }, options)
+    expect(online.acceptSource).toBe('companion')
 
     const offline = arbitrate({
       ...baseInput(),
@@ -84,8 +102,8 @@ describe('arbitrate', () => {
       cloudOnline: false,
       cloudTs: null,
       companionTs: null,
-    })
-    expect(offline.acceptSource).toBe('cloud')
+    }, options)
+    expect(offline.acceptSource).toBe('companion')
     expect(offline.reason).toBe('no data')
   })
 
@@ -147,12 +165,38 @@ describe('arbitrate', () => {
   it('uses last accepted when both online with no data', async () => {
     vi.resetModules()
     const { arbitrate } = await import('./index')
+    const options = { lastAcceptedSourceCache: createLastAcceptedSourceCache() }
     const initial = arbitrate({
       ...baseInput(),
-      cloudTs: 2000,
-      companionTs: 1000,
+      cloudTs: 1000,
+      companionTs: 10_000,
+      confidenceWindowMs: 10,
+    }, options)
+    expect(initial.acceptSource).toBe('companion')
+
+    const decision = arbitrate({
+      ...baseInput(),
+      cloudTs: null,
+      companionTs: null,
+      isCompanionLive: true,
+      cloudOnline: true,
+    }, options)
+
+    expect(decision.acceptSource).toBe('companion')
+    expect(decision.reason).toBe('no data')
+  })
+
+  it('does not retain last accepted source without an injected cache', async () => {
+    vi.resetModules()
+    const { arbitrate } = await import('./index')
+
+    const initial = arbitrate({
+      ...baseInput(),
+      cloudTs: 1000,
+      companionTs: 10_000,
+      confidenceWindowMs: 10,
     })
-    expect(initial.acceptSource).toBe('cloud')
+    expect(initial.acceptSource).toBe('companion')
 
     const decision = arbitrate({
       ...baseInput(),

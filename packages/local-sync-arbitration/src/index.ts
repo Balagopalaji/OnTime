@@ -35,8 +35,14 @@ export type ArbitrationDecision = {
     | 'no data'
 }
 
+export type ArbitrationLastAcceptedCache = {
+  get: (key: string) => ArbitrationDecision['acceptSource'] | undefined
+  set: (key: string, source: ArbitrationDecision['acceptSource']) => void
+}
+
 export type ArbitrationOptions = {
   onDecision?: (input: ArbitrationInput, decision: ArbitrationDecision) => void
+  lastAcceptedSourceCache?: ArbitrationLastAcceptedCache
 }
 
 export const ARBITRATION_FLAGS = {
@@ -48,9 +54,7 @@ export const ARBITRATION_FLAGS = {
   liveCue: false,
 } as const
 
-type AcceptedSource = 'cloud' | 'companion'
-
-const lastAcceptedSource: Record<string, AcceptedSource> = {}
+type AcceptedSource = ArbitrationDecision['acceptSource']
 
 const keyFor = (input: ArbitrationInput): string =>
   `${input.domain}:${input.resourceId ?? input.roomId}`
@@ -66,7 +70,7 @@ const commitDecision = (
   decision: ArbitrationDecision,
   options?: ArbitrationOptions
 ) => {
-  lastAcceptedSource[keyFor(input)] = decision.acceptSource
+  options?.lastAcceptedSourceCache?.set(keyFor(input), decision.acceptSource)
   options?.onDecision?.(input, decision)
   return decision
 }
@@ -76,7 +80,7 @@ export const arbitrate = (
   options?: ArbitrationOptions
 ): ArbitrationDecision => {
   const key = keyFor(input)
-  const lastAccepted = lastAcceptedSource[key]
+  const lastAccepted = options?.lastAcceptedSourceCache?.get(key)
   const hasCloudData = input.cloudTs !== null && input.cloudTs !== undefined
   const hasCompanionData = input.companionTs !== null && input.companionTs !== undefined
   const cloudHasTimestamp = typeof input.cloudTs === 'number' && Number.isFinite(input.cloudTs)

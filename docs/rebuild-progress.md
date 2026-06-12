@@ -32,6 +32,10 @@ gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any S
 - PR #17 fix(companion): ignore unsafe client timer-action timestamps (Fable H-1)
 - PR #18 fix(dashboard): use canonical active timer elapsed (Fable M-1)
 
+## Pending Baton PR
+
+- PR #19 refactor(arbitration): inject last accepted source cache (Fable M2)
+
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
 While Codex was offline I (Claude/consultant) did, with the user's authorization:
@@ -77,6 +81,11 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   the shared timer helpers (`resolveTimerElapsed` + `computeRemaining`) instead of the stale
   `progress[activeTimerId] + (now - startedAt)` formula. A Dashboard regression pins the invariant
   where active progress diverges from `elapsedOffset`.
+- **M2 (pending #19):** `local-sync-arbitration` no longer owns a module-global
+  `lastAcceptedSource` cache. The core accepts an injected cache through arbitration options, making
+  bare `arbitrate()` calls deterministic/reproducible, while the frontend shim owns the one current
+  cache instance to preserve app behavior. Tests cover both injected last-accepted behavior and the
+  no-cache deterministic core path.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
@@ -88,8 +97,6 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 - All priority correctness fixes from the Fable review are either landed or in the current baton PR.
 
 **TODO — then structure + inert cleanups:**
-- **M2:** inject the arbitration `lastAcceptedSource` cache via options NOW (one consumer) — it's
-  module-global, never evicted, makes `arbitrate()` history-dependent / non-reproducible.
 - **M-4 (before Stage 2):** adopt npm workspaces + `@ontime/*` aliases (replace `../../../packages/*/src`).
   Aliasing is NOT the Stage-4 folder rename — do it now while cheap (3 packages/shims). Add
   dependency-cruiser for real (transitive) boundary enforcement; grep can't catch indirection.
@@ -102,7 +109,8 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
 corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
 for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
-**M2 (arbitration cache injection)** after M-1 lands and only if no PR is waiting on Claude/human.
+**M-4 (workspace aliases + real boundary enforcement)** after M2 lands and only if no PR is waiting
+on Claude/human.
 The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
 M-1 lands.** The actionable Fable review summary is captured in this ledger; the local
 `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked prompt-export
