@@ -38,6 +38,20 @@ module.exports = {
       to: { path: '(^packages/local-sync-arbitration|^@ontime/local-sync-arbitration)' },
     },
     {
+      name: 'no-cloud-to-local-sync-transitive',
+      severity: 'error',
+      comment: 'Cloud code must not reach Local/Companion arbitration through ANY path.',
+      from: { path: '^(functions/src|apps/cloud-(web|functions))' },
+      to: { path: '(local-sync-arbitration)', reachable: true },
+    },
+    {
+      name: 'no-viewer-to-local-sync-transitive',
+      severity: 'error',
+      comment: 'Viewer apps must not reach Local/Companion arbitration through ANY path.',
+      from: { path: '^apps/viewer(-|/)' },
+      to: { path: '(local-sync-arbitration)', reachable: true },
+    },
+    {
       name: 'ppt-timer-standalone',
       severity: 'error',
       comment: 'PPT Timer must remain standalone from room/cloud/sync runtimes.',
