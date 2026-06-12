@@ -83,6 +83,12 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   bare `arbitrate()` calls deterministic/reproducible, while the frontend shim owns the one current
   cache instance to preserve app behavior. Tests cover both injected last-accepted behavior and the
   no-cache deterministic core path.
+- **H-1b (pending #21):** Companion extends the H-1 companion-clock authority pattern to
+  `SYNC_ROOM_STATE` and timer-affecting `ROOM_STATE_PATCH` anchors: payload timestamps remain
+  protocol-compatible, but local `{ currentTime, lastUpdate }` timer tuples are re-anchored on the
+  Companion receipt clock. Non-timer metadata patches no longer mutate timer `lastUpdate`, START
+  `currentTime` remains finite elapsed (including negative bonus time), and stale-source arbitration
+  remains intentionally unchanged.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
@@ -91,9 +97,6 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   reviews WOULD block orchestrator self-merge → changes heartbeat autonomy. Tradeoff is the user's call.
 
 **TODO — correctness fixes (each its own PR + a test; harness must stay green):**
-- **H-1b (triage before Stage 1b sync carve-outs):** decide whether to extend the companion-clock
-  validation pattern from `TIMER_ACTION` to `SYNC_ROOM_STATE`, `ROOM_STATE_PATCH`, and START
-  `currentTime`; if accepted, implement as a scoped correctness PR with companion lifecycle coverage.
 - All other priority correctness fixes from the Fable review are landed.
 
 **TODO — then structure + inert cleanups:**

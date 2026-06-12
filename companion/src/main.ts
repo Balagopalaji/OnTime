@@ -589,6 +589,111 @@ export function resolveTimerActionClock(
   return { now: companionNow, clientTimestampIssue: 'valid_ignored' };
 }
 
+export function resolveCompanionMutationClock(
+  clientTimestamp: unknown,
+  companionNow: number,
+  options: {
+    maxPastSkewMs?: number;
+    maxFutureSkewMs?: number;
+  } = {},
+): TimerActionClockResolution {
+  return resolveTimerActionClock(clientTimestamp, companionNow, options);
+}
+
+export function resolveCompanionElapsedForState(
+  state: Pick<RoomState, 'isRunning' | 'currentTime' | 'lastUpdate'>,
+  companionNow: number,
+): number {
+  const baseCurrent = Number.isFinite(state.currentTime) ? (state.currentTime as number) : 0;
+  if (!state.isRunning) return baseCurrent;
+
+  const lastUpdate = Number.isFinite(state.lastUpdate)
+    && (state.lastUpdate as number) > 0
+    && (state.lastUpdate as number) <= companionNow
+    ? (state.lastUpdate as number)
+    : companionNow;
+
+  return baseCurrent + (companionNow - lastUpdate);
+}
+
+export function resolveSyncRoomStateForCompanionClock(args: {
+  existingState: RoomState;
+  incomingState: RoomState;
+  companionNow: number;
+}): RoomState {
+  const nextMessage = args.incomingState.message
+    ? { ...(args.existingState.message ?? {}), ...args.incomingState.message }
+    : args.existingState.message;
+
+  return {
+    ...args.existingState,
+    activeTimerId: args.incomingState.activeTimerId ?? null,
+    isRunning: args.incomingState.isRunning,
+    currentTime: args.incomingState.currentTime,
+    lastUpdate: args.companionNow,
+    showClock: args.incomingState.showClock ?? args.existingState.showClock,
+    message: nextMessage,
+    title: args.incomingState.title ?? args.existingState.title,
+    timezone: args.incomingState.timezone ?? args.existingState.timezone,
+  };
+}
+
+export function resolveRoomStatePatchForCompanionClock(args: {
+  existingState: RoomState;
+  incomingChanges: Partial<RoomState>;
+  companionNow: number;
+}): {
+  nextState: RoomState;
+  deltaChanges: Partial<RoomState>;
+  timerAnchorChanged: boolean;
+} {
+  const timerAnchorChanged =
+    'activeTimerId' in args.incomingChanges ||
+    'isRunning' in args.incomingChanges ||
+    'currentTime' in args.incomingChanges;
+  const changes: Partial<RoomState> = { ...args.incomingChanges };
+
+  if (!timerAnchorChanged) {
+    delete changes.lastUpdate;
+  } else {
+    const nextActiveTimerId =
+      changes.activeTimerId !== undefined ? changes.activeTimerId : args.existingState.activeTimerId;
+    let nextCurrentTime: number;
+
+    if (typeof changes.currentTime === 'number' && Number.isFinite(changes.currentTime)) {
+      nextCurrentTime = changes.currentTime;
+    } else if ('activeTimerId' in changes) {
+      const progress = args.existingState.progress ?? {};
+      const targetProgress = nextActiveTimerId ? progress[nextActiveTimerId] : undefined;
+      nextCurrentTime = typeof targetProgress === 'number' && Number.isFinite(targetProgress)
+        ? targetProgress
+        : 0;
+    } else {
+      nextCurrentTime = resolveCompanionElapsedForState(args.existingState, args.companionNow);
+    }
+
+    changes.currentTime = nextCurrentTime;
+    changes.lastUpdate = args.companionNow;
+  }
+
+  const nextMessage = changes.message
+    ? { ...(args.existingState.message ?? {}), ...changes.message }
+    : args.existingState.message;
+  const nextState: RoomState = {
+    ...args.existingState,
+    ...changes,
+    message: nextMessage,
+    title: changes.title ?? args.existingState.title,
+    timezone: changes.timezone ?? args.existingState.timezone,
+  };
+  const deltaChanges: Partial<RoomState> = { ...changes };
+  if (changes.message) {
+    deltaChanges.message = nextMessage;
+  }
+
+  return { nextState, deltaChanges, timerAnchorChanged };
+}
+
 export function resolveTimerActionChanges(args: {
   action: TimerActionKind;
   timerId: string;
@@ -6225,7 +6330,8 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
   }
 
   const roomId = payload.roomId;
-  const now = payload.timestamp ?? Date.now();
+  const clock = resolveCompanionMutationClock(payload.timestamp, Date.now());
+  const now = clock.now;
   const clientId = socket.data.clientId ?? payload.sourceClientId;
 
   // 1) Apply timers if provided
@@ -6276,20 +6382,11 @@ function handleSyncRoomState(socket: Socket, payload: unknown) {
 
   // 2) Apply state snapshot
   const existingState = getRoomState(roomId);
-  const nextMessage = payload.state.message
-    ? { ...(existingState.message ?? {}), ...payload.state.message }
-    : existingState.message;
-  const nextState: RoomState = {
-    ...existingState,
-    activeTimerId: payload.state.activeTimerId ?? null,
-    isRunning: payload.state.isRunning,
-    currentTime: payload.state.currentTime,
-    lastUpdate: payload.state.lastUpdate,
-    showClock: payload.state.showClock ?? existingState.showClock,
-    message: nextMessage,
-    title: payload.state.title ?? existingState.title,
-    timezone: payload.state.timezone ?? existingState.timezone,
-  };
+  const nextState = resolveSyncRoomStateForCompanionClock({
+    existingState,
+    incomingState: payload.state,
+    companionNow: now,
+  });
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
 
@@ -6441,7 +6538,8 @@ function handleRoomStatePatch(socket: Socket, payload: unknown) {
     socket.join(payload.roomId);
   }
 
-  const now = payload.timestamp ?? Date.now();
+  const clock = resolveCompanionMutationClock(payload.timestamp, Date.now());
+  const now = clock.now;
   const clientId = socket.data.clientId ?? payload.clientId;
   const roomId = payload.roomId;
   const state = getRoomState(roomId);
@@ -6463,27 +6561,13 @@ function handleRoomStatePatch(socket: Socket, payload: unknown) {
       progressActive: activeProgress,
     });
   }
-  if (changes.lastUpdate === undefined) {
-    changes.lastUpdate = now;
-  }
-
-  const nextMessage = changes.message
-    ? { ...(state.message ?? {}), ...changes.message }
-    : state.message;
-  const nextState: RoomState = {
-    ...state,
-    ...changes,
-    message: nextMessage,
-    title: changes.title ?? state.title,
-    timezone: changes.timezone ?? state.timezone,
-  };
+  const { nextState, deltaChanges } = resolveRoomStatePatchForCompanionClock({
+    existingState: state,
+    incomingChanges: changes,
+    companionNow: now,
+  });
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
-
-  const deltaChanges: Partial<RoomState> = { ...changes };
-  if (changes.message) {
-    deltaChanges.message = nextMessage;
-  }
 
   const delta: RoomStateDelta = {
     type: 'ROOM_STATE_DELTA',
