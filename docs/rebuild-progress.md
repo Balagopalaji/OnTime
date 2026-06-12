@@ -89,6 +89,11 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   Companion receipt clock. Non-timer metadata patches no longer mutate timer `lastUpdate`, START
   `currentTime` remains finite elapsed (including negative bonus time), and stale-source arbitration
   remains intentionally unchanged.
+- **M-4 (pending #23):** Root npm workspaces now own the install graph for `frontend`, `companion`,
+  `controller`, `functions`, `firebase`, and `packages/*`. The three Stage 1a frontend shims import
+  `@ontime/timer-core`, `@ontime/shared-types`, and `@ontime/local-sync-arbitration` by package name
+  instead of `../../../packages/*/src`, and dependency-cruiser runs as a transitive boundary gate
+  alongside the existing grep-style guardrails.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
@@ -100,9 +105,6 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 - All other priority correctness fixes from the Fable review are landed.
 
 **TODO — then structure + inert cleanups:**
-- **M-4 (before Stage 2):** adopt npm workspaces + `@ontime/*` aliases (replace `../../../packages/*/src`).
-  Aliasing is NOT the Stage-4 folder rename — do it now while cheap (3 packages/shims). Add
-  dependency-cruiser for real (transitive) boundary enforcement; grep can't catch indirection.
 - **H1 (inert dead code):** delete the unreachable arbitration fallback chain in `resolveRoomSource`.
 - **H2 (low value):** route inline `*1000 - elapsed` through `computeRemaining` (Controller/Dashboard).
 - **Anti-duplication CI check:** add only AFTER H2 + M-1 collapse (else false-positives).
@@ -112,8 +114,8 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
 corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
 for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
-**M-4 (workspace aliases + real boundary enforcement)** now that H-1b has landed and only if no PR is waiting
-on Claude/human.
+**H1 (delete unreachable arbitration fallback chain in `resolveRoomSource`)** after M-4 lands and only
+if no PR is waiting on Claude/human.
 The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
 M-1 lands.** The actionable Fable review summary is captured in this ledger; the local
 `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked prompt-export

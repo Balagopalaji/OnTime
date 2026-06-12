@@ -27,10 +27,9 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: companion/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install deps
-        working-directory: companion
+      - name: Install workspace deps
         run: npm ci
 
       # ffprobe URLs can be overridden with repo/environment variables if you host vetted LGPL-only binaries.
@@ -62,4 +61,3 @@ jobs:
             companion/dist_out/*.AppImage
             companion/dist_out/*.blockmap
             companion/dist_out/latest*.yml
-
