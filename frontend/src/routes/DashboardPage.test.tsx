@@ -1,7 +1,7 @@
 import { MemoryRouter } from 'react-router-dom'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Room } from '../types'
+import type { Room, Timer } from '../types'
 import { DashboardPage } from './DashboardPage'
 
 const mockUseAuth = vi.fn()
@@ -55,7 +55,11 @@ const createRoom = (overrides: Partial<Room>): Room => ({
   ...overrides,
 })
 
-const buildDataContext = (rooms: Room[], authorityByRoomId: Record<string, Authority | undefined> = {}) => ({
+const buildDataContext = (
+  rooms: Room[],
+  authorityByRoomId: Record<string, Authority | undefined> = {},
+  timersByRoomId: Record<string, Timer[]> = {},
+) => ({
   rooms,
   createRoom: vi.fn(),
   deleteRoom: vi.fn(),
@@ -63,7 +67,7 @@ const buildDataContext = (rooms: Room[], authorityByRoomId: Record<string, Autho
   updateRoomMeta: vi.fn(),
   updateRoomTier: vi.fn(),
   getRoom: (roomId: string) => rooms.find((room) => room.id === roomId),
-  getTimers: vi.fn(() => []),
+  getTimers: vi.fn((roomId: string) => timersByRoomId[roomId] ?? []),
   getControllerLock: vi.fn(() => null),
   getControllerLockState: vi.fn(() => 'authoritative'),
   requestControl: vi.fn(),
@@ -81,8 +85,9 @@ const buildDataContext = (rooms: Room[], authorityByRoomId: Record<string, Autho
 const renderDashboard = async (
   rooms: Room[],
   authorityByRoomId: Record<string, Authority | undefined> = {},
+  timersByRoomId: Record<string, Timer[]> = {},
 ) => {
-  mockUseDataContext.mockReturnValue(buildDataContext(rooms, authorityByRoomId))
+  mockUseDataContext.mockReturnValue(buildDataContext(rooms, authorityByRoomId, timersByRoomId))
   await act(async () => {
     render(
       <MemoryRouter>
@@ -173,5 +178,36 @@ describe('DashboardPage ownership freshness guard', () => {
     })
 
     expect(screen.queryByText(room.title)).not.toBeInTheDocument()
+  })
+
+  it('uses elapsedOffset instead of stale active progress for dashboard remaining time', async () => {
+    const room = createRoom({
+      id: 'active-offset-room',
+      title: 'Active Offset Room',
+      state: {
+        ...createRoom({}).state,
+        activeTimerId: 'timer-1',
+        isRunning: true,
+        startedAt: baseNow - 10_000,
+        elapsedOffset: 50_000,
+        progress: { 'timer-1': 5_000 },
+        lastUpdate: baseNow - 1_000,
+      },
+    })
+    const timer: Timer = {
+      id: 'timer-1',
+      roomId: room.id,
+      title: 'Active Segment',
+      duration: 60,
+      type: 'countdown',
+      order: 0,
+    }
+
+    await renderDashboard([room], {}, { [room.id]: [timer] })
+
+    expect(screen.getByText('Active Segment')).toBeInTheDocument()
+    expect(screen.getByText('00:00:00')).toBeInTheDocument()
+    expect(screen.getAllByText('Critical').length).toBeGreaterThan(0)
+    expect(screen.queryByText('00:00:45')).not.toBeInTheDocument()
   })
 })

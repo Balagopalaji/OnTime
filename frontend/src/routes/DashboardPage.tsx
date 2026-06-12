@@ -17,6 +17,7 @@ import { getTimezoneSuggestion } from '../lib/time'
 import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
 import { getCloudViewerUrl } from '../lib/viewer-links'
+import { computeRemaining, resolveTimerElapsed } from '../utils/timer-utils'
 
 const DEBUG_SORTABLE = false
 const COMPANION_ROOM_FRESH_MS = 90_000
@@ -614,6 +615,22 @@ export const DashboardPage = () => {
     )
   }
 
+  const getTimerTiming = (
+    room: (typeof sortedRooms)[number],
+    timer: ReturnType<typeof getTimers>[number],
+  ) => {
+    const durationMs = timer.duration * 1000
+    const elapsedMs = resolveTimerElapsed(room.state, timer.id, now)
+    const remainingMs = computeRemaining(durationMs, elapsedMs)
+    return {
+      durationMs,
+      elapsedMs,
+      remainingMs,
+      warningMs: (room.config?.warningSec ?? 120) * 1000,
+      criticalMs: (room.config?.criticalSec ?? 30) * 1000,
+    }
+  }
+
   const renderRoomCard = (
     room: (typeof sortedRooms)[number],
     listIndex: number,
@@ -631,6 +648,26 @@ export const DashboardPage = () => {
       !isLegacyRoom &&
       hasRollbackBackup
     const isMigrating = migration.status === 'migrating'
+    const timers = getTimers(room.id)
+    const active = timers.find((timer) => timer.id === room.state.activeTimerId)
+    const activeTiming = active ? getTimerTiming(room, active) : null
+    const remainingMs = activeTiming?.remainingMs ?? 0
+    const warningMs = activeTiming?.warningMs ?? (room.config?.warningSec ?? 120) * 1000
+    const criticalMs = activeTiming?.criticalMs ?? (room.config?.criticalSec ?? 30) * 1000
+    const tone =
+      remainingMs < 0
+        ? 'overtime'
+        : remainingMs <= criticalMs
+          ? 'critical'
+          : remainingMs <= warningMs
+            ? 'warning'
+            : 'normal'
+    const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
+    const remainingPct =
+      activeTiming && activeTiming.durationMs > 0
+        ? (Math.max(0, activeTiming.remainingMs) / activeTiming.durationMs) * 100
+        : 0
+    const progressWidth = Math.min(100, Math.max(0, Number.isNaN(remainingPct) ? 0 : remainingPct))
     // Check if room is from companion cache by checking if it's not in the live Firebase rooms list
     const isFromCache = !rooms.some((r) => r.id === room.id)
     const itemProps = enableSort && isCustomSort ? getItemProps(room.id, listIndex) : {}
@@ -1009,125 +1046,66 @@ export const DashboardPage = () => {
             <button
               type="button"
               onClick={() => void openControllerGuarded(room.id)}
-              className={`flex w-full max-w-sm cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${(() => {
-                const timers = getTimers(room.id)
-                const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                const runningElapsed =
-                  active && room.state.isRunning && room.state.startedAt
-                    ? now - room.state.startedAt + baseElapsed
-                    : baseElapsed
-                const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                const warningMs = (room.config?.warningSec ?? 120) * 1000
-                const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                if (remainingMs < 0) {
-                  return 'border-rose-500/40 bg-rose-500/10 hover:border-rose-400/60'
-                }
-                if (remainingMs <= criticalMs) {
-                  return 'border-amber-500/40 bg-amber-500/10 hover:border-amber-400/60'
-                }
-                if (remainingMs <= warningMs) {
-                  return 'border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-400/50'
-                }
-                return 'border-slate-800 bg-slate-900 hover:border-slate-600'
-              })()}`}
+              className={`flex w-full max-w-sm cursor-pointer flex-col items-center gap-1 rounded-2xl border px-6 py-3 text-center transition hover:scale-[1.02] hover:shadow-lg ${
+                tone === 'overtime'
+                  ? 'border-rose-500/40 bg-rose-500/10 hover:border-rose-400/60'
+                  : tone === 'critical'
+                    ? 'border-amber-500/40 bg-amber-500/10 hover:border-amber-400/60'
+                    : tone === 'warning'
+                      ? 'border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-400/50'
+                      : 'border-slate-800 bg-slate-900 hover:border-slate-600'
+              }`}
             >
               <p className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 leading-tight line-clamp-1 truncate">
-                {(() => {
-                  const timers = getTimers(room.id)
-                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                  return active?.title ?? 'No active segment'
-                })()}
+                {active?.title ?? 'No active segment'}
               </p>
               <div className="flex w-full items-center justify-center pt-0.5">
                 <span className="relative inline-flex items-center justify-center">
                   <span
-                    className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${(() => {
-                      const timers = getTimers(room.id)
-                      const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                      const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                      const runningElapsed =
-                        active && room.state.isRunning && room.state.startedAt
-                          ? now - room.state.startedAt + baseElapsed
-                          : baseElapsed
-                      const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                      const warningMs = (room.config?.warningSec ?? 120) * 1000
-                      const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                      if (remainingMs < 0) return 'bg-rose-400'
-                      if (remainingMs <= criticalMs) return 'bg-amber-400'
-                      if (remainingMs <= warningMs) return 'bg-yellow-400'
-                      return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
-                    })()}`}
+                    className={`absolute -left-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full ${
+                      tone === 'overtime'
+                        ? 'bg-rose-400'
+                        : tone === 'critical'
+                          ? 'bg-amber-400'
+                          : tone === 'warning'
+                            ? 'bg-yellow-400'
+                            : room.state.isRunning
+                              ? 'bg-emerald-400'
+                              : 'bg-slate-500'
+                    }`}
                   />
                   <span className="text-lg font-semibold text-white">{formatRemaining(room.id)}</span>
                 </span>
               </div>
               <p className="w-full text-[11px] tracking-[0.2em] text-slate-500 uppercase">
-                {(() => {
-                  const timers = getTimers(room.id)
-                  const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                  const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                  const runningElapsed =
-                    active && room.state.isRunning && room.state.startedAt
-                      ? now - room.state.startedAt + baseElapsed
-                      : baseElapsed
-                  const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                  const warningMs = (room.config?.warningSec ?? 120) * 1000
-                  const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                  if (remainingMs < 0) return 'Overtime'
-                  if (remainingMs <= criticalMs) return 'Critical'
-                  if (remainingMs <= warningMs) return 'Warning'
-                  return room.state.isRunning ? 'Counting' : 'Paused'
-                })()}
+                {tone === 'overtime'
+                  ? 'Overtime'
+                  : tone === 'critical'
+                    ? 'Critical'
+                    : tone === 'warning'
+                      ? 'Warning'
+                      : room.state.isRunning
+                        ? 'Counting'
+                        : 'Paused'}
               </p>
               <p className="w-full text-[10px] tracking-[0.24em] text-slate-500 uppercase">
-                {(() => {
-                  const timers = getTimers(room.id)
-                  const activeIndex = timers.findIndex((timer) => timer.id === room.state.activeTimerId)
-                  const total = timers.length
-                  if (activeIndex === -1) return `0/${total || 0}`
-                  return `${activeIndex + 1}/${total}`
-                })()}
+                {activeIndex === -1 ? `0/${timers.length || 0}` : `${activeIndex + 1}/${timers.length}`}
               </p>
               <div className="flex h-1 w-full overflow-hidden rounded-full bg-slate-800">
                 <div
-                  className={`h-full ${(() => {
-                    const timers = getTimers(room.id)
-                    const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                    const baseElapsed = active ? room.state.progress?.[active.id] ?? 0 : 0
-                    const runningElapsed =
-                      active && room.state.isRunning && room.state.startedAt
-                        ? now - room.state.startedAt + baseElapsed
-                        : baseElapsed
-                    const remainingMs = active ? active.duration * 1000 - runningElapsed : 0
-                    const warningMs = (room.config?.warningSec ?? 120) * 1000
-                    const criticalMs = (room.config?.criticalSec ?? 30) * 1000
-                    if (remainingMs < 0) return 'bg-rose-400'
-                    if (remainingMs <= criticalMs) return 'bg-amber-400'
-                    if (remainingMs <= warningMs) return 'bg-yellow-400'
-                    return room.state.isRunning ? 'bg-emerald-400' : 'bg-slate-500'
-                  })()}`}
+                  className={`h-full ${
+                    tone === 'overtime'
+                      ? 'bg-rose-400'
+                      : tone === 'critical'
+                        ? 'bg-amber-400'
+                        : tone === 'warning'
+                          ? 'bg-yellow-400'
+                          : room.state.isRunning
+                            ? 'bg-emerald-400'
+                            : 'bg-slate-500'
+                  }`}
                   style={{
-                    width: `${Math.min(
-                      100,
-                      Math.max(
-                        0,
-                        (() => {
-                          const timers = getTimers(room.id)
-                          const active = timers.find((timer) => timer.id === room.state.activeTimerId)
-                          if (!active) return 0
-                          const baseElapsed = room.state.progress?.[active.id] ?? 0
-                          const runningElapsed =
-                            room.state.isRunning && room.state.startedAt
-                              ? now - room.state.startedAt + baseElapsed
-                              : baseElapsed
-                          const remainingMs = active.duration * 1000 - runningElapsed
-                          const remainingPct = (Math.max(0, remainingMs) / (active.duration * 1000)) * 100
-                          const pct = Number.isNaN(remainingPct) ? 0 : remainingPct
-                          return Number.isNaN(pct) ? 0 : pct
-                        })(),
-                      ),
-                    )}%`,
+                    width: `${progressWidth}%`,
                   }}
                 />
               </div>
@@ -1385,12 +1363,7 @@ export const DashboardPage = () => {
     const timers = getTimers(roomId)
     const active = timers.find((timer) => timer.id === liveRoom.state.activeTimerId) ?? timers[0]
     if (!active) return 'No timers'
-    const baseElapsed = liveRoom.state.progress?.[active.id] ?? 0
-    const runningElapsed =
-      liveRoom.state.isRunning && liveRoom.state.startedAt
-        ? now - liveRoom.state.startedAt + baseElapsed
-        : baseElapsed
-    const remainingMs = active.duration * 1000 - runningElapsed
+    const remainingMs = getTimerTiming(liveRoom, active).remainingMs
     const isNegative = remainingMs < 0
     const absMs = Math.abs(remainingMs)
     const hours = Math.floor(absMs / 3_600_000)

@@ -30,6 +30,7 @@ gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any S
 - PR #15 docs(ledger): Fable review + corrective backlog + Codex baton handoff
 - PR #16 ci(companion): add no-emit TypeScript check to required guardrails (Fable M-3)
 - PR #17 fix(companion): ignore unsafe client timer-action timestamps (Fable H-1)
+- PR #18 fix(dashboard): use canonical active timer elapsed (Fable M-1)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -72,6 +73,10 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   invalid, stale, or future-skewed; PAUSE computes elapsed only from companion `now - lastUpdate`
   and invalid stored anchors produce zero additional elapsed instead of corrupting room state.
   The companion lifecycle tests covering this behavior run in the required guardrail CI check.
+- **M-1 (Medium, fixed #18):** `DashboardPage` now derives active timer elapsed/remaining through
+  the shared timer helpers (`resolveTimerElapsed` + `computeRemaining`) instead of the stale
+  `progress[activeTimerId] + (now - startedAt)` formula. A Dashboard regression pins the invariant
+  where active progress diverges from `elapsedOffset`.
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
@@ -80,11 +85,7 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   reviews WOULD block orchestrator self-merge → changes heartbeat autonomy. Tradeoff is the user's call.
 
 **TODO — correctness fixes (each its own PR + a test; harness must stay green):**
-- **M-1 (suspected LIVE bug — do before the inert H1):** `DashboardPage` inline elapsed is a
-  DIFFERENT formula (`now - startedAt + progress[active]`, ~1017-1122, 1388-1393) vs canonical
-  (`elapsedOffset + (now - startedAt)`). They agree only if `progress[activeTimerId]` stays frozen at
-  `elapsedOffset` for the run; if any UnifiedDataContext path writes the active timer's live elapsed
-  while running, the dashboard double-counts. Collapse to `computeElapsed` with a test pinning the invariant.
+- All priority correctness fixes from the Fable review are either landed or in the current baton PR.
 
 **TODO — then structure + inert cleanups:**
 - **M2:** inject the arbitration `lastAcceptedSource` cache via options NOW (one consumer) — it's
@@ -101,10 +102,11 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
 corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
 for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
-**M-1 (Dashboard correctness)**. The harness is gated now, so behavior regressions go red. **Do NOT
-begin Stage 1b carve-outs until M-1 lands.** The actionable Fable review summary is captured in this
-ledger; the local `prompt-exports/` brief is not tracked because guardrails intentionally forbid
-tracked prompt-export artifacts.
+**M2 (arbitration cache injection)** after M-1 lands and only if no PR is waiting on Claude/human.
+The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
+M-1 lands.** The actionable Fable review summary is captured in this ledger; the local
+`prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked prompt-export
+artifacts.
 
 ## Deferred (unchanged)
 
