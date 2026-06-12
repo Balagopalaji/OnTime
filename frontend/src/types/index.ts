@@ -1,1 +1,1 @@
-export type * from '../../../packages/shared-types/src'
+export type * from '@ontime/shared-types'

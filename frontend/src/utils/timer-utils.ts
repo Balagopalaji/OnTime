@@ -5,16 +5,16 @@ import {
   computeRemaining,
   mergeProgress,
   resolveTimerElapsed as resolveTimerElapsedCore,
-} from '../../../packages/timer-core/src'
+} from '@ontime/timer-core'
 import type {
   CompanionTimerState,
   FirebaseTimerState,
-} from '../../../packages/timer-core/src'
+} from '@ontime/timer-core'
 
 export type {
   CompanionTimerState,
   FirebaseTimerState,
-} from '../../../packages/timer-core/src'
+} from '@ontime/timer-core'
 export {
   computeRemaining,
   mergeProgress,

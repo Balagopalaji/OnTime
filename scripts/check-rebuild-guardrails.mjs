@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const output = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
-const files = output.split('\n').filter(Boolean)
+const files = output
+  .split('\n')
+  .filter(Boolean)
+  .filter((file) => existsSync(path.join(root, file)))
 const failures = []
 
 const textExtensions = new Set([
@@ -158,6 +161,27 @@ function checkProductBoundaries() {
   }
 }
 
+function checkPackageAliasImports() {
+  const appSourceFiles = files.filter((file) => {
+    if (!isSourceFile(file)) return false
+    return (
+      file.startsWith('frontend/src/') ||
+      file.startsWith('companion/src/') ||
+      file.startsWith('controller/src/') ||
+      file.startsWith('functions/src/') ||
+      file.startsWith('apps/')
+    )
+  })
+
+  for (const file of appSourceFiles) {
+    for (const specifier of importSpecifiers(read(file))) {
+      if (/packages\/[^/]+\/src/.test(specifier)) {
+        fail(`app/runtime source must import Stage 1a packages by @ontime/* alias: ${file} -> ${specifier}`)
+      }
+    }
+  }
+}
+
 function checkForbiddenBugPatterns() {
   const scopedFiles = files.filter((file) => {
     if (!isTextFile(file)) return false
@@ -208,6 +232,7 @@ function checkRequiredDocs() {
 checkPromptExports()
 checkPackageBoundaries()
 checkProductBoundaries()
+checkPackageAliasImports()
 checkForbiddenBugPatterns()
 checkFileSizeCeilings()
 checkRequiredDocs()

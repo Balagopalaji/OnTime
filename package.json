@@ -1,6 +1,22 @@
 {
   "private": true,
+  "workspaces": [
+    "frontend",
+    "companion",
+    "controller",
+    "functions",
+    "firebase",
+    "packages/*"
+  ],
   "scripts": {
-    "guardrails": "node scripts/check-rebuild-guardrails.mjs"
+    "guardrails": "npm run guardrails:static && npm run boundaries",
+    "guardrails:static": "node scripts/check-rebuild-guardrails.mjs",
+    "boundaries": "node scripts/check-dependency-boundaries.mjs"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^17.4.3",
+    "happy-dom": "20.0.10",
+    "typescript": "~5.9.3",
+    "vitest": "4.0.10"
   }
 }

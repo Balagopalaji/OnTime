@@ -4,14 +4,14 @@ export type {
   ArbitrationInput,
   ArbitrationLastAcceptedCache,
   ArbitrationOptions,
-} from '../../../packages/local-sync-arbitration/src'
-export { ARBITRATION_FLAGS } from '../../../packages/local-sync-arbitration/src'
+} from '@ontime/local-sync-arbitration'
+export { ARBITRATION_FLAGS } from '@ontime/local-sync-arbitration'
 import {
   arbitrate as arbitrateCore,
   type ArbitrationDecision,
   type ArbitrationInput,
   type ArbitrationLastAcceptedCache,
-} from '../../../packages/local-sync-arbitration/src'
+} from '@ontime/local-sync-arbitration'
 
 const lastAcceptedSource = new Map<string, ArbitrationDecision['acceptSource']>()
 
