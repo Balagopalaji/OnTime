@@ -988,14 +988,14 @@ let tokenServerV4: HttpServer | null = null;
 let tokenServerV6: HttpServer | null = null;
 let tokenServerTlsV4: HttpsServer | null = null;
 let tokenServerTlsV6: HttpsServer | null = null;
-const ioServers: SocketIOServer[] = [];
+export const ioServers: SocketIOServer[] = [];
 
 function emitToRoom(roomId: string, event: string, payload: unknown) {
   ioServers.forEach((server) => {
     server.to(roomId).emit(event, payload);
   });
 }
-const roomStateStore: Map<string, RoomState> = new Map();
+export const roomStateStore: Map<string, RoomState> = new Map();
 const roomTimersStore: Map<string, Map<string, Timer>> = new Map();
 const roomCuesStore: Map<string, Map<string, Cue>> = new Map();
 const liveCuesStore: Map<string, Map<string, { cue: LiveCue; updatedAt: number }>> = new Map();
@@ -6314,7 +6314,7 @@ function emitError(socket: Socket, code: string, message: string, roomId?: strin
   socket.emit('ERROR', { type: 'ERROR', code, message, roomId });
 }
 
-function handleSyncRoomState(socket: Socket, payload: unknown) {
+export function handleSyncRoomState(socket: Socket, payload: unknown) {
   if (!isValidSyncRoomStatePayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid SYNC_ROOM_STATE payload.');
     return;
@@ -6524,7 +6524,7 @@ function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
   console.log(`[seed] processed ${processed} rooms, updated ${updated} rooms, tombstones ${tombstonesApplied}.`);
 }
 
-function handleRoomStatePatch(socket: Socket, payload: unknown) {
+export function handleRoomStatePatch(socket: Socket, payload: unknown) {
   if (!isValidRoomStatePatchPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid ROOM_STATE_PATCH payload.');
     return;
@@ -7363,7 +7363,7 @@ function isValidTimerActionPayload(payload: unknown): payload is TimerActionPayl
   return data.type === 'TIMER_ACTION' && typeof data.roomId === 'string' && typeof data.timerId === 'string' && validAction;
 }
 
-function getRoomState(roomId: string): RoomState {
+export function getRoomState(roomId: string): RoomState {
   if (roomStateStore.has(roomId)) {
     return roomStateStore.get(roomId)!;
   }
