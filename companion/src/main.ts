@@ -600,6 +600,25 @@ export function resolveCompanionMutationClock(
   return resolveTimerActionClock(clientTimestamp, companionNow, options);
 }
 
+/**
+ * Companion-runtime (CommonJS) hardened mirror of timer-core's `computeCompanionElapsed`.
+ *
+ * WHY THIS EXISTS — companion cannot import `@ontime/timer-core` at runtime: the
+ * package's `exports` field resolves to raw `.ts` source files, which Node's node16
+ * CJS resolver cannot `require()`. A full build-unification was DEFERRED (too much
+ * packaging risk for low value at this stage), so the canonical running formula:
+ *
+ *   currentTime + (now - lastUpdate)   (running)
+ *   currentTime                        (paused)
+ *
+ * is reproduced here with added input-validation hardening:
+ *   - non-finite `currentTime`              → 0 base
+ *   - `lastUpdate` non-finite / ≤ 0 / future → no delta (treat as now)
+ *
+ * KEEP IN SYNC with `computeCompanionElapsed` in `packages/timer-core/src/index.ts`.
+ * The drift-guard test in `companion/src/main.elapsed-driftguard.test.ts` pins
+ * the formula so any divergence from the canonical form breaks the test suite.
+ */
 export function resolveCompanionElapsedForState(
   state: Pick<RoomState, 'isRunning' | 'currentTime' | 'lastUpdate'>,
   companionNow: number,
