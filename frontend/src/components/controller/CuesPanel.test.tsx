@@ -1,5 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { Cue, Section, Segment } from '../../types'
 import { CuesPanel } from './CuesPanel'
@@ -49,6 +49,10 @@ const renderPanel = (overrides?: Partial<ComponentProps<typeof CuesPanel>>) => {
 }
 
 describe('CuesPanel', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   it('renders a drop zone when a list is empty', () => {
     renderPanel({ cues: [] })
     expect(screen.getAllByText('Drop cue here').length).toBeGreaterThan(0)

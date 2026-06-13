@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { useSortableList } from '../hooks/useSortableList'
 import { renderHook, act } from '@testing-library/react'
 
