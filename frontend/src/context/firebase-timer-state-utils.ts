@@ -1,3 +1,5 @@
+import { computeElapsed } from '../utils/timer-utils'
+
 type CanonicalTimerTuple = {
   activeTimerId: string | null
   isRunning: boolean
@@ -22,7 +24,9 @@ export const buildMigrationTimerTuple = (legacyState: Record<string, unknown>, n
   const activeProgress = activeTimerId ? progress[activeTimerId] : undefined
   const pausedBaseline = typeof activeProgress === 'number' ? activeProgress : legacyElapsedOffset
   const elapsedOffset = pausedBaseline
-  const elapsedMs = activeTimerId && isRunning && startedAt ? now - startedAt + elapsedOffset : elapsedOffset
+  const elapsedMs = activeTimerId && isRunning && startedAt
+    ? computeElapsed({ isRunning, startedAt, elapsedOffset }, now)
+    : elapsedOffset
   const currentTime = Math.round(elapsedMs)
   return {
     activeTimerId,
