@@ -1,15 +1,17 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-12._
+_Updated: 2026-06-13._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
 ## Current Stage
 
-**Stage 1a COMPLETE (M1, tag `M1-stage-1a`).** TWO reviews ran: an internal M1 audit (Opus) and
-an INDEPENDENT review (Fable). **Fable caught real issues the M1 audit missed** — a DEAD
-characterization harness and a misclassified "fix" (C1). The test safety net is now resurrected +
-gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any Stage 1b carve-out.**
+**Stage 1a COMPLETE (M1, tag `M1-stage-1a`); both Fable corrective backlogs cleared — Stage 1b UNBLOCKED.**
+TWO milestone reviews ran (internal M1 audit + INDEPENDENT Fable), then a Fable SECOND pre-Stage-1b gate
+review. **Fable caught real issues each time** — a DEAD characterization harness, a misclassified "fix"
+(C1), a receiver-side anchor smear, a transitive-boundary blind spot, and thin handler test coverage.
+All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
+handler wiring). Remaining before carve-outs: only the inert cleanups (H1/H2/anti-dup/L-2) listed below.
 
 ## Landed (on `main`)
 
@@ -32,6 +34,16 @@ gated in required CI (#14). **Do the Fable corrective backlog below BEFORE any S
 - PR #17 fix(companion): ignore unsafe client timer-action timestamps (Fable H-1)
 - PR #18 fix(dashboard): use canonical active timer elapsed (Fable M-1)
 - PR #19 refactor(arbitration): inject last accepted source cache (Fable M2)
+- PR #20 docs(ledger): mark M2 landed
+- PR #21 fix(companion): anchor room state on companion clock (Fable H-1b)
+- PR #22 docs(ledger): mark H-1b landed
+- PR #23 ci(rebuild): npm workspaces + `@ontime/*` aliases + dependency-cruiser (Fable M-4)
+- PR #24 fix(unified): keep timer anchor stable on metadata-only deltas (2nd-review H-1b receive side)
+- PR #25 ci(boundaries): enforce Cloud/Viewer no-arbitration transitively (2nd-review)
+- PR #26 chore: Fable residual cleanups — dedup elapsed + run all companion tests (2nd-review)
+- PR #27 test(companion): socket-level wiring tests for sync/patch room-state handlers (2nd-review)
+- PR #28 fix(tests): un-exclude the 3 failing frontend test files — 211 tests now gate (2nd-review)
+- PR #29 docs(companion): mark elapsed helper as CJS mirror + drift-guard test (2nd-review)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -89,11 +101,48 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
   Companion receipt clock. Non-timer metadata patches no longer mutate timer `lastUpdate`, START
   `currentTime` remains finite elapsed (including negative bonus time), and stale-source arbitration
   remains intentionally unchanged.
-- **M-4 (pending #23):** Root npm workspaces now own the install graph for `frontend`, `companion`,
+- **M-4 (fixed #23):** Root npm workspaces now own the install graph for `frontend`, `companion`,
   `controller`, `functions`, `firebase`, and `packages/*`. The three Stage 1a frontend shims import
   `@ontime/timer-core`, `@ontime/shared-types`, and `@ontime/local-sync-arbitration` by package name
   instead of `../../../packages/*/src`, and dependency-cruiser runs as a transitive boundary gate
   alongside the existing grep-style guardrails.
+
+## Fable SECOND review (2026-06-13, pre-Stage-1b gate) — corrective backlog (DONE)
+
+A fresh Fable agent (given its prior findings + the cumulative `M1-stage-1a...main` diff) ran the
+pre-Stage-1b gate review and verified C-1/M-3/H-1/M-1 genuinely fixed (mutation-checked), then found
+new issues. All were fixed by Claude (#24–#29) while Codex/Fable were unavailable; CI-gated, no baton.
+
+**DONE:**
+- **H-1b receive side (fixed #24):** H-1b had fixed only the companion send/store side. `handleRoomStateDelta`
+  (`UnifiedDataContext.tsx`) still advanced the LOCAL timer anchor to delta-receipt time on metadata-only
+  deltas (which companion now correctly sends without `lastUpdate`) → running-timer elapsed snapped
+  backward on OTHER clients mid-show. Now the anchor only moves when the delta carries timer keys
+  (`lastUpdate`/`currentTime`/`isRunning`/`activeTimerId`). Added the first socket-level `ROOM_STATE_DELTA`
+  characterization test.
+- **Transitive boundary blind spot (fixed #25):** dependency-cruiser's `forbidden` rules matched only
+  DIRECT edges, so Cloud/Viewer→arbitration passed through any intermediary (empirically confirmed).
+  Added `to.reachable: true` transitive rules; planted-violation verified.
+- **Residual cleanups (fixed #26):** routed `firebase-timer-state-utils` elapsed through `computeElapsed`
+  (guard preserved); `companion npm test` now runs ALL `dist/*.test.js` (a compiled-but-never-run test
+  is now executed). NOTE: CI is Node 20 → `node --test` glob must be SHELL-expanded (unquoted), not
+  quoted (Node 21+ only).
+- **Companion handler wiring tests (fixed #27):** exported `handleSyncRoomState`/`handleRoomStatePatch`/
+  `roomStateStore`/`ioServers`/`getRoomState`; `main.handlers.test.ts` drives them with a fake socket +
+  captured emits (validator rejection, store write, delta shape, clock re-anchor) — the wiring coverage
+  Fable flagged as missing before carving the god-files.
+- **3 CI-excluded test files un-excluded (fixed #28):** root causes were harness bugs — missing `vi`
+  import (useSortableList) and missing testing-library `cleanup` (CuesPanel/AppModeContext, no `globals`),
+  NOT product bugs. Excludes removed; the safety-net step is now plain `npx vitest run` (full suite
+  25 files / 211 tests gates).
+- **Elapsed duplication de-risked (fixed #29):** decision = do NOT do the timer-core CJS-build unification
+  (too much Electron-packaging risk for low value). `resolveCompanionElapsedForState` is documented as the
+  CommonJS mirror of timer-core `computeCompanionElapsed`, with a drift-guard test pinning it to the
+  canonical formula. **Remaining deferred-by-decision:** the true timer-core CJS build so companion can
+  import the canonical helper — revisit when companion build/packaging is worked on.
+
+Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker (companion handler wiring
++ full frontend suite gated). **Stage 1b (god-file carve-outs) is unblocked.**
 
 **TODO — process/CI hardening FIRST (prerequisites for safe 1b):**
 - **M-2 (USER DECISION — do not change branch protection without the user):** protection has no
@@ -111,20 +160,23 @@ failures" was a one-line import bug). Trust tests over pattern-matching.
 - **L-2:** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` (fail if they grow).
 
 ### Codex — baton handoff / next heartbeat
-The baton is **yours**; no PR is awaiting consultant review. On your next heartbeat, work this
-corrective backlog **in order**, one scoped PR each, under the baton (add `needs-claude-review`, wait
-for `claude-reviewed` before merging — do NOT self-merge unreviewed like the solo C1 mistake). Next:
-**H1 (delete unreachable arbitration fallback chain in `resolveRoomSource`)** after M-4 lands and only
-if no PR is waiting on Claude/human.
-The harness is gated now, so behavior regressions go red. **Do NOT begin Stage 1b carve-outs until
-M-1 lands.** The actionable Fable review summary is captured in this ledger; the local
+The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
++ the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, and the test net is gated, so
+**Stage 1b carve-outs are now unblocked.** Remaining pre-1b inert cleanups (each its own scoped PR + a
+test, under the baton — do NOT self-merge unreviewed): **H1** (delete unreachable arbitration fallback
+chain in `resolveRoomSource`) → **H2** (route inline `*1000 - elapsed` through `computeRemaining`) →
+**Anti-duplication CI check** (only after H2) → **L-2** (line-count ratchet on the two god-files). Then
+begin Stage 1b. **M-2** (branch-protection tightening) stays a USER decision. One deferred-by-decision
+item: the timer-core CJS build (so companion imports the canonical elapsed helper) — revisit during
+companion build/packaging work. The actionable Fable summaries are captured in this ledger; the local
 `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked prompt-export
 artifacts.
 
 ## Deferred (unchanged)
 
-- triage + fix the 3 genuinely-failing test files (useSortableList, CuesPanel, AppModeContext) and remove them from the CI exclude list once green (note: the "UnifiedDataContext.test" entry was a FALSE premise — it was a one-line missing import, fixed in #14)
+- ~~triage + fix the 3 genuinely-failing test files (useSortableList, CuesPanel, AppModeContext)~~ **DONE (#28)** — harness bugs (missing `vi` import / missing testing-library `cleanup`), now un-excluded; full frontend suite (211 tests) gates.
 - line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)
+- timer-core CJS build so `companion` can import the canonical elapsed helper (instead of its documented drift-guarded mirror) — deferred by decision (#29); do during companion build/packaging work.
 - `mergeCueVideos` regression during `presentation-core` extraction
 - iPad viewer polish branch (stashed)
 - installer-build release readiness (viewer bundle + tsc steps + ffprobe sourcing)
