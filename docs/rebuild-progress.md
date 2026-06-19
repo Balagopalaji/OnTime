@@ -80,6 +80,7 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #31 refactor(unified): remove dead room arbitration fallback (H1 inert cleanup)
 - PR #32 refactor(controller): route remaining display through timer helper (H2 inert cleanup)
 - PR #33 docs(ledger): adopt fast-lane baton policy for inert work
+- PR #34 ci(guardrails): block duplicate timer formulas (anti-dup CI check)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -194,7 +195,7 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
   (`frontend/src`, `packages/`, `apps/`) reintroduces inline timer remaining/elapsed formulas outside
   the canonical helpers (`timer-utils` / `timer-core`, allowlisted). Comments are stripped before
   matching; `companion/` is out of scope (its CJS mirror is intentional + drift-guarded).
-- **L-2:** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` (fail if they grow).
+- **L-2 (pending PR):** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` — required guardrails now fail if either grows past its baseline; carve-outs must lower the baseline as they shrink the file.
 
 ### Codex — baton handoff / next heartbeat
 The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
