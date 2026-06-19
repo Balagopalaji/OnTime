@@ -996,47 +996,23 @@ export const resolveRoomSource = ({
   holdActive?: boolean
   preferSource?: 'cloud' | 'companion'
 }): 'cloud' | 'companion' => {
-  if (ARBITRATION_FLAGS.room) {
-    const decision = arbitrate({
-      roomId,
-      domain: 'room',
-      cloudTs: firebaseTs,
-      companionTs,
-      authoritySource: normalizeRoomAuthoritySource(authoritySource),
-      mode,
-      effectiveMode,
-      isCompanionLive,
-      cloudOnline,
-      confidenceWindowMs,
-      controllerTieBreaker,
-      viewerSyncGuard,
-      holdActive,
-      preferSource,
-    })
-    return decision.acceptSource
-  }
-
-  if (!isCompanionLive) return 'cloud'
-  if (viewerSyncGuard) return 'cloud'
-
-  if (firebaseTs === companionTs && controllerTieBreaker) {
-    return controllerTieBreaker
-  }
-
-  if (Math.abs(firebaseTs - companionTs) < confidenceWindowMs) {
-    if (authoritySource === 'companion') return 'companion'
-    return 'cloud'
-  }
-
-  if (mode === 'auto') {
-    return companionTs > firebaseTs ? 'companion' : 'cloud'
-  }
-
-  if (effectiveMode === 'local') {
-    return companionTs >= firebaseTs ? 'companion' : 'cloud'
-  }
-
-  return firebaseTs >= companionTs ? 'cloud' : 'companion'
+  const decision = arbitrate({
+    roomId,
+    domain: 'room',
+    cloudTs: firebaseTs,
+    companionTs,
+    authoritySource: normalizeRoomAuthoritySource(authoritySource),
+    mode,
+    effectiveMode,
+    isCompanionLive,
+    cloudOnline,
+    confidenceWindowMs,
+    controllerTieBreaker,
+    viewerSyncGuard,
+    holdActive,
+    preferSource,
+  })
+  return decision.acceptSource
 }
 
 const translateCompanionStateToFirebase = (

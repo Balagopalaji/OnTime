@@ -159,6 +159,46 @@ describe('resolveRoomSource', () => {
   it('prefers controller-originated cloud changes on equal timestamps', () => {
     expect(resolveRoomSource({ ...baseArgs, controllerTieBreaker: 'cloud' })).toBe('cloud')
   })
+
+  it('uses the viewer sync guard to keep viewers on cloud while Companion syncs', () => {
+    expect(
+      resolveRoomSource({
+        ...baseArgs,
+        viewerSyncGuard: true,
+        effectiveMode: 'local',
+        preferSource: 'companion',
+      }),
+    ).toBe('cloud')
+  })
+
+  it('uses local preference for ambiguous room arbitration', () => {
+    expect(
+      resolveRoomSource({
+        ...baseArgs,
+        effectiveMode: 'local',
+        preferSource: 'companion',
+      }),
+    ).toBe('companion')
+  })
+
+  it('falls back to cloud when Companion is offline', () => {
+    expect(resolveRoomSource({ ...baseArgs, isCompanionLive: false })).toBe('cloud')
+  })
+
+  it('uses Companion when cloud is offline', () => {
+    expect(resolveRoomSource({ ...baseArgs, cloudOnline: false })).toBe('companion')
+  })
+
+  it('normalizes pending authority before arbitration', () => {
+    expect(
+      resolveRoomSource({
+        ...baseArgs,
+        authoritySource: 'pending',
+        effectiveMode: 'local',
+        preferSource: 'companion',
+      }),
+    ).toBe('companion')
+  })
 })
 
 describe('mergeCueQueueEvents', () => {
