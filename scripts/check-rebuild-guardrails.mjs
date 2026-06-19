@@ -278,6 +278,23 @@ function checkFileSizeCeilings() {
   }
 }
 
+// Stage-1b ratchet: these legacy god-files may only SHRINK. Carve-outs that reduce a file
+// must lower its baseline here in the same PR. Never raise a baseline.
+const GOD_FILE_LINE_BASELINES = {
+  'frontend/src/context/UnifiedDataContext.tsx': 6922,
+  'companion/src/main.ts': 8064,
+}
+
+function checkGodFileRatchet() {
+  for (const [file, baseline] of Object.entries(GOD_FILE_LINE_BASELINES)) {
+    if (!files.includes(file)) continue
+    const lines = read(file).split('\n').length
+    if (lines > baseline) {
+      fail(`god-file grew past its ratchet baseline: ${file} (${lines} > ${baseline}); carve out, do not grow`)
+    }
+  }
+}
+
 function checkRequiredDocs() {
   for (const file of ['docs/rebuild-architecture.md', 'docs/rebuild-extraction-rules.md']) {
     if (!existsSync(path.join(root, file))) {
@@ -293,6 +310,7 @@ checkPackageAliasImports()
 checkForbiddenBugPatterns()
 checkTimerFormulaDuplication()
 checkFileSizeCeilings()
+checkGodFileRatchet()
 checkRequiredDocs()
 
 if (failures.length > 0) {
