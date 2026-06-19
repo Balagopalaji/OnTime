@@ -25,6 +25,7 @@ import { ConnectionIndicator } from '../components/core/ConnectionIndicator'
 import { LocalQrCode } from '../components/core/LocalQrCode'
 import { Tooltip } from '../components/core/Tooltip'
 import { formatDate, formatDuration } from '../lib/time'
+import { computeRemaining } from '../utils/timer-utils'
 import { getAllTimezones } from '../lib/timezones'
 import { getCloudViewerUrl } from '../lib/viewer-links'
 import { useAppMode } from '../context/AppModeContext'
@@ -1076,12 +1077,13 @@ if (roomId) addActiveRoomIntent?.(roomId)
     const { progress, activeTimerId, elapsedOffset } = room.state
     const lookup: Record<string, string> = {}
     timers.forEach((timer) => {
+      const durationMs = timer.duration * 1000
       if (timer.id === activeTimerId) {
-        lookup[timer.id] = engine ? engine.display : formatDuration(timer.duration * 1000 - elapsedOffset)
+        lookup[timer.id] = engine ? engine.display : formatDuration(computeRemaining(durationMs, elapsedOffset))
         return
       }
       const elapsed = progress?.[timer.id] ?? 0
-      const remainingMs = timer.duration * 1000 - elapsed
+      const remainingMs = computeRemaining(durationMs, elapsed)
       lookup[timer.id] = formatDuration(remainingMs)
     })
     return lookup
