@@ -13,6 +13,39 @@ review. **Fable caught real issues each time** — a DEAD characterization harne
 All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
 handler wiring). Remaining before carve-outs: only the inert cleanups (H2/anti-dup/L-2) listed below.
 
+## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
+
+Rationale: routine baton review has been **low-yield** (across ~12 Claude reviews, one substantive
+catch — the ungated companion test in #17); the real defects came from **fresh-context milestone
+audits** + the gated CI/test net (dead harness, misclassified clamp, receiver-side smear, transitive
+boundary hole). So: reduce per-change review friction for SAFE work, concentrate scrutiny where
+defects actually surface. This supersedes the "each unit its own scoped PR under the baton, do NOT
+self-merge" rule **for fast-lane-eligible work only**; risky work still follows the handoff rules.
+
+**FAST-LANE — Codex self-merges on green CI; do NOT add `needs-claude-review`.**
+Eligible types: docs/ledger, dead-code removal, helper/utility routing, guardrail-or-CI-only changes,
+line-count ratchets, test-only additions. ALL conditions required:
+- no behavior change (behavior-preserving must be *mechanically obvious*, not a claim);
+- ≤ 3 related files, one reviewable theme ("one invariant" / "one guardrail capability");
+- fully test-backed and `Guardrail checks` green;
+- RepoPrompt/sub-agent scope + diff review ran.
+If any condition fails → it is NOT fast-lane; route to Claude.
+
+**CLAUDE BATON — add `needs-claude-review`, wait for `claude-reviewed`.**
+Required for: every Stage 1b carve-out; provider/runtime behavior; timer/elapsed semantics;
+sync/arbitration behavior; package boundary changes; ANY edit to `UnifiedDataContext.tsx` or
+`companion/src/main.ts` beyond a tiny inert edit; anything where "behavior-preserving" is a claim
+rather than mechanically obvious.
+
+**MILESTONE AUDIT — the highest-yield safety mechanism; spend tokens here.**
+After each batch of 3–6 merged PRs, AND before starting any carve-out phase, run a fresh-context
+adversarial audit (Fable-style; a fresh `model:"fable"` or fresh-context Opus sub-agent) over the
+cumulative diff `git diff <last-audit-tag>...main`: rule prior findings FIXED/NOT, hunt regressions.
+
+**PR sizing:** bigger than "one tiny expression." A unit = one invariant or one guardrail capability,
+not necessarily one file. Pure guardrail-infra items may be batched (e.g. anti-dup CI check + L-2
+ratchet together) provided they stay within the fast-lane conditions above.
+
 ## Landed (on `main`)
 
 - PR #1 architecture/product audit set
