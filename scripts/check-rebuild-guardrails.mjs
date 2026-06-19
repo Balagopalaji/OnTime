@@ -281,7 +281,7 @@ function checkFileSizeCeilings() {
 // Stage-1b ratchet: these legacy god-files may only SHRINK. Carve-outs that reduce a file
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
-  'frontend/src/context/UnifiedDataContext.tsx': 6922,
+  'frontend/src/context/UnifiedDataContext.tsx': 6707,
   'companion/src/main.ts': 8064,
 }
 

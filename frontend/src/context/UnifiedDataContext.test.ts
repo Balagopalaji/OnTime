@@ -128,6 +128,45 @@ describe('resolveLockAuthoritySource', () => {
   })
 })
 
+describe('control-lock authority + lock-state composition (characterization)', () => {
+  const buildLock = (clientId: string) => ({
+    clientId,
+    roomId: 'room-1',
+    lockedAt: 0,
+    lastHeartbeat: 0,
+  })
+
+  it('feeds resolved authority alongside lock-state resolution for holder vs non-holder clients', () => {
+    // Cloud online + room loaded => cloud authority; non-holding client is read-only.
+    expect(
+      resolveLockAuthoritySource({ room: { id: 'room-1' }, connectionStatus: 'online' }),
+    ).toBe('cloud')
+    expect(
+      resolveControllerLockState({
+        roomId: 'room-1',
+        clientId: 'client-a',
+        controllerLocks: { 'room-1': buildLock('client-b') },
+        controlDisplacements: {},
+        pendingControlRequests: {},
+      }),
+    ).toBe('read-only')
+
+    // Cloud offline => companion authority; the lock holder stays authoritative.
+    expect(
+      resolveLockAuthoritySource({ room: { id: 'room-1' }, connectionStatus: 'offline' }),
+    ).toBe('companion')
+    expect(
+      resolveControllerLockState({
+        roomId: 'room-1',
+        clientId: 'client-a',
+        controllerLocks: { 'room-1': buildLock('client-a') },
+        controlDisplacements: {},
+        pendingControlRequests: {},
+      }),
+    ).toBe('authoritative')
+  })
+})
+
 describe('getConfidenceWindowMs', () => {
   it('uses the base window when no churn is detected', () => {
     expect(getConfidenceWindowMs(false)).toBe(2000)
@@ -1817,6 +1856,57 @@ describe('clearRoomControlLifecycleState', () => {
     expect(next.controlDisplacements['room-1']).toBeUndefined()
     expect(next.controlErrors['room-1']).toBeUndefined()
     expect(next.roomClients['room-1']).toBeUndefined()
+  })
+
+  it('clears every lifecycle map for the room at once while leaving other rooms intact (characterization)', () => {
+    const slices = {
+      controlRequests: {
+        'room-1': { requesterId: 'a', requestedAt: 1 },
+        'room-2': { requesterId: 'z', requestedAt: 9 },
+      },
+      pendingControlRequests: {
+        'room-1': { requesterId: 'a', requestedAt: 1 },
+        'room-2': { requesterId: 'z', requestedAt: 9 },
+      },
+      controlDenials: {
+        'room-1': { requesterId: 'a', deniedAt: 2 },
+        'room-2': { requesterId: 'z', deniedAt: 8 },
+      },
+      controlDisplacements: {
+        'room-1': { takenAt: 3, takenById: 'b' },
+        'room-2': { takenAt: 7, takenById: 'y' },
+      },
+      controlErrors: {
+        'room-1': { code: 'ERR', message: 'error', receivedAt: 4 },
+        'room-2': { code: 'ERR2', message: 'error-2', receivedAt: 6 },
+      },
+      roomClients: {
+        'room-1': [{ clientId: 'a', clientType: 'controller' as const, source: 'companion' as const }],
+        'room-2': [{ clientId: 'z', clientType: 'viewer' as const, source: 'companion' as const }],
+      },
+    }
+
+    const next = clearRoomControlLifecycleState('room-1', slices, { clearRoomClients: true })
+
+    // Every lifecycle map for room-1 is cleared together.
+    expect(next.controlRequests['room-1']).toBeUndefined()
+    expect(next.pendingControlRequests['room-1']).toBeUndefined()
+    expect(next.controlDenials['room-1']).toBeUndefined()
+    expect(next.controlDisplacements['room-1']).toBeUndefined()
+    expect(next.controlErrors['room-1']).toBeUndefined()
+    expect(next.roomClients['room-1']).toBeUndefined()
+
+    // Other rooms are untouched across all maps.
+    expect(next.controlRequests['room-2']).toEqual({ requesterId: 'z', requestedAt: 9 })
+    expect(next.pendingControlRequests['room-2']).toEqual({ requesterId: 'z', requestedAt: 9 })
+    expect(next.controlDenials['room-2']).toEqual({ requesterId: 'z', deniedAt: 8 })
+    expect(next.controlDisplacements['room-2']).toEqual({ takenAt: 7, takenById: 'y' })
+    expect(next.controlErrors['room-2']).toEqual({ code: 'ERR2', message: 'error-2', receivedAt: 6 })
+    expect(next.roomClients['room-2']).toEqual([{ clientId: 'z', clientType: 'viewer', source: 'companion' }])
+
+    // Input maps are not mutated (pure reducer).
+    expect(slices.controlRequests['room-1']).toEqual({ requesterId: 'a', requestedAt: 1 })
+    expect(slices.roomClients['room-1']).toBeDefined()
   })
 })
 
