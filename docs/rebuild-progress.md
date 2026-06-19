@@ -11,7 +11,7 @@ TWO milestone reviews ran (internal M1 audit + INDEPENDENT Fable), then a Fable 
 review. **Fable caught real issues each time** — a DEAD characterization harness, a misclassified "fix"
 (C1), a receiver-side anchor smear, a transitive-boundary blind spot, and thin handler test coverage.
 All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
-handler wiring). Remaining before carve-outs: only the inert cleanups (H2/anti-dup/L-2) listed below.
+handler wiring). Remaining before carve-outs: only the inert cleanups (anti-dup/L-2) listed below.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -78,6 +78,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #28 fix(tests): un-exclude the 3 failing frontend test files — 211 tests now gate (2nd-review)
 - PR #29 docs(companion): mark elapsed helper as CJS mirror + drift-guard test (2nd-review)
 - PR #31 refactor(unified): remove dead room arbitration fallback (H1 inert cleanup)
+- PR #32 refactor(controller): route remaining display through timer helper (H2 inert cleanup)
+- PR #33 docs(ledger): adopt fast-lane baton policy for inert work
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -188,20 +190,18 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
 - All other priority correctness fixes from the Fable review are landed.
 
 **TODO — then structure + inert cleanups:**
-- **H2 (pending PR):** route inline `*1000 - elapsed` through `computeRemaining` (Controller/Dashboard);
-  Dashboard already used the helper, and Controller now preserves existing elapsed inputs while routing
-  derived remaining display through the shared helper.
-- **Anti-duplication CI check:** add only AFTER H2 + M-1 collapse (else false-positives).
+- **Anti-duplication CI check (pending PR):** required guardrails now fail when runtime source
+  (`frontend/src`, `packages/`, `apps/`) reintroduces inline timer remaining/elapsed formulas outside
+  the canonical helpers (`timer-utils` / `timer-core`, allowlisted). Comments are stripped before
+  matching; `companion/` is out of scope (its CJS mirror is intentional + drift-guarded).
 - **L-2:** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` (fail if they grow).
 
 ### Codex — baton handoff / next heartbeat
 The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
 + the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, and the test net is gated, so
-**Stage 1b carve-outs are now unblocked.** Remaining pre-1b inert cleanups (each its own scoped PR + a
-test, under the baton — do NOT self-merge unreviewed): finish **H2** (route inline `*1000 - elapsed`
-through `computeRemaining`) → **Anti-duplication CI check** (only after H2) → **L-2** (line-count
-ratchet on the two god-files). Then
-begin Stage 1b. **M-2** (branch-protection tightening) stays a USER decision. One deferred-by-decision
+**Stage 1b carve-outs are now unblocked.** Remaining pre-1b inert cleanups (fast-lane per the Baton
+Policy above): **Anti-duplication CI check** (pending PR) → **L-2** (line-count ratchet on the two
+god-files). Then begin Stage 1b. **M-2** (branch-protection tightening) stays a USER decision. One deferred-by-decision
 item: the timer-core CJS build (so companion imports the canonical elapsed helper) — revisit during
 companion build/packaging work. The actionable Fable summaries are captured in this ledger; the local
 `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked prompt-export
