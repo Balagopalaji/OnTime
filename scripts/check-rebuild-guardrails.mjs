@@ -51,6 +51,12 @@ function read(file) {
   return readFileSync(path.join(root, file), 'utf8')
 }
 
+function stripSourceComments(content) {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+}
+
 function trackedUnder(prefix) {
   return files.filter((file) => file.startsWith(prefix))
 }
@@ -208,6 +214,57 @@ function checkForbiddenBugPatterns() {
   }
 }
 
+function checkTimerFormulaDuplication() {
+  const allowlistedFiles = new Set([
+    'frontend/src/utils/timer-utils.ts',
+    'packages/timer-core/src/index.ts',
+  ])
+  const scopedFiles = files.filter((file) => {
+    if (!isSourceFile(file)) return false
+    if (isTestFile(file) || /\.d\.[cm]?ts$/.test(file)) return false
+    if (allowlistedFiles.has(file)) return false
+    return file.startsWith('frontend/src/') || file.startsWith('packages/') || file.startsWith('apps/')
+  })
+
+  const patterns = [
+    {
+      pattern:
+        /\b(?:\w+\.)?duration\s*\*\s*1000\s*-\s*(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\b/,
+      message: 'inline remaining-time formula found; use computeRemaining from timer-core/timer-utils',
+    },
+    {
+      pattern:
+        /\bdurationMs\s*-\s*(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\b/,
+      message: 'inline remaining-time formula found; use computeRemaining from timer-core/timer-utils',
+    },
+    {
+      pattern:
+        /\bdurationSec\s*\*\s*1000\s*-\s*(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\b/,
+      message: 'inline remaining-time formula found; use computeRemaining from timer-core/timer-utils',
+    },
+    {
+      pattern:
+        /\belapsedOffset\s*\+\s*\(?\s*(?:Date\.now\(\)|now|timestamp)\s*-\s*startedAt\s*\)?/,
+      message: 'inline Firebase elapsed formula found; use computeElapsed from timer-core/timer-utils',
+    },
+    {
+      pattern:
+        /\bcurrentTime\s*\+\s*\(?\s*(?:Date\.now\(\)|now|timestamp)\s*-\s*lastUpdate\s*\)?/,
+      message:
+        'inline Companion elapsed formula found; use computeCompanionElapsed from timer-core/timer-utils',
+    },
+  ]
+
+  for (const file of scopedFiles) {
+    const content = stripSourceComments(read(file))
+    for (const { pattern, message } of patterns) {
+      if (pattern.test(content)) {
+        fail(`${message}: ${file}`)
+      }
+    }
+  }
+}
+
 function checkFileSizeCeilings() {
   const maxProductionLines = 400
   for (const file of files) {
@@ -234,6 +291,7 @@ checkPackageBoundaries()
 checkProductBoundaries()
 checkPackageAliasImports()
 checkForbiddenBugPatterns()
+checkTimerFormulaDuplication()
 checkFileSizeCeilings()
 checkRequiredDocs()
 
