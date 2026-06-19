@@ -154,7 +154,8 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
 - All other priority correctness fixes from the Fable review are landed.
 
 **TODO — then structure + inert cleanups:**
-- **H1 (inert dead code):** delete the unreachable arbitration fallback chain in `resolveRoomSource`.
+- **H1 (pending PR):** delete the unreachable arbitration fallback chain in `resolveRoomSource`;
+  room source selection remains routed through canonical `arbitrate()` with focused resolver coverage.
 - **H2 (low value):** route inline `*1000 - elapsed` through `computeRemaining` (Controller/Dashboard).
 - **Anti-duplication CI check:** add only AFTER H2 + M-1 collapse (else false-positives).
 - **L-2:** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` (fail if they grow).
@@ -163,8 +164,7 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
 The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
 + the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, and the test net is gated, so
 **Stage 1b carve-outs are now unblocked.** Remaining pre-1b inert cleanups (each its own scoped PR + a
-test, under the baton — do NOT self-merge unreviewed): **H1** (delete unreachable arbitration fallback
-chain in `resolveRoomSource`) → **H2** (route inline `*1000 - elapsed` through `computeRemaining`) →
+test, under the baton — do NOT self-merge unreviewed): **H2** (route inline `*1000 - elapsed` through `computeRemaining`) →
 **Anti-duplication CI check** (only after H2) → **L-2** (line-count ratchet on the two god-files). Then
 begin Stage 1b. **M-2** (branch-protection tightening) stays a USER decision. One deferred-by-decision
 item: the timer-core CJS build (so companion imports the canonical elapsed helper) — revisit during
