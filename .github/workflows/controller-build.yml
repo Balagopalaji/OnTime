@@ -1,6 +1,9 @@
 name: Build Controller installers
 
 on:
+  # Installer builds run on demand and on release tags only — not on every push.
+  # The controller installer path is release-prep work under npm workspaces because
+  # electron-builder currently cannot discover the hoisted Electron dependency.
   workflow_dispatch:
     inputs:
       publish:
@@ -13,14 +16,8 @@ on:
           - 'draft'
           - 'release'
   push:
-    paths:
-      - "controller/**"
-      - "frontend/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/controller-build.yml"
-    branches:
-      - main
+    tags:
+      - "v*"
 
 env:
   # Set to 'true' to enable code signing when secrets are configured
