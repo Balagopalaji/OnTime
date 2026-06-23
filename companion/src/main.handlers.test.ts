@@ -6,6 +6,7 @@ import test from 'node:test'
 // startup when it is cached for all subsequent test cases in this file.
 const loadHandlerHelpers = async () => {
   process.env.ONTIME_COMPANION_DISABLE_BOOTSTRAP = '1'
+  process.env.HOME = '/tmp/ontime-companion-handler-tests'
   return import('./main.js')
 }
 
@@ -318,4 +319,294 @@ test('PATCH invalid: disallowed key, store unchanged, no delta emitted', async (
 
   const deltas = emitted.filter(e => e.event === 'ROOM_STATE_DELTA')
   assert.equal(deltas.length, 0, 'no ROOM_STATE_DELTA should be emitted for invalid patch payload')
+})
+
+// ---------------------------------------------------------------------------
+// Control-arbitration handler characterization
+// ---------------------------------------------------------------------------
+
+function makeControlSocket(clientId: string, roomId: string, overrides: Record<string, unknown> = {}) {
+  const rooms = new Set<string>([roomId])
+  return {
+    rooms,
+    join(r: string) { this.rooms.add(r) },
+    data: {
+      clientId,
+      clientType: 'controller' as const,
+      deviceName: `${clientId}-device`,
+      userId: `${clientId}-user`,
+      userName: `${clientId} user`,
+      ...overrides,
+    },
+    id: `${clientId}-socket`,
+    emitted: [] as Array<{ event: string; payload: any }>,
+    emit(event: string, payload: unknown) { this.emitted.push({ event, payload }) },
+  } as any
+}
+
+function pushFakeIoServer(m: any, activeSocketIds: string[] = []) {
+  const emitted: Array<{ target: string; event: string; payload: any }> = []
+  m.ioServers.push({
+    sockets: { sockets: new Map(activeSocketIds.map((id) => [id, {}])) },
+    to: (target: string) => ({
+      emit: (event: string, payload: unknown) => emitted.push({ target, event, payload }),
+    }),
+  } as any)
+  return emitted
+}
+
+function resetControlRoom(m: any, roomId: string) {
+  const timeout = m.pendingControlTimeouts.get(roomId)
+  if (timeout) clearTimeout(timeout)
+  m.pendingControlTimeouts.delete(roomId)
+  m.pendingControlRequests.delete(roomId)
+  m.roomControllerStore.delete(roomId)
+  m.roomClientStore.delete(roomId)
+  m.roomPinStore.delete(roomId)
+  m.roomOwnerStore.delete(roomId)
+  m.roomControlAuditStore.delete(roomId)
+  m.ioServers.length = 0
+}
+
+function seedControllerLock(m: any, roomId: string, clientId = 'owner') {
+  m.roomControllerStore.set(roomId, {
+    clientId,
+    socketId: `${clientId}-socket`,
+    connectedAt: 1_000,
+    lastHeartbeat: 1_000,
+    deviceName: `${clientId}-device`,
+    userId: `${clientId}-user`,
+    userName: `${clientId} user`,
+  })
+}
+
+function seedRoomClient(m: any, roomId: string, clientId: string, clientType: 'controller' | 'viewer' = 'controller') {
+  if (!m.roomClientStore.has(roomId)) m.roomClientStore.set(roomId, new Map())
+  m.roomClientStore.get(roomId).set(clientId, {
+    socketId: `${clientId}-socket`,
+    deviceName: `${clientId}-device`,
+    userId: `${clientId}-user`,
+    userName: `${clientId} user`,
+    clientType,
+    lastHeartbeat: Date.now(),
+  })
+}
+
+test('REQUEST_CONTROL rejects mismatched client id and queues pending request for active owner', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-control-request'
+  resetControlRoom(m, roomId)
+
+  const mismatchSocket = makeControlSocket('requester', roomId)
+  m.handleRequestControl(mismatchSocket, {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'other-client',
+    timestamp: Date.now(),
+  })
+  assert.equal(mismatchSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(mismatchSocket.emitted.at(-1)?.payload.code, 'INVALID_PAYLOAD')
+  assert.equal(m.pendingControlRequests.has(roomId), false)
+
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+  const requesterSocket = makeControlSocket('requester', roomId)
+
+  m.handleRequestControl(requesterSocket, {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'requester',
+    deviceName: ' Requester Device ',
+    userId: ' requester-user ',
+    userName: ' Requester User ',
+    timestamp: Date.now(),
+  })
+
+  const pending = m.pendingControlRequests.get(roomId)
+  assert.equal(pending?.requesterId, 'requester')
+  assert.equal(pending?.requesterName, 'Requester Device')
+  assert.equal(requesterSocket.emitted.at(-1)?.event, 'CONTROL_REQUEST_STATUS')
+  assert.equal(requesterSocket.emitted.at(-1)?.payload.status, 'queued')
+  assert.equal(requesterSocket.emitted.at(-1)?.payload.requesterId, 'requester')
+  const received = ioEmits.find((emit) => emit.target === 'owner-socket' && emit.event === 'CONTROL_REQUEST_RECEIVED')
+  assert.equal(received?.payload.requesterId, 'requester')
+
+  resetControlRoom(m, roomId)
+})
+
+test('FORCE_TAKEOVER denies without PIN or timeout and accepts matching PIN or elapsed pending timeout', async () => {
+  const m = await loadHandlerHelpers()
+
+  const deniedRoomId = 'room-force-denied'
+  resetControlRoom(m, deniedRoomId)
+  seedControllerLock(m, deniedRoomId, 'owner')
+  const deniedSocket = makeControlSocket('requester', deniedRoomId)
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleForceTakeover(deniedSocket, {
+    type: 'FORCE_TAKEOVER',
+    roomId: deniedRoomId,
+    clientId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  assert.equal(deniedSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(deniedSocket.emitted.at(-1)?.payload.code, 'PERMISSION_DENIED')
+  assert.equal(m.roomControllerStore.get(deniedRoomId)?.clientId, 'owner')
+  resetControlRoom(m, deniedRoomId)
+
+  const pinRoomId = 'room-force-pin'
+  resetControlRoom(m, pinRoomId)
+  seedControllerLock(m, pinRoomId, 'owner')
+  m.roomPinStore.set(pinRoomId, { pin: '1234', updatedAt: Date.now(), setBy: 'owner' })
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleForceTakeover(makeControlSocket('requester', pinRoomId), {
+    type: 'FORCE_TAKEOVER',
+    roomId: pinRoomId,
+    clientId: 'requester',
+    pin: '12 34',
+    timestamp: Date.now(),
+  })
+
+  assert.equal(m.roomControllerStore.get(pinRoomId)?.clientId, 'requester')
+  resetControlRoom(m, pinRoomId)
+
+  const timeoutRoomId = 'room-force-timeout'
+  resetControlRoom(m, timeoutRoomId)
+  seedControllerLock(m, timeoutRoomId, 'owner')
+  const requestedAt = Date.now() - 31_000
+  m.pendingControlRequests.set(timeoutRoomId, { requesterId: 'requester', requestedAt })
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleForceTakeover(makeControlSocket('requester', timeoutRoomId), {
+    type: 'FORCE_TAKEOVER',
+    roomId: timeoutRoomId,
+    clientId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  assert.equal(m.roomControllerStore.get(timeoutRoomId)?.clientId, 'requester')
+  assert.equal(m.pendingControlRequests.has(timeoutRoomId), false)
+  resetControlRoom(m, timeoutRoomId)
+})
+
+test('HAND_OVER lets current controller hand over to active controller and rejects invalid target/non-controller', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-handover'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'target')
+  seedRoomClient(m, roomId, 'viewer-target', 'viewer')
+  pushFakeIoServer(m, ['owner-socket', 'target-socket', 'viewer-target-socket'])
+  const ownerSocket = makeControlSocket('owner', roomId)
+
+  m.handleHandOver(ownerSocket, {
+    type: 'HAND_OVER',
+    roomId,
+    targetClientId: 'missing-target',
+    timestamp: Date.now(),
+  })
+  assert.equal(ownerSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(ownerSocket.emitted.at(-1)?.payload.code, 'NOT_FOUND')
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+
+  m.handleHandOver(ownerSocket, {
+    type: 'HAND_OVER',
+    roomId,
+    targetClientId: 'viewer-target',
+    timestamp: Date.now(),
+  })
+  assert.equal(ownerSocket.emitted.at(-1)?.payload.code, 'PERMISSION_DENIED')
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+
+  m.handleHandOver(ownerSocket, {
+    type: 'HAND_OVER',
+    roomId,
+    targetClientId: 'target',
+    timestamp: Date.now(),
+  })
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'target')
+
+  resetControlRoom(m, roomId)
+})
+
+test('DENY_CONTROL current controller clears matching pending request and emits denial/status', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-deny-control'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  const requestedAt = Date.now()
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt })
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleDenyControl(makeControlSocket('owner', roomId), {
+    type: 'DENY_CONTROL',
+    roomId,
+    requesterId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  assert.equal(m.pendingControlRequests.has(roomId), false)
+  const cleared = ioEmits.find((emit) => emit.target === 'requester-socket' && emit.event === 'CONTROL_REQUEST_STATUS')
+  assert.equal(cleared?.payload.status, 'cleared')
+  assert.equal(cleared?.payload.reason, 'request_denied')
+  const denied = ioEmits.find((emit) => emit.target === 'requester-socket' && emit.event === 'CONTROL_REQUEST_DENIED')
+  assert.equal(denied?.payload.reason, 'denied_by_controller')
+
+  resetControlRoom(m, roomId)
+})
+
+test('SET_ROOM_PIN owner/current controller sets and clears valid PIN and rejects invalid/non-owner attempts', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-pin'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  const ioEmits = pushFakeIoServer(m, ['owner-socket'])
+  const ownerSocket = makeControlSocket('owner', roomId)
+
+  m.handleSetRoomPin(ownerSocket, {
+    type: 'SET_ROOM_PIN',
+    roomId,
+    pin: ' 123-456 ',
+    timestamp: Date.now(),
+  })
+  assert.equal(m.roomOwnerStore.get(roomId)?.ownerId, 'owner-user')
+  assert.equal(m.roomPinStore.get(roomId)?.pin, '123456')
+  assert.ok(ioEmits.some((emit) => emit.target === 'owner-socket' && emit.event === 'ROOM_PIN_STATE' && emit.payload.pin === '123456'))
+
+  m.handleSetRoomPin(ownerSocket, {
+    type: 'SET_ROOM_PIN',
+    roomId,
+    pin: '12',
+    timestamp: Date.now(),
+  })
+  assert.equal(ownerSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(ownerSocket.emitted.at(-1)?.payload.code, 'INVALID_PAYLOAD')
+  assert.equal(m.roomPinStore.get(roomId)?.pin, '123456')
+
+  m.handleSetRoomPin(ownerSocket, {
+    type: 'SET_ROOM_PIN',
+    roomId,
+    pin: '',
+    timestamp: Date.now(),
+  })
+  assert.equal(m.roomPinStore.has(roomId), false)
+
+  const nonOwnerSocket = makeControlSocket('owner', roomId, { userId: 'not-owner-user' })
+  m.handleSetRoomPin(nonOwnerSocket, {
+    type: 'SET_ROOM_PIN',
+    roomId,
+    pin: '9999',
+    timestamp: Date.now(),
+  })
+  assert.equal(nonOwnerSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(nonOwnerSocket.emitted.at(-1)?.payload.code, 'PERMISSION_DENIED')
+  assert.equal(m.roomPinStore.has(roomId), false)
+
+  resetControlRoom(m, roomId)
 })
