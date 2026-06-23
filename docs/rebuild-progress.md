@@ -1,17 +1,18 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-13._
+_Updated: 2026-06-23._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
 ## Current Stage
 
-**Stage 1a COMPLETE (M1, tag `M1-stage-1a`); both Fable corrective backlogs cleared — Stage 1b UNBLOCKED.**
+**Stage 1a COMPLETE (M1, tag `M1-stage-1a`); both Fable corrective backlogs cleared; Stage 1b is underway.**
 TWO milestone reviews ran (internal M1 audit + INDEPENDENT Fable), then a Fable SECOND pre-Stage-1b gate
 review. **Fable caught real issues each time** — a DEAD characterization harness, a misclassified "fix"
 (C1), a receiver-side anchor smear, a transitive-boundary blind spot, and thin handler test coverage.
 All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
-handler wiring). Remaining before carve-outs: only the inert cleanups (anti-dup/L-2) listed below.
+handler wiring). The inert pre-carve-out cleanups also landed (#31–#35), and the first Stage 1b carve-out
+landed in #36.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -81,6 +82,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #32 refactor(controller): route remaining display through timer helper (H2 inert cleanup)
 - PR #33 docs(ledger): adopt fast-lane baton policy for inert work
 - PR #34 ci(guardrails): block duplicate timer formulas (anti-dup CI check)
+- PR #35 ci(guardrails): ratchet god-file line counts (L-2)
+- PR #36 refactor(unified): extract control-lock reducers to a dedicated module (Stage 1b carve #1)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -190,23 +193,23 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
 **TODO — correctness fixes (each its own PR + a test; harness must stay green):**
 - All other priority correctness fixes from the Fable review are landed.
 
-**TODO — then structure + inert cleanups:**
-- **Anti-duplication CI check (pending PR):** required guardrails now fail when runtime source
+**DONE — structure + inert cleanups:**
+- **Anti-duplication CI check (fixed #34):** required guardrails fail when runtime source
   (`frontend/src`, `packages/`, `apps/`) reintroduces inline timer remaining/elapsed formulas outside
   the canonical helpers (`timer-utils` / `timer-core`, allowlisted). Comments are stripped before
   matching; `companion/` is out of scope (its CJS mirror is intentional + drift-guarded).
-- **L-2 (pending PR):** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` — required guardrails now fail if either grows past its baseline; carve-outs must lower the baseline as they shrink the file.
+- **L-2 (fixed #35):** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` — required guardrails fail if either grows past its baseline; carve-outs must lower the baseline as they shrink the file.
 
 ### Codex — baton handoff / next heartbeat
 The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
-+ the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, and the test net is gated, so
-**Stage 1b carve-outs are now unblocked.** Remaining pre-1b inert cleanups (fast-lane per the Baton
-Policy above): **Anti-duplication CI check** (pending PR) → **L-2** (line-count ratchet on the two
-god-files). Then begin Stage 1b. **M-2** (branch-protection tightening) stays a USER decision. One deferred-by-decision
-item: the timer-core CJS build (so companion imports the canonical elapsed helper) — revisit during
-companion build/packaging work. The actionable Fable summaries are captured in this ledger; the local
-`prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked prompt-export
-artifacts.
+the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, the test net is gated, and the
+pre-1b inert cleanups are done (#31–#35). **Stage 1b is underway**; #36 extracted the control-lock
+reducers from `UnifiedDataContext.tsx`. Next Stage 1b enabler: add socket-level characterization tests
+for companion control-arbitration handlers before carving that area. **M-2** (branch-protection
+tightening) stays a USER decision. Deferred-by-decision items: timer-core CJS build for companion and
+controller installer packaging under npm workspaces. The actionable Fable summaries are captured in this
+ledger; the local `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked
+prompt-export artifacts.
 
 ## Deferred (unchanged)
 
@@ -215,7 +218,8 @@ artifacts.
 - timer-core CJS build so `companion` can import the canonical elapsed helper (instead of its documented drift-guarded mirror) — deferred by decision (#29); do during companion build/packaging work.
 - `mergeCueVideos` regression during `presentation-core` extraction
 - iPad viewer polish branch (stashed)
-- installer-build release readiness (viewer bundle + tsc steps + ffprobe sourcing)
+- controller installer-build release readiness: under npm workspaces, `electron` is hoisted to the root and `electron-builder` cannot compute the Electron version from `controller/`; fix during release-prep by pinning `electronVersion` or installing controller deps unhoisted.
+- companion installer-build release readiness (viewer bundle + tsc steps + ffprobe sourcing)
 
 ## Standing Stop Conditions
 
