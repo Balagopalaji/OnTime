@@ -1153,7 +1153,7 @@ const liveCueEmitters = {
 };
 void liveCueEmitters;
 
-const roomControllerStore: Map<string, {
+export const roomControllerStore: Map<string, {
   clientId: string;
   socketId: string;
   connectedAt: number;
@@ -1173,11 +1173,11 @@ type RoomClientEntry = {
   viewerTokenId?: string;
 };
 
-const roomClientStore: Map<string, Map<string, RoomClientEntry>> = new Map();
+export const roomClientStore: Map<string, Map<string, RoomClientEntry>> = new Map();
 const pendingHandshakeStore: Map<string, { socketId: string; roomId: string; startedAt: number }> = new Map();
-const pendingControlRequests: Map<string, PendingControlRequestEntry> = new Map();
-const pendingControlTimeouts: Map<string, NodeJS.Timeout> = new Map();
-const roomControlAuditStore: Map<string, Array<{
+export const pendingControlRequests: Map<string, PendingControlRequestEntry> = new Map();
+export const pendingControlTimeouts: Map<string, NodeJS.Timeout> = new Map();
+export const roomControlAuditStore: Map<string, Array<{
   action: 'request' | 'force' | 'handover' | 'deny';
   actorId: string;
   actorUserId?: string;
@@ -1187,14 +1187,14 @@ const roomControlAuditStore: Map<string, Array<{
   deviceName?: string;
   status?: 'accepted' | 'denied';
 }>> = new Map();
-const roomPinStore: Map<string, {
+export const roomPinStore: Map<string, {
   pin: string;
   updatedAt: number;
   setBy?: string;
   setByUserId?: string;
   setByUserName?: string;
 }> = new Map();
-const roomOwnerStore: Map<string, {
+export const roomOwnerStore: Map<string, {
   ownerId: string;
   ownerName?: string;
   updatedAt: number;
@@ -5964,7 +5964,7 @@ function handleHeartbeat(socket: Socket, payload: unknown) {
   }
 }
 
-function handleRequestControl(socket: Socket, payload: unknown) {
+export function handleRequestControl(socket: Socket, payload: unknown) {
   if (!isValidRequestControlPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid REQUEST_CONTROL payload.');
     return;
@@ -6050,7 +6050,7 @@ function handleRequestControl(socket: Socket, payload: unknown) {
   });
 }
 
-function handleForceTakeover(socket: Socket, payload: unknown) {
+export function handleForceTakeover(socket: Socket, payload: unknown) {
   if (!isValidForceTakeoverPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid FORCE_TAKEOVER payload.');
     return;
@@ -6116,7 +6116,7 @@ function handleForceTakeover(socket: Socket, payload: unknown) {
   });
 }
 
-function handleHandOver(socket: Socket, payload: unknown) {
+export function handleHandOver(socket: Socket, payload: unknown) {
   if (!isValidHandOverPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid HAND_OVER payload.');
     return;
@@ -6161,7 +6161,7 @@ function handleHandOver(socket: Socket, payload: unknown) {
   });
 }
 
-function handleDenyControl(socket: Socket, payload: unknown) {
+export function handleDenyControl(socket: Socket, payload: unknown) {
   if (!isValidDenyControlPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid DENY_CONTROL payload.');
     return;
@@ -6200,7 +6200,7 @@ function handleDenyControl(socket: Socket, payload: unknown) {
   });
 }
 
-function handleSetRoomPin(socket: Socket, payload: unknown) {
+export function handleSetRoomPin(socket: Socket, payload: unknown) {
   if (!isValidSetRoomPinPayload(payload)) {
     emitError(socket, 'INVALID_PAYLOAD', 'Invalid SET_ROOM_PIN payload.');
     return;
