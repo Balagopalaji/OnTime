@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-29._
+_Updated: 2026-06-30._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -87,6 +87,9 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #36 refactor(unified): extract control-lock reducers to a dedicated module (Stage 1b carve #1)
 - PR #37 ci(controller): gate installer build to release triggers
 - PR #38 test(companion): characterize control arbitration handlers
+- PR #39 docs(rebuild): sync ledger through control-handler characterization
+- PR #40 test(companion): pin FORCE_TAKEOVER wrong-PIN + pending-timeout boundaries (audit H-A)
+- PR #41 ci(guardrails): catch property-access timer operands + fail on missing ratchet baseline (audit M-B/L-A)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -205,18 +208,71 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
   scope (its CJS mirror is intentional + drift-guarded).
 - **L-2 (fixed #35):** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` — required guardrails fail if either grows past its baseline; carve-outs must lower the baseline as they shrink the file.
 
+## Fable THIRD milestone audit (2026-06-30, over #31–#39) — CONDITIONAL GO → conditions now met
+
+Independent fresh-context Fable audit of the Stage-1b batch. Verdict: batch SOLID — #36 is a
+byte-faithful extraction (all 241 deleted lines reappear verbatim; only `type`→`export type` +
+two type-only imports), ratchet/anti-dup guardrails landed correctly, all nets green (guardrails +
+dependency-cruiser over 132 modules, companion + frontend suites), process was followed.
+
+**FIXED (post-audit):**
+- **H-A (High, fixed #40):** #38 did NOT pin the FORCE_TAKEOVER PIN-equality check (`companion/src/main.ts:6086`)
+  — a mutation dropping `=== storedPin` survived all companion tests. Added wrong-PIN / fresh-pending /
+  different-requester characterization; mutation-verified (the new test fails under the mutation).
+- **M-B (Medium, fixed #41):** the anti-dup guardrail missed property-access operands
+  (`room.state.elapsedOffset + (now - room.state.startedAt)` — the historical DashboardPage M-1 bug shape).
+  Added a `(?:[\w$]+\.)*` operand prefix. NOTE: still a **tripwire**, not a semantic guarantee (reordered/
+  aliased forms still evade) — the timer test-net is the real net.
+- **L-A (Low, fixed #41):** the god-file ratchet silently skipped a missing baseline file (rename hole) —
+  now fails loudly.
+
+**DISMISSED — M-C was a FALSE POSITIVE:** Fable flagged code-vs-`docs/local-mode.md` divergence on
+90s-stale takeover-without-PIN. But `docs/local-mode.md` is an **ARCHIVED doc** (AGENTS.md Archive Policy:
+"historical only, must not be used as a source of truth; current docs win"), a Feb-2026 pre-rebuild plan.
+The stale-takeover leg was **never built** (`lastHeartbeat` is only a presence field). No real divergence.
+The existing **PIN + 30s-timeout** takeover (now tested via #38/#40) is sufficient for Ship-0; whether
+takeover/stale-takeover is even wanted is a **deferred PRODUCT decision**, not a code gap.
+**PROCESS LESSON: future milestone audits MUST EXCLUDE archived docs from their source list** (per AGENTS
+Archive Policy) or they will keep producing false "divergence" findings against historical plans.
+
+**PREREQUISITE FOR THE NEXT CARVE (audit M-A) — do this FIRST, before carving companion control-lock:**
+Characterize the disconnect cleanup: lock deletion + pending-request clearing live inside the UNEXPORTED
+`socket.on('disconnect')` closure (`companion/src/main.ts:~3608/3618`). Extract-in-place (export the closure
+body as a testable function, keep the closure calling it) + add socket-level tests BEFORE any carve moves
+those stores. Also still-thin and worth characterizing as the carve reaches them: `handleRequestControl`
+no-lock grant (5991) / same-client no-op (6002) / pending-replacement (6005); `schedulePendingControlRequestTimeout`
+expiry; `appendControlAudit` writes; heartbeat lock refresh (5955). Rule: characterize what the carve will move.
+
+**CARVE NOTES:**
+- **L-B:** #38 exported 7 mutable stores from `main.ts` for testability (tests import `./main.js`) — the carve
+  MUST keep those names importable via a re-export shim (the #36 pattern).
+- **L-C (pre-existing, NOT a #32 regression):** `frontend/src/routes/ControllerPage.tsx:1082` active-timer
+  fallback passes raw `elapsedOffset` when `engine` is absent, so a running timer ignores `now - startedAt`
+  there. Backlog item, not a carve blocker.
+- **Template to repeat (from #36):** verbatim move + re-export shim + lower the god-file ratchet baseline in
+  the SAME PR + mutation-verified characterization tests; Claude baton review for every god-file carve.
+
 ### Codex — baton handoff / next heartbeat
-The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
-the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, the test net is gated, and the
-pre-1b inert cleanups are done (#31–#35). **Stage 1b is underway**; #36 extracted the control-lock
-reducers from `UnifiedDataContext.tsx`, #37 gated controller installer CI to release-only triggers, and
-#38 added socket-level characterization for companion control-arbitration handlers. Next safe unit:
-continue Stage 1b carve-outs from the characterized frontend/companion control-lock surfaces, one
-coherent behavior at a time, with Claude baton review for any god-file carve. **M-2** (branch-protection
-tightening) stays a USER decision. Deferred-by-decision items: timer-core CJS build for companion and
-controller installer packaging under npm workspaces. The actionable Fable summaries are captured in this
-ledger; the local `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked
-prompt-export artifacts.
+`main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective
+backlogs are done; Stage 1b is underway (#36 carve #1, #38/#40 companion control-arbitration characterized).
+A third Fable audit over #31–#39 returned CONDITIONAL GO; its High/Medium/Low fixes landed (#40/#41) and
+M-C was dismissed (archived-doc false positive — see the audit section above).
+
+**Next Stage-1b unit:** the companion control/lock carve from `companion/src/main.ts` — GATED on first
+characterizing the disconnect-cleanup closure (audit M-A above). Do that test-first step, then carve one
+coherent behavior at a time using the #36 template. Every god-file carve is a **Claude-baton** item.
+
+**M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
+for companion; controller installer packaging under npm workspaces (electron hoisted to root).
+
+**Operational notes for a fresh orchestrator/reviewer (start from the repo, NOT chat history):**
+- Read `AGENTS.md`, this ledger, and `docs/rebuild-extraction-rules.md` first. Do NOT rely on any chat.
+- Run review/build sub-agents in **separate git worktrees or with strict branch ownership** — shared-working-
+  tree operation caused uncommitted-file bleed across branches during this session.
+- Editing the CRLF god-files: added lines must be LF or the CI whitespace gate fails — see
+  `rebuild-extraction-rules.md §7`; verify with `git diff --check main...HEAD`.
+- Fresh milestone audits: source only CURRENT repo docs + touched code; **exclude archived docs**
+  (AGENTS Archive Policy) or you get false divergence findings (see M-C).
 
 ## Deferred (unchanged)
 
