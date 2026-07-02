@@ -331,6 +331,7 @@ function makeControlSocket(clientId: string, roomId: string, overrides: Record<s
     rooms,
     join(r: string) { this.rooms.add(r) },
     data: {
+      roomId,
       clientId,
       clientType: 'controller' as const,
       deviceName: `${clientId}-device`,
@@ -341,6 +342,16 @@ function makeControlSocket(clientId: string, roomId: string, overrides: Record<s
     id: `${clientId}-socket`,
     emitted: [] as Array<{ event: string; payload: any }>,
     emit(event: string, payload: unknown) { this.emitted.push({ event, payload }) },
+  } as any
+}
+
+function makeDisconnectSocket(clientId: string, roomId: string, socketId = `${clientId}-socket`) {
+  return {
+    id: socketId,
+    data: {
+      roomId,
+      clientId,
+    },
   } as any
 }
 
@@ -636,6 +647,134 @@ test('DENY_CONTROL current controller clears matching pending request and emits 
   assert.equal(cleared?.payload.reason, 'request_denied')
   const denied = ioEmits.find((emit) => emit.target === 'requester-socket' && emit.event === 'CONTROL_REQUEST_DENIED')
   assert.equal(denied?.payload.reason, 'denied_by_controller')
+
+  resetControlRoom(m, roomId)
+})
+
+test('disconnect cleanup clears lock and pending request as lock_changed when lock holder has no controller replacement', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-disconnect-lock-clear'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester', 'viewer')
+  const requestedAt = Date.now()
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt })
+  const timeout = setTimeout(() => {}, 30_000)
+  m.pendingControlTimeouts.set(roomId, timeout)
+  const ioEmits = pushFakeIoServer(m, ['requester-socket'])
+
+  m.handleSocketDisconnectCleanup(makeDisconnectSocket('owner', roomId), 'transport close')
+
+  assert.equal(m.roomControllerStore.has(roomId), false)
+  assert.equal(m.pendingControlRequests.has(roomId), false)
+  assert.equal(m.pendingControlTimeouts.has(roomId), false)
+  const lockState = ioEmits.find((emit) => emit.target === roomId && emit.event === 'CONTROLLER_LOCK_STATE')
+  assert.equal(lockState?.payload.lock, null)
+  const cleared = ioEmits.find((emit) => emit.target === 'requester-socket' && emit.event === 'CONTROL_REQUEST_STATUS')
+  assert.equal(cleared?.payload.status, 'cleared')
+  assert.equal(cleared?.payload.reason, 'lock_changed')
+  assert.equal(m.roomClientStore.get(roomId)?.has('owner'), false)
+
+  resetControlRoom(m, roomId)
+})
+
+test('disconnect cleanup clears pending request as requester_disconnected without dropping active controller lock', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-disconnect-requester'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  const requestedAt = Date.now()
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt })
+  const timeout = setTimeout(() => {}, 30_000)
+  m.pendingControlTimeouts.set(roomId, timeout)
+  const ioEmits = pushFakeIoServer(m, ['owner-socket'])
+
+  m.handleSocketDisconnectCleanup(makeDisconnectSocket('requester', roomId), 'client namespace disconnect')
+
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  assert.equal(m.pendingControlRequests.has(roomId), false)
+  assert.equal(m.pendingControlTimeouts.has(roomId), false)
+  assert.equal(m.roomClientStore.get(roomId)?.has('requester'), false)
+  const cleared = ioEmits.find((emit) => emit.target === 'owner-socket' && emit.event === 'CONTROL_REQUEST_STATUS')
+  assert.equal(cleared?.payload.status, 'cleared')
+  assert.equal(cleared?.payload.reason, 'requester_disconnected')
+  assert.equal(ioEmits.some((emit) => emit.event === 'CONTROLLER_LOCK_STATE'), false)
+
+  resetControlRoom(m, roomId)
+})
+
+test('disconnect cleanup for non-controller removes only matching client entry and preserves unrelated lock/pending state', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-disconnect-viewer'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'viewer', 'viewer')
+  const requestedAt = Date.now()
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt })
+  const timeout = setTimeout(() => {}, 30_000)
+  m.pendingControlTimeouts.set(roomId, timeout)
+  const ioEmits = pushFakeIoServer(m, ['owner-socket'])
+
+  m.handleSocketDisconnectCleanup(makeDisconnectSocket('viewer', roomId), 'transport close')
+
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  assert.equal(m.pendingControlRequests.get(roomId)?.requesterId, 'requester')
+  assert.equal(m.pendingControlTimeouts.has(roomId), true)
+  assert.equal(m.roomClientStore.get(roomId)?.has('viewer'), false)
+  const clientsState = ioEmits.find((emit) => emit.target === 'owner-socket' && emit.event === 'ROOM_CLIENTS_STATE')
+  assert.equal(clientsState?.payload.clients.some((client: any) => client.clientId === 'viewer'), false)
+  assert.equal(ioEmits.some((emit) => emit.event === 'CONTROL_REQUEST_STATUS'), false)
+  assert.equal(ioEmits.some((emit) => emit.event === 'CONTROLLER_LOCK_STATE'), false)
+
+  resetControlRoom(m, roomId)
+})
+
+test('disconnect cleanup preserves newer client entry when stale socket disconnects', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-disconnect-stale-socket'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'viewer', 'viewer')
+  const viewerEntry = m.roomClientStore.get(roomId)?.get('viewer')
+  assert.ok(viewerEntry)
+  viewerEntry.socketId = 'viewer-new-socket'
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'viewer-new-socket'])
+
+  m.handleSocketDisconnectCleanup(makeDisconnectSocket('viewer', roomId, 'viewer-old-socket'), 'transport close')
+
+  assert.equal(m.roomClientStore.get(roomId)?.get('viewer')?.socketId, 'viewer-new-socket')
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  const clientsState = ioEmits.find((emit) => emit.target === 'owner-socket' && emit.event === 'ROOM_CLIENTS_STATE')
+  assert.equal(clientsState?.payload.clients.some((client: any) => client.clientId === 'viewer'), true)
+
+  resetControlRoom(m, roomId)
+})
+
+test('disconnect cleanup transfers lock to active pending requester and clears pending as lock_changed', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-disconnect-transfer-pending'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  const requestedAt = Date.now()
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt })
+  const ioEmits = pushFakeIoServer(m, ['requester-socket'])
+
+  m.handleSocketDisconnectCleanup(makeDisconnectSocket('owner', roomId), 'transport close')
+
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'requester')
+  assert.equal(m.pendingControlRequests.has(roomId), false)
+  const cleared = ioEmits.find((emit) => emit.target === 'requester-socket' && emit.event === 'CONTROL_REQUEST_STATUS')
+  assert.equal(cleared?.payload.status, 'cleared')
+  assert.equal(cleared?.payload.reason, 'lock_changed')
+  const lockState = ioEmits.find((emit) => emit.target === roomId && emit.event === 'CONTROLLER_LOCK_STATE')
+  assert.equal(lockState?.payload.lock.clientId, 'requester')
 
   resetControlRoom(m, roomId)
 })
