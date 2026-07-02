@@ -230,12 +230,17 @@ dependency-cruiser over 132 modules, companion + frontend suites), process was f
 **UNRESOLVED PRODUCT/SPEC DECISION — M-C is NOT a carve implementation task:** Fable flagged
 code-vs-`docs/local-mode.md`/`docs/interface.md` divergence on 90s-stale takeover-without-PIN. Those docs
 are currently listed as source-of-truth docs in `AGENTS.md`, so the divergence must not be dismissed as
-an archive false positive. Current code implements **PIN + 30s pending-request timeout** takeover only;
-`lastHeartbeat` is written as presence metadata and is not used as a stale-takeover authorization leg.
-Because Stage 1b is a rewrite/extraction path, not feature expansion, do **not** add stale-takeover inside
-a carve-out. Preserve current behavior while carving, and leave M-C as an explicit user/product decision:
-either update the current docs to retire stale-takeover, or implement it later as a dedicated behavior PR
-with tests and product approval. The existing PIN + 30s-timeout behavior is now characterized (#38/#40).
+an archive false positive. Product direction from the user: **PIN = immediate takeover; server-verified
+OAuth/reauth = immediate takeover on the Cloud path; unanswered takeover request = forceable after the
+existing 30s timeout.** Local Companion should not require OAuth for assistants/operators who have room
+access but not the owner's OAuth details; it preserves the current PIN + 30s pending-request timeout
+behavior. Cloud already has the server-verified reauth/stale helpers in `functions/src/lock.ts`; Companion
+currently implements PIN + 30s pending-request timeout only. `lastHeartbeat` is written as presence metadata
+and is not used as a stale-takeover authorization leg. Because Stage 1b is a rewrite/extraction path, not
+feature expansion, do **not** add heartbeat-stale takeover inside a carve-out. Preserve current behavior
+while carving, then reconcile the current docs in a dedicated product/docs PR: retire 90s heartbeat-stale
+takeover, or re-spec it later as abandoned-lock recovery with explicit approval and tests. The existing
+PIN + 30s-timeout behavior is now characterized (#38/#40).
 **PROCESS LESSON:** future audits must use `AGENTS.md` to distinguish current docs from historical/archive
 docs; do not include archived docs, but also do not misclassify listed current docs such as
 `docs/local-mode.md` as archived.
@@ -266,8 +271,10 @@ M-C remains an unresolved product/spec decision, not a carve-out implementation 
 **Next Stage-1b unit:** the companion control/lock carve from `companion/src/main.ts` — GATED on first
 characterizing the disconnect-cleanup closure (audit M-A above). Do that test-first step, then carve one
 coherent behavior at a time using the #36 template. Every god-file carve is a **Claude-baton** item.
-Do not implement stale-lock takeover as part of this carve; preserve current PIN + 30s-timeout behavior
-unless the user explicitly approves a separate behavior PR.
+Do not implement heartbeat-stale takeover as part of this carve. Preserve current Companion behavior:
+PIN grants immediate takeover; an unanswered control request becomes forceable after 30s. Cloud immediate
+takeover may use PIN or server-verified OAuth/reauth. Any stale/abandoned-lock recovery belongs in a
+separate product-approved behavior PR or docs reconciliation, not Stage 1b extraction.
 
 **M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
 for companion; controller installer packaging under npm workspaces (electron hoisted to root).
