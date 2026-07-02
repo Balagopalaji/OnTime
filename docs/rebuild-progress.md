@@ -90,6 +90,7 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #39 docs(rebuild): sync ledger through control-handler characterization
 - PR #40 test(companion): pin FORCE_TAKEOVER wrong-PIN + pending-timeout boundaries (audit H-A)
 - PR #41 ci(guardrails): catch property-access timer operands + fail on missing ratchet baseline (audit M-B/L-A)
+- PR #42 docs(rebuild): record 3rd audit handoff, carve prerequisite, and operational notes
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -226,14 +227,18 @@ dependency-cruiser over 132 modules, companion + frontend suites), process was f
 - **L-A (Low, fixed #41):** the god-file ratchet silently skipped a missing baseline file (rename hole) —
   now fails loudly.
 
-**DISMISSED — M-C was a FALSE POSITIVE:** Fable flagged code-vs-`docs/local-mode.md` divergence on
-90s-stale takeover-without-PIN. But `docs/local-mode.md` is an **ARCHIVED doc** (AGENTS.md Archive Policy:
-"historical only, must not be used as a source of truth; current docs win"), a Feb-2026 pre-rebuild plan.
-The stale-takeover leg was **never built** (`lastHeartbeat` is only a presence field). No real divergence.
-The existing **PIN + 30s-timeout** takeover (now tested via #38/#40) is sufficient for Ship-0; whether
-takeover/stale-takeover is even wanted is a **deferred PRODUCT decision**, not a code gap.
-**PROCESS LESSON: future milestone audits MUST EXCLUDE archived docs from their source list** (per AGENTS
-Archive Policy) or they will keep producing false "divergence" findings against historical plans.
+**UNRESOLVED PRODUCT/SPEC DECISION — M-C is NOT a carve implementation task:** Fable flagged
+code-vs-`docs/local-mode.md`/`docs/interface.md` divergence on 90s-stale takeover-without-PIN. Those docs
+are currently listed as source-of-truth docs in `AGENTS.md`, so the divergence must not be dismissed as
+an archive false positive. Current code implements **PIN + 30s pending-request timeout** takeover only;
+`lastHeartbeat` is written as presence metadata and is not used as a stale-takeover authorization leg.
+Because Stage 1b is a rewrite/extraction path, not feature expansion, do **not** add stale-takeover inside
+a carve-out. Preserve current behavior while carving, and leave M-C as an explicit user/product decision:
+either update the current docs to retire stale-takeover, or implement it later as a dedicated behavior PR
+with tests and product approval. The existing PIN + 30s-timeout behavior is now characterized (#38/#40).
+**PROCESS LESSON:** future audits must use `AGENTS.md` to distinguish current docs from historical/archive
+docs; do not include archived docs, but also do not misclassify listed current docs such as
+`docs/local-mode.md` as archived.
 
 **PREREQUISITE FOR THE NEXT CARVE (audit M-A) — do this FIRST, before carving companion control-lock:**
 Characterize the disconnect cleanup: lock deletion + pending-request clearing live inside the UNEXPORTED
@@ -256,11 +261,13 @@ expiry; `appendControlAudit` writes; heartbeat lock refresh (5955). Rule: charac
 `main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective
 backlogs are done; Stage 1b is underway (#36 carve #1, #38/#40 companion control-arbitration characterized).
 A third Fable audit over #31–#39 returned CONDITIONAL GO; its High/Medium/Low fixes landed (#40/#41) and
-M-C was dismissed (archived-doc false positive — see the audit section above).
+M-C remains an unresolved product/spec decision, not a carve-out implementation task (see audit section).
 
 **Next Stage-1b unit:** the companion control/lock carve from `companion/src/main.ts` — GATED on first
 characterizing the disconnect-cleanup closure (audit M-A above). Do that test-first step, then carve one
 coherent behavior at a time using the #36 template. Every god-file carve is a **Claude-baton** item.
+Do not implement stale-lock takeover as part of this carve; preserve current PIN + 30s-timeout behavior
+unless the user explicitly approves a separate behavior PR.
 
 **M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
 for companion; controller installer packaging under npm workspaces (electron hoisted to root).
@@ -271,8 +278,9 @@ for companion; controller installer packaging under npm workspaces (electron hoi
   tree operation caused uncommitted-file bleed across branches during this session.
 - Editing the CRLF god-files: added lines must be LF or the CI whitespace gate fails — see
   `rebuild-extraction-rules.md §7`; verify with `git diff --check main...HEAD`.
-- Fresh milestone audits: source only CURRENT repo docs + touched code; **exclude archived docs**
-  (AGENTS Archive Policy) or you get false divergence findings (see M-C).
+- Fresh milestone audits: source only CURRENT repo docs + touched code; **exclude archived docs** per
+  AGENTS Archive Policy, but treat docs listed under AGENTS current sources (including `docs/local-mode.md`)
+  as authoritative unless the user explicitly updates/deprecates them.
 
 ## Deferred (unchanged)
 
