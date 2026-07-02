@@ -12,12 +12,11 @@ review. **Fable caught real issues each time** — a DEAD characterization harne
 (C1), a receiver-side anchor smear, a transitive-boundary blind spot, and thin handler test coverage.
 All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
 handler wiring). The inert pre-carve-out cleanups also landed (#31–#35), the first Stage 1b carve-out
-landed in #36, controller installer CI noise was gated to release triggers in #37, and companion
-control-arbitration handlers were characterized in #38. The next companion carve prerequisite now has
-disconnect-cleanup characterization: the socket disconnect closure is extracted in place for tests, with
-socket-level coverage for lock clearing, pending-request clearing, `requester_disconnected`, non-controller
-disconnects, stale socket cleanup, and pending-requester transfer behavior. Full companion control/lock
-carving remains deferred.
+landed in #36, controller installer CI noise was gated to release triggers in #37, companion
+control-arbitration handlers were characterized in #38/#40, takeover-policy handoff docs were corrected
+in #43/#44, and the disconnect-cleanup carve prerequisite landed in #45. Next unit: the actual companion
+control-lock carve, following the #36 template and preserving the current Companion PIN + 30s pending
+request behavior.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -95,6 +94,9 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #40 test(companion): pin FORCE_TAKEOVER wrong-PIN + pending-timeout boundaries (audit H-A)
 - PR #41 ci(guardrails): catch property-access timer operands + fail on missing ratchet baseline (audit M-B/L-A)
 - PR #42 docs(rebuild): record 3rd audit handoff, carve prerequisite, and operational notes
+- PR #43 docs(rebuild): correct M-C handoff status
+- PR #44 docs(rebuild): clarify takeover policy for handoff
+- PR #45 test(companion): characterize disconnect cleanup (audit M-A prerequisite)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
