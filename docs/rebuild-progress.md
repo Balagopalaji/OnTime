@@ -197,10 +197,12 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
 - All other priority correctness fixes from the Fable review are landed.
 
 **DONE — structure + inert cleanups:**
-- **Anti-duplication CI check (fixed #34):** required guardrails fail when runtime source
-  (`frontend/src`, `packages/`, `apps/`) reintroduces inline timer remaining/elapsed formulas outside
-  the canonical helpers (`timer-utils` / `timer-core`, allowlisted). Comments are stripped before
-  matching; `companion/` is out of scope (its CJS mirror is intentional + drift-guarded).
+- **Anti-duplication CI check (fixed #34):** a tripwire, not full coverage — required guardrails fail
+  when runtime source (`frontend/src`, `packages/`, `apps/`) reintroduces the canonical or
+  property-access spellings of inline timer remaining/elapsed formulas outside the canonical helpers
+  (`timer-utils` / `timer-core`, allowlisted), but it does not catch reordered/aliased operands; the
+  timer test-net is the real guarantee. Comments are stripped before matching; `companion/` is out of
+  scope (its CJS mirror is intentional + drift-guarded).
 - **L-2 (fixed #35):** line-count ratchet on `UnifiedDataContext.tsx` + `companion/src/main.ts` — required guardrails fail if either grows past its baseline; carve-outs must lower the baseline as they shrink the file.
 
 ### Codex — baton handoff / next heartbeat
