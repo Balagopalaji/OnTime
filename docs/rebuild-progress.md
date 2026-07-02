@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-30._
+_Updated: 2026-07-02._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -13,7 +13,11 @@ review. **Fable caught real issues each time** — a DEAD characterization harne
 All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
 handler wiring). The inert pre-carve-out cleanups also landed (#31–#35), the first Stage 1b carve-out
 landed in #36, controller installer CI noise was gated to release triggers in #37, and companion
-control-arbitration handlers were characterized in #38.
+control-arbitration handlers were characterized in #38. The next companion carve prerequisite now has
+disconnect-cleanup characterization: the socket disconnect closure is extracted in place for tests, with
+socket-level coverage for lock clearing, pending-request clearing, `requester_disconnected`, non-controller
+disconnects, stale socket cleanup, and pending-requester transfer behavior. Full companion control/lock
+carving remains deferred.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -245,11 +249,13 @@ PIN + 30s-timeout behavior is now characterized (#38/#40).
 docs; do not include archived docs, but also do not misclassify listed current docs such as
 `docs/local-mode.md` as archived.
 
-**PREREQUISITE FOR THE NEXT CARVE (audit M-A) — do this FIRST, before carving companion control-lock:**
-Characterize the disconnect cleanup: lock deletion + pending-request clearing live inside the UNEXPORTED
-`socket.on('disconnect')` closure (`companion/src/main.ts:~3608/3618`). Extract-in-place (export the closure
-body as a testable function, keep the closure calling it) + add socket-level tests BEFORE any carve moves
-those stores. Also still-thin and worth characterizing as the carve reaches them: `handleRequestControl`
+**DONE — prerequisite for the next companion control-lock carve (audit M-A):**
+Characterized the disconnect cleanup: lock deletion + pending-request clearing had lived inside the
+unexported `socket.on('disconnect')` closure (`companion/src/main.ts`). The closure body is now extracted
+in place as a testable function, with the socket closure still calling it. Socket-level tests pin lock
+deletion, pending-request clearing, `requester_disconnected`, non-controller disconnect behavior, stale
+socket cleanup, and pending-requester transfer behavior. Also still-thin and worth characterizing as the
+carve reaches them: `handleRequestControl`
 no-lock grant (5991) / same-client no-op (6002) / pending-replacement (6005); `schedulePendingControlRequestTimeout`
 expiry; `appendControlAudit` writes; heartbeat lock refresh (5955). Rule: characterize what the carve will move.
 

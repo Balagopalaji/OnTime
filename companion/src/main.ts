@@ -3516,6 +3516,64 @@ function attachEngineCors(sio: SocketIOServer, allowLan: boolean) {
   });
 }
 
+export function handleSocketDisconnectCleanup(socket: Socket, reason: string) {
+  console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
+  const roomId = socket.data?.roomId as string | undefined;
+  const clientId = socket.data?.clientId as string | undefined;
+  if (clientId) {
+    const pending = pendingHandshakeStore.get(clientId);
+    if (pending?.socketId === socket.id) {
+      pendingHandshakeStore.delete(clientId);
+    }
+  }
+  if (roomId && clientId) {
+    const clients = getRoomClients(roomId);
+    const pendingRequesterId = pendingControlRequests.get(roomId)?.requesterId;
+    const lockResolution = resolveLockOnDisconnect({
+      lock: roomControllerStore.get(roomId),
+      disconnectSocketId: socket.id,
+      pendingRequesterId,
+      clients: [...clients.entries()].map(([entryClientId, entry]) => ({
+        clientId: entryClientId,
+        socketId: entry.socketId,
+        clientType: entry.clientType,
+        deviceName: entry.deviceName,
+        userId: entry.userId,
+        userName: entry.userName,
+      })),
+      isSocketActive,
+    });
+    const storedClient = clients.get(clientId);
+    if (shouldDeleteClientEntryOnDisconnect(storedClient?.socketId, socket.id)) {
+      clients.delete(clientId);
+    }
+    if (lockResolution.action === 'transfer') {
+      setControllerLock(
+        roomId,
+        lockResolution.target.clientId,
+        lockResolution.target.socketId,
+        lockResolution.target.deviceName,
+        lockResolution.target.userId,
+        lockResolution.target.userName,
+        { clearPending: lockResolution.clearPending },
+      );
+    } else if (lockResolution.action === 'clear') {
+      roomControllerStore.delete(roomId);
+      if (lockResolution.clearPending) {
+        clearPendingControlRequest(roomId, 'lock_changed');
+      }
+      emitControllerLockState(roomId);
+      emitRoomPinStateToController(roomId);
+    }
+
+    const pending = pendingControlRequests.get(roomId);
+    if (pending?.requesterId === clientId) {
+      clearPendingControlRequest(roomId, 'requester_disconnected');
+    }
+    emitRoomClientsState(roomId);
+  }
+}
+
 function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
   server.on('connection', (socket) => {
     const remoteAddress =
@@ -3561,66 +3619,7 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
       applyRoomTombstone(roomId);
       console.log(`[ws] Room ${roomId} deleted and tombstoned by client=${socket.id}`);
     });
-    socket.on('disconnect', (reason) => {
-      console.log(`[ws] client disconnected: ${socket.id} (${reason})`);
-      const roomId = socket.data?.roomId as string | undefined;
-      const clientId = socket.data?.clientId as string | undefined;
-      if (clientId) {
-        const pending = pendingHandshakeStore.get(clientId);
-        if (pending?.socketId === socket.id) {
-          pendingHandshakeStore.delete(clientId);
-        }
-      }
-      if (roomId && clientId) {
-        const clients = getRoomClients(roomId);
-        const pendingRequesterId = pendingControlRequests.get(roomId)?.requesterId;
-        const lockResolution = resolveLockOnDisconnect({
-          lock: roomControllerStore.get(roomId),
-          disconnectSocketId: socket.id,
-          pendingRequesterId,
-          clients: [...clients.entries()].map(([entryClientId, entry]) => ({
-            clientId: entryClientId,
-            socketId: entry.socketId,
-            clientType: entry.clientType,
-            deviceName: entry.deviceName,
-            userId: entry.userId,
-            userName: entry.userName,
-          })),
-          isSocketActive,
-        });
-
-        const storedClient = clients.get(clientId);
-        if (shouldDeleteClientEntryOnDisconnect(storedClient?.socketId, socket.id)) {
-          clients.delete(clientId);
-        }
-
-        if (lockResolution.action === 'transfer') {
-          setControllerLock(
-            roomId,
-            lockResolution.target.clientId,
-            lockResolution.target.socketId,
-            lockResolution.target.deviceName,
-            lockResolution.target.userId,
-            lockResolution.target.userName,
-            { clearPending: lockResolution.clearPending },
-          );
-        } else if (lockResolution.action === 'clear') {
-          roomControllerStore.delete(roomId);
-          if (lockResolution.clearPending) {
-            clearPendingControlRequest(roomId, 'lock_changed');
-          }
-          emitControllerLockState(roomId);
-          emitRoomPinStateToController(roomId);
-        }
-
-        const pending = pendingControlRequests.get(roomId);
-        if (pending?.requesterId === clientId) {
-          clearPendingControlRequest(roomId, 'requester_disconnected');
-        }
-
-        emitRoomClientsState(roomId);
-      }
-    });
+    socket.on('disconnect', (reason) => handleSocketDisconnectCleanup(socket, reason));
 
     socket.conn.on('error', (err) => {
       console.warn(`[ws] transport error for socket=${socket.id}: ${err}`);
