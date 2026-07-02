@@ -226,30 +226,37 @@ function checkTimerFormulaDuplication() {
     return file.startsWith('frontend/src/') || file.startsWith('packages/') || file.startsWith('apps/')
   })
 
+  const propAccess = '(?:[\\w$]+\\.)*'
+
   const patterns = [
     {
-      pattern:
-        /\b(?:\w+\.)?duration\s*\*\s*1000\s*-\s*(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\b/,
+      pattern: new RegExp(
+        `\\b(?:\\w+\\.)?duration\\s*\\*\\s*1000\\s*-\\s*${propAccess}(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\\b`,
+      ),
       message: 'inline remaining-time formula found; use computeRemaining from timer-core/timer-utils',
     },
     {
-      pattern:
-        /\bdurationMs\s*-\s*(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\b/,
+      pattern: new RegExp(
+        `\\bdurationMs\\s*-\\s*${propAccess}(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\\b`,
+      ),
       message: 'inline remaining-time formula found; use computeRemaining from timer-core/timer-utils',
     },
     {
-      pattern:
-        /\bdurationSec\s*\*\s*1000\s*-\s*(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\b/,
+      pattern: new RegExp(
+        `\\bdurationSec\\s*\\*\\s*1000\\s*-\\s*${propAccess}(?:elapsed|elapsedMs|elapsedOffset|totalElapsed|currentTime)\\b`,
+      ),
       message: 'inline remaining-time formula found; use computeRemaining from timer-core/timer-utils',
     },
     {
-      pattern:
-        /\belapsedOffset\s*\+\s*\(?\s*(?:Date\.now\(\)|now|timestamp)\s*-\s*startedAt\s*\)?/,
+      pattern: new RegExp(
+        `\\b${propAccess}elapsedOffset\\s*\\+\\s*\\(?\\s*(?:Date\\.now\\(\\)|now|timestamp)\\s*-\\s*${propAccess}startedAt\\s*\\)?`,
+      ),
       message: 'inline Firebase elapsed formula found; use computeElapsed from timer-core/timer-utils',
     },
     {
-      pattern:
-        /\bcurrentTime\s*\+\s*\(?\s*(?:Date\.now\(\)|now|timestamp)\s*-\s*lastUpdate\s*\)?/,
+      pattern: new RegExp(
+        `\\b${propAccess}currentTime\\s*\\+\\s*\\(?\\s*(?:Date\\.now\\(\\)|now|timestamp)\\s*-\\s*${propAccess}lastUpdate\\s*\\)?`,
+      ),
       message:
         'inline Companion elapsed formula found; use computeCompanionElapsed from timer-core/timer-utils',
     },
@@ -287,7 +294,10 @@ const GOD_FILE_LINE_BASELINES = {
 
 function checkGodFileRatchet() {
   for (const [file, baseline] of Object.entries(GOD_FILE_LINE_BASELINES)) {
-    if (!files.includes(file)) continue
+    if (!files.includes(file)) {
+      fail(`god-file ratchet baseline references a missing file: ${file} (rename? update GOD_FILE_LINE_BASELINES)`)
+      continue
+    }
     const lines = read(file).split('\n').length
     if (lines > baseline) {
       fail(`god-file grew past its ratchet baseline: ${file} (${lines} > ${baseline}); carve out, do not grow`)
