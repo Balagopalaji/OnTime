@@ -493,6 +493,85 @@ test('FORCE_TAKEOVER denies without PIN or timeout and accepts matching PIN or e
   resetControlRoom(m, timeoutRoomId)
 })
 
+test('FORCE_TAKEOVER denies a wrong PIN and does not transfer the controller lock', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-force-wrong-pin'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  m.roomPinStore.set(roomId, { pin: '1234', updatedAt: Date.now(), setBy: 'owner' })
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+  const requesterSocket = makeControlSocket('requester', roomId)
+
+  m.handleForceTakeover(requesterSocket, {
+    type: 'FORCE_TAKEOVER',
+    roomId,
+    clientId: 'requester',
+    pin: '9999',
+    timestamp: Date.now(),
+  })
+
+  // Lock must still belong to the original controller — no takeover on a wrong PIN.
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  assert.equal(requesterSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(requesterSocket.emitted.at(-1)?.payload.code, 'PERMISSION_DENIED')
+  resetControlRoom(m, roomId)
+})
+
+test('FORCE_TAKEOVER denies a fresh (sub-timeout) pending request from the same requester', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-force-fresh-pending'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  // Pending request from the same requester, but well under the 30s timeout.
+  const requestedAt = Date.now() - 1_000
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt })
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+  const requesterSocket = makeControlSocket('requester', roomId)
+
+  m.handleForceTakeover(requesterSocket, {
+    type: 'FORCE_TAKEOVER',
+    roomId,
+    clientId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  // No PIN and no elapsed timeout — takeover must be denied and the pending
+  // request left untouched (it is not the immediate-takeover path).
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  assert.equal(requesterSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(requesterSocket.emitted.at(-1)?.payload.code, 'PERMISSION_DENIED')
+  assert.equal(m.pendingControlRequests.get(roomId)?.requesterId, 'requester')
+  resetControlRoom(m, roomId)
+})
+
+test('FORCE_TAKEOVER denies an elapsed pending request that belongs to a different requester', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-force-other-pending'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  // Pending request is old enough to clear the timeout bar, but it was made
+  // by a different client than the one calling FORCE_TAKEOVER.
+  const requestedAt = Date.now() - 31_000
+  m.pendingControlRequests.set(roomId, { requesterId: 'other-requester', requestedAt })
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+  const requesterSocket = makeControlSocket('requester', roomId)
+
+  m.handleForceTakeover(requesterSocket, {
+    type: 'FORCE_TAKEOVER',
+    roomId,
+    clientId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  // allowByTimeout requires pending.requesterId === payload.clientId, so an
+  // elapsed pending request from someone else must not grant the takeover.
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  assert.equal(requesterSocket.emitted.at(-1)?.event, 'ERROR')
+  assert.equal(requesterSocket.emitted.at(-1)?.payload.code, 'PERMISSION_DENIED')
+  assert.equal(m.pendingControlRequests.get(roomId)?.requesterId, 'other-requester')
+  resetControlRoom(m, roomId)
+})
+
 test('HAND_OVER lets current controller hand over to active controller and rejects invalid target/non-controller', async () => {
   const m = await loadHandlerHelpers()
   const roomId = 'room-handover'
