@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-06-23._
+_Updated: 2026-06-29._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -11,8 +11,9 @@ TWO milestone reviews ran (internal M1 audit + INDEPENDENT Fable), then a Fable 
 review. **Fable caught real issues each time** — a DEAD characterization harness, a misclassified "fix"
 (C1), a receiver-side anchor smear, a transitive-boundary blind spot, and thin handler test coverage.
 All are fixed (#14–#29) and the test net is gated in required CI (full 211-test frontend suite + companion
-handler wiring). The inert pre-carve-out cleanups also landed (#31–#35), and the first Stage 1b carve-out
-landed in #36.
+handler wiring). The inert pre-carve-out cleanups also landed (#31–#35), the first Stage 1b carve-out
+landed in #36, controller installer CI noise was gated to release triggers in #37, and companion
+control-arbitration handlers were characterized in #38.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -84,6 +85,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #34 ci(guardrails): block duplicate timer formulas (anti-dup CI check)
 - PR #35 ci(guardrails): ratchet god-file line counts (L-2)
 - PR #36 refactor(unified): extract control-lock reducers to a dedicated module (Stage 1b carve #1)
+- PR #37 ci(controller): gate installer build to release triggers
+- PR #38 test(companion): characterize control arbitration handlers
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -204,8 +207,10 @@ Net: all of Fable's pre-Stage-1b caveats are addressed; the test net is thicker 
 The baton is **yours**; no PR is awaiting consultant review. Both Fable corrective backlogs (M1 review
 the pre-Stage-1b second review) are fully landed, M-1/M-4 are in, the test net is gated, and the
 pre-1b inert cleanups are done (#31–#35). **Stage 1b is underway**; #36 extracted the control-lock
-reducers from `UnifiedDataContext.tsx`. Next Stage 1b enabler: add socket-level characterization tests
-for companion control-arbitration handlers before carving that area. **M-2** (branch-protection
+reducers from `UnifiedDataContext.tsx`, #37 gated controller installer CI to release-only triggers, and
+#38 added socket-level characterization for companion control-arbitration handlers. Next safe unit:
+continue Stage 1b carve-outs from the characterized frontend/companion control-lock surfaces, one
+coherent behavior at a time, with Claude baton review for any god-file carve. **M-2** (branch-protection
 tightening) stays a USER decision. Deferred-by-decision items: timer-core CJS build for companion and
 controller installer packaging under npm workspaces. The actionable Fable summaries are captured in this
 ledger; the local `prompt-exports/` brief is not tracked because guardrails intentionally forbid tracked
