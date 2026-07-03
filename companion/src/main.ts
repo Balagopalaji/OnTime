@@ -18,6 +18,24 @@ import {
   resolvePendingHandshakeConflict,
   shouldDeleteClientEntryOnDisconnect,
 } from './lock-handshake-utils';
+import {
+  CONTROL_REQUEST_TIMEOUT_MS,
+  getPendingControlReplacementReason,
+  normalizeRoomPin,
+  type ControlRequestClearReason,
+  type PendingControlRequestEntry,
+} from './control-lock-utils';
+export {
+  CONTROL_REQUEST_TIMEOUT_MS,
+  getPendingControlReplacementReason,
+  normalizeRoomPin,
+  shouldClearPendingControlByTimeout,
+  shouldClearPendingControlForRequester,
+} from './control-lock-utils';
+export type {
+  ControlRequestClearReason,
+  PendingControlRequestEntry,
+} from './control-lock-utils';
 
 let tray: Tray | null = null;
 let trayContextMenu: Menu | null = null;
@@ -61,45 +79,6 @@ const VIEWER_CACHE_DIR = 'viewer';
 const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 2_500;
 const WS_LATENCY_TRACE_ENABLED = process.env.COMPANION_DEBUG_WS === 'true';
-const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
-type ControlRequestClearReason =
-  | 'lock_changed'
-  | 'request_denied'
-  | 'requester_disconnected'
-  | 'timeout'
-  | 'room_unsubscribed'
-  | 'superseded';
-
-type PendingControlRequestEntry = {
-  requesterId: string;
-  requesterName?: string;
-  requesterUserId?: string;
-  requesterUserName?: string;
-  requestedAt: number;
-};
-
-export const getPendingControlReplacementReason = (
-  current: PendingControlRequestEntry | undefined,
-  incomingRequesterId: string,
-  now: number,
-  timeoutMs = CONTROL_REQUEST_TIMEOUT_MS,
-): ControlRequestClearReason | null => {
-  if (!current) return null;
-  if (now - current.requestedAt >= timeoutMs) return 'timeout';
-  if (current.requesterId !== incomingRequesterId) return 'superseded';
-  return null;
-};
-
-export const shouldClearPendingControlByTimeout = (
-  current: PendingControlRequestEntry | undefined,
-  now: number,
-  timeoutMs = CONTROL_REQUEST_TIMEOUT_MS,
-): boolean => Boolean(current && now - current.requestedAt >= timeoutMs);
-
-export const shouldClearPendingControlForRequester = (
-  current: PendingControlRequestEntry | undefined,
-  requesterId: string,
-): boolean => Boolean(current && current.requesterId === requesterId);
 const PPT_POLL_INTERVAL_MS = 1000;
 const PPT_DEBOUNCE_MS = 600;
 const PPT_VIDEO_CLEAR_POLLS = 2;
@@ -1291,15 +1270,6 @@ function emitControllerLockStateToSocket(socket: Socket, roomId: string) {
     timestamp: Date.now(),
   };
   socket.emit('CONTROLLER_LOCK_STATE', payload);
-}
-
-function normalizeRoomPin(input?: string | null): string | null {
-  if (!input) return null;
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  const digits = trimmed.replace(/\D/g, '');
-  if (digits.length < 4 || digits.length > 8) return null;
-  return digits;
 }
 
 function emitRoomPinStateToSocket(socket: Socket, roomId: string) {
