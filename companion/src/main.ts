@@ -19,9 +19,11 @@ import {
   shouldDeleteClientEntryOnDisconnect,
 } from './lock-handshake-utils';
 import {
+  buildControllerLock,
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
   normalizeRoomPin,
+  type ControllerLock,
   type ControlRequestClearReason,
   type PendingControlRequestEntry,
 } from './control-lock-utils';
@@ -247,16 +249,6 @@ type JoinRoomPayload = {
   takeOver?: boolean;
   interfaceVersion?: string;
   reconnectStartedAt?: number;
-};
-
-type ControllerLock = {
-  clientId: string;
-  deviceName?: string;
-  userId?: string;
-  userName?: string;
-  lockedAt: number;
-  lastHeartbeat: number;
-  roomId: string;
 };
 
 type HeartbeatPayload = {
@@ -1229,25 +1221,6 @@ function pruneRoomClients(roomId: string): boolean {
     }
   });
   return changed;
-}
-
-function buildControllerLock(roomId: string, entry: {
-  clientId: string;
-  connectedAt: number;
-  lastHeartbeat: number;
-  deviceName?: string;
-  userId?: string;
-  userName?: string;
-}): ControllerLock {
-  return {
-    clientId: entry.clientId,
-    deviceName: entry.deviceName,
-    userId: entry.userId,
-    userName: entry.userName,
-    lockedAt: entry.connectedAt,
-    lastHeartbeat: entry.lastHeartbeat,
-    roomId,
-  };
 }
 
 function emitControllerLockState(roomId: string) {
