@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-07-02._
+_Updated: 2026-07-03._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -14,9 +14,11 @@ All are fixed (#14–#29) and the test net is gated in required CI (full 211-tes
 handler wiring). The inert pre-carve-out cleanups also landed (#31–#35), the first Stage 1b carve-out
 landed in #36, controller installer CI noise was gated to release triggers in #37, companion
 control-arbitration handlers were characterized in #38/#40, takeover-policy handoff docs were corrected
-in #43/#44, and the disconnect-cleanup carve prerequisite landed in #45. Next unit: the actual companion
-control-lock carve, following the #36 template and preserving the current Companion PIN + 30s pending
-request behavior.
+in #43/#44, the disconnect-cleanup carve prerequisite landed in #45, and the pure companion
+control-lock utility carve landed in #47. Runtime control/lock handlers and mutable stores remain in
+`companion/src/main.ts`. Next unit: choose the next coherent Companion control/lock behavior, characterize
+it before moving it, follow the #36 template, and preserve the current Companion PIN + 30s pending request
+behavior.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -97,6 +99,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #43 docs(rebuild): correct M-C handoff status
 - PR #44 docs(rebuild): clarify takeover policy for handoff
 - PR #45 test(companion): characterize disconnect cleanup (audit M-A prerequisite)
+- PR #46 docs(rebuild): sync ledger after disconnect cleanup
+- PR #47 refactor(companion): extract control lock utilities
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -261,6 +265,14 @@ carve reaches them: `handleRequestControl`
 no-lock grant (5991) / same-client no-op (6002) / pending-replacement (6005); `schedulePendingControlRequestTimeout`
 expiry; `appendControlAudit` writes; heartbeat lock refresh (5955). Rule: characterize what the carve will move.
 
+**DONE — first companion control-lock carve (#47):**
+Extracted pure control-lock utilities from `companion/src/main.ts` into `companion/src/control-lock-utils.ts`
+with compatibility re-exports from `main.ts`; added focused utility tests; lowered the `companion/src/main.ts`
+ratchet baseline from 8064 to 8033. This moved only pure helpers (`CONTROL_REQUEST_TIMEOUT_MS`,
+pending-request replacement/timeout/requester clearing checks, PIN normalization, and related types). Runtime
+handlers, stores, socket emissions, audit writes, lock refresh, and pending-request timeout scheduling remain
+in `main.ts` until they are characterized and carved in their own scoped units.
+
 **CARVE NOTES:**
 - **L-B:** #38 exported 7 mutable stores from `main.ts` for testability (tests import `./main.js`) — the carve
   MUST keep those names importable via a re-export shim (the #36 pattern).
@@ -272,17 +284,20 @@ expiry; `appendControlAudit` writes; heartbeat lock refresh (5955). Rule: charac
 
 ### Codex — baton handoff / next heartbeat
 `main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective
-backlogs are done; Stage 1b is underway (#36 carve #1, #38/#40 companion control-arbitration characterized).
+backlogs are done; Stage 1b is underway (#36 carve #1, #47 companion control-lock utility carve, #38/#40
+companion control-arbitration characterized).
 A third Fable audit over #31–#39 returned CONDITIONAL GO; its High/Medium/Low fixes landed (#40/#41) and
 M-C remains an unresolved product/spec decision, not a carve-out implementation task (see audit section).
 
-**Next Stage-1b unit:** the companion control/lock carve from `companion/src/main.ts` — GATED on first
-characterizing the disconnect-cleanup closure (audit M-A above). Do that test-first step, then carve one
-coherent behavior at a time using the #36 template. Every god-file carve is a **Claude-baton** item.
-Do not implement heartbeat-stale takeover as part of this carve. Preserve current Companion behavior:
-PIN grants immediate takeover; an unanswered control request becomes forceable after 30s. Cloud immediate
-takeover may use PIN or server-verified OAuth/reauth. Any stale/abandoned-lock recovery belongs in a
-separate product-approved behavior PR or docs reconciliation, not Stage 1b extraction.
+**Next Stage-1b unit:** continue the companion control/lock carve from `companion/src/main.ts` one coherent
+behavior at a time. The disconnect-cleanup prerequisite and pure utility carve are done; next candidates
+should be characterized before moving, especially `handleRequestControl` no-lock grant / same-client no-op /
+pending-replacement, `schedulePendingControlRequestTimeout` expiry, `appendControlAudit` writes, and heartbeat
+lock refresh. Every god-file carve is a **Claude-baton** item. Do not implement heartbeat-stale takeover as
+part of this carve. Preserve current Companion behavior: PIN grants immediate takeover; an unanswered control
+request becomes forceable after 30s. Cloud immediate takeover may use PIN or server-verified OAuth/reauth. Any
+stale/abandoned-lock recovery belongs in a separate product-approved behavior PR or docs reconciliation, not
+Stage 1b extraction.
 
 **M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
 for companion; controller installer packaging under npm workspaces (electron hoisted to root).
