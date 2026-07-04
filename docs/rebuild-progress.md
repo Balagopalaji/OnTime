@@ -18,11 +18,14 @@ in #43/#44, the disconnect-cleanup carve prerequisite landed in #45, and the pur
 control-lock utility carve landed in #47. The controller lock payload builder carve landed in #49, further
 shrinking `companion/src/main.ts` while preserving the emitted lock shape. Runtime control/lock handlers and
 mutable stores remain in `companion/src/main.ts`; `handleRequestControl` branch behavior is characterized in
-#51, and control-audit writes + the 30s pending-request timeout expiry are characterized in #53/#54. The
-**4th Fable milestone audit over #40–#52 returned GO** (no High/Medium; one pre-existing LOW predicate-drift
-item). Next unit: `appendControlAudit` / the pending-timeout scheduler are now carve-ready — carve one at a
-time on the #36 template, preserving the current Companion PIN and 30s pending-request behavior; heartbeat
-lock refresh still needs characterization before its carve.
+#51, control-audit writes + the 30s pending-request timeout expiry are characterized in #53/#54, and their
+corresponding carves landed in #56/#57. The **4th Fable milestone audit over #40–#52 returned GO** (no
+High/Medium; one pre-existing LOW predicate-drift item). To shift from line-sized helper shaving to
+subsystem-sized work, `docs/rebuild-companion-coupling.md` now records a partial Companion coupling map:
+loopback `/api/token` is the clearest leaf-candidate; disk room cache is a persistence-adapter candidate
+with a broad store footprint; pairing/viewer-token routes, file operations, control-lock/takeover, and sync
+remain test-first or byte-faithful until their boundaries are proven. Heartbeat lock refresh still needs
+characterization before its carve.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -112,6 +115,9 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #52 docs(rebuild): sync ledger after request control characterization
 - PR #53 test(companion): characterize control-audit writes
 - PR #54 test(companion): characterize pending-request 30s timeout expiry
+- PR #55 docs(rebuild): record 4th Fable audit (GO) + #53/#54 characterizations
+- PR #56 refactor(companion): extract control audit utilities
+- PR #57 refactor(companion): extract pending control timeout scheduler
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
