@@ -123,6 +123,7 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #60 docs(rebuild): append cache + token coupling spot-checks to the map
 - PR #61 ci(guardrails): add rebuild-target marker check (G1) + backfill carve modules
 - PR #62 refactor(companion): extract loopback token server to token-server.ts (U3)
+- PR #63 docs(rebuild): sync ledger — U3 landed (#62), G1 landed (#61)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -383,8 +384,10 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
-  are backfilled. **G2 (package-population ratchet) still pending** as its own PR. Every carve PR must name its
-  §3/§4 destination (the U3 module's marker + this ledger entry are the pattern).
+  are backfilled. **G2 is implemented** — guardrails count populated §3 target packages (package manifest +
+  `src/index.ts` export surface + at least one source test) against the current baseline of 3; U1/U2/U6 should
+  raise it. Every carve PR must name its §3/§4 destination (the U3 module's marker + this ledger entry are the
+  pattern).
 - **Definition of Done (plan §3):** measurable per-stage ratchet ceilings + package population + boundary
   checks; the finish line is both god-files deleted (D5).
 
