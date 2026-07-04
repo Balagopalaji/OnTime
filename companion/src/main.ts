@@ -31,6 +31,10 @@ import {
   appendControlAudit,
   type ControlAuditEntry,
 } from './control-audit-utils';
+import {
+  schedulePendingControlRequestTimeout,
+  type SchedulePendingControlRequestTimeoutDeps,
+} from './pending-control-timeout-utils';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
@@ -1157,6 +1161,11 @@ const controlAuditDeps = {
   store: roomControlAuditStore,
   scheduleWrite: scheduleRoomCacheWrite,
 };
+const pendingControlTimeoutDeps: SchedulePendingControlRequestTimeoutDeps = {
+  pendingControlTimeouts,
+  pendingControlRequests,
+  clearPendingControlRequest,
+};
 export const roomPinStore: Map<string, {
   pin: string;
   updatedAt: number;
@@ -1341,22 +1350,6 @@ function emitControlRequestStatusToController(
   ioServers.forEach((server) => {
     server.to(controller.socketId).emit('CONTROL_REQUEST_STATUS', payload);
   });
-}
-
-function schedulePendingControlRequestTimeout(roomId: string, requestedAt: number) {
-  const existing = pendingControlTimeouts.get(roomId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-  const delay = Math.max(0, CONTROL_REQUEST_TIMEOUT_MS - (Date.now() - requestedAt));
-  const timer = setTimeout(() => {
-    pendingControlTimeouts.delete(roomId);
-    const pending = pendingControlRequests.get(roomId);
-    if (!pending) return;
-    if (pending.requestedAt !== requestedAt) return;
-    clearPendingControlRequest(roomId, 'timeout');
-  }, delay);
-  pendingControlTimeouts.set(roomId, timer);
 }
 
 function clearPendingControlRequest(
@@ -5939,7 +5932,7 @@ export function handleRequestControl(socket: Socket, payload: unknown) {
     requesterUserName,
     requestedAt,
   });
-  schedulePendingControlRequestTimeout(roomId, requestedAt);
+  schedulePendingControlRequestTimeout(roomId, requestedAt, pendingControlTimeoutDeps);
   socket.emit('CONTROL_REQUEST_STATUS', {
     type: 'CONTROL_REQUEST_STATUS',
     roomId,
