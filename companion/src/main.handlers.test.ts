@@ -966,3 +966,61 @@ test('SET_ROOM_PIN owner/current controller sets and clears valid PIN and reject
 
   resetControlRoom(m, roomId)
 })
+
+// ---------------------------------------------------------------------------
+// Pending control-request 30s timeout EXPIRY (schedulePendingControlRequestTimeout)
+// Existing tests only cover the timeout handle being CLEARED by other paths; the
+// scheduled expiry firing on its own is characterized here with fake timers so a
+// future carve of the timeout scheduler cannot silently change it.
+// ---------------------------------------------------------------------------
+test('pending control request auto-clears at the 30s timeout, emitting a timeout clear to requester and controller', async (t) => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-pending-timeout-expiry'
+  resetControlRoom(m, roomId)
+
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+  const requesterSocket = makeControlSocket('requester', roomId)
+
+  // Fake setTimeout + Date so requestedAt is fixed and delay is exactly the
+  // 30s window (no boundary flakiness), and the internal setTimeout is virtual.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 })
+  t.after(() => {
+    t.mock.timers.reset()
+    resetControlRoom(m, roomId)
+  })
+
+  m.handleRequestControl(requesterSocket, {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'requester',
+    deviceName: 'Requester Device',
+    timestamp: Date.now(),
+  })
+
+  // Queued, with a scheduled timeout handle; nothing cleared yet.
+  assert.equal(m.pendingControlRequests.get(roomId)?.requesterId, 'requester')
+  assert.equal(m.pendingControlTimeouts.has(roomId), true, 'a timeout must be scheduled')
+
+  // One ms before the boundary: still pending, still scheduled.
+  t.mock.timers.tick(m.CONTROL_REQUEST_TIMEOUT_MS - 1)
+  assert.equal(m.pendingControlRequests.has(roomId), true, 'must NOT clear before the 30s boundary')
+  assert.equal(m.pendingControlTimeouts.has(roomId), true)
+
+  // Crossing the boundary fires the scheduled clear.
+  t.mock.timers.tick(1)
+  assert.equal(m.pendingControlRequests.has(roomId), false, 'pending must be cleared exactly at 30s')
+  assert.equal(m.pendingControlTimeouts.has(roomId), false, 'the timeout handle must be removed')
+
+  // A 'cleared'/'timeout' CONTROL_REQUEST_STATUS is sent to BOTH the requester and the controller.
+  const reqCleared = ioEmits.find(
+    (e) => e.target === 'requester-socket' && e.event === 'CONTROL_REQUEST_STATUS' && e.payload.status === 'cleared',
+  )
+  const ownerCleared = ioEmits.find(
+    (e) => e.target === 'owner-socket' && e.event === 'CONTROL_REQUEST_STATUS' && e.payload.status === 'cleared',
+  )
+  assert.equal(reqCleared?.payload.reason, 'timeout', 'requester must be told the clear reason was timeout')
+  assert.equal(ownerCleared?.payload.reason, 'timeout', 'controller must be told the clear reason was timeout')
+})
