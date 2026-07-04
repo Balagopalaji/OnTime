@@ -1,0 +1,16 @@
+{
+  "name": "@ontime/lock-view-model",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest --run src/index.test.ts"
+  },
+  "dependencies": {
+    "@ontime/shared-types": "0.0.0"
+  }
+}
