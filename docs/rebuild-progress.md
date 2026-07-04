@@ -17,9 +17,12 @@ control-arbitration handlers were characterized in #38/#40, takeover-policy hand
 in #43/#44, the disconnect-cleanup carve prerequisite landed in #45, and the pure companion
 control-lock utility carve landed in #47. The controller lock payload builder carve landed in #49, further
 shrinking `companion/src/main.ts` while preserving the emitted lock shape. Runtime control/lock handlers and
-mutable stores remain in `companion/src/main.ts`; `handleRequestControl` branch behavior is now characterized
-in #51. Next unit: choose the next coherent Companion control/lock behavior, characterize it before moving it,
-follow the #36 template, and preserve the current Companion PIN and 30s pending request behavior.
+mutable stores remain in `companion/src/main.ts`; `handleRequestControl` branch behavior is characterized in
+#51, and control-audit writes + the 30s pending-request timeout expiry are characterized in #53/#54. The
+**4th Fable milestone audit over #40–#52 returned GO** (no High/Medium; one pre-existing LOW predicate-drift
+item). Next unit: `appendControlAudit` / the pending-timeout scheduler are now carve-ready — carve one at a
+time on the #36 template, preserving the current Companion PIN and 30s pending-request behavior; heartbeat
+lock refresh still needs characterization before its carve.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -106,6 +109,9 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #49 refactor(companion): extract controller lock builder
 - PR #50 docs(rebuild): sync ledger after controller lock builder carve
 - PR #51 test(companion): characterize request control handler paths
+- PR #52 docs(rebuild): sync ledger after request control characterization
+- PR #53 test(companion): characterize control-audit writes
+- PR #54 test(companion): characterize pending-request 30s timeout expiry
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -292,6 +298,16 @@ controller grants the lock immediately without queuing a pending request; the cu
 a no-op that preserves an existing pending request; and a different requester supersedes the prior pending
 request with `superseded` clear emissions before queuing the new requester. No production files changed.
 
+**DONE — control-audit writes + pending-timeout expiry characterization (#53/#54):**
+Socket-level tests that pin the last thin spots before their carves. #53 pins all five `appendControlAudit`
+write paths (request / force-denied / force-accepted / handover / deny) with exact action/status/actorId/
+targetId oracles (status ABSENT for request/handover, PRESENT for force/deny) plus the 50-entry cap trim.
+#54 pins `schedulePendingControlRequestTimeout` 30s expiry firing via node:test fake timers: no clear at
+29,999ms, and at exactly 30,000ms the pending request clears, the timeout handle is removed, and a
+`cleared`/`timeout` `CONTROL_REQUEST_STATUS` is emitted to BOTH requester and controller. Test-only; no
+production files changed; ratchet baseline unchanged. Authored by Claude (Codex credit-blocked); test-only
+fast-lane, no baton. `appendControlAudit` and the pending-timeout scheduler are now carve-ready.
+
 **CARVE NOTES:**
 - **L-B:** #38 exported 7 mutable stores from `main.ts` for testability (tests import `./main.js`) — the carve
   MUST keep those names importable via a re-export shim (the #36 pattern).
@@ -301,22 +317,54 @@ request with `superseded` clear emissions before queuing the new requester. No p
 - **Template to repeat (from #36):** verbatim move + re-export shim + lower the god-file ratchet baseline in
   the SAME PR + mutation-verified characterization tests; Claude baton review for every god-file carve.
 
-### Codex — baton handoff / next heartbeat
-`main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective
-backlogs are done; Stage 1b is underway (#36 carve #1, #47/#49 companion control-lock utility/payload
-carves, #38/#40 companion control-arbitration characterized, #51 request-control handler characterized).
-A third Fable audit over #31–#39 returned CONDITIONAL GO; its High/Medium/Low fixes landed (#40/#41) and
-M-C remains an unresolved product/spec decision, not a carve-out implementation task (see audit section).
+## Fable FOURTH milestone audit (2026-07-04, over #40–#52) — GO
+Fresh-context independent Fable audit of the cumulative diff `git diff c2ba6e0...main` (base = the 3rd-audit
+endpoint; 6 files, +793/−170; production surface = `companion/src/control-lock-utils.ts`, the `main.ts`
+carves, and the ratchet script). **Verdict: GO. No High or Medium findings.**
 
-**Next Stage-1b unit:** continue the companion control/lock carve from `companion/src/main.ts` one coherent
-behavior at a time. The disconnect-cleanup prerequisite, pure utility carve, controller lock payload builder
-carve, and request-control handler characterization are done; next candidates should be characterized before
-moving, especially `schedulePendingControlRequestTimeout` expiry, `appendControlAudit` writes, and heartbeat
-lock refresh. Every future god-file carve is a **Claude-baton** item. Do not implement heartbeat-stale
-takeover as part of this carve. Preserve current Companion behavior: PIN grants immediate takeover; an
-unanswered control request becomes forceable after 30s. Cloud immediate takeover may use PIN or server-verified
-OAuth/reauth. Any stale/abandoned-lock recovery belongs in a separate product-approved behavior PR or docs
-reconciliation, not Stage 1b extraction.
+- **Prior 3rd-audit findings — all FIXED, mutation-verified.** The auditor mutated the compiled `dist` output
+  and confirmed exactly one intended test died each time: H-A PIN equality (`=== storedPin`), the
+  timeout-requester force predicate, M-B property-access anti-dup regex, L-A missing-baseline hard-fail, and
+  the M-A disconnect `requester_disconnected` clearing. L-B re-export shim honored; L-C (ControllerPage raw
+  `elapsedOffset`) untouched — still an open backlog item, correctly not claimed fixed.
+- **Carves #47/#49 byte-faithful.** CR-stripped / `export`-normalized line-set match with the removed code;
+  ratchet traced 8064→8033→8006 (lowered per carve, never raised); #49 "no shim needed" confirmed by grep;
+  `control-lock-utils.ts` is pure (zero imports), 78 lines (<400).
+- **Characterizations (#40/#45/#51) non-vacuous** — exact store/emit oracles, three empirically killed.
+- **Gates green on `main`:** guardrails pass, companion `tsc` clean, `node --test dist/*.test.js` all pass,
+  `git diff --check` clean. Independently re-run by the orchestrator (build clean, full suite green, LOW
+  finding confirmed by grep).
+
+**LOW / PLAUSIBLE (pre-existing, NOT a carve regression) — predicate spec-mirror drift:**
+`shouldClearPendingControlByTimeout` / `shouldClearPendingControlForRequester` (`control-lock-utils.ts:31-40`)
+have ZERO production callers — only the `main.ts` re-export shim and tests reference them. The live timeout
+path uses its own `pending.requestedAt !== requestedAt` staleness check (`main.ts:~1353`) and the disconnect
+path an inline `pending?.requesterId === clientId` (`main.ts:~3512`). Risk: a future edit changes an inline
+site while the canonical-looking util stays put, so the util's tests keep passing while it no longer describes
+reality. Fix in a future unit — wire the inline sites through the predicates, or label them as test-mirrors.
+**OBSERVATION (pre-existing):** `reauthenticated` is validated but unread in `handleForceTakeover` — belongs in
+the eventual M-C docs/product reconciliation, not a carve.
+
+### Codex — baton handoff / next heartbeat
+`main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective backlogs
+are done; Stage 1b is underway (#36 carve #1, #47/#49 companion control-lock utility/payload carves, #38/#40
+companion control-arbitration characterized, #51 request-control handler characterized, #53/#54 control-audit
+writes + pending-timeout expiry characterized). The **4th Fable milestone audit over #40–#52 returned GO**
+(no High/Medium; one pre-existing LOW predicate-drift item above); the 3rd audit's CONDITIONAL-GO fixes
+(#40/#41) are mutation-verified FIXED. M-C remains an unresolved product/spec decision, not a carve-out task.
+
+**Next Stage-1b unit:** the pure-helper carves are largely exhausted; `appendControlAudit` and the
+`schedulePendingControlRequestTimeout` scheduler are now CHARACTERIZED (#53/#54) and therefore carve-ready —
+carve one at a time using the #36 template (verbatim/pure extraction + re-export shim where prior imports
+exist + lower the ratchet in the same PR). `appendControlAudit`'s pure trim core is a small unit (may be
+better bundled or paired with its store I/O so it net-reduces the god-file — a lone tiny helper + shim was
+net-zero, see the #47-vs-audit sizing note). Remaining still-thin behavior to characterize before its carve:
+heartbeat lock refresh (`main.ts:~5955`). Also queued: wire the two drift-risk predicates (LOW above) through
+their inline call sites, or mark them test-mirrors. Every future god-file carve is a **Claude-baton** item.
+Do not implement heartbeat-stale takeover as part of any carve. Preserve current Companion behavior: PIN
+grants immediate takeover; an unanswered control request becomes forceable after 30s. Cloud immediate takeover
+may use PIN or server-verified OAuth/reauth. Any stale/abandoned-lock recovery belongs in a separate
+product-approved behavior PR or docs reconciliation, not Stage 1b extraction.
 
 **M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
 for companion; controller installer packaging under npm workspaces (electron hoisted to root).
