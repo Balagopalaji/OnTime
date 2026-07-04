@@ -285,6 +285,56 @@ function checkFileSizeCeilings() {
   }
 }
 
+// Anti-drift guardrail G2 (docs/rebuild-plan.md §5): package population must
+// move upward as Stage 1b creates target packages. A populated package has a
+// package manifest, a src/index.ts export surface, and at least one test.
+const TARGET_PACKAGE_NAMES = [
+  'shared-types',
+  'interface-contracts',
+  'timer-core',
+  'cloud-adapter-firestore',
+  'local-sync-arbitration',
+  'viewer-renderer',
+  'presentation-core',
+  'ppt-bridge',
+  'cue-controller-core',
+  'lock-view-model',
+]
+
+const PACKAGE_POPULATION_BASELINE = 3
+let packagePopulationStatus = ''
+
+function hasPackageTest(pkg) {
+  return files.some((file) => file.startsWith(`packages/${pkg}/`) && isTestFile(file))
+}
+
+function hasPackageExportSurface(pkg) {
+  const indexFile = `packages/${pkg}/src/index.ts`
+  if (!files.includes(indexFile)) return false
+  const content = stripSourceComments(read(indexFile))
+  return /\bexport\s+(?:\{|\*|type\s+|interface\s+|const\s+|function\s+|class\s+|enum\s+)/.test(content)
+}
+
+function populatedTargetPackages() {
+  return TARGET_PACKAGE_NAMES.filter((pkg) => {
+    if (!files.includes(`packages/${pkg}/package.json`)) return false
+    return hasPackageExportSurface(pkg) && hasPackageTest(pkg)
+  })
+}
+
+function checkPackagePopulationRatchet() {
+  const populated = populatedTargetPackages()
+  packagePopulationStatus =
+    `Package population ratchet: ${populated.length}/${TARGET_PACKAGE_NAMES.length} populated ` +
+    `(baseline ${PACKAGE_POPULATION_BASELINE})`
+  if (populated.length < PACKAGE_POPULATION_BASELINE) {
+    fail(
+      `target package population fell below baseline: ${populated.length} < ` +
+        `${PACKAGE_POPULATION_BASELINE} (${populated.join(', ') || 'none'})`,
+    )
+  }
+}
+
 // Stage-1b ratchet: these legacy god-files may only SHRINK. Carve-outs that reduce a file
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
@@ -378,6 +428,7 @@ checkPackageAliasImports()
 checkForbiddenBugPatterns()
 checkTimerFormulaDuplication()
 checkFileSizeCeilings()
+checkPackagePopulationRatchet()
 checkGodFileRatchet()
 checkRebuildTargetMarkers()
 checkRequiredDocs()
@@ -390,4 +441,5 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
+console.log(packagePopulationStatus)
 console.log('Rebuild guardrail checks passed.')
