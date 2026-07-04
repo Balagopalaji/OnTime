@@ -17,9 +17,9 @@ control-arbitration handlers were characterized in #38/#40, takeover-policy hand
 in #43/#44, the disconnect-cleanup carve prerequisite landed in #45, and the pure companion
 control-lock utility carve landed in #47. The controller lock payload builder carve landed in #49, further
 shrinking `companion/src/main.ts` while preserving the emitted lock shape. Runtime control/lock handlers and
-mutable stores remain in `companion/src/main.ts`. Next unit: choose the next coherent Companion control/lock
-behavior, characterize it before moving it, follow the #36 template, and preserve the current Companion PIN
-and 30s pending request behavior.
+mutable stores remain in `companion/src/main.ts`; `handleRequestControl` branch behavior is now characterized
+in #51. Next unit: choose the next coherent Companion control/lock behavior, characterize it before moving it,
+follow the #36 template, and preserve the current Companion PIN and 30s pending request behavior.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -104,6 +104,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #47 refactor(companion): extract control lock utilities
 - PR #48 docs(rebuild): sync ledger after control lock utility carve
 - PR #49 refactor(companion): extract controller lock builder
+- PR #50 docs(rebuild): sync ledger after controller lock builder carve
+- PR #51 test(companion): characterize request control handler paths
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -284,6 +286,12 @@ the caller), added focused deep-equality tests for full and optional-field paylo
 `companion/src/main.ts` ratchet baseline from 8033 to 8006. No takeover, heartbeat-stale, pending-request,
 socket emission, store mutation, or product behavior changed.
 
+**DONE — request-control handler characterization (#51):**
+Added socket-level tests for `handleRequestControl` paths that were still thin before carving: no active
+controller grants the lock immediately without queuing a pending request; the current controller re-request is
+a no-op that preserves an existing pending request; and a different requester supersedes the prior pending
+request with `superseded` clear emissions before queuing the new requester. No production files changed.
+
 **CARVE NOTES:**
 - **L-B:** #38 exported 7 mutable stores from `main.ts` for testability (tests import `./main.js`) — the carve
   MUST keep those names importable via a re-export shim (the #36 pattern).
@@ -296,20 +304,19 @@ socket emission, store mutation, or product behavior changed.
 ### Codex — baton handoff / next heartbeat
 `main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective
 backlogs are done; Stage 1b is underway (#36 carve #1, #47/#49 companion control-lock utility/payload
-carves, #38/#40 companion control-arbitration characterized).
+carves, #38/#40 companion control-arbitration characterized, #51 request-control handler characterized).
 A third Fable audit over #31–#39 returned CONDITIONAL GO; its High/Medium/Low fixes landed (#40/#41) and
 M-C remains an unresolved product/spec decision, not a carve-out implementation task (see audit section).
 
 **Next Stage-1b unit:** continue the companion control/lock carve from `companion/src/main.ts` one coherent
-behavior at a time. The disconnect-cleanup prerequisite, pure utility carve, and controller lock payload
-builder carve are done; next candidates should be characterized before moving, especially
-`handleRequestControl` no-lock grant / same-client no-op / pending-replacement,
-`schedulePendingControlRequestTimeout` expiry, `appendControlAudit` writes, and heartbeat lock refresh. Every
-future god-file carve is a **Claude-baton** item. Do not implement heartbeat-stale takeover as part of this
-carve. Preserve current Companion behavior: PIN grants immediate takeover; an unanswered control request
-becomes forceable after 30s. Cloud immediate takeover may use PIN or server-verified OAuth/reauth. Any
-stale/abandoned-lock recovery belongs in a separate product-approved behavior PR or docs reconciliation, not
-Stage 1b extraction.
+behavior at a time. The disconnect-cleanup prerequisite, pure utility carve, controller lock payload builder
+carve, and request-control handler characterization are done; next candidates should be characterized before
+moving, especially `schedulePendingControlRequestTimeout` expiry, `appendControlAudit` writes, and heartbeat
+lock refresh. Every future god-file carve is a **Claude-baton** item. Do not implement heartbeat-stale
+takeover as part of this carve. Preserve current Companion behavior: PIN grants immediate takeover; an
+unanswered control request becomes forceable after 30s. Cloud immediate takeover may use PIN or server-verified
+OAuth/reauth. Any stale/abandoned-lock recovery belongs in a separate product-approved behavior PR or docs
+reconciliation, not Stage 1b extraction.
 
 **M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
 for companion; controller installer packaging under npm workspaces (electron hoisted to root).
