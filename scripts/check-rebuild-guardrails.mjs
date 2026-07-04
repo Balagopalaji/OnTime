@@ -289,7 +289,7 @@ function checkFileSizeCeilings() {
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
   'frontend/src/context/UnifiedDataContext.tsx': 6707,
-  'companion/src/main.ts': 8006,
+  'companion/src/main.ts': 7985,
 }
 
 function checkGodFileRatchet() {

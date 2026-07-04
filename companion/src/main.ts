@@ -27,6 +27,10 @@ import {
   type ControlRequestClearReason,
   type PendingControlRequestEntry,
 } from './control-lock-utils';
+import {
+  appendControlAudit,
+  type ControlAuditEntry,
+} from './control-audit-utils';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
@@ -1148,16 +1152,11 @@ export const roomClientStore: Map<string, Map<string, RoomClientEntry>> = new Ma
 const pendingHandshakeStore: Map<string, { socketId: string; roomId: string; startedAt: number }> = new Map();
 export const pendingControlRequests: Map<string, PendingControlRequestEntry> = new Map();
 export const pendingControlTimeouts: Map<string, NodeJS.Timeout> = new Map();
-export const roomControlAuditStore: Map<string, Array<{
-  action: 'request' | 'force' | 'handover' | 'deny';
-  actorId: string;
-  actorUserId?: string;
-  actorUserName?: string;
-  targetId?: string;
-  timestamp: number;
-  deviceName?: string;
-  status?: 'accepted' | 'denied';
-}>> = new Map();
+export const roomControlAuditStore: Map<string, ControlAuditEntry[]> = new Map();
+const controlAuditDeps = {
+  store: roomControlAuditStore,
+  scheduleWrite: scheduleRoomCacheWrite,
+};
 export const roomPinStore: Map<string, {
   pin: string;
   updatedAt: number;
@@ -1414,26 +1413,6 @@ function setControllerLock(
   console.log(`[ws] controller lock set room=${roomId} by=${clientId}`);
   emitControllerLockState(roomId);
   emitRoomPinStateToController(roomId);
-}
-
-function appendControlAudit(
-  roomId: string,
-  entry: {
-    action: 'request' | 'force' | 'handover' | 'deny';
-    actorId: string;
-    actorUserId?: string;
-    actorUserName?: string;
-    targetId?: string;
-    timestamp: number;
-    deviceName?: string;
-    status?: 'accepted' | 'denied';
-  },
-) {
-  const list = roomControlAuditStore.get(roomId) ?? [];
-  list.push(entry);
-  const trimmed = list.slice(-50);
-  roomControlAuditStore.set(roomId, trimmed);
-  scheduleRoomCacheWrite();
 }
 
 type StoredTokenPayload = {
@@ -5976,7 +5955,7 @@ export function handleRequestControl(socket: Socket, payload: unknown) {
     actorUserName: requesterUserName,
     timestamp: Date.now(),
     deviceName: requesterName,
-  });
+  }, controlAuditDeps);
   const event: ControlRequestReceived = {
     type: 'CONTROL_REQUEST_RECEIVED',
     roomId,
@@ -6035,7 +6014,7 @@ export function handleForceTakeover(socket: Socket, payload: unknown) {
       timestamp: now,
       deviceName: socket.data?.deviceName,
       status: 'denied',
-    });
+    }, controlAuditDeps);
     emitError(socket, 'PERMISSION_DENIED', 'Force takeover requires a valid room PIN or timeout.', roomId);
     return;
   }
@@ -6055,7 +6034,7 @@ export function handleForceTakeover(socket: Socket, payload: unknown) {
     timestamp: now,
     deviceName: socket.data?.deviceName,
     status: 'accepted',
-  });
+  }, controlAuditDeps);
 }
 
 export function handleHandOver(socket: Socket, payload: unknown) {
@@ -6100,7 +6079,7 @@ export function handleHandOver(socket: Socket, payload: unknown) {
     targetId: targetClientId,
     timestamp: Date.now(),
     deviceName: target.deviceName,
-  });
+  }, controlAuditDeps);
 }
 
 export function handleDenyControl(socket: Socket, payload: unknown) {
@@ -6123,7 +6102,7 @@ export function handleDenyControl(socket: Socket, payload: unknown) {
     targetId: payload.requesterId,
     timestamp: Date.now(),
     status: 'denied',
-  });
+  }, controlAuditDeps);
   const clients = getRoomClients(roomId);
   const target = clients.get(payload.requesterId);
   if (!target) return;
