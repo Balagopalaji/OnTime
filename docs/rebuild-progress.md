@@ -124,6 +124,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #61 ci(guardrails): add rebuild-target marker check (G1) + backfill carve modules
 - PR #62 refactor(companion): extract loopback token server to token-server.ts (U3)
 - PR #63 docs(rebuild): sync ledger — U3 landed (#62), G1 landed (#61)
+- PR #64 ci(guardrails): add package population ratchet (G2)
+- PR #65 refactor(packages): graduate control-lock-reducers to lock-view-model (U2)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -376,18 +378,17 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   Cue/NDI/native waived from the Definition of Done. D7 = land the CRLF hygiene PR before U4.
 - **Re-aimed sequence (see plan §4):** **U3 `/api/token` carve DONE** (#62 → `companion/src/token-server.ts`,
   app-internal; ratchet 7978→7890; authored by a GLM 5.2 agent, Claude-reviewed APPROVE — byte-faithful, shared
-  auth helpers correctly left in main.ts, fall-through control-flow preserved + tested). **Still open, in
+  auth helpers correctly left in main.ts, fall-through control-flow preserved + tested). **U2 DONE** (#65 →
+  `packages/lock-view-model`; GLM-authored, Claude-reviewed APPROVE; populated packages 3→4). **Still open, in
   priority order: U1 — seed `packages/interface-contracts`** (core Socket.IO event types + `/api/token` schema;
-  shrinks BOTH god-files; highest leverage) → **U2 — graduate
-  `frontend/src/context/control-lock-reducers.ts` → `packages/lock-view-model`** → U4/U5 `local-sync-arbitration`
-  expansion → U6 `presentation-core` (`mergeCueVideos` + regression) → U7 companion cache adapter → U8 wire the
-  zero-caller predicates.
+  shrinks BOTH god-files; highest leverage) → U4/U5 `local-sync-arbitration` expansion → U6 `presentation-core`
+  (`mergeCueVideos` + regression) → U7 companion cache adapter → U8 wire the zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
-  are backfilled. **G2 is implemented** — guardrails count populated §3 target packages (package manifest +
-  `src/index.ts` export surface + at least one source test) against the current baseline of 3; U1/U2/U6 should
-  raise it. Every carve PR must name its §3/§4 destination (the U3 module's marker + this ledger entry are the
-  pattern).
+  are backfilled. **G2 LANDED (#64)** — guardrails count populated §3 target packages (package manifest +
+  `src/index.ts` export surface + at least one test) against the current baseline of 4; U1/U6 should
+  raise it further. Every carve PR must name its §3/§4 destination (the U3 module's marker + this ledger entry
+  are the pattern).
 - **Definition of Done (plan §3):** measurable per-stage ratchet ceilings + package population + boundary
   checks; the finish line is both god-files deleted (D5).
 
