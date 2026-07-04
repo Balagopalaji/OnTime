@@ -966,3 +966,216 @@ test('SET_ROOM_PIN owner/current controller sets and clears valid PIN and reject
 
   resetControlRoom(m, roomId)
 })
+
+// ---------------------------------------------------------------------------
+// appendControlAudit characterization: pin the exact audit-store entry each
+// of the 5 control paths writes, so a future carve of appendControlAudit /
+// its call sites can't silently change action/status/actor/target shape.
+// ---------------------------------------------------------------------------
+
+test('audit: REQUEST_CONTROL with an active controller pushes a request entry with no status', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-audit-request'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleRequestControl(makeControlSocket('requester', roomId), {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'requester',
+    deviceName: 'Requester Device',
+    userId: 'requester-user',
+    userName: 'Requester User',
+    timestamp: Date.now(),
+  })
+
+  const audit = m.roomControlAuditStore.get(roomId)
+  assert.equal(audit?.length, 1, 'exactly one audit entry should be recorded')
+  const entry = audit![0]
+  assert.equal(entry.action, 'request')
+  assert.equal(entry.actorId, 'requester')
+  assert.equal(entry.actorUserId, 'requester-user')
+  assert.equal(entry.actorUserName, 'Requester User')
+  assert.equal(entry.deviceName, 'Requester Device')
+  assert.equal('targetId' in entry, false, 'request entries must not carry targetId')
+  assert.equal(entry.status, undefined, 'request entries must not carry a status')
+
+  resetControlRoom(m, roomId)
+})
+
+test('audit: FORCE_TAKEOVER denied (no PIN, no timeout) pushes a force entry with status denied', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-audit-force-denied'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleForceTakeover(makeControlSocket('requester', roomId), {
+    type: 'FORCE_TAKEOVER',
+    roomId,
+    clientId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  const audit = m.roomControlAuditStore.get(roomId)
+  assert.equal(audit?.length, 1, 'exactly one audit entry should be recorded')
+  const entry = audit![0]
+  assert.equal(entry.action, 'force')
+  assert.equal(entry.status, 'denied')
+  assert.equal(entry.actorId, 'requester')
+  assert.equal(entry.actorUserId, 'requester-user')
+  assert.equal(entry.actorUserName, 'requester user')
+  // Controller lock must be unchanged — this is the denied path, not a takeover.
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+
+  resetControlRoom(m, roomId)
+})
+
+test('audit: FORCE_TAKEOVER accepted (valid PIN) pushes a force entry with status accepted and sets the lock', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-audit-force-accepted'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  m.roomPinStore.set(roomId, { pin: '1234', updatedAt: Date.now(), setBy: 'owner' })
+  pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleForceTakeover(makeControlSocket('requester', roomId), {
+    type: 'FORCE_TAKEOVER',
+    roomId,
+    clientId: 'requester',
+    pin: '1234',
+    timestamp: Date.now(),
+  })
+
+  const audit = m.roomControlAuditStore.get(roomId)
+  assert.equal(audit?.length, 1, 'exactly one audit entry should be recorded')
+  const entry = audit![0]
+  assert.equal(entry.action, 'force')
+  assert.equal(entry.status, 'accepted')
+  assert.equal(entry.actorId, 'requester')
+  assert.equal(entry.actorUserId, 'requester-user')
+  assert.equal(entry.actorUserName, 'requester user')
+  // Accepted takeover must actually move the controller lock.
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'requester')
+
+  resetControlRoom(m, roomId)
+})
+
+test('audit: controller HAND_OVER pushes a handover entry with target and no status', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-audit-handover'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'target')
+  pushFakeIoServer(m, ['owner-socket', 'target-socket'])
+
+  m.handleHandOver(makeControlSocket('owner', roomId), {
+    type: 'HAND_OVER',
+    roomId,
+    targetClientId: 'target',
+    timestamp: Date.now(),
+  })
+
+  const audit = m.roomControlAuditStore.get(roomId)
+  assert.equal(audit?.length, 1, 'exactly one audit entry should be recorded')
+  const entry = audit![0]
+  assert.equal(entry.action, 'handover')
+  assert.equal(entry.actorId, 'owner')
+  assert.equal(entry.actorUserId, 'owner-user')
+  assert.equal(entry.actorUserName, 'owner user')
+  assert.equal(entry.targetId, 'target')
+  assert.equal(entry.deviceName, 'target-device', 'handover entry.deviceName is the TARGET device, not the actor device')
+  assert.equal(entry.status, undefined, 'handover entries must not carry a status')
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'target')
+
+  resetControlRoom(m, roomId)
+})
+
+test('audit: controller DENY_CONTROL pushes a deny entry with target and status denied, clears pending as request_denied', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-audit-deny'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester')
+  m.pendingControlRequests.set(roomId, { requesterId: 'requester', requestedAt: Date.now() })
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'requester-socket'])
+
+  m.handleDenyControl(makeControlSocket('owner', roomId), {
+    type: 'DENY_CONTROL',
+    roomId,
+    requesterId: 'requester',
+    timestamp: Date.now(),
+  })
+
+  const audit = m.roomControlAuditStore.get(roomId)
+  assert.equal(audit?.length, 1, 'exactly one audit entry should be recorded')
+  const entry = audit![0]
+  assert.equal(entry.action, 'deny')
+  assert.equal(entry.status, 'denied')
+  assert.equal(entry.actorId, 'owner')
+  assert.equal(entry.actorUserId, 'owner-user')
+  assert.equal(entry.actorUserName, 'owner user')
+  assert.equal(entry.targetId, 'requester')
+  assert.equal(m.pendingControlRequests.has(roomId), false, 'pending request must be cleared')
+  const cleared = ioEmits.find((emit) => emit.target === 'requester-socket' && emit.event === 'CONTROL_REQUEST_STATUS')
+  assert.equal(cleared?.payload.reason, 'request_denied')
+
+  resetControlRoom(m, roomId)
+})
+
+// ---------------------------------------------------------------------------
+// appendControlAudit cap: the store keeps only the most recent 50 entries
+// per room (oldest dropped first). Exercised by calling appendControlAudit's
+// call path directly (REQUEST_CONTROL from a fresh, distinct requester each
+// time so the handler doesn't short-circuit as a no-op) rather than
+// simulating 51 full request/grant/supersede cycles, which the harness
+// cannot drive without also modeling the 30s pending-timeout scheduler.
+// ---------------------------------------------------------------------------
+
+test('audit: room audit list caps at 50 entries, dropping the oldest and retaining the newest', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-audit-cap'
+  resetControlRoom(m, roomId)
+
+  // Seed 50 pre-existing entries directly into the store (entries 0..49),
+  // each with a distinguishing actorId so we can identify exactly which
+  // ones survive the trim.
+  const seeded = Array.from({ length: 50 }, (_, i) => ({
+    action: 'request' as const,
+    actorId: `seed-${i}`,
+    timestamp: 1_000 + i,
+  }))
+  m.roomControlAuditStore.set(roomId, seeded)
+
+  // Drive one real handler call through the production appendControlAudit
+  // call path (REQUEST_CONTROL queuing against an active controller) to
+  // push the 51st entry and trigger the cap.
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'requester-51')
+  pushFakeIoServer(m, ['owner-socket', 'requester-51-socket'])
+
+  m.handleRequestControl(makeControlSocket('requester-51', roomId), {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'requester-51',
+    deviceName: 'Requester 51 Device',
+    timestamp: Date.now(),
+  })
+
+  const audit = m.roomControlAuditStore.get(roomId)
+  assert.equal(audit?.length, 50, 'audit list must be capped at 50 entries')
+  assert.equal(audit![0].actorId, 'seed-1', 'oldest entry (seed-0) must have been dropped')
+  assert.equal(
+    audit!.some((e) => e.actorId === 'seed-0'),
+    false,
+    'seed-0 must not survive the trim',
+  )
+  assert.equal(audit![49].actorId, 'requester-51', 'newest entry must be retained at the tail')
+
+  resetControlRoom(m, roomId)
+})
