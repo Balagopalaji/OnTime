@@ -1,3 +1,4 @@
+// rebuild-target: packages/lock-view-model
 import type { Room, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import type { DataContextValue } from './DataContext'
 

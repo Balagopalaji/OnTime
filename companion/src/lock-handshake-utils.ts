@@ -1,3 +1,4 @@
+// rebuild-target: app-internal (apps/local-companion)
 export type PendingHandshakeEntry = {
   socketId: string;
   startedAt: number;
