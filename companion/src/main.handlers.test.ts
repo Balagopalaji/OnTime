@@ -447,6 +447,144 @@ test('REQUEST_CONTROL rejects mismatched client id and queues pending request fo
   resetControlRoom(m, roomId)
 })
 
+test('REQUEST_CONTROL grants lock immediately when room has no active controller', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-control-request-no-lock'
+  resetControlRoom(m, roomId)
+  seedRoomClient(m, roomId, 'requester')
+  const ioEmits = pushFakeIoServer(m, ['requester-socket'])
+  const requesterSocket = makeControlSocket('requester', roomId)
+
+  m.handleRequestControl(requesterSocket, {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'requester',
+    deviceName: '  Requester Device  ',
+    userId: '  requester-user  ',
+    userName: '  Requester User  ',
+    timestamp: Date.now(),
+  })
+
+  const lock = m.roomControllerStore.get(roomId)
+  assert.equal(lock?.clientId, 'requester')
+  assert.equal(lock?.socketId, 'requester-socket')
+  assert.equal(lock?.deviceName, 'Requester Device')
+  assert.equal(lock?.userId, 'requester-user')
+  assert.equal(lock?.userName, 'Requester User')
+  assert.equal(m.pendingControlRequests.has(roomId), false)
+  assert.equal(
+    requesterSocket.emitted.some((emit: any) => emit.event === 'CONTROL_REQUEST_STATUS'),
+    false,
+    'immediate grant must not queue a control request',
+  )
+  const lockState = ioEmits.find((emit) => emit.target === roomId && emit.event === 'CONTROLLER_LOCK_STATE')
+  assert.equal(lockState?.payload.lock.clientId, 'requester')
+
+  resetControlRoom(m, roomId)
+})
+
+test('REQUEST_CONTROL from current controller is a no-op and preserves existing pending request', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-control-request-current-controller'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  const requestedAt = Date.now() - 5_000
+  m.pendingControlRequests.set(roomId, {
+    requesterId: 'other-requester',
+    requesterName: 'Other Device',
+    requestedAt,
+  })
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'other-requester-socket'])
+  const ownerSocket = makeControlSocket('owner', roomId)
+
+  m.handleRequestControl(ownerSocket, {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'owner',
+    timestamp: Date.now(),
+  })
+
+  assert.equal(m.roomControllerStore.get(roomId)?.clientId, 'owner')
+  assert.equal(m.roomControllerStore.get(roomId)?.connectedAt, 1_000)
+  assert.deepEqual(m.pendingControlRequests.get(roomId), {
+    requesterId: 'other-requester',
+    requesterName: 'Other Device',
+    requestedAt,
+  })
+  assert.equal(
+    ownerSocket.emitted.some((emit: any) => emit.event === 'CONTROL_REQUEST_STATUS'),
+    false,
+    'current controller re-request must not queue itself',
+  )
+  assert.equal(ioEmits.some((emit) => emit.event === 'CONTROL_REQUEST_STATUS'), false)
+  assert.equal(ioEmits.some((emit) => emit.event === 'CONTROL_REQUEST_RECEIVED'), false)
+  assert.equal(m.roomControlAuditStore.has(roomId), false)
+
+  resetControlRoom(m, roomId)
+})
+
+test('REQUEST_CONTROL from another requester supersedes existing pending request and queues the new requester', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-control-request-supersede'
+  resetControlRoom(m, roomId)
+  seedControllerLock(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'owner')
+  seedRoomClient(m, roomId, 'first-requester')
+  seedRoomClient(m, roomId, 'second-requester')
+  const firstRequestedAt = Date.now() - 1_000
+  m.pendingControlRequests.set(roomId, {
+    requesterId: 'first-requester',
+    requesterName: 'First Device',
+    requestedAt: firstRequestedAt,
+  })
+  const ioEmits = pushFakeIoServer(m, ['owner-socket', 'first-requester-socket', 'second-requester-socket'])
+  const secondSocket = makeControlSocket('second-requester', roomId)
+
+  m.handleRequestControl(secondSocket, {
+    type: 'REQUEST_CONTROL',
+    roomId,
+    clientId: 'second-requester',
+    deviceName: 'Second Device',
+    timestamp: Date.now(),
+  })
+
+  const firstRequesterCleared = ioEmits.find((emit) =>
+    emit.target === 'first-requester-socket' &&
+    emit.event === 'CONTROL_REQUEST_STATUS' &&
+    emit.payload.requesterId === 'first-requester'
+  )
+  assert.equal(firstRequesterCleared?.payload.status, 'cleared')
+  assert.equal(firstRequesterCleared?.payload.reason, 'superseded')
+  assert.equal(firstRequesterCleared?.payload.requestedAt, firstRequestedAt)
+
+  const controllerCleared = ioEmits.find((emit) =>
+    emit.target === 'owner-socket' &&
+    emit.event === 'CONTROL_REQUEST_STATUS' &&
+    emit.payload.requesterId === 'first-requester'
+  )
+  assert.equal(controllerCleared?.payload.status, 'cleared')
+  assert.equal(controllerCleared?.payload.reason, 'superseded')
+
+  const pending = m.pendingControlRequests.get(roomId)
+  assert.equal(pending?.requesterId, 'second-requester')
+  assert.equal(pending?.requesterName, 'Second Device')
+  assert.equal(typeof pending?.requestedAt, 'number')
+
+  const queued = secondSocket.emitted.find((emit: any) => emit.event === 'CONTROL_REQUEST_STATUS')
+  assert.equal(queued?.payload.status, 'queued')
+  assert.equal(queued?.payload.requesterId, 'second-requester')
+  assert.equal(queued?.payload.requestedAt, pending?.requestedAt)
+
+  const received = ioEmits.find((emit) =>
+    emit.target === 'owner-socket' &&
+    emit.event === 'CONTROL_REQUEST_RECEIVED' &&
+    emit.payload.requesterId === 'second-requester'
+  )
+  assert.equal(received?.payload.requesterName, 'Second Device')
+
+  resetControlRoom(m, roomId)
+})
+
 test('FORCE_TAKEOVER denies without PIN or timeout and accepts matching PIN or elapsed pending timeout', async () => {
   const m = await loadHandlerHelpers()
 
