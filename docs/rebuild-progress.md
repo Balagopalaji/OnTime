@@ -118,6 +118,11 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #55 docs(rebuild): record 4th Fable audit (GO) + #53/#54 characterizations
 - PR #56 refactor(companion): extract control audit utilities
 - PR #57 refactor(companion): extract pending control timeout scheduler
+- PR #58 docs(rebuild): add partial companion coupling map + sync ledger through #57
+- PR #59 docs(rebuild): add authoritative rebuild plan + ratify owner decisions
+- PR #60 docs(rebuild): append cache + token coupling spot-checks to the map
+- PR #61 ci(guardrails): add rebuild-target marker check (G1) + backfill carve modules
+- PR #62 refactor(companion): extract loopback token server to token-server.ts (U3)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -368,14 +373,18 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   DELETED (logic rewritten into its own packages/modules); a ≤500-line pure-wiring shim only where a file
   must physically exist.** D2 = `interface-contracts` is plain TS types, no runtime schema lib. D3/D4 =
   Cue/NDI/native waived from the Definition of Done. D7 = land the CRLF hygiene PR before U4.
-- **Re-aimed sequence (see plan §4):** **U1 — seed `packages/interface-contracts`** (core Socket.IO event
-  types + `/api/token` schema; shrinks BOTH god-files; highest leverage) → **U2 — graduate
-  `frontend/src/context/control-lock-reducers.ts` → `packages/lock-view-model`** → U3 `/api/token` carve
-  (app-internal) → U4/U5 `local-sync-arbitration` expansion → U6 `presentation-core` (`mergeCueVideos` +
-  regression) → U7 companion cache adapter → U8 wire the zero-caller predicates.
-- **Anti-drift guardrails (plan §5), coming as their own PRs:** G1 = every new `companion/src` /
-  `frontend/src/context` module must carry a `// rebuild-target: <package | app-internal>` header or CI fails;
-  G2 = package-population ratchet. Every carve PR must name its §3/§4 destination.
+- **Re-aimed sequence (see plan §4):** **U3 `/api/token` carve DONE** (#62 → `companion/src/token-server.ts`,
+  app-internal; ratchet 7978→7890; authored by a GLM 5.2 agent, Claude-reviewed APPROVE — byte-faithful, shared
+  auth helpers correctly left in main.ts, fall-through control-flow preserved + tested). **Still open, in
+  priority order: U1 — seed `packages/interface-contracts`** (core Socket.IO event types + `/api/token` schema;
+  shrinks BOTH god-files; highest leverage) → **U2 — graduate
+  `frontend/src/context/control-lock-reducers.ts` → `packages/lock-view-model`** → U4/U5 `local-sync-arbitration`
+  expansion → U6 `presentation-core` (`mergeCueVideos` + regression) → U7 companion cache adapter → U8 wire the
+  zero-caller predicates.
+- **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
+  module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
+  are backfilled. **G2 (package-population ratchet) still pending** as its own PR. Every carve PR must name its
+  §3/§4 destination (the U3 module's marker + this ledger entry are the pattern).
 - **Definition of Done (plan §3):** measurable per-stage ratchet ceilings + package population + boundary
   checks; the finish line is both god-files deleted (D5).
 
