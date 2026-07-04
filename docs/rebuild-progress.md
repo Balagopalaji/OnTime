@@ -353,24 +353,35 @@ the eventual M-C docs/product reconciliation, not a carve.
 
 ### Codex — baton handoff / next heartbeat
 `main` is clean at the latest commit; no open PRs; no baton waiting. Stage 1a + both Fable corrective backlogs
-are done; Stage 1b is underway (#36 carve #1, #47/#49 companion control-lock utility/payload carves, #38/#40
-companion control-arbitration characterized, #51 request-control handler characterized, #53/#54 control-audit
-writes + pending-timeout expiry characterized). The **4th Fable milestone audit over #40–#52 returned GO**
-(no High/Medium; one pre-existing LOW predicate-drift item above); the 3rd audit's CONDITIONAL-GO fixes
-(#40/#41) are mutation-verified FIXED. M-C remains an unresolved product/spec decision, not a carve-out task.
+are done; Stage 1b is underway (#36 carve #1; #47/#49/#56/#57 companion control-lock utility/payload/audit/
+timeout carves; #38/#40/#51/#53/#54 characterizations; #58 partial coupling map). The **4th Fable milestone
+audit over #40–#52 returned GO**. M-C remains an unresolved product/spec decision, not a carve-out task.
 
-**Next Stage-1b unit:** the pure-helper carves are largely exhausted; `appendControlAudit` and the
-`schedulePendingControlRequestTimeout` scheduler are now CHARACTERIZED (#53/#54) and therefore carve-ready —
-carve one at a time using the #36 template (verbatim/pure extraction + re-export shim where prior imports
-exist + lower the ratchet in the same PR). `appendControlAudit`'s pure trim core is a small unit (may be
-better bundled or paired with its store I/O so it net-reduces the god-file — a lone tiny helper + shim was
-net-zero, see the #47-vs-audit sizing note). Remaining still-thin behavior to characterize before its carve:
-heartbeat lock refresh (`main.ts:~5955`). Also queued: wire the two drift-risk predicates (LOW above) through
-their inline call sites, or mark them test-mirrors. Every future god-file carve is a **Claude-baton** item.
-Do not implement heartbeat-stale takeover as part of any carve. Preserve current Companion behavior: PIN
-grants immediate takeover; an unanswered control request becomes forceable after 30s. Cloud immediate takeover
-may use PIN or server-verified OAuth/reauth. Any stale/abandoned-lock recovery belongs in a separate
-product-approved behavior PR or docs reconciliation, not Stage 1b extraction.
+**READ `docs/rebuild-plan.md` FIRST — it is now the authoritative next-phase plan.** A fresh-context Fable
+architect reconciled current state against the target architecture; the load-bearing claims were independently
+verified and the product decisions were ratified by the owner. Key rulings that change what "next unit" means:
+
+- **The carve program was drifting** — #47/#49/#56/#57 all landed as `companion/src/*-utils.ts` (app-internal)
+  and **zero of the 10 target `packages/*` have been populated by any Stage-1b carve.** Stop defaulting to
+  companion line-shaving; carve toward the §3/§4 destinations.
+- **Decisions (ratified 2026-07-04):** D1 = one codebase, two build targets. **D5 = the god-files are
+  DELETED (logic rewritten into its own packages/modules); a ≤500-line pure-wiring shim only where a file
+  must physically exist.** D2 = `interface-contracts` is plain TS types, no runtime schema lib. D3/D4 =
+  Cue/NDI/native waived from the Definition of Done. D7 = land the CRLF hygiene PR before U4.
+- **Re-aimed sequence (see plan §4):** **U1 — seed `packages/interface-contracts`** (core Socket.IO event
+  types + `/api/token` schema; shrinks BOTH god-files; highest leverage) → **U2 — graduate
+  `frontend/src/context/control-lock-reducers.ts` → `packages/lock-view-model`** → U3 `/api/token` carve
+  (app-internal) → U4/U5 `local-sync-arbitration` expansion → U6 `presentation-core` (`mergeCueVideos` +
+  regression) → U7 companion cache adapter → U8 wire the zero-caller predicates.
+- **Anti-drift guardrails (plan §5), coming as their own PRs:** G1 = every new `companion/src` /
+  `frontend/src/context` module must carry a `// rebuild-target: <package | app-internal>` header or CI fails;
+  G2 = package-population ratchet. Every carve PR must name its §3/§4 destination.
+- **Definition of Done (plan §3):** measurable per-stage ratchet ceilings + package population + boundary
+  checks; the finish line is both god-files deleted (D5).
+
+Every future god-file carve remains a **Claude-baton** item. Do not implement heartbeat-stale takeover in any
+carve. Preserve current Companion behavior: PIN grants immediate takeover; an unanswered control request
+becomes forceable after 30s.
 
 **M-2** (branch-protection tightening) stays a USER decision. Deferred-by-decision: timer-core CJS build
 for companion; controller installer packaging under npm workspaces (electron hoisted to root).
