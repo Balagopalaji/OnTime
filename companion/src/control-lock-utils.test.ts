@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildControllerLock,
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
   normalizeRoomPin,
@@ -79,4 +80,43 @@ test('shouldClearPendingControlForRequester only clears the queued requester', (
   assert.equal(shouldClearPendingControlForRequester(pending, 'requester-a'), true);
   assert.equal(shouldClearPendingControlForRequester(pending, 'requester-b'), false);
   assert.equal(shouldClearPendingControlForRequester(undefined, 'requester-a'), false);
+});
+
+test('buildControllerLock maps a fully populated entry, aliasing connectedAt to lockedAt and injecting roomId', () => {
+  const lock = buildControllerLock('room-42', {
+    clientId: 'client-1',
+    connectedAt: 1_000,
+    lastHeartbeat: 2_500,
+    deviceName: 'Booth iPad',
+    userId: 'user-9',
+    userName: 'Ada',
+  });
+
+  assert.deepEqual(lock, {
+    clientId: 'client-1',
+    deviceName: 'Booth iPad',
+    userId: 'user-9',
+    userName: 'Ada',
+    lockedAt: 1_000,
+    lastHeartbeat: 2_500,
+    roomId: 'room-42',
+  });
+});
+
+test('buildControllerLock passes through omitted optional fields as undefined', () => {
+  const lock = buildControllerLock('room-7', {
+    clientId: 'client-2',
+    connectedAt: 500,
+    lastHeartbeat: 900,
+  });
+
+  assert.deepEqual(lock, {
+    clientId: 'client-2',
+    deviceName: undefined,
+    userId: undefined,
+    userName: undefined,
+    lockedAt: 500,
+    lastHeartbeat: 900,
+    roomId: 'room-7',
+  });
 });

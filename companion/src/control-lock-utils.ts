@@ -47,3 +47,32 @@ export function normalizeRoomPin(input?: string | null): string | null {
   if (digits.length < 4 || digits.length > 8) return null;
   return digits;
 }
+
+export type ControllerLock = {
+  clientId: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+  lockedAt: number;
+  lastHeartbeat: number;
+  roomId: string;
+};
+
+export function buildControllerLock(roomId: string, entry: {
+  clientId: string;
+  connectedAt: number;
+  lastHeartbeat: number;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+}): ControllerLock {
+  return {
+    clientId: entry.clientId,
+    deviceName: entry.deviceName,
+    userId: entry.userId,
+    userName: entry.userName,
+    lockedAt: entry.connectedAt,
+    lastHeartbeat: entry.lastHeartbeat,
+    roomId,
+  };
+}
