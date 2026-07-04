@@ -1,3 +1,4 @@
+// rebuild-target: app-internal (apps/local-companion)
 import {
   CONTROL_REQUEST_TIMEOUT_MS,
   type PendingControlRequestEntry,

@@ -1,3 +1,4 @@
+// rebuild-target: app-internal (apps/local-companion)
 export const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 
 export type ControlRequestClearReason =

@@ -1,3 +1,4 @@
+// rebuild-target: app-internal (apps/local-companion)
 export const CONTROL_AUDIT_ENTRY_LIMIT = 50;
 
 export type ControlAuditEntry = {

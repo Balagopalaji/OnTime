@@ -313,6 +313,64 @@ function checkRequiredDocs() {
   }
 }
 
+// Anti-drift guardrail G1 (docs/rebuild-plan.md §5): every NEW module under a
+// rebuild-watched dir must declare its target destination so carves cannot drift
+// destination-blind. Legacy modules that predate the policy are grandfathered; the
+// set only shrinks as they are dismantled or marked.
+const REBUILD_TARGET_WATCHED_DIRS = [
+  'companion/src/',
+  'frontend/src/context/',
+  'frontend/src/lib/',
+  'frontend/src/utils/',
+]
+
+const REBUILD_TARGET_GRANDFATHERED = new Set([
+  'companion/src/main.ts',
+  'frontend/src/context/AppModeContext.tsx',
+  'frontend/src/context/AuthContext.tsx',
+  'frontend/src/context/CompanionConnectionContext.tsx',
+  'frontend/src/context/CompanionDataContext.tsx',
+  'frontend/src/context/DataContext.tsx',
+  'frontend/src/context/DataProvider.tsx',
+  'frontend/src/context/FirebaseDataContext.tsx',
+  'frontend/src/context/MockDataContext.tsx',
+  'frontend/src/context/UnifiedDataContext.tsx',
+  'frontend/src/context/firebase-data-utils.ts',
+  'frontend/src/context/firebase-timer-state-utils.ts',
+  'frontend/src/context/undoTypes.ts',
+  'frontend/src/lib/arbitration.ts',
+  'frontend/src/lib/companion-pairing.ts',
+  'frontend/src/lib/electron.ts',
+  'frontend/src/lib/firebase.ts',
+  'frontend/src/lib/firestore-utils.ts',
+  'frontend/src/lib/time.ts',
+  'frontend/src/lib/timezones.ts',
+  'frontend/src/lib/undoKeys.ts',
+  'frontend/src/lib/undoStack.ts',
+  'frontend/src/lib/utils.ts',
+  'frontend/src/lib/viewer-links.ts',
+  'frontend/src/utils/cue-utils.ts',
+  'frontend/src/utils/timer-utils.ts',
+])
+
+const REBUILD_TARGET_MARKER = /\/\/\s*rebuild-target:\s*\S/
+
+function checkRebuildTargetMarkers() {
+  for (const file of files) {
+    if (!isSourceFile(file) || isTestFile(file) || file.endsWith('.d.ts')) continue
+    if (!REBUILD_TARGET_WATCHED_DIRS.some((dir) => file.startsWith(dir))) continue
+    if (REBUILD_TARGET_GRANDFATHERED.has(file)) continue
+    if (!REBUILD_TARGET_MARKER.test(read(file))) {
+      fail(
+        `${file}: new module under a rebuild-watched dir must declare its destination — add a ` +
+          `'// rebuild-target: packages/<§3-name>' or '// rebuild-target: app-internal (<§4-app>)' ` +
+          `header (see docs/rebuild-plan.md §5 G1). If this file legitimately predates the policy, ` +
+          `add it to REBUILD_TARGET_GRANDFATHERED.`,
+      )
+    }
+  }
+}
+
 checkPromptExports()
 checkPackageBoundaries()
 checkProductBoundaries()
@@ -321,6 +379,7 @@ checkForbiddenBugPatterns()
 checkTimerFormulaDuplication()
 checkFileSizeCeilings()
 checkGodFileRatchet()
+checkRebuildTargetMarkers()
 checkRequiredDocs()
 
 if (failures.length > 0) {
