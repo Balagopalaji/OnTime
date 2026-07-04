@@ -301,7 +301,7 @@ const TARGET_PACKAGE_NAMES = [
   'lock-view-model',
 ]
 
-const PACKAGE_POPULATION_BASELINE = 3
+const PACKAGE_POPULATION_BASELINE = 4
 let packagePopulationStatus = ''
 
 function hasPackageTest(pkg) {
