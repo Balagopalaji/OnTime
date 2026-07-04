@@ -35,6 +35,13 @@ import {
   schedulePendingControlRequestTimeout,
   type SchedulePendingControlRequestTimeoutDeps,
 } from './pending-control-timeout-utils';
+import {
+  createTokenHandler as createTokenHandlerFromModule,
+  startTokenServer as startTokenServerFromModule,
+  startSecureTokenServer as startSecureTokenServerFromModule,
+  type TokenServerDeps,
+  type TokenServerLifecycleDeps,
+} from './token-server';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
@@ -1166,6 +1173,25 @@ const pendingControlTimeoutDeps: SchedulePendingControlRequestTimeoutDeps = {
   pendingControlRequests,
   clearPendingControlRequest,
 };
+// Token-server deps (rebuild unit U3). The loopback/origin gates and the Electron
+// status-window hook are shared with JOIN_ROOM, pairing, and file routes -- they
+// STAY in main.ts (docs/rebuild-companion-coupling.md Appendix B). Wiring through
+// hoisted `function` declarations matches the controlAuditDeps pattern above.
+const tokenServerLifecycle: TokenServerLifecycleDeps = {
+  createServer,
+  createHttpsServer,
+};
+function buildTokenServerDeps(token: string, expiresAt: number): TokenServerDeps {
+  return {
+    token,
+    expiresAt,
+    isLoopback,
+    parseAllowedOrigins,
+    validateOrigin,
+    showStatusWindow,
+    isHeadlessMode,
+  };
+}
 export const roomPinStore: Map<string, {
   pin: string;
   updatedAt: number;
@@ -7323,122 +7349,17 @@ export function getRoomState(roomId: string): RoomState {
 }
 
 function createTokenHandler(token: string, expiresAt: number) {
+  const tokenHandler = createTokenHandlerFromModule(buildTokenServerDeps(token, expiresAt));
   return (req: any, res: any) => {
     const allowedOrigins = parseAllowedOrigins();
-    const origin = req.headers.origin as string | undefined;
-    const remoteAddress = req.socket?.remoteAddress;
-
     if (typeof req.url === 'string') {
       const url = new URL(req.url, 'http://localhost');
 
-      if (url.pathname === '/api/token') {
-        if (!isLoopback(remoteAddress)) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Forbidden' }));
-          return;
-        }
-
-        if (!validateOrigin(origin, allowedOrigins)) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid origin' }));
-          return;
-        }
-
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204, {
-            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
-            'Access-Control-Allow-Private-Network': 'true'
-          });
-          res.end();
-          return;
-        }
-
-        if (req.method === 'GET') {
-          const returnTo = url.searchParams.get('return');
-          const isHttp = (value: string) => value.startsWith('http://') || value.startsWith('https://');
-          const safeReturn = returnTo && isHttp(returnTo) ? returnTo : null;
-          if (safeReturn) {
-            const escapeAttr = (value: string) => value.replace(/"/g, '&quot;');
-            const redirectTarget = JSON.stringify(safeReturn);
-            const escapedAttr = escapeAttr(safeReturn);
-            const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Companion Trust</title>
-  <meta http-equiv="refresh" content="0;url=${escapedAttr}">
-</head>
-<body style="font-family:system-ui;background:#0b1220;color:#e5e7eb;padding:24px;">
-  <h1 style="font-size:18px;margin:0 0 12px;">Local Companion trusted</h1>
-  <p style="margin:0 0 8px;">We fetched your Companion token on this device.</p>
-  <pre style="white-space:pre-wrap;background:#0f172a;border:1px solid #1e293b;padding:12px;border-radius:8px;">${JSON.stringify({ token, expiresAt }, null, 2)}</pre>
-  <p style="margin:12px 0 16px;">Redirecting you back to the app… If it doesn’t move, <a href="${escapedAttr}" style="color:#a5b4fc;">click here</a>.</p>
-  <script>
-    const target = ${redirectTarget};
-    function go() {
-      try { window.location.replace(target); } catch (err) { window.location.href = target; }
-    }
-    setTimeout(go, 60);
-    setTimeout(() => { try { window.close(); } catch (err) {} }, 1600);
-  </script>
-</body>
-</html>`;
-            res.writeHead(200, {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-              'Access-Control-Allow-Private-Network': 'true'
-            });
-            res.end(html);
-            return;
-          }
-          res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-            'Access-Control-Allow-Private-Network': 'true'
-          });
-          res.end(JSON.stringify({ token, expiresAt }));
-          return;
-        }
-      }
-
-      if (url.pathname === '/api/status-window') {
-        if (!isLoopback(remoteAddress)) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Forbidden' }));
-          return;
-        }
-
-        if (!validateOrigin(origin, allowedOrigins)) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid origin' }));
-          return;
-        }
-
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204, {
-            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-OnTime-Client-Id',
-            'Access-Control-Allow-Private-Network': 'true'
-          });
-          res.end();
-          return;
-        }
-
-        if (req.method === 'GET') {
-          if (!isHeadlessMode()) {
-            showStatusWindow(token, expiresAt);
-          }
-          res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
-            'Access-Control-Allow-Private-Network': 'true'
-          });
-          res.end(JSON.stringify({ success: true, headless: isHeadlessMode() }));
-          return;
-        }
+      // `/api/token` + `/api/status-window` live in token-server.ts (rebuild unit
+      // U3). They short-circuit here; everything below (file routes + 404) is the
+      // pre-carve fallthrough and is byte-faithful with the original handler.
+      if (tokenHandler(req, res)) {
+        return;
       }
 
       if (url.pathname === '/api/open' && req.method === 'OPTIONS') {
@@ -7703,32 +7624,23 @@ function createTokenHandler(token: string, expiresAt: number) {
 }
 
 function startTokenServer(token: string, expiresAt: number) {
+  // The token servers (4001/4441) serve `/api/token`, `/api/status-window`, AND
+  // the file routes (`/api/open`, `/api/file/*`) -- all routed by the
+  // `createTokenHandler` composition root below. Only the `/api/token` +
+  // `/api/status-window` branches were extracted to token-server.ts (U3); file
+  // routes stay byte-faithful here. The lifecycle (create/listen/close) now lives
+  // in token-server.ts and is fed the composed handler.
   const handler = createTokenHandler(token, expiresAt);
-
-  tokenServerV4 = createServer(handler);
-  tokenServerV6 = createServer(handler);
-
-  tokenServerV4.listen(4001, '127.0.0.1', () => {
-    console.log('[http] Token endpoint listening on http://127.0.0.1:4001/api/token');
-  });
-
-  tokenServerV6.listen({ port: 4001, host: '::1', ipv6Only: true }, () => {
-    console.log('[http] Token endpoint listening on http://[::1]:4001/api/token');
-  });
+  const handles = startTokenServerFromModule(handler, tokenServerLifecycle);
+  tokenServerV4 = handles.v4;
+  tokenServerV6 = handles.v6;
 }
 
 function startSecureTokenServer(token: string, expiresAt: number, tls: { key: string; cert: string }) {
   const handler = createTokenHandler(token, expiresAt);
-  tokenServerTlsV4 = createHttpsServer({ key: tls.key, cert: tls.cert }, handler);
-  tokenServerTlsV6 = createHttpsServer({ key: tls.key, cert: tls.cert }, handler);
-
-  tokenServerTlsV4.listen(4441, '127.0.0.1', () => {
-    console.log('[https] Token endpoint listening on https://127.0.0.1:4441/api/token');
-  });
-
-  tokenServerTlsV6.listen({ port: 4441, host: '::1', ipv6Only: true }, () => {
-    console.log('[https] Token endpoint listening on https://[::1]:4441/api/token');
-  });
+  const handles = startSecureTokenServerFromModule(handler, tokenServerLifecycle, tls);
+  tokenServerTlsV4 = handles.v4;
+  tokenServerTlsV6 = handles.v6;
 }
 
 async function loadRoomCache() {
