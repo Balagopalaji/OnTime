@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-07-04._
+_Updated: 2026-07-05._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -129,7 +129,9 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #66 ci(guardrails): ratchet package population to four
 - PR #67 refactor(presentation-core): seed package with mergeCueVideos regression (U6)
 - PR #68 docs(rebuild): sync ledger after U6 package seed
-- PR pending refactor(interface-contracts): seed package with eight control-request wire types (U1 first slice)
+- PR #69 refactor(interface-contracts): seed package with eight control-request wire types (U1 first slice)
+- PR #70 refactor(interface-contracts): adopt /api/token + /api/status-window response contracts (U1 slice 2)
+- PR #71 refactor(interface-contracts): adopt join/heartbeat/client-state wire types (U1 slice 3)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 

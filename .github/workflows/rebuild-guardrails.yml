@@ -60,6 +60,28 @@ jobs:
       - name: Local-sync arbitration tests
         run: npx vitest --run --root . packages/local-sync-arbitration/src/index.test.ts frontend/src/lib/arbitration.test.ts frontend/src/lib/arbitration.mode-bias.test.ts
 
+      # Fable audit F1: every populated §3 package must have typecheck + test
+      # coverage in CI. The three blocks below close the gap left by the U1/U2/U6
+      # package seeds (#65/#67/#69/#70/#71). Each runs the package's own scripts
+      # so the package.json `test`/`typecheck` contracts are the source of truth.
+      - name: Interface-contracts typecheck
+        run: npm run typecheck --workspace @ontime/interface-contracts
+
+      - name: Interface-contracts tests
+        run: npm run test --workspace @ontime/interface-contracts
+
+      - name: Lock-view-model typecheck
+        run: npm run typecheck --workspace @ontime/lock-view-model
+
+      - name: Lock-view-model tests
+        run: npm run test --workspace @ontime/lock-view-model
+
+      - name: Presentation-core typecheck
+        run: npm run typecheck --workspace @ontime/presentation-core
+
+      - name: Presentation-core tests
+        run: npm run test --workspace @ontime/presentation-core
+
       # Stage 1b safety net: run the FULL frontend suite (including the UnifiedDataContext
       # characterization harness, 51 tests) so any carve-out that changes behavior turns this
       # required check red.
