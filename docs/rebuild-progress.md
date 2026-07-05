@@ -126,6 +126,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #63 docs(rebuild): sync ledger — U3 landed (#62), G1 landed (#61)
 - PR #64 ci(guardrails): add package population ratchet (G2)
 - PR #65 refactor(packages): graduate control-lock-reducers to lock-view-model (U2)
+- PR #66 ci(guardrails): ratchet package population to four
+- PR #67 refactor(presentation-core): seed package with mergeCueVideos regression (U6)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -379,16 +381,19 @@ verified and the product decisions were ratified by the owner. Key rulings that 
 - **Re-aimed sequence (see plan §4):** **U3 `/api/token` carve DONE** (#62 → `companion/src/token-server.ts`,
   app-internal; ratchet 7978→7890; authored by a GLM 5.2 agent, Claude-reviewed APPROVE — byte-faithful, shared
   auth helpers correctly left in main.ts, fall-through control-flow preserved + tested). **U2 DONE** (#65 →
-  `packages/lock-view-model`; GLM-authored, Claude-reviewed APPROVE; populated packages 3→4). **Still open, in
-  priority order: U1 — seed `packages/interface-contracts`** (core Socket.IO event types + `/api/token` schema;
-  shrinks BOTH god-files; highest leverage) → U4/U5 `local-sync-arbitration` expansion → U6 `presentation-core`
-  (`mergeCueVideos` + regression) → U7 companion cache adapter → U8 wire the zero-caller predicates.
+  `packages/lock-view-model`; GLM-authored, Claude-reviewed APPROVE; populated packages 3→4). **U6 DONE** (#67 →
+  `packages/presentation-core`; GLM-authored, Claude reviewed the substantive carve and RepoPrompt independently
+  approved the post-CHANGES line-ending-only amend; `mergeCueVideos` + the empty-overwrite regression are now
+  pinned in package tests; populated packages 4→5). **Still open, in priority order: U1 — seed
+  `packages/interface-contracts`** (core Socket.IO event types + `/api/token` schema; shrinks BOTH god-files;
+  highest leverage) → U4/U5 `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the
+  zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
-  are backfilled. **G2 LANDED (#64)** — guardrails count populated §3 target packages (package manifest +
-  `src/index.ts` export surface + at least one test) against the current baseline of 4; U1/U6 should
-  raise it further. Every carve PR must name its §3/§4 destination (the U3 module's marker + this ledger entry
-  are the pattern).
+  are backfilled. **G2 LANDED (#64, ratcheted by #66/#67)** — guardrails count populated §3 target packages
+  (package manifest + `src/index.ts` export surface + at least one test) against the current baseline of 5; U1
+  should raise it further. Every carve PR must name its §3/§4 destination (the U3 module's marker + this ledger
+  entry are the pattern).
 - **Definition of Done (plan §3):** measurable per-stage ratchet ceilings + package population + boundary
   checks; the finish line is both god-files deleted (D5).
 
@@ -414,7 +419,8 @@ for companion; controller installer packaging under npm workspaces (electron hoi
 - ~~triage + fix the 3 genuinely-failing test files (useSortableList, CuesPanel, AppModeContext)~~ **DONE (#28)** — harness bugs (missing `vi` import / missing testing-library `cleanup`), now un-excluded; full frontend suite (211 tests) gates.
 - line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)
 - timer-core CJS build so `companion` can import the canonical elapsed helper (instead of its documented drift-guarded mirror) — deferred by decision (#29); do during companion build/packaging work.
-- `mergeCueVideos` regression during `presentation-core` extraction
+- ~~`mergeCueVideos` regression during `presentation-core` extraction~~ **DONE (#67)** — seeded
+  `packages/presentation-core` and pinned the empty-overwrite regression.
 - iPad viewer polish branch (stashed)
 - controller installer-build release readiness: under npm workspaces, `electron` is hoisted to the root and `electron-builder` cannot compute the Electron version from `controller/`; fix during release-prep by pinning `electronVersion` or installing controller deps unhoisted.
 - companion installer-build release readiness (viewer bundle + tsc steps + ffprobe sourcing)
