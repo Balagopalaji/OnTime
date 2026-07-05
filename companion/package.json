@@ -58,7 +58,8 @@
     "selfsigned": "^2.4.1",
     "jsonwebtoken": "^9.0.2",
     "node-machine-id": "^1.1.12",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "@ontime/interface-contracts": "0.0.0"
   },
   "optionalDependencies": {
     "keytar": "^7.9.0"
