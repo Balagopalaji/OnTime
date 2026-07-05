@@ -51,6 +51,9 @@ import type {
   RequestControlPayload,
   RoomPinState,
   SetRoomPinPayload,
+  HeartbeatPayload,
+  JoinRoomPayload,
+  RoomClientsState,
 } from '@ontime/interface-contracts';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
@@ -261,28 +264,6 @@ async function writePptScript(script: string): Promise<void> {
   }
 }
 
-type JoinRoomPayload = {
-  type: 'JOIN_ROOM';
-  roomId: string;
-  token: string;
-  clientType?: 'controller' | 'viewer';
-  clientId?: string;
-  deviceName?: string;
-  userId?: string;
-  userName?: string;
-  ownerId?: string;
-  takeOver?: boolean;
-  interfaceVersion?: string;
-  reconnectStartedAt?: number;
-};
-
-type HeartbeatPayload = {
-  type: 'HEARTBEAT';
-  roomId: string;
-  clientId: string;
-  timestamp: number;
-};
-
 type ControllerLockState = {
   type: 'CONTROLLER_LOCK_STATE';
   roomId: string;
@@ -297,22 +278,6 @@ type ControlRequestStatus = {
   status: 'queued' | 'cleared';
   reason?: ControlRequestClearReason;
   requestedAt: number;
-  timestamp: number;
-};
-
-type RoomClientsState = {
-  type: 'ROOM_CLIENTS_STATE';
-  roomId: string;
-  clients: Array<{
-    clientId: string;
-    deviceName?: string;
-    userId?: string;
-    userName?: string;
-    clientType: 'controller' | 'viewer';
-    role?: string;
-    tokenId?: string;
-    lastHeartbeat?: number;
-  }>;
   timestamp: number;
 };
 

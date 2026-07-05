@@ -107,3 +107,57 @@ export type StatusWindowResponse = {
 export type ApiErrorResponse = {
   error: string;
 };
+
+// ---------------------------------------------------------------------------
+// Socket.IO join/heartbeat/client-state wire types. Byte/shape-faithful to the
+// definitions adopted from `companion/src/main.ts` (Stage 1b U1 slice 3).
+// Pure primitive object types — no domain/companion/shared-types references.
+// ---------------------------------------------------------------------------
+
+/**
+ * `JOIN_ROOM` client→server payload. Adopted from companion/src/main.ts.
+ */
+export type JoinRoomPayload = {
+  type: 'JOIN_ROOM';
+  roomId: string;
+  token: string;
+  clientType?: 'controller' | 'viewer';
+  clientId?: string;
+  deviceName?: string;
+  userId?: string;
+  userName?: string;
+  ownerId?: string;
+  takeOver?: boolean;
+  interfaceVersion?: string;
+  reconnectStartedAt?: number;
+};
+
+/**
+ * `HEARTBEAT` client→server payload. Adopted from companion/src/main.ts.
+ */
+export type HeartbeatPayload = {
+  type: 'HEARTBEAT';
+  roomId: string;
+  clientId: string;
+  timestamp: number;
+};
+
+/**
+ * `ROOM_CLIENTS_STATE` server→client broadcast. Adopted from
+ * companion/src/main.ts. The `clients` array carries per-client identity.
+ */
+export type RoomClientsState = {
+  type: 'ROOM_CLIENTS_STATE';
+  roomId: string;
+  clients: Array<{
+    clientId: string;
+    deviceName?: string;
+    userId?: string;
+    userName?: string;
+    clientType: 'controller' | 'viewer';
+    role?: string;
+    tokenId?: string;
+    lastHeartbeat?: number;
+  }>;
+  timestamp: number;
+};
