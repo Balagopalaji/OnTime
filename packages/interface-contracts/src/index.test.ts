@@ -6,7 +6,10 @@ import type {
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
+  HeartbeatPayload,
+  JoinRoomPayload,
   RequestControlPayload,
+  RoomClientsState,
   RoomPinState,
   SetRoomPinPayload,
   StatusWindowResponse,
@@ -204,5 +207,90 @@ describe('interface-contracts HTTP response contracts', () => {
     expect(invalidOrigin.error).toBe('Invalid origin')
     const keys: (keyof ApiErrorResponse)[] = ['error']
     expect(keys).toEqual(['error'])
+  })
+})
+
+// Pins the literal `type` discriminants + required-key sets of the three
+// join/heartbeat/client-state wire types adopted in U1 slice 3 from
+// `companion/src/main.ts`. A drift in any discriminant string or required
+// key breaks a Socket.IO event name/shape, so this test is the net.
+
+describe('interface-contracts join/heartbeat/client-state wire types', () => {
+  it('pins the three discriminant strings', () => {
+    const discriminants: {
+      joinRoom: LiteralType<JoinRoomPayload>;
+      heartbeat: LiteralType<HeartbeatPayload>;
+      roomClientsState: LiteralType<RoomClientsState>;
+    } = {
+      joinRoom: 'JOIN_ROOM',
+      heartbeat: 'HEARTBEAT',
+      roomClientsState: 'ROOM_CLIENTS_STATE',
+    }
+    expect(discriminants).toEqual({
+      joinRoom: 'JOIN_ROOM',
+      heartbeat: 'HEARTBEAT',
+      roomClientsState: 'ROOM_CLIENTS_STATE',
+    })
+  })
+
+  it('JoinRoomPayload has the adopted required + optional keys', () => {
+    const requiredOnly: JoinRoomPayload = {
+      type: 'JOIN_ROOM',
+      roomId: 'room-1',
+      token: 'tok',
+    }
+    const full: JoinRoomPayload = {
+      ...requiredOnly,
+      clientType: 'controller',
+      clientId: 'client-a',
+      deviceName: 'dev',
+      userId: 'u',
+      userName: 'n',
+      ownerId: 'owner-1',
+      takeOver: true,
+      interfaceVersion: '2.0.0',
+      reconnectStartedAt: 1,
+    }
+    expect(requiredOnly.clientId).toBeUndefined()
+    expect(full.takeOver).toBe(true)
+    expect(full.reconnectStartedAt).toBe(1)
+  })
+
+  it('HeartbeatPayload has exactly { type, roomId, clientId, timestamp }', () => {
+    const hb: HeartbeatPayload = {
+      type: 'HEARTBEAT',
+      roomId: 'room-1',
+      clientId: 'client-a',
+      timestamp: 1,
+    }
+    const keys: (keyof HeartbeatPayload)[] = ['type', 'roomId', 'clientId', 'timestamp']
+    expect(keys).toEqual(['type', 'roomId', 'clientId', 'timestamp'])
+    expect(hb.timestamp).toBe(1)
+  })
+
+  it('RoomClientsState carries the client array with required identity fields', () => {
+    const state: RoomClientsState = {
+      type: 'ROOM_CLIENTS_STATE',
+      roomId: 'room-1',
+      clients: [
+        {
+          clientId: 'client-a',
+          clientType: 'controller',
+        },
+        {
+          clientId: 'client-b',
+          clientType: 'viewer',
+          deviceName: 'viewer-dev',
+          role: 'stage',
+          tokenId: 'tok-1',
+          lastHeartbeat: 99,
+        },
+      ],
+      timestamp: 1,
+    }
+    expect(state.clients[0].clientType).toBe('controller')
+    expect(state.clients[0].deviceName).toBeUndefined()
+    expect(state.clients[1].tokenId).toBe('tok-1')
+    expect(state.timestamp).toBe(1)
   })
 })
