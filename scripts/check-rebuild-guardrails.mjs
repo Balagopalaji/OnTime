@@ -301,7 +301,7 @@ const TARGET_PACKAGE_NAMES = [
   'lock-view-model',
 ]
 
-const PACKAGE_POPULATION_BASELINE = 4
+const PACKAGE_POPULATION_BASELINE = 5
 let packagePopulationStatus = ''
 
 function hasPackageTest(pkg) {
@@ -338,7 +338,7 @@ function checkPackagePopulationRatchet() {
 // Stage-1b ratchet: these legacy god-files may only SHRINK. Carve-outs that reduce a file
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
-  'frontend/src/context/UnifiedDataContext.tsx': 6707,
+  'frontend/src/context/UnifiedDataContext.tsx': 6662,
   'companion/src/main.ts': 7890,
 }
 

@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
+import { mergeCueVideos } from '@ontime/presentation-core'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -5119,52 +5120,6 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const companionRecords = Object.values(companionLiveCues[roomId] ?? {})
       if (!isCompanionLive() || !shouldUseCompanion(roomId)) {
         return firebaseRecords
-      }
-
-      const mergeCueVideos = (existing: LiveCueRecord, incoming: LiveCueRecord): LiveCueRecord => {
-        const existingVideos = existing.cue.metadata?.videos ?? []
-        const incomingVideos = incoming.cue.metadata?.videos ?? []
-        if (incomingVideos.length === 0 && existingVideos.length === 0) return incoming
-        if (incomingVideos.length === 0) {
-          return {
-            ...incoming,
-            cue: {
-              ...incoming.cue,
-              metadata: {
-                ...incoming.cue.metadata,
-                videos: existingVideos,
-              },
-            },
-          }
-        }
-        if (existingVideos.length === 0) return incoming
-        const mergedVideos = incomingVideos.map((video) => {
-          const match =
-            existingVideos.find((entry) => entry.id !== undefined && entry.id === video.id) ??
-            existingVideos.find((entry) => entry.name && entry.name === video.name)
-          if (!match) return video
-          return {
-            ...match,
-            ...video,
-            id: video.id ?? match.id,
-            name: video.name ?? match.name,
-            duration: video.duration ?? match.duration,
-            elapsed: video.elapsed ?? match.elapsed,
-            remaining: video.remaining ?? match.remaining,
-            playing: video.playing ?? match.playing,
-            status: video.status ?? match.status,
-          }
-        })
-        return {
-          ...incoming,
-          cue: {
-            ...incoming.cue,
-            metadata: {
-              ...incoming.cue.metadata,
-              videos: mergedVideos,
-            },
-          },
-        }
       }
 
       const merged = new Map<string, LiveCueRecord>()

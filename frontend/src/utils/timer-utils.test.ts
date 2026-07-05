@@ -77,7 +77,8 @@ describe('timer-utils: mergeProgress priority (fresh wins, cache fills gaps)', (
   })
 })
 
-// TODO(rebuild/presentation-core): add a regression test for the live-cue `videos[]`
-// empty-overwrite bug (edge-cases.md §7) once `mergeCueVideos` is extracted from
-// UnifiedDataContext into a testable presentation-core module. It is the same
-// merge-priority defect class as the progress merge above.
+// NOTE(rebuild/presentation-core): the live-cue `videos[]` empty-overwrite
+// regression (edge-cases.md §7) is now pinned in
+// `packages/presentation-core/src/index.test.ts` after U6 extracted
+// `mergeCueVideos` out of UnifiedDataContext. It is the same merge-priority
+// defect class as the progress merge above.
