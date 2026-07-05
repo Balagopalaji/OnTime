@@ -14,6 +14,7 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@ontime/interface-contracts": "0.0.0",
     "@ontime/local-sync-arbitration": "0.0.0",
     "@ontime/lock-view-model": "0.0.0",
     "@ontime/presentation-core": "0.0.0",
