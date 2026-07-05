@@ -6,6 +6,7 @@ import type {
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
+  HandshakeAck,
   HandshakeError,
   HeartbeatPayload,
   JoinRoomPayload,
@@ -347,5 +348,112 @@ describe('interface-contracts HandshakeError wire type', () => {
       message: 'Handshake still pending.',
     }
     expect(pending.code).toBe('HANDSHAKE_PENDING')
+  })
+})
+
+// Pins the `HandshakeAck` server→client payload adopted in U1 slice 5 from
+// `companion/src/main.ts` (`createHandshakeAck`). `success` is the literal
+// discriminant `true`; `companionMode` is a closed 3-value union;
+// `systemInfo.platform` inlines the `NodeJS.Platform` union so the package has
+// no `@types/node` dependency. A drift in the discriminant, the unions, or the
+// required-key set breaks the wire event.
+
+describe('interface-contracts HandshakeAck wire type', () => {
+  it('pins the HANDSHAKE_ACK type discriminant', () => {
+    const discriminant: LiteralType<HandshakeAck> = 'HANDSHAKE_ACK'
+    expect(discriminant).toBe('HANDSHAKE_ACK')
+  })
+
+  it('pins the literal `success: true` discriminant', () => {
+    type LiteralSuccess = HandshakeAck extends { success: infer S } ? S : never
+    const discriminant: LiteralSuccess = true
+    expect(discriminant).toBe(true)
+  })
+
+  it('admits optional roomId and requires the identity/version keys', () => {
+    const withoutRoom: HandshakeAck = {
+      type: 'HANDSHAKE_ACK',
+      success: true,
+      companionMode: 'show_control',
+      companionVersion: '0.1.1-dev.2',
+      interfaceVersion: '1.2.0',
+      capabilities: { powerpoint: true, externalVideo: false, fileOperations: true },
+      systemInfo: { platform: 'darwin', hostname: 'local' },
+    }
+    const withRoom: HandshakeAck = { ...withoutRoom, roomId: 'room-1' }
+    expect(withoutRoom.roomId).toBeUndefined()
+    expect(withRoom.roomId).toBe('room-1')
+    expect(withoutRoom.companionVersion).toBe('0.1.1-dev.2')
+    expect(withoutRoom.interfaceVersion).toBe('1.2.0')
+  })
+
+  it('pins the closed three-value companionMode union', () => {
+    type Mode = HandshakeAck extends { companionMode: infer M } ? M : never
+    const minimal: Mode = 'minimal'
+    const showControl: Mode = 'show_control'
+    const production: Mode = 'production'
+    expect([minimal, showControl, production]).toEqual([
+      'minimal',
+      'show_control',
+      'production',
+    ])
+    const allModes: Mode[] = ['minimal', 'show_control', 'production']
+    expect(new Set(allModes).size).toBe(3)
+  })
+
+  it('requires the three capability flags', () => {
+    const capabilities = {
+      powerpoint: true,
+      externalVideo: false,
+      fileOperations: true,
+    }
+    const ack: HandshakeAck = {
+      type: 'HANDSHAKE_ACK',
+      success: true,
+      companionMode: 'production',
+      companionVersion: '0.1.1-dev.2',
+      interfaceVersion: '1.2.0',
+      capabilities,
+      systemInfo: { platform: 'win32', hostname: 'stage-pc' },
+    }
+    expect(ack.capabilities).toEqual({
+      powerpoint: true,
+      externalVideo: false,
+      fileOperations: true,
+    })
+  })
+
+  it('pins the systemInfo.platform union (NodeJS.Platform inlined) + hostname', () => {
+    type Platform = HandshakeAck extends { systemInfo: { platform: infer P } } ? P : never
+    const darwin: Platform = 'darwin'
+    const linux: Platform = 'linux'
+    const win32: Platform = 'win32'
+    expect([darwin, linux, win32]).toEqual(['darwin', 'linux', 'win32'])
+    // Compile-time: the union is the 11-value NodeJS.Platform set.
+    const allPlatforms: Platform[] = [
+      'aix',
+      'android',
+      'darwin',
+      'freebsd',
+      'haiku',
+      'linux',
+      'openbsd',
+      'sunos',
+      'win32',
+      'cygwin',
+      'netbsd',
+    ]
+    expect(new Set(allPlatforms).size).toBe(11)
+
+    const ack: HandshakeAck = {
+      type: 'HANDSHAKE_ACK',
+      success: true,
+      companionMode: 'minimal',
+      companionVersion: '0.1.1-dev.2',
+      interfaceVersion: '1.2.0',
+      capabilities: { powerpoint: false, externalVideo: false, fileOperations: false },
+      systemInfo: { platform: 'darwin', hostname: 'local' },
+    }
+    expect(ack.systemInfo.hostname).toBe('local')
   })
 })

@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import type { HandshakeError, TokenResponse } from '@ontime/interface-contracts'
+import type { HandshakeAck, HandshakeError, TokenResponse } from '@ontime/interface-contracts'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 type ReconnectState = 'idle' | 'reconnecting' | 'stopped'
@@ -43,25 +43,6 @@ export type CompanionConnectionContextValue = {
   markHandshakePending: () => void
   retryConnection: () => void
 }
-
-type HandshakeAck = {
-  type: 'HANDSHAKE_ACK'
-  success: boolean
-  roomId?: string
-  companionMode: string
-  companionVersion: string
-  interfaceVersion?: string
-  capabilities: {
-    powerpoint: boolean
-    externalVideo: boolean
-    fileOperations: boolean
-  }
-  systemInfo: {
-    platform: string
-    hostname: string
-  }
-}
-
 
 type CompanionModeChanged = {
   type: 'COMPANION_MODE_CHANGED'

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { mergeCueVideos } from '@ontime/presentation-core'
-import type { HandshakeError } from '@ontime/interface-contracts'
+import type { HandshakeAck, HandshakeError } from '@ontime/interface-contracts'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -3989,7 +3989,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       })()
     }
 
-    const handleHandshakeAckQueue = (ack?: { roomId?: string }) => {
+    const handleHandshakeAckQueue = (ack?: HandshakeAck) => {
       logReconnectTrace('handshake_ack_unified', { roomId: ack?.roomId })
       joinPendingRef.current = false
       clearJoinPendingWatchdog()

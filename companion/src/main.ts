@@ -49,6 +49,7 @@ import type {
   ForceTakeoverPayload,
   HandOverPayload,
   HandshakeError,
+  HandshakeAck,
   RequestControlPayload,
   RoomPinState,
   SetRoomPinPayload,
@@ -281,25 +282,6 @@ type ControlRequestStatus = {
   requestedAt: number;
   timestamp: number;
 };
-
-type HandshakeAck = {
-  type: 'HANDSHAKE_ACK';
-  success: true;
-  roomId?: string;
-  companionMode: CompanionMode;
-  companionVersion: string;
-  interfaceVersion: string;
-  capabilities: {
-    powerpoint: boolean;
-    externalVideo: boolean;
-    fileOperations: boolean;
-  };
-  systemInfo: {
-    platform: NodeJS.Platform;
-    hostname: string;
-  };
-};
-
 
 type RoomState = {
   activeTimerId: string | null;

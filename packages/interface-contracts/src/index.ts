@@ -181,3 +181,50 @@ export type HandshakeError = {
   code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN' | 'HANDSHAKE_PENDING';
   message: string;
 };
+
+// ---------------------------------------------------------------------------
+// Server → Client `HANDSHAKE_ACK` payload. Adopted from
+// `companion/src/main.ts` (the `createHandshakeAck` emit shape) in Stage 1b
+// U1 slice 5. `success` is the literal discriminant `true` (not a boolean),
+// matching the wire body; `companionMode` is a closed 3-value union inlined
+// from companion's `CompanionMode`; `systemInfo.platform` inlines the
+// `NodeJS.Platform` union so this package stays `@types/node`-free (the
+// frontend app build does not auto-load `@types/node`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Server → Client `HANDSHAKE_ACK` payload.
+ * Source: `companion/src/main.ts` `createHandshakeAck`. `success` is the
+ * literal discriminant `true` (the companion always emits `true` on this path).
+ * `companionMode` is the 3-value union from companion's `CompanionMode`.
+ * `systemInfo.platform` inlines `NodeJS.Platform` to keep this package free of
+ * `@types/node` (see header above).
+ */
+export type HandshakeAck = {
+  type: 'HANDSHAKE_ACK';
+  success: true;
+  roomId?: string;
+  companionMode: 'minimal' | 'show_control' | 'production';
+  companionVersion: string;
+  interfaceVersion: string;
+  capabilities: {
+    powerpoint: boolean;
+    externalVideo: boolean;
+    fileOperations: boolean;
+  };
+  systemInfo: {
+    platform:
+      | 'aix'
+      | 'android'
+      | 'darwin'
+      | 'freebsd'
+      | 'haiku'
+      | 'linux'
+      | 'openbsd'
+      | 'sunos'
+      | 'win32'
+      | 'cygwin'
+      | 'netbsd';
+    hostname: string;
+  };
+};
