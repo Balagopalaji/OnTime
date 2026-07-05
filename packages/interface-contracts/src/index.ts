@@ -81,7 +81,7 @@ export type SetRoomPinPayload = {
 
 /**
  * `/api/token` GET success body.
- * Source: token-server.ts:179 `res.end(JSON.stringify({ token, expiresAt }))`.
+ * Source: `companion/src/token-server.ts` — `res.end(JSON.stringify({ token, expiresAt }))`.
  */
 export type TokenResponse = {
   token: string;
@@ -90,7 +90,7 @@ export type TokenResponse = {
 
 /**
  * `/api/status-window` GET success body.
- * Source: token-server.ts:217
+ * Source: `companion/src/token-server.ts` —
  * `res.end(JSON.stringify({ success: true, headless: isHeadlessMode() }))`.
  * The `success` field is the literal discriminant `true` (not a boolean).
  */
@@ -101,8 +101,8 @@ export type StatusWindowResponse = {
 
 /**
  * Shared 403 error body emitted by both loopback routes.
- * Sources: token-server.ts:115 (`{ error: 'Forbidden' }`), :121
- * (`{ error: 'Invalid origin' }`), :187, :193.
+ * Sources: `companion/src/token-server.ts` — `{ error: 'Forbidden' }` and
+ * `{ error: 'Invalid origin' }` on the origin/validation paths.
  */
 export type ApiErrorResponse = {
   error: string;
