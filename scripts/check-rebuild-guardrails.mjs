@@ -301,7 +301,7 @@ const TARGET_PACKAGE_NAMES = [
   'lock-view-model',
 ]
 
-const PACKAGE_POPULATION_BASELINE = 5
+const PACKAGE_POPULATION_BASELINE = 6
 let packagePopulationStatus = ''
 
 function hasPackageTest(pkg) {
@@ -339,7 +339,7 @@ function checkPackagePopulationRatchet() {
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
   'frontend/src/context/UnifiedDataContext.tsx': 6662,
-  'companion/src/main.ts': 7890,
+  'companion/src/main.ts': 7832,
 }
 
 function checkGodFileRatchet() {

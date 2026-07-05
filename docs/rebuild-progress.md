@@ -128,6 +128,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #65 refactor(packages): graduate control-lock-reducers to lock-view-model (U2)
 - PR #66 ci(guardrails): ratchet package population to four
 - PR #67 refactor(presentation-core): seed package with mergeCueVideos regression (U6)
+- PR #68 docs(rebuild): sync ledger after U6 package seed
+- PR pending refactor(interface-contracts): seed package with eight control-request wire types (U1 first slice)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -384,10 +386,18 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   `packages/lock-view-model`; GLM-authored, Claude-reviewed APPROVE; populated packages 3→4). **U6 DONE** (#67 →
   `packages/presentation-core`; GLM-authored, Claude reviewed the substantive carve and RepoPrompt independently
   approved the post-CHANGES line-ending-only amend; `mergeCueVideos` + the empty-overwrite regression are now
-  pinned in package tests; populated packages 4→5). **Still open, in priority order: U1 — seed
-  `packages/interface-contracts`** (core Socket.IO event types + `/api/token` schema; shrinks BOTH god-files;
-  highest leverage) → U4/U5 `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the
-  zero-caller predicates.
+  pinned in package tests; populated packages 4→5). **U1 first slice DONE** (pending PR →
+  `packages/interface-contracts`; GLM 5.2-authored, type-only adoption of eight pure control-request wire
+  types from `companion/src/main.ts` — `RequestControlPayload`/`ControlRequestReceived`/
+  `ForceTakeoverPayload`/`HandOverPayload`/`DenyControlPayload`/`ControlRequestDenied`/`RoomPinState`/
+  `SetRoomPinPayload`; companion imports them via `import type { … } from '@ontime/interface-contracts'`;
+  populated packages 5→6, baseline raised 5→6; companion god-file ratchet lowered 7890→7832; no TS1541 —
+  package has no `"type": "module"` so Node16/CJS companion resolves it cleanly; `ControllerLockState`,
+  `ControlRequestStatus`, `HandshakeAck`, room/client/timer/domain types, and all runtime logic untouched).
+  **U1 remainder still open**: the rest of the wire block (`main.ts:~247–990`), the `/api/token` schema,
+  and the frontend god-file's wire-shape duplicates are deferred to follow-up U1 slices per the task brief
+  (keep the PR small; do not move the rest of the wire block). **Then, in priority order:** U4/U5
+  `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
   are backfilled. **G2 LANDED (#64, ratcheted by #66/#67)** — guardrails count populated §3 target packages

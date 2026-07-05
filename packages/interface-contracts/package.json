@@ -1,0 +1,12 @@
+{
+  "name": "@ontime/interface-contracts",
+  "private": true,
+  "version": "0.0.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest --run src/index.test.ts"
+  }
+}

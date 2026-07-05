@@ -42,6 +42,16 @@ import {
   type TokenServerDeps,
   type TokenServerLifecycleDeps,
 } from './token-server';
+import type {
+  ControlRequestDenied,
+  ControlRequestReceived,
+  DenyControlPayload,
+  ForceTakeoverPayload,
+  HandOverPayload,
+  RequestControlPayload,
+  RoomPinState,
+  SetRoomPinPayload,
+} from '@ontime/interface-contracts';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
@@ -280,60 +290,6 @@ type ControllerLockState = {
   timestamp: number;
 };
 
-type RequestControlPayload = {
-  type: 'REQUEST_CONTROL';
-  roomId: string;
-  clientId: string;
-  deviceName?: string;
-  userId?: string;
-  userName?: string;
-  timestamp: number;
-};
-
-type ControlRequestReceived = {
-  type: 'CONTROL_REQUEST_RECEIVED';
-  roomId: string;
-  requesterId: string;
-  requesterName?: string;
-  requesterUserId?: string;
-  requesterUserName?: string;
-  timestamp: number;
-};
-
-type ForceTakeoverPayload = {
-  type: 'FORCE_TAKEOVER';
-  roomId: string;
-  clientId: string;
-  pin?: string;
-  reauthenticated?: boolean;
-  timestamp: number;
-};
-
-type HandOverPayload = {
-  type: 'HAND_OVER';
-  roomId: string;
-  targetClientId: string;
-  timestamp: number;
-};
-
-type DenyControlPayload = {
-  type: 'DENY_CONTROL';
-  roomId: string;
-  requesterId: string;
-  timestamp: number;
-};
-
-type ControlRequestDenied = {
-  type: 'CONTROL_REQUEST_DENIED';
-  roomId: string;
-  requesterId: string;
-  timestamp: number;
-  reason?: string;
-  deniedByName?: string;
-  deniedByUserId?: string;
-  deniedByUserName?: string;
-};
-
 type ControlRequestStatus = {
   type: 'CONTROL_REQUEST_STATUS';
   roomId: string;
@@ -341,20 +297,6 @@ type ControlRequestStatus = {
   status: 'queued' | 'cleared';
   reason?: ControlRequestClearReason;
   requestedAt: number;
-  timestamp: number;
-};
-
-type RoomPinState = {
-  type: 'ROOM_PIN_STATE';
-  roomId: string;
-  pin: string | null;
-  updatedAt: number;
-};
-
-type SetRoomPinPayload = {
-  type: 'SET_ROOM_PIN';
-  roomId: string;
-  pin?: string | null;
   timestamp: number;
 };
 
