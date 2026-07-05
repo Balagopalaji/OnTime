@@ -161,3 +161,23 @@ export type RoomClientsState = {
   }>;
   timestamp: number;
 };
+
+// ---------------------------------------------------------------------------
+// Server → Client `HANDSHAKE_ERROR` payload. Adopted from
+// `companion/src/main.ts` (the strict `handleJoinRoom` emit shape) in
+// Stage 1b U1 slice 4. `HANDSHAKE_PENDING` is a Companion-only fourth code
+// over the three (`INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`)
+// currently listed in docs/interface.md §3.3 — recorded here per plan D6
+// (docs/rebuild-plan.md); the doc reconciliation is the M-C follow-up.
+// ---------------------------------------------------------------------------
+
+/**
+ * Server → Client `HANDSHAKE_ERROR` payload.
+ * Source: `companion/src/main.ts` `handleJoinRoom` emits at the seven
+ * rejection sites. `HANDSHAKE_PENDING` is Companion-only (see header above).
+ */
+export type HandshakeError = {
+  type: 'HANDSHAKE_ERROR';
+  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN' | 'HANDSHAKE_PENDING';
+  message: string;
+};

@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import type { TokenResponse } from '@ontime/interface-contracts'
+import type { HandshakeError, TokenResponse } from '@ontime/interface-contracts'
 
 type HandshakeStatus = 'idle' | 'pending' | 'ack' | 'error'
 type ReconnectState = 'idle' | 'reconnecting' | 'stopped'
@@ -62,11 +62,6 @@ type HandshakeAck = {
   }
 }
 
-type HandshakeError = {
-  type: 'HANDSHAKE_ERROR'
-  code?: string
-  message?: string
-}
 
 type CompanionModeChanged = {
   type: 'COMPANION_MODE_CHANGED'

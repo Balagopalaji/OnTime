@@ -132,7 +132,7 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #69 refactor(interface-contracts): seed package with eight control-request wire types (U1 first slice)
 - PR #70 refactor(interface-contracts): adopt /api/token + /api/status-window response contracts (U1 slice 2)
 - PR #71 refactor(interface-contracts): adopt join/heartbeat/client-state wire types (U1 slice 3)
-
+- (pending) refactor(interface-contracts): adopt strict `HandshakeError` wire type (U1 slice 4)
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
 While Codex was offline I (Claude/consultant) did, with the user's authorization:
@@ -396,6 +396,18 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   populated packages 5→6, baseline raised 5→6; companion god-file ratchet lowered 7890→7832; no TS1541 —
   package has no `"type": "module"` so Node16/CJS companion resolves it cleanly; `ControllerLockState`,
   `ControlRequestStatus`, `HandshakeAck`, room/client/timer/domain types, and all runtime logic untouched).
+  **U1 slice 4 DONE** (pending PR → `packages/interface-contracts`; GLM 5.2-authored, type-only adoption of
+  the strict `HandshakeError` server→client payload — `{ type: 'HANDSHAKE_ERROR', code: 'INVALID_TOKEN' |
+  'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN' | 'HANDSHAKE_PENDING', message: string }`). Companion's
+  `main.ts` strict definition is the source of truth; three loose frontend dups deleted
+  (`UnifiedDataContext.tsx`, `CompanionConnectionContext.tsx` named types + `ViewerPage.tsx` inline
+  `{ code?: string }`), all three now `import type { HandshakeError }`. `HANDSHAKE_PENDING` is a
+  Companion-only fourth code over `docs/interface.md` §3.3's three — recorded in the package per D6
+  (M-C docs reconciliation is the follow-up, not this slice). God-file ratchets lowered:
+  `main.ts` 7797→7793, `UnifiedDataContext.tsx` 6662→6658. No behavior change (the test trigger payload
+  at `UnifiedDataContext.test.ts:781` already matched the strict shape). G5 one-definition tripwire
+  deferred until the rest of the wire block (`HandshakeAck`/`JoinRoomPayload`/…) migrates in subsequent
+  U1 slices.
   **U1 remainder still open**: the rest of the wire block (`main.ts:~247–990`), the `/api/token` schema,
   and the frontend god-file's wire-shape duplicates are deferred to follow-up U1 slices per the task brief
   (keep the PR small; do not move the rest of the wire block). **Then, in priority order:** U4/U5

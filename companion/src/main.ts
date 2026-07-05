@@ -48,6 +48,7 @@ import type {
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
+  HandshakeError,
   RequestControlPayload,
   RoomPinState,
   SetRoomPinPayload,
@@ -299,11 +300,6 @@ type HandshakeAck = {
   };
 };
 
-type HandshakeError = {
-  type: 'HANDSHAKE_ERROR';
-  code: 'INVALID_TOKEN' | 'INVALID_PAYLOAD' | 'CONTROLLER_TAKEN' | 'HANDSHAKE_PENDING';
-  message: string;
-};
 
 type RoomState = {
   activeTimerId: string | null;
