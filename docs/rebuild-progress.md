@@ -132,7 +132,8 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #69 refactor(interface-contracts): seed package with eight control-request wire types (U1 first slice)
 - PR #70 refactor(interface-contracts): adopt /api/token + /api/status-window response contracts (U1 slice 2)
 - PR #71 refactor(interface-contracts): adopt join/heartbeat/client-state wire types (U1 slice 3)
-- (pending) refactor(interface-contracts): adopt strict `HandshakeError` wire type (U1 slice 4)
+- PR #73 refactor(interface-contracts): adopt strict `HandshakeError` wire type (U1 slice 4)
+- (pending) refactor(interface-contracts): adopt strict `HandshakeAck` wire type (U1 slice 5)
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
 While Codex was offline I (Claude/consultant) did, with the user's authorization:
@@ -408,6 +409,18 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   at `UnifiedDataContext.test.ts:781` already matched the strict shape). G5 one-definition tripwire
   deferred until the rest of the wire block (`HandshakeAck`/`JoinRoomPayload`/…) migrates in subsequent
   U1 slices.
+  **U1 slice 5 DONE** (pending PR → `packages/interface-contracts`; GLM 5.2-authored, type-only adoption of
+  the strict `HandshakeAck` server→client payload from `companion/src/main.ts` `createHandshakeAck` —
+  `{ type: 'HANDSHAKE_ACK', success: true, roomId?, companionMode: 'minimal'|'show_control'|'production',
+  companionVersion, interfaceVersion, capabilities, systemInfo }`). Companion's `main.ts` strict definition
+  is the source of truth; the local type is deleted and imported via `import type`. Two loose frontend dups
+  tightened: `CompanionConnectionContext.tsx` (`success: boolean`/`interfaceVersion?`/`platform: string`) now
+  imports the strict type, and `UnifiedDataContext.tsx`'s inline `(ack?: { roomId?: string })` queue handler
+  now takes `(ack?: HandshakeAck)`. `success` is the literal `true` (matches the wire body); `companionMode`
+  and `systemInfo.platform` (the 11-value `NodeJS.Platform` union) are inlined so the package stays
+  `@types/node`-free (the frontend app build does not auto-load `@types/node`). God-file ratchet lowered:
+  `main.ts` 7793→7775. No behavior change. G5 one-definition tripwire deferred until the rest of the wire
+  block migrates in subsequent U1 slices.
   **U1 remainder still open**: the rest of the wire block (`main.ts:~247–990`), the `/api/token` schema,
   and the frontend god-file's wire-shape duplicates are deferred to follow-up U1 slices per the task brief
   (keep the PR small; do not move the rest of the wire block). **Then, in priority order:** U4/U5
