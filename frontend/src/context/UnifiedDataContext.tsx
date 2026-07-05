@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { mergeCueVideos } from '@ontime/presentation-core'
+import type { HandshakeError } from '@ontime/interface-contracts'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -229,11 +230,6 @@ export const resolveReconciledTimerTargetId = ({
   return timers[0]?.id ?? null
 }
 
-type HandshakeError = {
-  type: 'HANDSHAKE_ERROR'
-  code?: string
-  message?: string
-}
 
 type ControllerLockStatePayload = {
   type: 'CONTROLLER_LOCK_STATE'

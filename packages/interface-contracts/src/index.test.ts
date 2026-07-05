@@ -6,6 +6,7 @@ import type {
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
+  HandshakeError,
   HeartbeatPayload,
   JoinRoomPayload,
   RequestControlPayload,
@@ -292,5 +293,59 @@ describe('interface-contracts join/heartbeat/client-state wire types', () => {
     expect(state.clients[0].deviceName).toBeUndefined()
     expect(state.clients[1].tokenId).toBe('tok-1')
     expect(state.timestamp).toBe(1)
+  })
+})
+
+// Pins the `HandshakeError` server→client payload adopted in U1 slice 4 from
+// `companion/src/main.ts` (the strict `handleJoinRoom` emit shape). The
+// `code` union is a closed 4-value set; `HANDSHAKE_PENDING` is a Companion-only
+// fourth code over docs/interface.md §3.3's three (plan D6). A drift in the
+// discriminant, the union, or the required-key set breaks the wire event.
+
+describe('interface-contracts HandshakeError wire type', () => {
+  it('pins the HANDSHAKE_ERROR type discriminant', () => {
+    const discriminant: LiteralType<HandshakeError> = 'HANDSHAKE_ERROR'
+    expect(discriminant).toBe('HANDSHAKE_ERROR')
+  })
+
+  it('pins the closed four-code union (INVALID_TOKEN | INVALID_PAYLOAD | CONTROLLER_TAKEN | HANDSHAKE_PENDING)', () => {
+    type Code = HandshakeError extends { code: infer C } ? C : never
+    // Each literal is assignable to the union; an unrelated string is not.
+    const invalidToken: Code = 'INVALID_TOKEN'
+    const invalidPayload: Code = 'INVALID_PAYLOAD'
+    const controllerTaken: Code = 'CONTROLLER_TAKEN'
+    const handshakePending: Code = 'HANDSHAKE_PENDING'
+    expect([invalidToken, invalidPayload, controllerTaken, handshakePending]).toEqual([
+      'INVALID_TOKEN',
+      'INVALID_PAYLOAD',
+      'CONTROLLER_TAKEN',
+      'HANDSHAKE_PENDING',
+    ])
+
+    // Compile-time exhaustiveness: a value of type Code must be one of the four.
+    // If the union widens, this assertion's literal set no longer covers it.
+    const allCodes: Code[] = ['INVALID_TOKEN', 'INVALID_PAYLOAD', 'CONTROLLER_TAKEN', 'HANDSHAKE_PENDING']
+    expect(new Set(allCodes).size).toBe(4)
+  })
+
+  it('requires message: string and the literal type tag', () => {
+    const err: HandshakeError = {
+      type: 'HANDSHAKE_ERROR',
+      code: 'INVALID_TOKEN',
+      message: 'Pairing expired or revoked.',
+    }
+    const keys: (keyof HandshakeError)[] = ['type', 'code', 'message']
+    expect(keys).toEqual(['type', 'code', 'message'])
+    expect(err.type).toBe('HANDSHAKE_ERROR')
+    expect(err.message).toBe('Pairing expired or revoked.')
+  })
+
+  it('admits the Companion-only HANDSHAKE_PENDING code', () => {
+    const pending: HandshakeError = {
+      type: 'HANDSHAKE_ERROR',
+      code: 'HANDSHAKE_PENDING',
+      message: 'Handshake still pending.',
+    }
+    expect(pending.code).toBe('HANDSHAKE_PENDING')
   })
 })

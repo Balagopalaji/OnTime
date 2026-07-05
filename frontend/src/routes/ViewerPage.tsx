@@ -13,6 +13,7 @@ import { useAppMode } from '../context/AppModeContext'
 import { useRoom } from '../hooks/useRoom'
 import { useTimers } from '../hooks/useTimers'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
+import type { HandshakeError } from '@ontime/interface-contracts'
 import { claimLanPairing } from '../lib/companion-pairing'
 
 type ViewerTokenState = {
@@ -120,7 +121,7 @@ export const ViewerPage = () => {
   useEffect(() => {
     const socket = companion.socket
     if (!socket || !roomId) return
-    const handleHandshakeError = (err: { code?: string }) => {
+    const handleHandshakeError = (err: HandshakeError) => {
       if (err?.code !== 'INVALID_TOKEN') return
       clearViewerToken(roomId)
       setViewerToken(null)
