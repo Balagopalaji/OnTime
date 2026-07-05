@@ -18,6 +18,7 @@ import { getAllTimezones } from '../lib/timezones'
 import { useAppMode } from '../context/AppModeContext'
 import { getCloudViewerUrl } from '../lib/viewer-links'
 import { computeRemaining, resolveTimerElapsed } from '../utils/timer-utils'
+import type { TokenResponse } from '@ontime/interface-contracts'
 
 const DEBUG_SORTABLE = false
 const COMPANION_ROOM_FRESH_MS = 90_000
@@ -220,7 +221,7 @@ export const DashboardPage = () => {
         headers: { Origin: window.location.origin },
       })
       if (!res.ok) return null
-      const data = (await res.json()) as { token?: string }
+      const data = (await res.json()) as TokenResponse
       if (!data.token) return null
       sessionStorage.setItem('ontime:companionToken', data.token)
       return data.token

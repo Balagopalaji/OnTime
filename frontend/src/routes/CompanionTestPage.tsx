@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { CompanionDataProvider } from '../context/CompanionDataContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataContext'
+import type { TokenResponse } from '@ontime/interface-contracts'
 
 const CompanionTestInner = () => {
   const SESSION_TOKEN_KEY = 'ontime:companionToken'
@@ -59,7 +60,7 @@ const CompanionTestInner = () => {
         console.warn('[companion-test] Failed to fetch token', res.status)
         return
       }
-      const data = (await res.json()) as { token?: string }
+      const data = (await res.json()) as TokenResponse
       if (data.token) {
         setToken(data.token)
         sessionStorage.setItem(SESSION_TOKEN_KEY, data.token)

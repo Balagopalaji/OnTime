@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppMode } from '../context/AppModeContext'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import { useDataContext } from '../context/DataProvider'
+import type { TokenResponse } from '@ontime/interface-contracts'
 
 const SESSION_TOKEN_KEY = 'ontime:companionToken'
 const LAST_ROOM_KEY = 'ontime:lastCompanionRoomId'
@@ -28,7 +29,7 @@ export const LocalModePage = () => {
       headers: { Origin: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173' },
     })
     if (!res.ok) return
-    const data = (await res.json()) as { token?: string }
+    const data = (await res.json()) as TokenResponse
     if (data.token) {
       setToken(data.token)
       sessionStorage.setItem(SESSION_TOKEN_KEY, data.token)

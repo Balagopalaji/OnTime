@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type {
+  ApiErrorResponse,
   ControlRequestDenied,
   ControlRequestReceived,
   DenyControlPayload,
@@ -8,6 +9,8 @@ import type {
   RequestControlPayload,
   RoomPinState,
   SetRoomPinPayload,
+  StatusWindowResponse,
+  TokenResponse,
 } from './index'
 
 // Pins the literal `type` discriminants of the eight control-request wire types.
@@ -154,5 +157,52 @@ describe('interface-contracts control-request wire types', () => {
     }
     expect(received.requesterName).toBeUndefined()
     expect(named.requesterName).toBe('dev')
+  })
+})
+
+// Pins the required-key sets of the three HTTP response contracts adopted in
+// U1 slice 2 from companion/src/token-server.ts. A drift in any required key
+// (or in the literal `success: true` discriminant) breaks a wire shape.
+
+describe('interface-contracts HTTP response contracts', () => {
+  it('TokenResponse has exactly { token, expiresAt }', () => {
+    const body: TokenResponse = {
+      token: 'tok-123',
+      expiresAt: 9_999,
+    }
+    expect(body.token).toBe('tok-123')
+    expect(body.expiresAt).toBe(9_999)
+    // No optional fields declared on the type.
+    const keys: (keyof TokenResponse)[] = ['token', 'expiresAt']
+    expect(keys).toEqual(['token', 'expiresAt'])
+  })
+
+  it('StatusWindowResponse pins the literal `success: true` discriminant + headless', () => {
+    type LiteralSuccess = StatusWindowResponse extends { success: infer S } ? S : never
+    const discriminant: LiteralSuccess = true
+    expect(discriminant).toBe(true)
+
+    const visible: StatusWindowResponse = {
+      success: true,
+      headless: false,
+    }
+    const hidden: StatusWindowResponse = {
+      success: true,
+      headless: true,
+    }
+    expect(visible.headless).toBe(false)
+    expect(hidden.headless).toBe(true)
+
+    const keys: (keyof StatusWindowResponse)[] = ['success', 'headless']
+    expect(keys).toEqual(['success', 'headless'])
+  })
+
+  it('ApiErrorResponse has exactly { error: string }', () => {
+    const forbidden: ApiErrorResponse = { error: 'Forbidden' }
+    const invalidOrigin: ApiErrorResponse = { error: 'Invalid origin' }
+    expect(forbidden.error).toBe('Forbidden')
+    expect(invalidOrigin.error).toBe('Invalid origin')
+    const keys: (keyof ApiErrorResponse)[] = ['error']
+    expect(keys).toEqual(['error'])
   })
 })

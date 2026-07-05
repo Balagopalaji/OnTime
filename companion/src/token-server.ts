@@ -20,6 +20,11 @@
 
 import type { Server as HttpServer } from 'node:http';
 import type { Server as HttpsServer } from 'node:https';
+import type {
+  ApiErrorResponse,
+  StatusWindowResponse,
+  TokenResponse,
+} from '@ontime/interface-contracts';
 
 /**
  * Loopback gate. Injected so the shared auth module (which also feeds JOIN_ROOM,
@@ -112,13 +117,15 @@ export function createTokenHandler(
       if (url.pathname === '/api/token') {
         if (!isLoopback(remoteAddress)) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Forbidden' }));
+          const body: ApiErrorResponse = { error: 'Forbidden' };
+          res.end(JSON.stringify(body));
           return true;
         }
 
         if (!validateOrigin(origin, allowedOrigins)) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid origin' }));
+          const body: ApiErrorResponse = { error: 'Invalid origin' };
+          res.end(JSON.stringify(body));
           return true;
         }
 
@@ -176,7 +183,8 @@ export function createTokenHandler(
             'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
             'Access-Control-Allow-Private-Network': 'true'
           });
-          res.end(JSON.stringify({ token, expiresAt }));
+          const body: TokenResponse = { token, expiresAt };
+          res.end(JSON.stringify(body));
           return true;
         }
       }
@@ -184,13 +192,15 @@ export function createTokenHandler(
       if (url.pathname === '/api/status-window' && showStatusWindow && isHeadlessMode) {
         if (!isLoopback(remoteAddress)) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Forbidden' }));
+          const body: ApiErrorResponse = { error: 'Forbidden' };
+          res.end(JSON.stringify(body));
           return true;
         }
 
         if (!validateOrigin(origin, allowedOrigins)) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid origin' }));
+          const body: ApiErrorResponse = { error: 'Invalid origin' };
+          res.end(JSON.stringify(body));
           return true;
         }
 
@@ -214,7 +224,8 @@ export function createTokenHandler(
             'Access-Control-Allow-Origin': origin ?? allowedOrigins[0],
             'Access-Control-Allow-Private-Network': 'true'
           });
-          res.end(JSON.stringify({ success: true, headless: isHeadlessMode() }));
+          const body: StatusWindowResponse = { success: true, headless: isHeadlessMode() };
+          res.end(JSON.stringify(body));
           return true;
         }
       }
