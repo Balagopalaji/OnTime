@@ -62,6 +62,19 @@ cumulative diff `git diff <last-audit-tag>...main`: rule prior findings FIXED/NO
 not necessarily one file. Pure guardrail-infra items may be batched (e.g. anti-dup CI check + L-2
 ratchet together) provided they stay within the fast-lane conditions above.
 
+**Do NOT slice too small (2026-07-06 rule).** Size a slice by RISK and REVIEWABILITY, not line count.
+BUNDLE homogeneous, zero-divergence, same-region changes into ONE slice; only SPLIT at a genuine
+decision/divergence/behavioral boundary. Small-for-its-own-sake costs more than it saves: each
+god-file-touching slice competes for the same mutex + edits the same import block (→ serialized
+rebases/collisions), and every slice carries fixed builder+review+CI+merge+ledger overhead. The
+risk-isolation benefit that justifies a small slice does NOT apply when the changes are homogeneous
+and near-zero-risk — you're isolating nothing. Examples: #78 correctly bundled 5 enums + `Timer` +
+`Cue` (all "delete local type, import from shared-types") into one slice; the earlier plan to split
+enums (6a) from Timer/Cue (7A) was over-fragmentation and the two even OVERLAPPED on the enums.
+Legitimate splits: `LiveCue` (decision-gated on `instanceId`), `RoomState` (divergent projection).
+Rule of thumb for the U1 tail: adopt ALL the homogeneous Timer/Cue wire ENVELOPES in one slice, not
+one-per-payload.
+
 ## Landed (on `main`)
 
 - PR #1 architecture/product audit set
@@ -160,7 +173,7 @@ Recorded by Claude while Codex/GLM were out of tokens. Codex is back; this block
 
 **Roles going forward (Codex back):** Codex orchestrates (authors GLM prompts) + merges; GLM (±Codex) builds; Claude reviews independently + supplies decision/placement analysis. **Next GLM prompt authored by Codex, not Claude** (reviewer independence — Claude should not both spec and review). Parallel Codex+GLM building only on DISJOINT files (god-file mutex).
 
-**SIXTH milestone audit now DUE** (~a batch since the fifth) — run a fresh-context Fable audit over #72–#78 before the next carve phase; explicitly scrutinize the sub-agent-authored #78 and the #76 path-A ESM/CJS change. Fifth-audit artifact: `docs/rebuild-fifth-milestone-audit.md`.
+**SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. One LOW: #78 shipped without regenerating `package-lock.json` (companion entry lacks `@ontime/shared-types`; `npm ci` still passes — fix in a chore PR). Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
 
 **Next units (priority order):**
 1. **Timer/Cue WIRE ENVELOPES → `interface-contracts`** — NOW UNBLOCKED by #78 (they reference `Timer`/`Cue`, now in shared-types): `CreateTimerPayload`/`UpdateTimerPayload`/`DeleteTimerPayload`/`ReorderTimersPayload`, `TimerCreated`/`TimerUpdated`/`TimerDeleted`/`TimersReordered`, and the Cue equivalents. Mechanical.
