@@ -228,3 +228,126 @@ export type HandshakeAck = {
     hostname: string;
   };
 };
+
+// ---------------------------------------------------------------------------
+// Self-contained control/timer/cue wire types. Adopted byte/shape-faithful from
+// `companion/src/main.ts` in Stage 1b U1 slice 6. These are the
+// self-contained payloads and error envelopes whose definitions close over no
+// domain-heavy (Timer/Cue/RoomState) type: only primitive fields, the shared
+// `ControllerLock` shape, and closed literal unions. Domain-heavy timer/cue/
+// room-state/presentation types stay in `companion/src/main.ts` until their
+// own U1 slices.
+//
+// NOTE: `ControllerLockStatePayload` (server→client broadcast of the current
+// lock) is a DIFFERENT type from `ControllerLockState` in
+// `@ontime/shared-types`, which is the client-side display-state union
+// ('authoritative' | 'read-only' | 'requesting' | 'displaced'). The wire
+// payload is therefore suffixed `...Payload` here to avoid colliding with the
+// shared-types display union.
+// ---------------------------------------------------------------------------
+
+/**
+ * Client→server `TIMER_ACTION` action kind.
+ * Source: `companion/src/main.ts`.
+ */
+export type TimerActionKind = 'START' | 'PAUSE' | 'RESET';
+
+/**
+ * Client→server `TIMER_ACTION` payload.
+ * Source: `companion/src/main.ts`.
+ */
+export type TimerActionPayload = {
+  type: 'TIMER_ACTION';
+  action: TimerActionKind;
+  roomId: string;
+  timerId: string;
+  timestamp?: number;
+  clientId?: string;
+  currentTime?: number; // Optional: elapsed time to use when starting (for stored progress)
+};
+
+/**
+ * Server→client `TIMER_ERROR` envelope.
+ * Source: `companion/src/main.ts` `emitTimerError`.
+ */
+export type TimerError = {
+  type: 'TIMER_ERROR';
+  roomId: string;
+  code: 'INVALID_PAYLOAD' | 'INVALID_FIELDS' | 'NOT_FOUND';
+  message: string;
+  clientId?: string;
+  timestamp: number;
+};
+
+/**
+ * Server→client `CUE_ERROR` envelope.
+ * Source: `companion/src/main.ts` `emitCueError`.
+ */
+export type CueError = {
+  type: 'CUE_ERROR';
+  roomId: string;
+  code: 'INVALID_PAYLOAD' | 'INVALID_FIELDS' | 'NOT_FOUND';
+  message: string;
+  clientId?: string;
+  timestamp: number;
+};
+
+/**
+ * Reason a pending control request was cleared. Adopted from
+ * `companion/src/control-lock-utils.ts` (where it originated) and
+ * `companion/src/main.ts` (which re-exported it). Crosses the wire as the
+ * optional `reason` field of `ControlRequestStatus`.
+ */
+export type ControlRequestClearReason =
+  | 'lock_changed'
+  | 'request_denied'
+  | 'requester_disconnected'
+  | 'timeout'
+  | 'room_unsubscribed'
+  | 'superseded';
+
+/**
+ * Server→client `CONTROL_REQUEST_STATUS` payload.
+ * Source: `companion/src/main.ts` `emitControlRequestStatusToRequester` /
+ * `emitControlRequestStatusToController`.
+ */
+export type ControlRequestStatus = {
+  type: 'CONTROL_REQUEST_STATUS';
+  roomId: string;
+  requesterId: string;
+  status: 'queued' | 'cleared';
+  reason?: ControlRequestClearReason;
+  requestedAt: number;
+  timestamp: number;
+};
+
+/**
+ * Server→client `CONTROLLER_LOCK_STATE` broadcast payload.
+ * Source: `companion/src/main.ts` `emitControllerLockState` /
+ * `emitControllerLockStateToSocket`. Named `...Payload` to distinguish it from
+ * the `ControllerLockState` display-state union in `@ontime/shared-types`
+ * ('authoritative' | 'read-only' | 'requesting' | 'displaced').
+ *
+ * The `lock` field carries the `ControllerLock` shape (also defined in
+ * `@ontime/shared-types` and `companion/src/control-lock-utils.ts`). It is
+ * inlined here to keep this package import-free: companion compiles as
+ * CommonJS (`module: Node16`, no `"type": "module"`), and a type-only import
+ * from `@ontime/shared-types` would trip TS1541 (resolution-mode) on the CJS
+ * side. The shape duplication is pre-existing (shared-types ↔ control-lock-utils)
+ * and collapses when the G5 one-definition wire-shape tripwire lands after the
+ * remaining U1 slices (per docs/rebuild-plan.md §5).
+ */
+export type ControllerLockStatePayload = {
+  type: 'CONTROLLER_LOCK_STATE';
+  roomId: string;
+  lock: {
+    clientId: string;
+    deviceName?: string;
+    userId?: string;
+    userName?: string;
+    lockedAt: number;
+    lastHeartbeat: number;
+    roomId: string;
+  } | null;
+  timestamp: number;
+};
