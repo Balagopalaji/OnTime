@@ -47,6 +47,7 @@ import type {
   ControlRequestStatus,
   ControllerLockStatePayload,
   ControlRequestClearReason,
+  CompanionRoomState,
   CreateCuePayload,
   CreateTimerPayload,
   CueCreated,
@@ -68,7 +69,11 @@ import type {
   RequestControlPayload,
   RoomClientsState,
   RoomPinState,
+  RoomStateDelta,
+  RoomStatePatchPayload,
+  RoomStateSnapshot,
   SetRoomPinPayload,
+  SyncRoomStatePayload,
   TimerActionKind,
   TimerActionPayload,
   TimerCreated,
@@ -297,23 +302,14 @@ async function writePptScript(script: string): Promise<void> {
   }
 }
 
-type RoomState = {
-  activeTimerId: string | null;
-  isRunning: boolean;
-  currentTime: number;
-  lastUpdate: number;
-  elapsedOffset?: number;
-  progress?: Record<string, number>;
-  showClock?: boolean;
-  message?: {
-    text?: string;
-    visible?: boolean;
-    color?: MessageColor;
-  };
-  title?: string;
-  timezone?: string;
-  activeLiveCueId?: string;
-};
+// Companion clock-domain room-state projection. Adopted into
+// `@ontime/interface-contracts` as `CompanionRoomState` (Stage 1b U1 slice 8).
+// Kept as a local alias named `RoomState` so the ~37 in-file references stay
+// stable without churn in this mixed-line-ending god-file. This is NOT the
+// shared-types `RoomState` (which is anchored on startedAt/elapsedOffset and
+// adds clockMode); the two types are structurally divergent by design
+// (decision 4, Session sync 2026-07-06).
+type RoomState = CompanionRoomState;
 
 type LiveCueConfig = {
   warningSec?: number;
@@ -633,28 +629,9 @@ export function resolveTimerActionChanges(args: {
   }
 }
 
-type RoomStateSnapshot = {
-  type: 'ROOM_STATE_SNAPSHOT';
-  roomId: string;
-  state: RoomState;
-  timestamp: number;
-};
-
-type RoomStateDelta = {
-  type: 'ROOM_STATE_DELTA';
-  roomId: string;
-  changes: Partial<RoomState>;
-  clientId?: string;
-  timestamp: number;
-};
-
-type RoomStatePatchPayload = {
-  type: 'ROOM_STATE_PATCH';
-  roomId: string;
-  changes: Partial<RoomState>;
-  clientId?: string;
-  timestamp?: number;
-};
+// Room-state wire envelopes adopted into `@ontime/interface-contracts`
+// (Stage 1b U1 slice 8): RoomStateSnapshot, RoomStateDelta,
+// RoomStatePatchPayload, SyncRoomStatePayload.
 
 const ALLOWED_MESSAGE_COLORS = new Set<MessageColor>(['green', 'yellow', 'red', 'blue', 'white', 'none']);
 const ALLOWED_CUE_ROLES = new Set<OperatorRole>(['lx', 'ax', 'vx', 'sm', 'foh', 'custom']);
@@ -666,15 +643,6 @@ const ALLOWED_CUE_TRIGGER_TYPES = new Set<CueTriggerType>([
   'floating',
 ]);
 const ALLOWED_CUE_ACK_STATES = new Set<CueAckState>(['pending', 'done', 'skipped']);
-
-type SyncRoomStatePayload = {
-  type: 'SYNC_ROOM_STATE';
-  roomId: string;
-  state: RoomState;
-  timers?: Timer[];
-  sourceClientId?: string;
-  timestamp?: number;
-};
 
 let io: SocketIOServer | null = null;
 let ioSecure: SocketIOServer | null = null;

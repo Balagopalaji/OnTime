@@ -25,6 +25,7 @@ import {
   shouldResetQueuedLockReplayOnSocketChange,
   shouldQueueCompanionLockPayload,
   resolveReconciledTimerTargetId,
+  toCompanionRoomState,
   type CueQueuedEvent,
 } from './UnifiedDataContext'
 import { resolveControllerTimerTargetId } from '../routes/controller-timer-target'
@@ -2148,5 +2149,74 @@ describe('shouldResetQueuedLockReplayOnSocketChange', () => {
         { id: 'socket-b' },
       ),
     ).toBe(true)
+  })
+})
+
+// Pins the cloud -> CompanionRoomState adapter (toCompanionRoomState) that
+// replaces the previous `room.state as RoomState` structural-lie seed cast.
+// The adapter is the explicit, lossless conversion from the cloud
+// startedAt/elapsedOffset anchor to the companion currentTime/lastUpdate
+// projection. It must NOT emit startedAt or clockMode (those are not part of
+// the companion projection), and it must carry title/timezone from the room.
+describe('toCompanionRoomState (cloud -> companion adapter)', () => {
+  type CloudRoom = Parameters<typeof toCompanionRoomState>[0]
+
+  function makeRoom(overrides: Partial<CloudRoom['state']> = {}): CloudRoom {
+    return {
+      id: 'room-1',
+      ownerId: 'owner-1',
+      title: 'Main Stage',
+      timezone: 'America/New_York',
+      createdAt: 1,
+      order: 0,
+      config: { warningSec: 60, criticalSec: 15 },
+      state: {
+        activeTimerId: 'timer-a',
+        isRunning: true,
+        startedAt: 1000,
+        elapsedOffset: 0,
+        progress: { 'timer-a': 5000 },
+        showClock: true,
+        message: { text: 'Go', visible: true, color: 'green' },
+        lastUpdate: 2000,
+        ...overrides,
+      },
+    }
+  }
+
+  it('produces a CompanionRoomState anchored on currentTime/lastUpdate', () => {
+    const out = toCompanionRoomState(makeRoom(), 5000)
+    expect(out.activeTimerId).toBe('timer-a')
+    expect(out.isRunning).toBe(true)
+    // currentTime comes from the caller (computed elapsed), not the cloud anchor.
+    expect(out.currentTime).toBe(5000)
+    expect(out.lastUpdate).toBe(2000)
+    expect(out.showClock).toBe(true)
+    expect(out.message).toEqual({ text: 'Go', visible: true, color: 'green' })
+    expect(out.title).toBe('Main Stage')
+    expect(out.timezone).toBe('America/New_York')
+  })
+
+  it('does NOT carry startedAt or clockMode (companion projection is divergent)', () => {
+    const out = toCompanionRoomState(makeRoom({ clockMode: '24h' }), 0)
+    expect(out).not.toHaveProperty('startedAt')
+    expect(out).not.toHaveProperty('clockMode')
+    // Compile-time guard: the CompanionRoomState type has no such keys.
+    type Keys = keyof typeof out
+    const hasStartedAt: Keys extends 'startedAt' ? true : false = false as never
+    const hasClockMode: Keys extends 'clockMode' ? true : false = false as never
+    expect(hasStartedAt).toBe(false as never)
+    expect(hasClockMode).toBe(false as never)
+  })
+
+  it('defaults optional cloud fields (null activeTimerId, missing lastUpdate)', () => {
+    const out = toCompanionRoomState(
+      makeRoom({ activeTimerId: null, lastUpdate: undefined }),
+      0,
+    )
+    expect(out.activeTimerId).toBeNull()
+    // lastUpdate falls back to Date.now() when cloud omits it.
+    expect(typeof out.lastUpdate).toBe('number')
+    expect(out.lastUpdate).toBeGreaterThan(0)
   })
 })
