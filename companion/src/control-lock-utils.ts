@@ -1,13 +1,12 @@
 // rebuild-target: app-internal (apps/local-companion)
-export const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
+import type { ControlRequestClearReason } from '@ontime/interface-contracts';
 
-export type ControlRequestClearReason =
-  | 'lock_changed'
-  | 'request_denied'
-  | 'requester_disconnected'
-  | 'timeout'
-  | 'room_unsubscribed'
-  | 'superseded';
+// Re-exported for backwards compatibility: callers (and main.ts) historically
+// imported ControlRequestClearReason from this module. The canonical wire
+// definition now lives in @ontime/interface-contracts (U1 slice 6).
+export type { ControlRequestClearReason };
+
+export const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 
 export type PendingControlRequestEntry = {
   requesterId: string;

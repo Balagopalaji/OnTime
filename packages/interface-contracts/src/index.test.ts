@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type {
   ApiErrorResponse,
+  ControlRequestClearReason,
   ControlRequestDenied,
   ControlRequestReceived,
+  ControlRequestStatus,
+  ControllerLockStatePayload,
+  CueError,
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
@@ -15,6 +19,9 @@ import type {
   RoomPinState,
   SetRoomPinPayload,
   StatusWindowResponse,
+  TimerActionKind,
+  TimerActionPayload,
+  TimerError,
   TokenResponse,
 } from './index'
 
@@ -455,5 +462,192 @@ describe('interface-contracts HandshakeAck wire type', () => {
       systemInfo: { platform: 'darwin', hostname: 'local' },
     }
     expect(ack.systemInfo.hostname).toBe('local')
+  })
+})
+
+// Pins the self-contained control/timer/cue wire types adopted in U1 slice 6
+// from `companion/src/main.ts` (+ `ControlRequestClearReason` from
+// `companion/src/control-lock-utils.ts`). These types close over no domain-heavy
+// (Timer/Cue/RoomState) type — only primitives, the shared `ControllerLock`
+// shape, and closed literal unions. A drift in any discriminant string, union,
+// or required-key set breaks a Socket.IO event shape, so these tests are the net.
+
+describe('interface-contracts control/timer/cue wire types (U1 slice 6)', () => {
+  it('TimerActionKind is the closed START | PAUSE | RESET union', () => {
+    const start: TimerActionKind = 'START'
+    const pause: TimerActionKind = 'PAUSE'
+    const reset: TimerActionKind = 'RESET'
+    expect([start, pause, reset]).toEqual(['START', 'PAUSE', 'RESET'])
+    const allKinds: TimerActionKind[] = ['START', 'PAUSE', 'RESET']
+    expect(new Set(allKinds).size).toBe(3)
+  })
+
+  it('TimerActionPayload pins the TIMER_ACTION discriminant + required/optional keys', () => {
+    const discriminant: LiteralType<TimerActionPayload> = 'TIMER_ACTION'
+    expect(discriminant).toBe('TIMER_ACTION')
+
+    const requiredOnly: TimerActionPayload = {
+      type: 'TIMER_ACTION',
+      action: 'START',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+    }
+    const full: TimerActionPayload = {
+      ...requiredOnly,
+      timestamp: 1,
+      clientId: 'client-a',
+      currentTime: 0,
+    }
+    expect(requiredOnly.timestamp).toBeUndefined()
+    expect(requiredOnly.clientId).toBeUndefined()
+    expect(full.action).toBe('START')
+    expect(full.currentTime).toBe(0)
+  })
+
+  it('TimerError pins the TIMER_ERROR discriminant + closed code union + required keys', () => {
+    const discriminant: LiteralType<TimerError> = 'TIMER_ERROR'
+    expect(discriminant).toBe('TIMER_ERROR')
+
+    type Code = TimerError extends { code: infer C } ? C : never
+    const invalidPayload: Code = 'INVALID_PAYLOAD'
+    const invalidFields: Code = 'INVALID_FIELDS'
+    const notFound: Code = 'NOT_FOUND'
+    expect([invalidPayload, invalidFields, notFound]).toEqual([
+      'INVALID_PAYLOAD',
+      'INVALID_FIELDS',
+      'NOT_FOUND',
+    ])
+
+    const err: TimerError = {
+      type: 'TIMER_ERROR',
+      roomId: 'room-1',
+      code: 'NOT_FOUND',
+      message: 'Timer not found.',
+      timestamp: 1,
+    }
+    const withClient: TimerError = { ...err, clientId: 'client-a' }
+    expect(err.clientId).toBeUndefined()
+    expect(withClient.clientId).toBe('client-a')
+    expect(err.message).toBe('Timer not found.')
+  })
+
+  it('CueError pins the CUE_ERROR discriminant + closed code union + required keys', () => {
+    const discriminant: LiteralType<CueError> = 'CUE_ERROR'
+    expect(discriminant).toBe('CUE_ERROR')
+
+    type Code = CueError extends { code: infer C } ? C : never
+    const invalidPayload: Code = 'INVALID_PAYLOAD'
+    const invalidFields: Code = 'INVALID_FIELDS'
+    const notFound: Code = 'NOT_FOUND'
+    expect([invalidPayload, invalidFields, notFound]).toEqual([
+      'INVALID_PAYLOAD',
+      'INVALID_FIELDS',
+      'NOT_FOUND',
+    ])
+
+    const err: CueError = {
+      type: 'CUE_ERROR',
+      roomId: 'room-1',
+      code: 'INVALID_FIELDS',
+      message: 'Cue requires title and createdBy.',
+      clientId: 'client-a',
+      timestamp: 1,
+    }
+    const keys: (keyof CueError)[] = ['type', 'roomId', 'code', 'message', 'clientId', 'timestamp']
+    expect(keys).toEqual(['type', 'roomId', 'code', 'message', 'clientId', 'timestamp'])
+    expect(err.code).toBe('INVALID_FIELDS')
+  })
+
+  it('ControlRequestClearReason is the closed six-value union', () => {
+    const reasons: ControlRequestClearReason[] = [
+      'lock_changed',
+      'request_denied',
+      'requester_disconnected',
+      'timeout',
+      'room_unsubscribed',
+      'superseded',
+    ]
+    expect(new Set(reasons).size).toBe(6)
+  })
+
+  it('ControlRequestStatus pins the CONTROL_REQUEST_STATUS discriminant + status union + reason link', () => {
+    const discriminant: LiteralType<ControlRequestStatus> = 'CONTROL_REQUEST_STATUS'
+    expect(discriminant).toBe('CONTROL_REQUEST_STATUS')
+
+    type Status = ControlRequestStatus extends { status: infer S } ? S : never
+    const queued: Status = 'queued'
+    const cleared: Status = 'cleared'
+    expect([queued, cleared]).toEqual(['queued', 'cleared'])
+
+    const clearedWithReason: ControlRequestStatus = {
+      type: 'CONTROL_REQUEST_STATUS',
+      roomId: 'room-1',
+      requesterId: 'client-a',
+      status: 'cleared',
+      reason: 'timeout',
+      requestedAt: 1,
+      timestamp: 2,
+    }
+    const queuedNoReason: ControlRequestStatus = {
+      type: 'CONTROL_REQUEST_STATUS',
+      roomId: 'room-1',
+      requesterId: 'client-a',
+      status: 'queued',
+      requestedAt: 1,
+      timestamp: 2,
+    }
+    // `reason`, when present, must be a valid ControlRequestClearReason.
+    const reason: ControlRequestClearReason = clearedWithReason.reason as ControlRequestClearReason
+    expect(reason).toBe('timeout')
+    expect(queuedNoReason.reason).toBeUndefined()
+    expect(clearedWithReason.requestedAt).toBe(1)
+  })
+
+  it('ControllerLockStatePayload pins the CONTROLLER_LOCK_STATE discriminant + null-lock + ControllerLock shape', () => {
+    const discriminant: LiteralType<ControllerLockStatePayload> = 'CONTROLLER_LOCK_STATE'
+    expect(discriminant).toBe('CONTROLLER_LOCK_STATE')
+
+    const noLock: ControllerLockStatePayload = {
+      type: 'CONTROLLER_LOCK_STATE',
+      roomId: 'room-1',
+      lock: null,
+      timestamp: 1,
+    }
+    const withLock: ControllerLockStatePayload = {
+      type: 'CONTROLLER_LOCK_STATE',
+      roomId: 'room-1',
+      lock: {
+        clientId: 'client-a',
+        deviceName: 'dev',
+        userId: 'u',
+        userName: 'n',
+        lockedAt: 1,
+        lastHeartbeat: 2,
+        roomId: 'room-1',
+      },
+      timestamp: 3,
+    }
+    expect(noLock.lock).toBeNull()
+    expect(withLock.lock?.clientId).toBe('client-a')
+    expect(withLock.lock?.lockedAt).toBe(1)
+    // The ControllerLock shape comes from @ontime/shared-types (7 keys).
+    const lockKeys: (keyof NonNullable<ControllerLockStatePayload['lock']>)[] = [
+      'clientId',
+      'deviceName',
+      'userId',
+      'userName',
+      'lockedAt',
+      'lastHeartbeat',
+      'roomId',
+    ]
+    expect(lockKeys).toEqual([
+      'clientId',
+      'deviceName',
+      'userId',
+      'userName',
+      'lockedAt',
+      'lastHeartbeat',
+      'roomId',
+    ])
   })
 })

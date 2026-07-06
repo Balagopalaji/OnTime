@@ -24,7 +24,6 @@ import {
   getPendingControlReplacementReason,
   normalizeRoomPin,
   type ControllerLock,
-  type ControlRequestClearReason,
   type PendingControlRequestEntry,
 } from './control-lock-utils';
 import {
@@ -45,17 +44,24 @@ import {
 import type {
   ControlRequestDenied,
   ControlRequestReceived,
+  ControlRequestStatus,
+  ControllerLockStatePayload,
+  ControlRequestClearReason,
+  CueError,
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
   HandshakeError,
   HandshakeAck,
+  JoinRoomPayload,
+  HeartbeatPayload,
   RequestControlPayload,
+  RoomClientsState,
   RoomPinState,
   SetRoomPinPayload,
-  HeartbeatPayload,
-  JoinRoomPayload,
-  RoomClientsState,
+  TimerActionKind,
+  TimerActionPayload,
+  TimerError,
 } from '@ontime/interface-contracts';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
@@ -266,23 +272,6 @@ async function writePptScript(script: string): Promise<void> {
   }
 }
 
-type ControllerLockState = {
-  type: 'CONTROLLER_LOCK_STATE';
-  roomId: string;
-  lock: ControllerLock | null;
-  timestamp: number;
-};
-
-type ControlRequestStatus = {
-  type: 'CONTROL_REQUEST_STATUS';
-  roomId: string;
-  requesterId: string;
-  status: 'queued' | 'cleared';
-  reason?: ControlRequestClearReason;
-  requestedAt: number;
-  timestamp: number;
-};
-
 type RoomState = {
   activeTimerId: string | null;
   isRunning: boolean;
@@ -396,18 +385,6 @@ type PresentationSnapshot = {
   videoRemaining?: number;
   videos?: VideoTiming[];
   videoTimingUnavailable?: boolean;
-};
-
-type TimerActionKind = 'START' | 'PAUSE' | 'RESET';
-
-type TimerActionPayload = {
-  type: 'TIMER_ACTION';
-  action: TimerActionKind;
-  roomId: string;
-  timerId: string;
-  timestamp?: number;
-  clientId?: string;
-  currentTime?: number; // Optional: elapsed time to use when starting (for stored progress)
 };
 
 export type TimerActionClientTimestampIssue =
@@ -721,15 +698,6 @@ type SyncRoomStatePayload = {
   timestamp?: number;
 };
 
-type TimerError = {
-  type: 'TIMER_ERROR';
-  roomId: string;
-  code: 'INVALID_PAYLOAD' | 'INVALID_FIELDS' | 'NOT_FOUND';
-  message: string;
-  clientId?: string;
-  timestamp: number;
-};
-
 type TimerCreated = {
   type: 'TIMER_CREATED';
   roomId: string;
@@ -826,15 +794,6 @@ type ReorderCuesPayload = {
   cueIds: string[];
   clientId?: string;
   timestamp?: number;
-};
-
-type CueError = {
-  type: 'CUE_ERROR';
-  roomId: string;
-  code: 'INVALID_PAYLOAD' | 'INVALID_FIELDS' | 'NOT_FOUND';
-  message: string;
-  clientId?: string;
-  timestamp: number;
 };
 
 type CueCreated = {
@@ -1144,7 +1103,7 @@ function pruneRoomClients(roomId: string): boolean {
 
 function emitControllerLockState(roomId: string) {
   const entry = roomControllerStore.get(roomId);
-  const payload: ControllerLockState = {
+  const payload: ControllerLockStatePayload = {
     type: 'CONTROLLER_LOCK_STATE',
     roomId,
     lock: entry ? buildControllerLock(roomId, entry) : null,
@@ -1155,7 +1114,7 @@ function emitControllerLockState(roomId: string) {
 
 function emitControllerLockStateToSocket(socket: Socket, roomId: string) {
   const entry = roomControllerStore.get(roomId);
-  const payload: ControllerLockState = {
+  const payload: ControllerLockStatePayload = {
     type: 'CONTROLLER_LOCK_STATE',
     roomId,
     lock: entry ? buildControllerLock(roomId, entry) : null,
