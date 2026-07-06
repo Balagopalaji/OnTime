@@ -136,6 +136,9 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #71 refactor(interface-contracts): adopt join/heartbeat/client-state wire types (U1 slice 3)
 - PR #72 ci(guardrails): gate typecheck/test for all populated packages (F1/F2)
 - PR #73 refactor(interface-contracts): adopt strict `HandshakeError` wire type (U1 slice 4)
+- PR #74 docs(rebuild): sync fifth audit after HandshakeError slice
+- PR #75 refactor(interface-contracts): adopt strict `HandshakeAck` wire type (U1 slice 5)
+- PR #76 refactor(interface-contracts): adopt control/timer/cue wire types (U1 slice 6)
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -414,17 +417,23 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   U1 slices.
   **Fifth milestone audit artifact tracked** (`docs/rebuild-fifth-milestone-audit.md`): F1/F2 package CI
   coverage fixed in #72, F3 `HandshakeError` split fixed in #73; residual observation is the perf-only
-  double `parseAllowedOrigins()` note.
-  **U1 remainder still open**: the rest of the wire block (`main.ts:~247–990`), the `/api/token` schema,
-  and the frontend god-file's wire-shape duplicates are deferred to follow-up U1 slices per the task brief
-  (keep the PR small; do not move the rest of the wire block). **Then, in priority order:** U4/U5
+  double `parseAllowedOrigins()` note. **U1 slice 5 DONE** (#75 → `packages/interface-contracts`;
+  strict `HandshakeAck` server→client payload adopted type-only by companion/frontend; loose frontend ack
+  shapes tightened; `main.ts` ratchet 7793→7775). **U1 slice 6 DONE** (#76 →
+  `packages/interface-contracts`; `TimerActionKind`/`TimerActionPayload`, `TimerError`, `CueError`,
+  `ControlRequestClearReason`, `ControlRequestStatus`, and renamed `ControllerLockStatePayload` adopted
+  type-only; `control-lock-utils` re-exports `ControlRequestClearReason` for compatibility; `main.ts`
+  ratchet 7775→7734; `shared-types` no longer declares `"type": "module"`, removing the known TS1541 trap
+  for future type-only package imports). **U1 remainder still open**: domain-heavy timer/cue/room/presentation
+  shapes and any remaining frontend wire-shape duplicates are deferred to follow-up U1 slices per the placement
+  pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
   `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
-  are backfilled. **G2 LANDED (#64, ratcheted by #66/#67)** — guardrails count populated §3 target packages
-  (package manifest + `src/index.ts` export surface + at least one test) against the current baseline of 5; U1
-  should raise it further. Every carve PR must name its §3/§4 destination (the U3 module's marker + this ledger
-  entry are the pattern).
+  are backfilled. **G2 LANDED (#64, ratcheted by #66/#67/#69)** — guardrails count populated §3 target packages
+  (package manifest + `src/index.ts` export surface + at least one test) against the current baseline of 6;
+  populated packages stay green in CI after #72's package typecheck/test coverage fix. Every carve PR must name
+  its §3/§4 destination (the U3 module's marker + this ledger entry are the pattern).
 - **Definition of Done (plan §3):** measurable per-stage ratchet ceilings + package population + boundary
   checks; the finish line is both god-files deleted (D5).
 
