@@ -27,7 +27,8 @@ with a broad store footprint; pairing/viewer-token routes, file operations, cont
 remain test-first or byte-faithful until their boundaries are proven. Heartbeat lock refresh still needs
 characterization before its carve. The fifth Fable milestone audit artifact is now tracked at
 `docs/rebuild-fifth-milestone-audit.md`; its required CI package-coverage fixes landed in #72, and the
-strict `HandshakeError` U1 slice landed in #73.
+strict `HandshakeError` U1 slice landed in #73. The sixth milestone audit returned GO; its lockfile
+LOW was fixed in #81, and the U1 Timer/Cue wire-envelope slice landed in #82.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -154,6 +155,10 @@ one-per-payload.
 - PR #76 refactor(interface-contracts): adopt control/timer/cue wire types (U1 slice 6) + path A (drop shared-types `"type":"module"`, import `ControllerLock`)
 - PR #77 docs(rebuild): sync ledger after U1 slices 5 and 6
 - PR #78 refactor(companion): adopt `@ontime/shared-types` domain types (Timer/Cue + 5 enums) (U1)
+- PR #79 docs(rebuild): sync ledger — U1 #77/#78 + session decisions + roles handoff
+- PR #80 docs(rebuild): sixth milestone audit (GO) + re-land PR-sizing rule
+- PR #81 chore(lockfile): sync workspace dependencies
+- PR #82 refactor(interface-contracts): adopt timer and cue wire envelopes (U1 slice 7)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -173,12 +178,13 @@ Recorded by Claude while Codex/GLM were out of tokens. Codex is back; this block
 
 **Roles going forward (Codex back):** Codex orchestrates (authors GLM prompts) + merges; GLM (±Codex) builds; Claude reviews independently + supplies decision/placement analysis. **Next GLM prompt authored by Codex, not Claude** (reviewer independence — Claude should not both spec and review). Parallel Codex+GLM building only on DISJOINT files (god-file mutex).
 
-**SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. One LOW: #78 shipped without regenerating `package-lock.json` (companion entry lacks `@ontime/shared-types`; `npm ci` still passes — fix in a chore PR). Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
+**SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. The one LOW (#78 lockfile drift) is fixed by #81. Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
 
 **Next units (priority order):**
-1. **Timer/Cue WIRE ENVELOPES → `interface-contracts`** — NOW UNBLOCKED by #78 (they reference `Timer`/`Cue`, now in shared-types): `CreateTimerPayload`/`UpdateTimerPayload`/`DeleteTimerPayload`/`ReorderTimersPayload`, `TimerCreated`/`TimerUpdated`/`TimerDeleted`/`TimersReordered`, and the Cue equivalents. Mechanical.
-2. **RoomState + envelopes** (`RoomStateSnapshot`/`RoomStateDelta`/`RoomStatePatchPayload`/`SyncRoomStatePayload`) per decision 4 above.
-3. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
+1. **RoomState + envelopes** (`RoomStateSnapshot`/`RoomStateDelta`/`RoomStatePatchPayload`/`SyncRoomStatePayload`) per decision 4 above.
+2. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
+3. **U7 companion cache adapter** — include cache round-trip tests when carving this code (sixth-audit Obs-3).
+4. **U8 predicate wiring** — wire the zero-caller predicates or mark test mirrors explicitly.
 Prioritize timer/sync/lock god-file carving (higher value + bigger god-file chunks than LiveCue).
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
@@ -465,9 +471,13 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   `ControlRequestClearReason`, `ControlRequestStatus`, and renamed `ControllerLockStatePayload` adopted
   type-only; `control-lock-utils` re-exports `ControlRequestClearReason` for compatibility; `main.ts`
   ratchet 7775→7734; `shared-types` no longer declares `"type": "module"`, removing the known TS1541 trap
-  for future type-only package imports). **U1 remainder still open**: domain-heavy timer/cue/room/presentation
-  shapes and any remaining frontend wire-shape duplicates are deferred to follow-up U1 slices per the placement
-  pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
+  for future type-only package imports). **Sixth-audit LOW-1 DONE** (#81 → root `package-lock.json`
+  regenerated so companion and interface-contracts both record `@ontime/shared-types`). **U1 slice 7 DONE**
+  (#82 → `packages/interface-contracts/src/timer-cue-envelopes.ts`; all 16 Timer/Cue wire envelopes adopted
+  in one sized slice; companion and frontend duplicates removed via type-only imports/aliases; `main.ts`
+  ratchet 7697→7581 and `UnifiedDataContext.tsx` 6658→6612; RoomState and LiveCue/presentation stayed out).
+  **U1 remainder still open**: RoomState + envelopes and LiveCue/presentation are deferred to their decision-gated
+  U1 follow-up slices per the placement pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
   `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
