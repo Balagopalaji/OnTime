@@ -6,7 +6,15 @@ import type {
   ControlRequestReceived,
   ControlRequestStatus,
   ControllerLockStatePayload,
+  CreateCuePayload,
+  CreateTimerPayload,
+  CueCreated,
+  CueDeleted,
   CueError,
+  CueUpdated,
+  CuesReordered,
+  DeleteCuePayload,
+  DeleteTimerPayload,
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
@@ -14,6 +22,8 @@ import type {
   HandshakeError,
   HeartbeatPayload,
   JoinRoomPayload,
+  ReorderCuesPayload,
+  ReorderTimersPayload,
   RequestControlPayload,
   RoomClientsState,
   RoomPinState,
@@ -21,8 +31,14 @@ import type {
   StatusWindowResponse,
   TimerActionKind,
   TimerActionPayload,
+  TimerCreated,
+  TimerDeleted,
   TimerError,
+  TimerUpdated,
+  TimersReordered,
   TokenResponse,
+  UpdateCuePayload,
+  UpdateTimerPayload,
 } from './index'
 
 // Pins the literal `type` discriminants of the eight control-request wire types.
@@ -649,5 +665,342 @@ describe('interface-contracts control/timer/cue wire types (U1 slice 6)', () => 
       'lastHeartbeat',
       'roomId',
     ])
+  })
+})
+
+// Pins the 16 Timer/Cue CRUD wire envelopes adopted in U1 slice 7 from
+// `companion/src/main.ts`. The four client→server CREATE/UPDATE/DELETE/REORDER
+// payloads reference `Partial<Timer>`/`Partial<Cue>` and carry an OPTIONAL
+// `timestamp` (server-stamped on receipt); the four server→client
+// CREATED/UPDATED/DELETED/REORDERED broadcasts reference the canonical
+// `Timer`/`Cue` (or `Partial<Timer>`/`Partial<Cue>` for the *Updated `changes`)
+// and carry a REQUIRED `timestamp` (server clock). A drift in any discriminant
+// string, required-key set, or the optional-vs-required timestamp asymmetry
+// breaks a Socket.IO event shape, so these tests are the net.
+
+describe('interface-contracts Timer/Cue CRUD wire envelopes (U1 slice 7)', () => {
+  it('pins the eight Timer discriminant strings', () => {
+    const discriminants: {
+      create: LiteralType<CreateTimerPayload>;
+      update: LiteralType<UpdateTimerPayload>;
+      delete: LiteralType<DeleteTimerPayload>;
+      reorder: LiteralType<ReorderTimersPayload>;
+      created: LiteralType<TimerCreated>;
+      updated: LiteralType<TimerUpdated>;
+      deleted: LiteralType<TimerDeleted>;
+      reordered: LiteralType<TimersReordered>;
+    } = {
+      create: 'CREATE_TIMER',
+      update: 'UPDATE_TIMER',
+      delete: 'DELETE_TIMER',
+      reorder: 'REORDER_TIMERS',
+      created: 'TIMER_CREATED',
+      updated: 'TIMER_UPDATED',
+      deleted: 'TIMER_DELETED',
+      reordered: 'TIMERS_REORDERED',
+    }
+    expect(discriminants).toEqual({
+      create: 'CREATE_TIMER',
+      update: 'UPDATE_TIMER',
+      delete: 'DELETE_TIMER',
+      reorder: 'REORDER_TIMERS',
+      created: 'TIMER_CREATED',
+      updated: 'TIMER_UPDATED',
+      deleted: 'TIMER_DELETED',
+      reordered: 'TIMERS_REORDERED',
+    })
+  })
+
+  it('pins the eight Cue discriminant strings', () => {
+    const discriminants: {
+      create: LiteralType<CreateCuePayload>;
+      update: LiteralType<UpdateCuePayload>;
+      delete: LiteralType<DeleteCuePayload>;
+      reorder: LiteralType<ReorderCuesPayload>;
+      created: LiteralType<CueCreated>;
+      updated: LiteralType<CueUpdated>;
+      deleted: LiteralType<CueDeleted>;
+      reordered: LiteralType<CuesReordered>;
+    } = {
+      create: 'CREATE_CUE',
+      update: 'UPDATE_CUE',
+      delete: 'DELETE_CUE',
+      reorder: 'REORDER_CUES',
+      created: 'CUE_CREATED',
+      updated: 'CUE_UPDATED',
+      deleted: 'CUE_DELETED',
+      reordered: 'CUES_REORDERED',
+    }
+    expect(discriminants).toEqual({
+      create: 'CREATE_CUE',
+      update: 'UPDATE_CUE',
+      delete: 'DELETE_CUE',
+      reorder: 'REORDER_CUES',
+      created: 'CUE_CREATED',
+      updated: 'CUE_UPDATED',
+      deleted: 'CUE_DELETED',
+      reordered: 'CUES_REORDERED',
+    })
+  })
+
+  it('CreateTimerPayload carries Partial<Timer> and optional timestamp (client→server)', () => {
+    const requiredOnly: CreateTimerPayload = {
+      type: 'CREATE_TIMER',
+      roomId: 'room-1',
+      timer: { title: 'Act 1', duration: 600, type: 'countdown' },
+    }
+    const full: CreateTimerPayload = {
+      ...requiredOnly,
+      clientId: 'client-a',
+      timestamp: 1,
+    }
+    expect(requiredOnly.clientId).toBeUndefined()
+    expect(requiredOnly.timestamp).toBeUndefined()
+    expect(full.timer.title).toBe('Act 1')
+    // Partial<Timer> compiles with a subset of Timer keys.
+    const minimalTimer: CreateTimerPayload['timer'] = { title: 'Solo' }
+    expect(minimalTimer.title).toBe('Solo')
+  })
+
+  it('UpdateTimerPayload references timerId + Partial<Timer> changes + optional timestamp', () => {
+    const requiredOnly: UpdateTimerPayload = {
+      type: 'UPDATE_TIMER',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+      changes: { duration: 900 },
+    }
+    expect(requiredOnly.timestamp).toBeUndefined()
+    // Partial<Timer> compiles as the changes field.
+    const changesField: UpdateTimerPayload['changes'] = { order: 2, speaker: 'Alice' }
+    expect(changesField.speaker).toBe('Alice')
+  })
+
+  it('DeleteTimerPayload + ReorderTimersPayload shapes (client→server, optional timestamp)', () => {
+    const del: DeleteTimerPayload = {
+      type: 'DELETE_TIMER',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+    }
+    const reorder: ReorderTimersPayload = {
+      type: 'REORDER_TIMERS',
+      roomId: 'room-1',
+      timerIds: ['timer-a', 'timer-b'],
+    }
+    expect(del.timestamp).toBeUndefined()
+    expect(reorder.timestamp).toBeUndefined()
+    expect(reorder.timerIds).toEqual(['timer-a', 'timer-b'])
+  })
+
+  it('TimerCreated broadcast carries canonical Timer + REQUIRED timestamp (server→client)', () => {
+    const created: TimerCreated = {
+      type: 'TIMER_CREATED',
+      roomId: 'room-1',
+      timer: {
+        id: 'timer-a',
+        roomId: 'room-1',
+        title: 'Act 1',
+        duration: 600,
+        type: 'countdown',
+        order: 0,
+      },
+      timestamp: 1,
+    }
+    const withClient: TimerCreated = { ...created, clientId: 'client-a' }
+    // The timer field is the canonical Timer (all required keys present).
+    expect(created.timer.id).toBe('timer-a')
+    expect(created.timestamp).toBe(1)
+    expect(created.clientId).toBeUndefined()
+    expect(withClient.clientId).toBe('client-a')
+  })
+
+  it('TimerUpdated broadcast carries Partial<Timer> changes + REQUIRED timestamp', () => {
+    const updated: TimerUpdated = {
+      type: 'TIMER_UPDATED',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+      changes: { title: 'Act 1 (revised)' },
+      timestamp: 1,
+    }
+    expect(updated.changes.title).toBe('Act 1 (revised)')
+    expect(updated.timestamp).toBe(1)
+  })
+
+  it('TimerDeleted + TimersReordered broadcasts require timestamp (server→client)', () => {
+    const deleted: TimerDeleted = {
+      type: 'TIMER_DELETED',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+      timestamp: 1,
+    }
+    const reordered: TimersReordered = {
+      type: 'TIMERS_REORDERED',
+      roomId: 'room-1',
+      timerIds: ['timer-b', 'timer-a'],
+      timestamp: 2,
+    }
+    expect(deleted.timestamp).toBe(1)
+    expect(reordered.timerIds).toEqual(['timer-b', 'timer-a'])
+  })
+
+  it('CreateCuePayload carries Partial<Cue> + optional timestamp (client→server)', () => {
+    const requiredOnly: CreateCuePayload = {
+      type: 'CREATE_CUE',
+      roomId: 'room-1',
+      cue: { title: 'LX 1', role: 'lx', triggerType: 'timed', createdBy: 'op' },
+    }
+    const full: CreateCuePayload = {
+      ...requiredOnly,
+      clientId: 'client-a',
+      timestamp: 1,
+    }
+    expect(requiredOnly.timestamp).toBeUndefined()
+    expect(full.clientId).toBe('client-a')
+    // Partial<Cue> compiles with a subset of Cue keys.
+    const minimalCue: CreateCuePayload['cue'] = { title: 'SX 1' }
+    expect(minimalCue.title).toBe('SX 1')
+  })
+
+  it('UpdateCuePayload references cueId + Partial<Cue> changes + optional timestamp', () => {
+    const requiredOnly: UpdateCuePayload = {
+      type: 'UPDATE_CUE',
+      roomId: 'room-1',
+      cueId: 'cue-a',
+      changes: { ackState: 'done' },
+    }
+    expect(requiredOnly.timestamp).toBeUndefined()
+    const changesField: UpdateCuePayload['changes'] = { triggerType: 'follow', afterCueId: 'cue-b' }
+    expect(changesField.afterCueId).toBe('cue-b')
+  })
+
+  it('DeleteCuePayload + ReorderCuesPayload shapes (client→server, optional timestamp)', () => {
+    const del: DeleteCuePayload = {
+      type: 'DELETE_CUE',
+      roomId: 'room-1',
+      cueId: 'cue-a',
+    }
+    const reorder: ReorderCuesPayload = {
+      type: 'REORDER_CUES',
+      roomId: 'room-1',
+      cueIds: ['cue-a', 'cue-b'],
+    }
+    expect(del.timestamp).toBeUndefined()
+    expect(reorder.timestamp).toBeUndefined()
+    expect(reorder.cueIds).toEqual(['cue-a', 'cue-b'])
+  })
+
+  it('CueCreated broadcast carries canonical Cue + REQUIRED timestamp (server→client)', () => {
+    const created: CueCreated = {
+      type: 'CUE_CREATED',
+      roomId: 'room-1',
+      cue: {
+        id: 'cue-a',
+        roomId: 'room-1',
+        role: 'lx',
+        title: 'LX 1',
+        triggerType: 'timed',
+        createdBy: 'op',
+      },
+      timestamp: 1,
+    }
+    const withClient: CueCreated = { ...created, clientId: 'client-a' }
+    expect(created.cue.id).toBe('cue-a')
+    expect(created.cue.triggerType).toBe('timed')
+    expect(created.timestamp).toBe(1)
+    expect(created.clientId).toBeUndefined()
+    expect(withClient.clientId).toBe('client-a')
+  })
+
+  it('CueUpdated broadcast carries Partial<Cue> changes + REQUIRED timestamp', () => {
+    const updated: CueUpdated = {
+      type: 'CUE_UPDATED',
+      roomId: 'room-1',
+      cueId: 'cue-a',
+      changes: { ackState: 'skipped', ackBy: 'op-2' },
+      timestamp: 1,
+    }
+    expect(updated.changes.ackState).toBe('skipped')
+    expect(updated.timestamp).toBe(1)
+  })
+
+  it('CueDeleted + CuesReordered broadcasts require timestamp (server→client)', () => {
+    const deleted: CueDeleted = {
+      type: 'CUE_DELETED',
+      roomId: 'room-1',
+      cueId: 'cue-a',
+      timestamp: 1,
+    }
+    const reordered: CuesReordered = {
+      type: 'CUES_REORDERED',
+      roomId: 'room-1',
+      cueIds: ['cue-b', 'cue-a'],
+      timestamp: 2,
+    }
+    expect(deleted.timestamp).toBe(1)
+    expect(reordered.cueIds).toEqual(['cue-b', 'cue-a'])
+  })
+
+  it('pins the client→server OPTIONAL timestamp vs server→client REQUIRED timestamp asymmetry', () => {
+    // Compile-time: the four client→server payloads admit an undefined timestamp.
+    const createTimerNoTs: CreateTimerPayload = {
+      type: 'CREATE_TIMER',
+      roomId: 'room-1',
+      timer: { title: 'Act 1' },
+    }
+    const updateTimerNoTs: UpdateTimerPayload = {
+      type: 'UPDATE_TIMER',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+      changes: { duration: 100 },
+    }
+    const deleteTimerNoTs: DeleteTimerPayload = {
+      type: 'DELETE_TIMER',
+      roomId: 'room-1',
+      timerId: 'timer-a',
+    }
+    const reorderTimersNoTs: ReorderTimersPayload = {
+      type: 'REORDER_TIMERS',
+      roomId: 'room-1',
+      timerIds: ['timer-a'],
+    }
+    const createCueNoTs: CreateCuePayload = {
+      type: 'CREATE_CUE',
+      roomId: 'room-1',
+      cue: { title: 'LX 1' },
+    }
+    const updateCueNoTs: UpdateCuePayload = {
+      type: 'UPDATE_CUE',
+      roomId: 'room-1',
+      cueId: 'cue-a',
+      changes: { title: 'LX 1b' },
+    }
+    const deleteCueNoTs: DeleteCuePayload = {
+      type: 'DELETE_CUE',
+      roomId: 'room-1',
+      cueId: 'cue-a',
+    }
+    const reorderCuesNoTs: ReorderCuesPayload = {
+      type: 'REORDER_CUES',
+      roomId: 'room-1',
+      cueIds: ['cue-a'],
+    }
+    expect([
+      createTimerNoTs.timestamp,
+      updateTimerNoTs.timestamp,
+      deleteTimerNoTs.timestamp,
+      reorderTimersNoTs.timestamp,
+      createCueNoTs.timestamp,
+      updateCueNoTs.timestamp,
+      deleteCueNoTs.timestamp,
+      reorderCuesNoTs.timestamp,
+    ]).toEqual([undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined])
+
+    // The four server→client broadcasts REQUIRE a numeric timestamp.
+    const requiredTimestamps = [
+      { t: 'TIMER_CREATED' as const, v: 1 },
+      { t: 'TIMER_UPDATED' as const, v: 2 },
+      { t: 'TIMER_DELETED' as const, v: 3 },
+      { t: 'TIMERS_REORDERED' as const, v: 4 },
+    ]
+    expect(requiredTimestamps.every((e) => typeof e.v === 'number')).toBe(true)
   })
 })

@@ -47,7 +47,15 @@ import type {
   ControlRequestStatus,
   ControllerLockStatePayload,
   ControlRequestClearReason,
+  CreateCuePayload,
+  CreateTimerPayload,
+  CueCreated,
+  CueDeleted,
   CueError,
+  CueUpdated,
+  CuesReordered,
+  DeleteCuePayload,
+  DeleteTimerPayload,
   DenyControlPayload,
   ForceTakeoverPayload,
   HandOverPayload,
@@ -55,13 +63,21 @@ import type {
   HandshakeAck,
   JoinRoomPayload,
   HeartbeatPayload,
+  ReorderCuesPayload,
+  ReorderTimersPayload,
   RequestControlPayload,
   RoomClientsState,
   RoomPinState,
   SetRoomPinPayload,
   TimerActionKind,
   TimerActionPayload,
+  TimerCreated,
+  TimerDeleted,
   TimerError,
+  TimerUpdated,
+  TimersReordered,
+  UpdateCuePayload,
+  UpdateTimerPayload,
 } from '@ontime/interface-contracts';
 import type {
   Cue,
@@ -651,39 +667,6 @@ const ALLOWED_CUE_TRIGGER_TYPES = new Set<CueTriggerType>([
 ]);
 const ALLOWED_CUE_ACK_STATES = new Set<CueAckState>(['pending', 'done', 'skipped']);
 
-type CreateTimerPayload = {
-  type: 'CREATE_TIMER';
-  roomId: string;
-  timer: Partial<Timer>;
-  clientId?: string;
-  timestamp?: number;
-};
-
-type UpdateTimerPayload = {
-  type: 'UPDATE_TIMER';
-  roomId: string;
-  timerId: string;
-  changes: Partial<Timer>;
-  clientId?: string;
-  timestamp?: number;
-};
-
-type DeleteTimerPayload = {
-  type: 'DELETE_TIMER';
-  roomId: string;
-  timerId: string;
-  clientId?: string;
-  timestamp?: number;
-};
-
-type ReorderTimersPayload = {
-  type: 'REORDER_TIMERS';
-  roomId: string;
-  timerIds: string[];
-  clientId?: string;
-  timestamp?: number;
-};
-
 type SyncRoomStatePayload = {
   type: 'SYNC_ROOM_STATE';
   roomId: string;
@@ -691,105 +674,6 @@ type SyncRoomStatePayload = {
   timers?: Timer[];
   sourceClientId?: string;
   timestamp?: number;
-};
-
-type TimerCreated = {
-  type: 'TIMER_CREATED';
-  roomId: string;
-  timer: Timer;
-  clientId?: string;
-  timestamp: number;
-};
-
-type TimerUpdated = {
-  type: 'TIMER_UPDATED';
-  roomId: string;
-  timerId: string;
-  changes: Partial<Timer>;
-  clientId?: string;
-  timestamp: number;
-};
-
-type TimerDeleted = {
-  type: 'TIMER_DELETED';
-  roomId: string;
-  timerId: string;
-  clientId?: string;
-  timestamp: number;
-};
-
-type TimersReordered = {
-  type: 'TIMERS_REORDERED';
-  roomId: string;
-  timerIds: string[];
-  clientId?: string;
-  timestamp: number;
-};
-
-type CreateCuePayload = {
-  type: 'CREATE_CUE';
-  roomId: string;
-  cue: Partial<Cue>;
-  clientId?: string;
-  timestamp?: number;
-};
-
-type UpdateCuePayload = {
-  type: 'UPDATE_CUE';
-  roomId: string;
-  cueId: string;
-  changes: Partial<Cue>;
-  clientId?: string;
-  timestamp?: number;
-};
-
-type DeleteCuePayload = {
-  type: 'DELETE_CUE';
-  roomId: string;
-  cueId: string;
-  clientId?: string;
-  timestamp?: number;
-};
-
-type ReorderCuesPayload = {
-  type: 'REORDER_CUES';
-  roomId: string;
-  cueIds: string[];
-  clientId?: string;
-  timestamp?: number;
-};
-
-type CueCreated = {
-  type: 'CUE_CREATED';
-  roomId: string;
-  cue: Cue;
-  clientId?: string;
-  timestamp: number;
-};
-
-type CueUpdated = {
-  type: 'CUE_UPDATED';
-  roomId: string;
-  cueId: string;
-  changes: Partial<Cue>;
-  clientId?: string;
-  timestamp: number;
-};
-
-type CueDeleted = {
-  type: 'CUE_DELETED';
-  roomId: string;
-  cueId: string;
-  clientId?: string;
-  timestamp: number;
-};
-
-type CuesReordered = {
-  type: 'CUES_REORDERED';
-  roomId: string;
-  cueIds: string[];
-  clientId?: string;
-  timestamp: number;
 };
 
 let io: SocketIOServer | null = null;

@@ -340,3 +340,18 @@ export type ControllerLockStatePayload = {
   lock: ControllerLock | null;
   timestamp: number;
 };
+
+// ---------------------------------------------------------------------------
+// Timer and Cue CRUD wire envelopes (Stage 1b U1 slice 7). These are the
+// domain-referencing payloads and broadcasts whose definitions close over the
+// `Timer`/`Cue` shapes from `@ontime/shared-types` (now that #78 moved those
+// domain types into shared-types, this edge is CJS-safe — see
+// ControllerLockStatePayload header above). Kept in a sibling module so this
+// barrel stays under the 400-line production-file ceiling; re-exported here so
+// the package surface (`@ontime/interface-contracts`) is unchanged.
+// `RoomState`/`SyncRoomStatePayload`/`LiveCue`/presentation envelopes are
+// INTENTIONALLY EXCLUDED: RoomState is a divergent projection (decision 4,
+// Session sync 2026-07-06), and the LiveCue/presentation cluster is sequenced
+// after the timer-side work.
+// ---------------------------------------------------------------------------
+export * from './timer-cue-envelopes';

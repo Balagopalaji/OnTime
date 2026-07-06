@@ -1,6 +1,17 @@
 /* eslint-disable react-refresh/only-export-components */
 import { mergeCueVideos } from '@ontime/presentation-core'
-import type { HandshakeAck, HandshakeError } from '@ontime/interface-contracts'
+import type {
+  CueCreated,
+  CueDeleted,
+  CueUpdated,
+  CuesReordered,
+  HandshakeAck,
+  HandshakeError,
+  TimerCreated,
+  TimerDeleted,
+  TimerUpdated,
+  TimersReordered,
+} from '@ontime/interface-contracts'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
@@ -127,71 +138,14 @@ type PresentationClearPayload = {
   timestamp?: number
 }
 
-type TimerCreatedPayload = {
-  type: 'TIMER_CREATED'
-  roomId: string
-  timer: Timer
-  clientId?: string
-  timestamp: number
-}
-
-type TimerUpdatedPayload = {
-  type: 'TIMER_UPDATED'
-  roomId: string
-  timerId: string
-  changes: Partial<Timer>
-  clientId?: string
-  timestamp: number
-}
-
-type TimerDeletedPayload = {
-  type: 'TIMER_DELETED'
-  roomId: string
-  timerId: string
-  clientId?: string
-  timestamp: number
-}
-
-type TimersReorderedPayload = {
-  type: 'TIMERS_REORDERED'
-  roomId: string
-  timerIds: string[]
-  clientId?: string
-  timestamp: number
-}
-
-type CueCreatedPayload = {
-  type: 'CUE_CREATED'
-  roomId: string
-  cue: Cue
-  clientId?: string
-  timestamp: number
-}
-
-type CueUpdatedPayload = {
-  type: 'CUE_UPDATED'
-  roomId: string
-  cueId: string
-  changes: Partial<Cue>
-  clientId?: string
-  timestamp: number
-}
-
-type CueDeletedPayload = {
-  type: 'CUE_DELETED'
-  roomId: string
-  cueId: string
-  clientId?: string
-  timestamp: number
-}
-
-type CuesReorderedPayload = {
-  type: 'CUES_REORDERED'
-  roomId: string
-  cueIds: string[]
-  clientId?: string
-  timestamp: number
-}
+type TimerCreatedPayload = TimerCreated
+type TimerUpdatedPayload = TimerUpdated
+type TimerDeletedPayload = TimerDeleted
+type TimersReorderedPayload = TimersReordered
+type CueCreatedPayload = CueCreated
+type CueUpdatedPayload = CueUpdated
+type CueDeletedPayload = CueDeleted
+type CuesReorderedPayload = CuesReordered
 
 type SyncRoomStatePayload = {
   type: 'SYNC_ROOM_STATE'
