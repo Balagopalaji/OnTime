@@ -173,7 +173,7 @@ Recorded by Claude while Codex/GLM were out of tokens. Codex is back; this block
 
 **Roles going forward (Codex back):** Codex orchestrates (authors GLM prompts) + merges; GLM (±Codex) builds; Claude reviews independently + supplies decision/placement analysis. **Next GLM prompt authored by Codex, not Claude** (reviewer independence — Claude should not both spec and review). Parallel Codex+GLM building only on DISJOINT files (god-file mutex).
 
-**SIXTH milestone audit now DUE** (~a batch since the fifth) — run a fresh-context Fable audit over #72–#78 before the next carve phase; explicitly scrutinize the sub-agent-authored #78 and the #76 path-A ESM/CJS change. Fifth-audit artifact: `docs/rebuild-fifth-milestone-audit.md`.
+**SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. One LOW: #78 shipped without regenerating `package-lock.json` (companion entry lacks `@ontime/shared-types`; `npm ci` still passes — fix in a chore PR). Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
 
 **Next units (priority order):**
 1. **Timer/Cue WIRE ENVELOPES → `interface-contracts`** — NOW UNBLOCKED by #78 (they reference `Timer`/`Cue`, now in shared-types): `CreateTimerPayload`/`UpdateTimerPayload`/`DeleteTimerPayload`/`ReorderTimersPayload`, `TimerCreated`/`TimerUpdated`/`TimerDeleted`/`TimersReordered`, and the Cue equivalents. Mechanical.
