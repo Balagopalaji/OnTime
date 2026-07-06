@@ -224,9 +224,9 @@ describe('seedCompanion emits stored room.state verbatim', () => {
   }
   type FullRoom = { id: string; state: FullCloudState }
 
-  function runSeed(rooms: FullRoom[]): { event: string; payload: any } | null {
-    const emitted: { event: string; payload: any }[] = []
-    const socket = { connected: true, emit: (event: string, payload: unknown) => emitted.push({ event, payload: payload as any }) }
+  function runSeed(rooms: FullRoom[]): { event: string; payload: unknown } | null {
+    const emitted: { event: string; payload: unknown }[] = []
+    const socket = { connected: true, emit: (event: string, payload: unknown) => emitted.push({ event, payload }) }
     // Mirror the seedCompanion callback's rooms[] construction verbatim.
     const constructed = rooms.map((room) => ({
       roomId: room.id,
@@ -254,7 +254,7 @@ describe('seedCompanion emits stored room.state verbatim', () => {
     }
     const result = runSeed([{ id: 'room-1', state: storedState }])
     expect(result).not.toBeNull()
-    const emittedState = (result!.payload as any).rooms[0].state
+    const emittedState = (result!.payload as { rooms: { state: FullCloudState }[] }).rooms[0].state
     // The emitted state IS the stored object (verbatim, not a lean projection).
     expect(emittedState).toEqual(storedState)
   })
@@ -273,7 +273,7 @@ describe('seedCompanion emits stored room.state verbatim', () => {
       activeLiveCueId: 'live-1',
     }
     const result = runSeed([{ id: 'room-1', state: storedState }])
-    const emittedState = (result!.payload as any).rooms[0].state
+    const emittedState = (result!.payload as { rooms: { state: FullCloudState }[] }).rooms[0].state
     // Fields that a companion-shape projection would drop must survive verbatim.
     expect(emittedState.currentTime).toBe(1234)
     expect(emittedState.progress).toEqual({ 'timer-a': 1234 })
