@@ -138,7 +138,35 @@ ratchet together) provided they stay within the fast-lane conditions above.
 - PR #73 refactor(interface-contracts): adopt strict `HandshakeError` wire type (U1 slice 4)
 - PR #74 docs(rebuild): sync fifth audit after HandshakeError slice
 - PR #75 refactor(interface-contracts): adopt strict `HandshakeAck` wire type (U1 slice 5)
-- PR #76 refactor(interface-contracts): adopt control/timer/cue wire types (U1 slice 6)
+- PR #76 refactor(interface-contracts): adopt control/timer/cue wire types (U1 slice 6) + path A (drop shared-types `"type":"module"`, import `ControllerLock`)
+- PR #77 docs(rebuild): sync ledger after U1 slices 5 and 6
+- PR #78 refactor(companion): adopt `@ontime/shared-types` domain types (Timer/Cue + 5 enums) (U1)
+
+## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
+
+Recorded by Claude while Codex/GLM were out of tokens. Codex is back; this block is the handoff.
+
+**Batch landed (#73–#78), all Claude-baton reviewed:**
+- #73 `HandshakeError`, #75 `HandshakeAck` (inlines `companionMode`/`NodeJS.Platform` — drift-guarded at `createHandshakeAck`), #76 control/timer/cue wire types.
+- **#76 path A (Claude-applied after a CHANGES):** dropped `"type":"module"` from `packages/shared-types/package.json` (zero runtime exports → behavior-neutral) and swapped the inlined `ControllerLock` in `ControllerLockStatePayload` for `import type { ControllerLock } from '@ontime/shared-types'`. **Latent item (a) CLOSED** — companion (CJS/Node16) now imports shared-types with no TS1541; the domain-referencing tail no longer needs inlining. `interface-contracts → shared-types` edge is allowed (dependency-cruiser) and now in use.
+- **#78 (sub-agent-authored, Claude-reviewed, CI-proven):** companion drops its local `Timer`/`Cue`/`TimerType`/`MessageColor`/`OperatorRole`/`CueTriggerType`/`CueAckState` and imports them from shared-types. Verified: Timer = pure superset, Cue = single `editedByRole` widening (`OperatorRole | null`), enums byte-identical — behavior-neutral by construction. Ratchet `main.ts` 7734→7697. `LiveCue` intentionally excluded.
+- Process fixes proven this session: #75 was DIRTY on the ledger (Claude merge-resolved); #76/#78 were clean. **Rule: slice PRs must NOT edit `docs/rebuild-progress.md` — Codex owns ledger syncs** (two collisions came from this).
+
+**Decisions ratified this session:**
+1. **LiveCue `instanceId` = B1** — when LiveCue is adopted, extend shared-types `LiveCue.metadata` with `instanceId?: number` (companion writes it, no reader; keeps the wire type honest + preserves show-caller optionality). Do NOT drop it (B2).
+2. **Show-caller / show-control PRODUCT stays deferred (D3/D4)** — but this is distinct from carving the *existing* LiveCue/presentation code out of `main.ts`, which is **REQUIRED for D5** (god-file → ≤500-line pure-wiring shim). Defer *building the product*; still *relocate existing code*. Homes: domain types → `shared-types` (already has `LiveCue`); wire envelopes → `interface-contracts`; presentation merge/snapshot logic → `presentation-core`; PPT-probe I/O → companion app-internal adapter now (full `ppt-bridge` product deferred). Owner rationale on record: operator/custom viewers (not main viewer); PPT laptop can't run PowerPoint + controller both foremost → network-separated control; controller-reads-PPT-status is ppt-bridge, not crucial.
+3. **Slice sizing:** bundle homogeneous, zero-divergence, same-region adoptions into ONE slice (see #78 = enums+Timer+Cue); split only at genuine decision/divergence boundaries (LiveCue). Avoid over-fragmentation — the earlier 6a(enums)/7A(Timer+Cue) split overlapped on the enums and was superseded by #78.
+4. **RoomState (decision pass, ratified):** keep companion's lean `RoomState` as an explicit projection (`Pick<shared RoomState, …> & { title?; timezone? }`, rename `CompanionRoomState`); replace the unsafe `room.state as RoomState` cast at `frontend/src/context/UnifiedDataContext.tsx:~3091` with a tested adapter. Do NOT structurally unify (cloud-persisted entity vs clock-domain projection).
+
+**Roles going forward (Codex back):** Codex orchestrates (authors GLM prompts) + merges; GLM (±Codex) builds; Claude reviews independently + supplies decision/placement analysis. **Next GLM prompt authored by Codex, not Claude** (reviewer independence — Claude should not both spec and review). Parallel Codex+GLM building only on DISJOINT files (god-file mutex).
+
+**SIXTH milestone audit now DUE** (~a batch since the fifth) — run a fresh-context Fable audit over #72–#78 before the next carve phase; explicitly scrutinize the sub-agent-authored #78 and the #76 path-A ESM/CJS change. Fifth-audit artifact: `docs/rebuild-fifth-milestone-audit.md`.
+
+**Next units (priority order):**
+1. **Timer/Cue WIRE ENVELOPES → `interface-contracts`** — NOW UNBLOCKED by #78 (they reference `Timer`/`Cue`, now in shared-types): `CreateTimerPayload`/`UpdateTimerPayload`/`DeleteTimerPayload`/`ReorderTimersPayload`, `TimerCreated`/`TimerUpdated`/`TimerDeleted`/`TimersReordered`, and the Cue equivalents. Mechanical.
+2. **RoomState + envelopes** (`RoomStateSnapshot`/`RoomStateDelta`/`RoomStatePatchPayload`/`SyncRoomStatePayload`) per decision 4 above.
+3. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
+Prioritize timer/sync/lock god-file carving (higher value + bigger god-file chunks than LiveCue).
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
