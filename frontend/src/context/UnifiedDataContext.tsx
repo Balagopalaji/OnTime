@@ -3025,7 +3025,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const pin = roomPins[room.id] ?? undefined
       return {
         roomId: room.id,
-        state: toCompanionRoomState(room, computeCurrentTimeWithProgress(room)),
+        state: room.state,
         ...(timers.length > 0 ? { timers } : {}),
         ...(cues.length > 0 ? { cues } : {}),
         ...(pin ? { pin } : {}),
@@ -3059,7 +3059,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     if (debugCompanion) {
       console.info('[companion] SEED_COMPANION_CACHE sent', { roomCount: rooms.length })
     }
-  }, [computeCurrentTimeWithProgress, debugCompanion, deletedRoomMeta, firebase, roomPins, socket])
+  }, [debugCompanion, deletedRoomMeta, firebase, roomPins, socket])
 
   const broadcastControlPayload = useCallback(
     (payload: ControlSyncPayload) => {
