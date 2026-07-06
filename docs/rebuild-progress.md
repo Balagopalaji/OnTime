@@ -62,6 +62,19 @@ cumulative diff `git diff <last-audit-tag>...main`: rule prior findings FIXED/NO
 not necessarily one file. Pure guardrail-infra items may be batched (e.g. anti-dup CI check + L-2
 ratchet together) provided they stay within the fast-lane conditions above.
 
+**Do NOT slice too small (2026-07-06 rule).** Size a slice by RISK and REVIEWABILITY, not line count.
+BUNDLE homogeneous, zero-divergence, same-region changes into ONE slice; only SPLIT at a genuine
+decision/divergence/behavioral boundary. Small-for-its-own-sake costs more than it saves: each
+god-file-touching slice competes for the same mutex + edits the same import block (→ serialized
+rebases/collisions), and every slice carries fixed builder+review+CI+merge+ledger overhead. The
+risk-isolation benefit that justifies a small slice does NOT apply when the changes are homogeneous
+and near-zero-risk — you're isolating nothing. Examples: #78 correctly bundled 5 enums + `Timer` +
+`Cue` (all "delete local type, import from shared-types") into one slice; the earlier plan to split
+enums (6a) from Timer/Cue (7A) was over-fragmentation and the two even OVERLAPPED on the enums.
+Legitimate splits: `LiveCue` (decision-gated on `instanceId`), `RoomState` (divergent projection).
+Rule of thumb for the U1 tail: adopt ALL the homogeneous Timer/Cue wire ENVELOPES in one slice, not
+one-per-payload.
+
 ## Landed (on `main`)
 
 - PR #1 architecture/product audit set
