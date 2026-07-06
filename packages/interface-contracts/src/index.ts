@@ -5,6 +5,8 @@
 // (decision D2, docs/rebuild-plan.md). Adopted byte/shape-faithful from
 // `companion/src/main.ts` (Stage 1b U1 first slice).
 
+import type { ControllerLock } from '@ontime/shared-types';
+
 export type RequestControlPayload = {
   type: 'REQUEST_CONTROL';
   roomId: string;
@@ -328,26 +330,13 @@ export type ControlRequestStatus = {
  * the `ControllerLockState` display-state union in `@ontime/shared-types`
  * ('authoritative' | 'read-only' | 'requesting' | 'displaced').
  *
- * The `lock` field carries the `ControllerLock` shape (also defined in
- * `@ontime/shared-types` and `companion/src/control-lock-utils.ts`). It is
- * inlined here to keep this package import-free: companion compiles as
- * CommonJS (`module: Node16`, no `"type": "module"`), and a type-only import
- * from `@ontime/shared-types` would trip TS1541 (resolution-mode) on the CJS
- * side. The shape duplication is pre-existing (shared-types ↔ control-lock-utils)
- * and collapses when the G5 one-definition wire-shape tripwire lands after the
- * remaining U1 slices (per docs/rebuild-plan.md §5).
+ * The `lock` field references the canonical `ControllerLock` domain type from
+ * `@ontime/shared-types` (single source of truth). The type-only import is
+ * CJS-safe because `@ontime/shared-types` no longer declares `"type": "module"`.
  */
 export type ControllerLockStatePayload = {
   type: 'CONTROLLER_LOCK_STATE';
   roomId: string;
-  lock: {
-    clientId: string;
-    deviceName?: string;
-    userId?: string;
-    userName?: string;
-    lockedAt: number;
-    lastHeartbeat: number;
-    roomId: string;
-  } | null;
+  lock: ControllerLock | null;
   timestamp: number;
 };
