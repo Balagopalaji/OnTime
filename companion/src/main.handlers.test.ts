@@ -1237,3 +1237,44 @@ test('pending control request auto-clears at the 30s timeout, emitting a timeout
   assert.equal(reqCleared?.payload.reason, 'timeout', 'requester must be told the clear reason was timeout')
   assert.equal(ownerCleared?.payload.reason, 'timeout', 'controller must be told the clear reason was timeout')
 })
+
+// ---------------------------------------------------------------------------
+// U1 domain-types adoption: shared-types Timer is a SUPERSET (adds optional
+// sectionId/segmentId/segmentOrder/adjustmentLog). Those extra fields MUST NOT
+// become writable over UPDATE_TIMER — ALLOWED_TIMER_PATCH_KEYS is the runtime
+// contract. This test fails if the allowlist is ever widened to leak them.
+// ---------------------------------------------------------------------------
+test('UPDATE_TIMER with an unsupported shared Timer field (sectionId) is rejected INVALID_FIELDS and does not mutate the timer', async () => {
+  const m = await loadHandlerHelpers()
+  const roomId = 'room-update-timer-sectionid'
+
+  m.roomControllerStore.delete(roomId)
+  const timers = m.getRoomTimers(roomId)
+  timers.clear()
+  timers.set('timer-1', {
+    id: 'timer-1',
+    roomId,
+    title: 'Opening',
+    duration: 300,
+    type: 'countdown',
+    order: 0,
+  } as any)
+
+  const socket = makeFakeSocket(roomId)
+
+  m.handleUpdateTimer(socket, {
+    type: 'UPDATE_TIMER',
+    roomId,
+    timerId: 'timer-1',
+    changes: { sectionId: 'section-9' },
+  })
+
+  const err = socket.emitted.find((e: { event: string }) => e.event === 'TIMER_ERROR')
+  assert.ok(err, 'a TIMER_ERROR must be emitted for the unsupported key')
+  assert.equal((err!.payload as any).code, 'INVALID_FIELDS',
+    'unsupported shared field must be rejected as INVALID_FIELDS, not silently accepted')
+
+  const stored = m.getRoomTimers(roomId).get('timer-1') as any
+  assert.equal(stored.sectionId, undefined, 'sectionId must NOT be written onto the stored timer')
+  assert.equal(stored.title, 'Opening', 'the timer must be otherwise unchanged')
+})

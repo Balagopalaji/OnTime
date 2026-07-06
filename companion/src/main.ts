@@ -63,6 +63,15 @@ import type {
   TimerActionPayload,
   TimerError,
 } from '@ontime/interface-contracts';
+import type {
+  Cue,
+  CueAckState,
+  CueTriggerType,
+  MessageColor,
+  OperatorRole,
+  Timer,
+  TimerType,
+} from '@ontime/shared-types';
 export {
   CONTROL_REQUEST_TIMEOUT_MS,
   getPendingControlReplacementReason,
@@ -631,8 +640,6 @@ type RoomStatePatchPayload = {
   timestamp?: number;
 };
 
-type TimerType = 'countdown' | 'countup' | 'timeofday';
-type MessageColor = 'green' | 'yellow' | 'red' | 'blue' | 'white' | 'none';
 const ALLOWED_MESSAGE_COLORS = new Set<MessageColor>(['green', 'yellow', 'red', 'blue', 'white', 'none']);
 const ALLOWED_CUE_ROLES = new Set<OperatorRole>(['lx', 'ax', 'vx', 'sm', 'foh', 'custom']);
 const ALLOWED_CUE_TRIGGER_TYPES = new Set<CueTriggerType>([
@@ -643,18 +650,6 @@ const ALLOWED_CUE_TRIGGER_TYPES = new Set<CueTriggerType>([
   'floating',
 ]);
 const ALLOWED_CUE_ACK_STATES = new Set<CueAckState>(['pending', 'done', 'skipped']);
-
-type Timer = {
-  id: string;
-  roomId: string;
-  title: string;
-  duration: number; // seconds
-  originalDuration?: number; // seconds - the duration before nudge adjustments
-  speaker?: string;
-  type: TimerType;
-  order: number;
-  updatedAt?: number;
-};
 
 type CreateTimerPayload = {
   type: 'CREATE_TIMER';
@@ -729,38 +724,6 @@ type TimersReordered = {
   timerIds: string[];
   clientId?: string;
   timestamp: number;
-};
-
-type OperatorRole = 'lx' | 'ax' | 'vx' | 'sm' | 'foh' | 'custom';
-type CueTriggerType = 'timed' | 'fixed_time' | 'sequential' | 'follow' | 'floating';
-type CueAckState = 'pending' | 'done' | 'skipped';
-
-type Cue = {
-  id: string;
-  roomId: string;
-  role: OperatorRole;
-  title: string;
-  notes?: string;
-  sectionId?: string;
-  segmentId?: string;
-  order?: number;
-  triggerType: CueTriggerType;
-  offsetMs?: number;
-  timeBase?: 'actual' | 'planned';
-  targetTimeMs?: number;
-  afterCueId?: string;
-  approximatePosition?: number;
-  triggerNote?: string;
-  ackState?: CueAckState;
-  ackAt?: number;
-  ackBy?: string;
-  createdBy: string;
-  createdAt?: number;
-  updatedAt?: number;
-  editedBy?: string;
-  createdByRole?: OperatorRole;
-  editedByRole?: OperatorRole;
-  editNote?: string;
 };
 
 type CreateCuePayload = {
@@ -6466,7 +6429,7 @@ const ALLOWED_CUE_PATCH_KEYS = new Set([
   'updatedAt',
 ]);
 
-function getRoomTimers(roomId: string): Map<string, Timer> {
+export function getRoomTimers(roomId: string): Map<string, Timer> {
   if (roomTimersStore.has(roomId)) return roomTimersStore.get(roomId)!;
   const map = new Map<string, Timer>();
   roomTimersStore.set(roomId, map);
@@ -6730,7 +6693,7 @@ function handleCreateTimer(socket: Socket, payload: unknown) {
   console.log(`[ws] TIMER_CREATED room=${roomId} timer=${timerId} by=${clientId ?? socket.id}`);
 }
 
-function handleUpdateTimer(socket: Socket, payload: unknown) {
+export function handleUpdateTimer(socket: Socket, payload: unknown) {
   if (!isValidUpdateTimerPayload(payload)) {
     emitTimerError(socket, 'unknown', 'INVALID_PAYLOAD', 'Invalid UPDATE_TIMER payload.', socket.data.clientId);
     return;
