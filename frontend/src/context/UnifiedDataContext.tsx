@@ -3020,7 +3020,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
    * Emits STORED values only (no computed currentTime).
    * Skips rooms without a lastUpdate timestamp.
    */
-  const toSeedRoomState = (room: { id: string; state: RoomState }) => {
+  const toSeedRoomState = (room: { id: string; state: Partial<CompanionRoomState> }) => {
     const { state } = room
     if (!state?.lastUpdate) return undefined
 

@@ -6025,32 +6025,31 @@ export function handleSyncRoomState(socket: Socket, payload: unknown) {
   console.log(`[ws] SYNC_ROOM_STATE room=${roomId} by=${clientId ?? socket.id} timers=${payload.timers?.length ?? 0}`);
 }
 
-export function isValidSeedRoomStatePayload(data: Partial<RoomState>): data is RoomState {
+type SeedRoomState = Pick<RoomState, 'activeTimerId' | 'isRunning' | 'currentTime' | 'lastUpdate' | 'showClock' | 'message' | 'title' | 'timezone' | 'activeLiveCueId'>;
+
+export function isValidSeedRoomStatePayload(data: unknown): data is SeedRoomState {
+  if (!data || typeof data !== 'object') return false;
+  const state = data as Partial<Record<keyof SeedRoomState | 'startedAt' | 'elapsedOffset' | 'progress' | 'clockMode', unknown>>;
+
   // F4: Both currentTime and lastUpdate must be present and finite (partial-pair rejection)
-  const currentTimeOk = typeof data.currentTime === 'number' && Number.isFinite(data.currentTime);
-  const lastUpdateOk = typeof data.lastUpdate === 'number' && Number.isFinite(data.lastUpdate);
-  if (!currentTimeOk || !lastUpdateOk) return false;
+  if (typeof state.currentTime !== 'number' || !Number.isFinite(state.currentTime)) return false;
+  if (typeof state.lastUpdate !== 'number' || !Number.isFinite(state.lastUpdate)) return false;
 
   // Core lean fields (optional - handler has fallbacks to existing values)
-  const activeOk = data.activeTimerId === undefined || data.activeTimerId === null || typeof data.activeTimerId === 'string';
-  const runningOk = data.isRunning === undefined || typeof data.isRunning === 'boolean';
-  if (!activeOk || !runningOk) return false;
+  if (!(state.activeTimerId === undefined || state.activeTimerId === null || typeof state.activeTimerId === 'string')) return false;
+  if (!(state.isRunning === undefined || typeof state.isRunning === 'boolean')) return false;
 
   // F1: Reject rich cloud fields (startedAt, elapsedOffset, progress, clockMode)
   // These checks use hasOwnProperty to distinguish between absent and undefined
-  if (Object.prototype.hasOwnProperty.call(data, 'startedAt')) return false;
-  if (Object.prototype.hasOwnProperty.call(data, 'elapsedOffset')) return false;
-  if (Object.prototype.hasOwnProperty.call(data, 'progress')) return false;
-  if (Object.prototype.hasOwnProperty.call(data, 'clockMode')) return false;
+  if (['startedAt', 'elapsedOffset', 'progress', 'clockMode'].some((key) => Object.prototype.hasOwnProperty.call(state, key))) return false;
 
-  // Optional lean fields
-  const showClockOk = data.showClock === undefined || typeof data.showClock === 'boolean';
-  const messageOk = data.message === undefined || isValidMessagePatch(data.message);
-  const titleOk = data.title === undefined || typeof data.title === 'string';
-  const timezoneOk = data.timezone === undefined || typeof data.timezone === 'string';
-  const activeLiveCueIdOk = data.activeLiveCueId === undefined || typeof data.activeLiveCueId === 'string';
-
-  return showClockOk && messageOk && titleOk && timezoneOk && activeLiveCueIdOk;
+  return (
+    (state.showClock === undefined || typeof state.showClock === 'boolean') &&
+    (state.message === undefined || isValidMessagePatch(state.message)) &&
+    (state.title === undefined || typeof state.title === 'string') &&
+    (state.timezone === undefined || typeof state.timezone === 'string') &&
+    (state.activeLiveCueId === undefined || typeof state.activeLiveCueId === 'string')
+  );
 }
 
 export function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
