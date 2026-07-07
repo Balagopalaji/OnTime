@@ -355,3 +355,15 @@ export type ControllerLockStatePayload = {
 // after the timer-side work.
 // ---------------------------------------------------------------------------
 export * from './timer-cue-envelopes';
+
+// ---------------------------------------------------------------------------
+// Companion room-state projection + room-state wire envelopes (Stage 1b U1
+// slice 8). `CompanionRoomState` is a DIVERGENT clock-domain projection from
+// the shared-types `RoomState`: anchored on `currentTime`/`lastUpdate` rather
+// than `startedAt`/`elapsedOffset`, and without `clockMode`. The two types are
+// NOT structurally unifiable; conversion is an explicit adapter (see
+// `frontend/src/context/UnifiedDataContext.tsx`). Split into a sibling module so
+// this barrel stays under the 400-line production-file ceiling; re-exported
+// here so the `@ontime/interface-contracts` surface is unchanged.
+// ---------------------------------------------------------------------------
+export * from './room-state-envelopes';

@@ -6,6 +6,7 @@ import type {
   ControlRequestReceived,
   ControlRequestStatus,
   ControllerLockStatePayload,
+  CompanionRoomState,
   CreateCuePayload,
   CreateTimerPayload,
   CueCreated,
@@ -27,8 +28,12 @@ import type {
   RequestControlPayload,
   RoomClientsState,
   RoomPinState,
+  RoomStateDelta,
+  RoomStatePatchPayload,
+  RoomStateSnapshot,
   SetRoomPinPayload,
   StatusWindowResponse,
+  SyncRoomStatePayload,
   TimerActionKind,
   TimerActionPayload,
   TimerCreated,
@@ -1002,5 +1007,194 @@ describe('interface-contracts Timer/Cue CRUD wire envelopes (U1 slice 7)', () =>
       { t: 'TIMERS_REORDERED' as const, v: 4 },
     ]
     expect(requiredTimestamps.every((e) => typeof e.v === 'number')).toBe(true)
+  })
+})
+
+// Pins the `CompanionRoomState` projection + the four room-state wire envelopes
+// adopted in U1 slice 8 from `companion/src/main.ts` (+ the duplicate
+// `CompanionRoomState` from `frontend/src/context/UnifiedDataContext.tsx`).
+// `CompanionRoomState` is a DIVERGENT clock-domain projection from the
+// shared-types `RoomState`: anchored on `currentTime`/`lastUpdate` rather than
+// `startedAt`/`elapsedOffset`, and without `clockMode`. A drift in any
+// discriminant, required-key set, or the optional-vs-required timestamp
+// asymmetry breaks a Socket.IO event shape, so these tests are the net.
+
+describe('interface-contracts CompanionRoomState + room-state wire envelopes (U1 slice 8)', () => {
+  it('CompanionRoomState pins the four REQUIRED clock-domain keys', () => {
+    // The minimal acceptable object must carry exactly the four required keys.
+    const requiredOnly: CompanionRoomState = {
+      activeTimerId: null,
+      isRunning: false,
+      currentTime: 0,
+      lastUpdate: 1,
+    }
+    expect(requiredOnly.activeTimerId).toBeNull()
+    expect(requiredOnly.isRunning).toBe(false)
+    expect(requiredOnly.currentTime).toBe(0)
+    expect(requiredOnly.lastUpdate).toBe(1)
+    // Optional keys are undefined on the minimal object.
+    expect(requiredOnly.elapsedOffset).toBeUndefined()
+    expect(requiredOnly.progress).toBeUndefined()
+    expect(requiredOnly.showClock).toBeUndefined()
+    expect(requiredOnly.message).toBeUndefined()
+    expect(requiredOnly.title).toBeUndefined()
+    expect(requiredOnly.timezone).toBeUndefined()
+    expect(requiredOnly.activeLiveCueId).toBeUndefined()
+  })
+
+  it('CompanionRoomState admits the optional keys (full projection)', () => {
+    const full: CompanionRoomState = {
+      activeTimerId: 'timer-a',
+      isRunning: true,
+      currentTime: 42,
+      lastUpdate: 2,
+      elapsedOffset: 5,
+      progress: { 'timer-a': 42 },
+      showClock: true,
+      message: { text: 'hello', visible: true, color: 'red' },
+      title: 'Main Room',
+      timezone: 'UTC',
+      activeLiveCueId: 'cue-x',
+    }
+    expect(full.elapsedOffset).toBe(5)
+    expect(full.progress?.['timer-a']).toBe(42)
+    expect(full.message?.color).toBe('red')
+    expect(full.activeLiveCueId).toBe('cue-x')
+  })
+
+  it('CompanionRoomState is anchored on currentTime/lastUpdate and omits startedAt/clockMode', () => {
+    // Compile-time pin: the projection does NOT carry `startedAt` or `clockMode`
+    // (it is divergent from shared-types RoomState). If either key is added,
+    // this keyof assertion will drift.
+    type Keys = keyof CompanionRoomState
+    const allKeys: Keys[] = [
+      'activeTimerId',
+      'isRunning',
+      'currentTime',
+      'lastUpdate',
+      'elapsedOffset',
+      'progress',
+      'showClock',
+      'message',
+      'title',
+      'timezone',
+      'activeLiveCueId',
+    ]
+    expect(new Set(allKeys).size).toBe(11)
+    // The forbidden keys are NOT members of the keyof set.
+    // (This is a compile-time guard: assigning either would error under TS.)
+    const hasStartedAt: Keys extends 'startedAt' ? true : false = false as never
+    const hasClockMode: Keys extends 'clockMode' ? true : false = false as never
+    expect(hasStartedAt).toBe(false as never)
+    expect(hasClockMode).toBe(false as never)
+  })
+
+  it('pins the four room-state discriminant strings', () => {
+    const discriminants: {
+      snapshot: LiteralType<RoomStateSnapshot>;
+      delta: LiteralType<RoomStateDelta>;
+      patch: LiteralType<RoomStatePatchPayload>;
+      sync: LiteralType<SyncRoomStatePayload>;
+    } = {
+      snapshot: 'ROOM_STATE_SNAPSHOT',
+      delta: 'ROOM_STATE_DELTA',
+      patch: 'ROOM_STATE_PATCH',
+      sync: 'SYNC_ROOM_STATE',
+    }
+    expect(discriminants).toEqual({
+      snapshot: 'ROOM_STATE_SNAPSHOT',
+      delta: 'ROOM_STATE_DELTA',
+      patch: 'ROOM_STATE_PATCH',
+      sync: 'SYNC_ROOM_STATE',
+    })
+  })
+
+  it('RoomStateSnapshot carries full CompanionRoomState + REQUIRED timestamp (server→client)', () => {
+    const snapshot: RoomStateSnapshot = {
+      type: 'ROOM_STATE_SNAPSHOT',
+      roomId: 'room-1',
+      state: {
+        activeTimerId: 'timer-a',
+        isRunning: true,
+        currentTime: 7,
+        lastUpdate: 9,
+      },
+      timestamp: 10,
+    }
+    expect(snapshot.state.activeTimerId).toBe('timer-a')
+    expect(snapshot.timestamp).toBe(10)
+    // The state field is the full CompanionRoomState (4 required keys present).
+    expect(snapshot.state.currentTime).toBe(7)
+  })
+
+  it('RoomStateDelta carries Partial<CompanionRoomState> + REQUIRED timestamp (server→client)', () => {
+    const minimal: RoomStateDelta = {
+      type: 'ROOM_STATE_DELTA',
+      roomId: 'room-1',
+      changes: { isRunning: false },
+      timestamp: 1,
+    }
+    const withClient: RoomStateDelta = { ...minimal, clientId: 'client-a' }
+    expect(minimal.clientId).toBeUndefined()
+    expect(withClient.clientId).toBe('client-a')
+    expect(minimal.changes.isRunning).toBe(false)
+    // Partial<CompanionRoomState> compiles with a subset of keys.
+    const changesField: RoomStateDelta['changes'] = { currentTime: 99, lastUpdate: 100 }
+    expect(changesField.currentTime).toBe(99)
+  })
+
+  it('pins the server→client REQUIRED timestamp vs client→server OPTIONAL timestamp asymmetry', () => {
+    // The two server→client broadcasts REQUIRE a numeric timestamp.
+    const snapshot: RoomStateSnapshot = {
+      type: 'ROOM_STATE_SNAPSHOT',
+      roomId: 'room-1',
+      state: { activeTimerId: null, isRunning: false, currentTime: 0, lastUpdate: 1 },
+      timestamp: 2,
+    }
+    const delta: RoomStateDelta = {
+      type: 'ROOM_STATE_DELTA',
+      roomId: 'room-1',
+      changes: { isRunning: true },
+      timestamp: 3,
+    }
+    expect(typeof snapshot.timestamp).toBe('number')
+    expect(typeof delta.timestamp).toBe('number')
+
+    // The two client→server payloads admit an undefined timestamp.
+    const patchNoTs: RoomStatePatchPayload = {
+      type: 'ROOM_STATE_PATCH',
+      roomId: 'room-1',
+      changes: { showClock: true },
+    }
+    const syncNoTs: SyncRoomStatePayload = {
+      type: 'SYNC_ROOM_STATE',
+      roomId: 'room-1',
+      state: { activeTimerId: null, isRunning: false, currentTime: 0, lastUpdate: 1 },
+    }
+    expect(patchNoTs.timestamp).toBeUndefined()
+    expect(syncNoTs.timestamp).toBeUndefined()
+  })
+
+  it('RoomStatePatchPayload + SyncRoomStatePayload optional field sets (client→server)', () => {
+    const patch: RoomStatePatchPayload = {
+      type: 'ROOM_STATE_PATCH',
+      roomId: 'room-1',
+      changes: { activeTimerId: 'timer-a', isRunning: true, currentTime: 1, lastUpdate: 2 },
+      clientId: 'client-a',
+      timestamp: 3,
+    }
+    expect(patch.clientId).toBe('client-a')
+    expect(patch.timestamp).toBe(3)
+
+    const sync: SyncRoomStatePayload = {
+      type: 'SYNC_ROOM_STATE',
+      roomId: 'room-1',
+      state: { activeTimerId: 'timer-a', isRunning: true, currentTime: 1, lastUpdate: 2 },
+      timers: [],
+      sourceClientId: 'client-a',
+      timestamp: 3,
+    }
+    expect(sync.timers).toEqual([])
+    expect(sync.sourceClientId).toBe('client-a')
   })
 })

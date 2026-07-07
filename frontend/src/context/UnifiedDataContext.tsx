@@ -1,12 +1,16 @@
 /* eslint-disable react-refresh/only-export-components */
 import { mergeCueVideos } from '@ontime/presentation-core'
 import type {
+  CompanionRoomState,
   CueCreated,
   CueDeleted,
   CueUpdated,
   CuesReordered,
   HandshakeAck,
   HandshakeError,
+  RoomStateDelta,
+  RoomStateSnapshot,
+  SyncRoomStatePayload,
   TimerCreated,
   TimerDeleted,
   TimerUpdated,
@@ -15,7 +19,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import type { Room, RoomState, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
+import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import { ARBITRATION_FLAGS, arbitrate } from '../lib/arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
@@ -63,17 +67,12 @@ type RoomAuthority = {
   lastSyncAt: number
 }
 
-type CompanionRoomState = {
-  activeTimerId: string | null
-  isRunning: boolean
-  currentTime: number
-  lastUpdate: number
-  showClock?: boolean
-  message?: Partial<Room['state']['message']>
-  title?: string
-  timezone?: string
-  activeLiveCueId?: string
-}
+// CompanionRoomState (companion clock-domain room-state projection) and the
+// four room-state wire envelopes are adopted from @ontime/interface-contracts
+// (Stage 1b U1 slice 8). CompanionRoomState is a DIVERGENT projection from the
+// shared-types RoomState (anchored on currentTime/lastUpdate, no startedAt/
+// clockMode); the two are not structurally assignable. Cloud Room state is
+// converted via toCompanionRoomState (this file).
 
 type UnifiedDataContextValue = DataContextValue & {
   roomAuthority: Record<string, RoomAuthority>
@@ -92,29 +91,6 @@ type UnifiedDataContextValue = DataContextValue & {
 setActiveRoomIntents: (roomIds: string[]) => void
   addActiveRoomIntent: (roomId: string) => void
   removeActiveRoomIntent: (roomId: string) => void
-}
-
-type RoomStateSnapshotPayload = {
-  type: 'ROOM_STATE_SNAPSHOT'
-  roomId: string
-  state: CompanionRoomState
-  timestamp: number
-}
-
-type RoomStateDeltaPayload = {
-  type: 'ROOM_STATE_DELTA'
-  roomId: string
-  changes: Partial<CompanionRoomState>
-  clientId?: string
-  timestamp: number
-}
-
-type RoomStatePatchPayload = {
-  type: 'ROOM_STATE_PATCH'
-  roomId: string
-  changes: Partial<CompanionRoomState>
-  clientId: string
-  timestamp: number
 }
 
 type LiveCueEventPayload = {
@@ -146,24 +122,6 @@ type CueCreatedPayload = CueCreated
 type CueUpdatedPayload = CueUpdated
 type CueDeletedPayload = CueDeleted
 type CuesReorderedPayload = CuesReordered
-
-type SyncRoomStatePayload = {
-  type: 'SYNC_ROOM_STATE'
-  roomId: string
-  timers?: Timer[]
-  state: {
-    activeTimerId: string | null
-    isRunning: boolean
-    currentTime: number
-    lastUpdate: number
-    showClock?: boolean
-    message?: Partial<Room['state']['message']>
-    title?: string
-    timezone?: string
-  }
-  sourceClientId?: string
-  timestamp?: number
-}
 
 export const resolveReconciledTimerTargetId = ({
   requestedTimerId,
@@ -362,6 +320,11 @@ type QueuedEvent =
     changes: Partial<CompanionRoomState>
     clientId: string
   }
+
+// The ROOM_STATE_PATCH member of QueuedEvent. Distinct from the wire
+// RoomStatePatchPayload (which has optional timestamp/clientId): queued events
+// always carry both for ordering/replay, so this is the narrowed required form.
+type RoomStatePatchQueuedEvent = Extract<QueuedEvent, { type: 'ROOM_STATE_PATCH' }>
 
 export type CueQueuedEvent =
   | {
@@ -846,6 +809,35 @@ const buildDefaultCompanionState = (): CompanionRoomState => ({
     visible: false,
     color: 'green',
   },
+})
+
+/**
+ * Adapter: cloud/Firebase Room state -> Companion clock-domain projection.
+ *
+ * Cloud `Room.state` is anchored on `startedAt`/`elapsedOffset` (wall-clock
+ * anchor); the companion projection is anchored on `currentTime`/`lastUpdate`
+ * (elapsed-at-wall-clock). The two shapes are NOT structurally assignable, so
+ * the previous `room.state as RoomState` seed cast was a structural lie
+ * (it produced an object missing the required `currentTime`/`lastUpdate`
+ * companion fields). This adapter performs the explicit, lossless conversion
+ * both seed and emit paths need.
+ *
+ * `currentTime` is computed by the caller (via `computeCurrentTimeWithProgress`)
+ * so this helper stays pure and free of timer-math duplication. The emitted
+ * payload shape is preserved exactly: no `startedAt`, no `clockMode`.
+ */
+export const toCompanionRoomState = (
+  room: Room,
+  currentTime: number,
+): CompanionRoomState => ({
+  activeTimerId: room.state.activeTimerId ?? null,
+  isRunning: room.state.isRunning ?? false,
+  currentTime,
+  lastUpdate: room.state.lastUpdate ?? Date.now(),
+  showClock: room.state.showClock ?? false,
+  message: room.state.message,
+  title: room.title,
+  timezone: room.timezone,
 })
 
 const normalizeControllerLock = (roomId: string, raw: Record<string, unknown> | null | undefined): ControllerLock | null => {
@@ -3001,16 +2993,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const payload: SyncRoomStatePayload = {
         type: 'SYNC_ROOM_STATE',
         roomId,
-        state: {
-          activeTimerId: activeId,
-          isRunning: room.state.isRunning ?? false,
-          currentTime,
-          lastUpdate: cloudLastUpdate,
-          showClock: room.state.showClock ?? false,
-          message: room.state.message,
-          title: room.title,
-          timezone: room.timezone,
-        },
+        state: toCompanionRoomState(room, currentTime),
         sourceClientId: clientId,
         timestamp: cloudLastUpdate,
       }
@@ -3042,7 +3025,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const pin = roomPins[room.id] ?? undefined
       return {
         roomId: room.id,
-        state: room.state as RoomState,
+        state: room.state,
         ...(timers.length > 0 ? { timers } : {}),
         ...(cues.length > 0 ? { cues } : {}),
         ...(pin ? { pin } : {}),
@@ -3987,7 +3970,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
     }
 
-    const handleRoomStateSnapshot = (payload: RoomStateSnapshotPayload) => {
+    const handleRoomStateSnapshot = (payload: RoomStateSnapshot) => {
       const baseRoom = firebase.getRoom(payload.roomId)
       const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
@@ -4144,7 +4127,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       void replayCueQueue(payload.roomId, snapshotTs)
     }
 
-    const handleRoomStateDelta = (payload: RoomStateDeltaPayload) => {
+    const handleRoomStateDelta = (payload: RoomStateDelta) => {
       if (payload.clientId && payload.clientId === clientId) return
       const incomingTs = payload.changes.lastUpdate ?? payload.timestamp ?? Date.now()
       const carriesTimerAnchor =
@@ -5196,7 +5179,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       }
       setCompanionRooms((prev) => ({ ...prev, [roomId]: nextState }))
 
-      const patch: RoomStatePatchPayload = {
+      const patch: RoomStatePatchQueuedEvent = {
         type: 'ROOM_STATE_PATCH',
         roomId,
         changes: {
@@ -5258,7 +5241,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         },
       }))
 
-      const patch: RoomStatePatchPayload = {
+      const patch: RoomStatePatchQueuedEvent = {
         type: 'ROOM_STATE_PATCH',
         roomId,
         changes: {
@@ -5318,7 +5301,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         },
       }))
 
-      const patch: RoomStatePatchPayload = {
+      const patch: RoomStatePatchQueuedEvent = {
         type: 'ROOM_STATE_PATCH',
         roomId,
         changes: {
@@ -5379,7 +5362,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       if (patch.title !== undefined) changes.title = patch.title
       if (patch.timezone !== undefined) changes.timezone = patch.timezone
 
-      const patchPayload: RoomStatePatchPayload = {
+      const patchPayload: RoomStatePatchQueuedEvent = {
         type: 'ROOM_STATE_PATCH',
         roomId,
         changes,
@@ -5720,7 +5703,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
           }))
 
           // Emit state patch to companion
-          const statePatch: RoomStatePatchPayload = {
+          const statePatch: RoomStatePatchQueuedEvent = {
             type: 'ROOM_STATE_PATCH',
             roomId,
             changes: {

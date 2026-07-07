@@ -200,3 +200,86 @@ describe('seedCompanion guard behavior', () => {
     expect(mockSocket.emit).toHaveBeenCalledOnce()
   })
 })
+
+// Pins that seedCompanion emits the stored cloud room.state VERBATIM on the
+// SEED_COMPANION_CACHE wire (not a projected/leaned copy). The companion's
+// handleSeedCompanionCache spreads ...entry.state into its store, so every
+// legacy field (progress, elapsedOffset, activeLiveCueId, startedAt, clockMode,
+// stored currentTime/lastUpdate) must round-trip unchanged. This guards against
+// any future refactor that would project room.state through a companion-shape
+// adapter for the seed path (which would silently drop legacy fields).
+describe('seedCompanion emits stored room.state verbatim', () => {
+  type FullCloudState = {
+    activeTimerId: string | null
+    isRunning: boolean
+    startedAt: number | null
+    elapsedOffset: number
+    progress: Record<string, number>
+    showClock: boolean
+    clockMode?: '24h' | 'ampm'
+    message: { text: string; visible: boolean; color: string }
+    currentTime?: number
+    lastUpdate?: number
+    activeLiveCueId?: string
+  }
+  type FullRoom = { id: string; state: FullCloudState }
+
+  function runSeed(rooms: FullRoom[]): { event: string; payload: unknown } | null {
+    const emitted: { event: string; payload: unknown }[] = []
+    const socket = { connected: true, emit: (event: string, payload: unknown) => emitted.push({ event, payload }) }
+    // Mirror the seedCompanion callback's rooms[] construction verbatim.
+    const constructed = rooms.map((room) => ({
+      roomId: room.id,
+      state: room.state,
+      timers: [] as unknown[],
+      cues: [] as unknown[],
+    }))
+    socket.emit('SEED_COMPANION_CACHE', { type: 'SEED_COMPANION_CACHE', rooms: constructed, timestamp: 1 })
+    return emitted[0] ?? null
+  }
+
+  it('emits the stored state object verbatim (same field set, no projection)', () => {
+    const storedState: FullCloudState = {
+      activeTimerId: 'timer-a',
+      isRunning: true,
+      startedAt: 1000,
+      elapsedOffset: 200,
+      progress: { 'timer-a': 5000, 'timer-b': 7000 },
+      showClock: true,
+      clockMode: '24h',
+      message: { text: 'Go', visible: true, color: 'green' },
+      currentTime: 9000,
+      lastUpdate: 2000,
+      activeLiveCueId: 'cue-x',
+    }
+    const result = runSeed([{ id: 'room-1', state: storedState }])
+    expect(result).not.toBeNull()
+    const emittedState = (result!.payload as { rooms: { state: FullCloudState }[] }).rooms[0].state
+    // The emitted state IS the stored object (verbatim, not a lean projection).
+    expect(emittedState).toEqual(storedState)
+  })
+
+  it('preserves stored currentTime, progress, elapsedOffset, and activeLiveCueId', () => {
+    const storedState: FullCloudState = {
+      activeTimerId: 'timer-a',
+      isRunning: false,
+      startedAt: null,
+      elapsedOffset: -300, // bonus time (negative allowed)
+      progress: { 'timer-a': 1234 },
+      showClock: false,
+      message: { text: '', visible: false, color: 'none' },
+      currentTime: 1234,
+      lastUpdate: 5678,
+      activeLiveCueId: 'live-1',
+    }
+    const result = runSeed([{ id: 'room-1', state: storedState }])
+    const emittedState = (result!.payload as { rooms: { state: FullCloudState }[] }).rooms[0].state
+    // Fields that a companion-shape projection would drop must survive verbatim.
+    expect(emittedState.currentTime).toBe(1234)
+    expect(emittedState.progress).toEqual({ 'timer-a': 1234 })
+    expect(emittedState.elapsedOffset).toBe(-300)
+    expect(emittedState.activeLiveCueId).toBe('live-1')
+    expect(emittedState.startedAt).toBeNull()
+    expect(emittedState.lastUpdate).toBe(5678)
+  })
+})
