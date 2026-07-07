@@ -317,7 +317,7 @@ test('T4: handleSeedCompanionCache stores only lean projection', async () => {
 
 test('T5: activeTimerId-only PATCH resolves currentTime to 0, not stale progress (F3)', async () => {
   const m = await loadSeedHelpers()
-  
+
   // Existing state with stale seeded progress (the bug F3 exploited)
   const existingState: CompanionRoomState = {
     activeTimerId: null,
@@ -327,19 +327,19 @@ test('T5: activeTimerId-only PATCH resolves currentTime to 0, not stale progress
     // Stale progress that should NOT be read
     progress: { t2: 5000 },
   }
-  
+
   const companionNow = 2_000
-  
+
   // PATCH with only activeTimerId changed (no currentTime)
   const patch = { activeTimerId: 't2' }
-  
+
   // Call the function directly - it's exported as resolveRoomStatePatchForCompanionClock
   const result = m.resolveRoomStatePatchForCompanionClock({
     existingState,
     incomingChanges: patch,
     companionNow,
   })
-  
+
   // After fix: currentTime must be 0, NOT 5000 (stale progress)
   assert.equal(result.nextState.currentTime, 0, 'currentTime must resolve to 0, not stale progress')
   assert.equal(result.nextState.activeTimerId, 't2', 'activeTimerId must be updated')
