@@ -49,7 +49,7 @@ export const CompanionDownloadPrompt = ({
             <Download size={18} />
             Get the current build for {osLabel}
           </a>
-          
+
           <button
             onClick={onClose}
             className="w-full rounded-lg border border-slate-800 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-900"
