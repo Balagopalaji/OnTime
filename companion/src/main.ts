@@ -551,11 +551,7 @@ export function resolveRoomStatePatchForCompanionClock(args: {
     if (typeof changes.currentTime === 'number' && Number.isFinite(changes.currentTime)) {
       nextCurrentTime = changes.currentTime;
     } else if ('activeTimerId' in changes) {
-      const progress = args.existingState.progress ?? {};
-      const targetProgress = nextActiveTimerId ? progress[nextActiveTimerId] : undefined;
-      nextCurrentTime = typeof targetProgress === 'number' && Number.isFinite(targetProgress)
-        ? targetProgress
-        : 0;
+      nextCurrentTime = 0;
     } else {
       nextCurrentTime = resolveCompanionElapsedForState(args.existingState, args.companionNow);
     }
@@ -6029,7 +6025,35 @@ export function handleSyncRoomState(socket: Socket, payload: unknown) {
   console.log(`[ws] SYNC_ROOM_STATE room=${roomId} by=${clientId ?? socket.id} timers=${payload.timers?.length ?? 0}`);
 }
 
-function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
+export function isValidSeedRoomStatePayload(data: Partial<RoomState>): data is RoomState {
+  // F4: Both currentTime and lastUpdate must be present and finite (partial-pair rejection)
+  const currentTimeOk = typeof data.currentTime === 'number' && Number.isFinite(data.currentTime);
+  const lastUpdateOk = typeof data.lastUpdate === 'number' && Number.isFinite(data.lastUpdate);
+  if (!currentTimeOk || !lastUpdateOk) return false;
+
+  // Core lean fields (optional - handler has fallbacks to existing values)
+  const activeOk = data.activeTimerId === undefined || data.activeTimerId === null || typeof data.activeTimerId === 'string';
+  const runningOk = data.isRunning === undefined || typeof data.isRunning === 'boolean';
+  if (!activeOk || !runningOk) return false;
+
+  // F1: Reject rich cloud fields (startedAt, elapsedOffset, progress, clockMode)
+  // These checks use hasOwnProperty to distinguish between absent and undefined
+  if (Object.prototype.hasOwnProperty.call(data, 'startedAt')) return false;
+  if (Object.prototype.hasOwnProperty.call(data, 'elapsedOffset')) return false;
+  if (Object.prototype.hasOwnProperty.call(data, 'progress')) return false;
+  if (Object.prototype.hasOwnProperty.call(data, 'clockMode')) return false;
+
+  // Optional lean fields
+  const showClockOk = data.showClock === undefined || typeof data.showClock === 'boolean';
+  const messageOk = data.message === undefined || isValidMessagePatch(data.message);
+  const titleOk = data.title === undefined || typeof data.title === 'string';
+  const timezoneOk = data.timezone === undefined || typeof data.timezone === 'string';
+  const activeLiveCueIdOk = data.activeLiveCueId === undefined || typeof data.activeLiveCueId === 'string';
+
+  return showClockOk && messageOk && titleOk && timezoneOk && activeLiveCueIdOk;
+}
+
+export function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
   if (!payload || typeof payload !== 'object') return;
   const { rooms, tombstones, timestamp } = payload as {
     rooms?: Array<{
@@ -6074,8 +6098,14 @@ function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
 
     let roomUpdated = false;
 
-    // State: apply if incoming lastUpdate > local lastUpdate
+    // State: validate lean projection and apply if incoming lastUpdate > local lastUpdate
     if (entry.state) {
+      // T6: Reject invalid seed state payloads (F4 partial-pair + F1 rich-field rejection)
+      if (!isValidSeedRoomStatePayload(entry.state)) {
+        console.warn(`[seed] Skipping invalid seed state for room=${entry.roomId}`);
+        continue;
+      }
+
       const localState = roomStateStore.get(entry.roomId);
       const localTs = localState?.lastUpdate ?? 0;
       const incomingTs = entry.state.lastUpdate ?? 0;
@@ -6083,7 +6113,17 @@ function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
         const existing = localState ?? getRoomState(entry.roomId);
         roomStateStore.set(entry.roomId, {
           ...existing,
-          ...entry.state,
+          // T4: Lean projection only - explicit fields (no rich field pollution)
+          activeTimerId: entry.state.activeTimerId ?? existing.activeTimerId,
+          isRunning: entry.state.isRunning ?? existing.isRunning,
+          currentTime: entry.state.currentTime ?? existing.currentTime,
+          lastUpdate: entry.state.lastUpdate ?? existing.lastUpdate,
+          // Optional fields (only when defined)
+          ...(entry.state.showClock !== undefined && { showClock: entry.state.showClock }),
+          ...(entry.state.title && { title: entry.state.title }),
+          ...(entry.state.timezone && { timezone: entry.state.timezone }),
+          ...(entry.state.activeLiveCueId && { activeLiveCueId: entry.state.activeLiveCueId }),
+          // Message deep-merge (preserved from original implementation)
           message: entry.state.message
             ? { ...(existing.message ?? {}), ...entry.state.message }
             : existing.message,
@@ -6990,7 +7030,7 @@ export function getRoomState(roomId: string): RoomState {
     activeTimerId: null,
     isRunning: false,
     currentTime: 0,
-    lastUpdate: Date.now(),
+    lastUpdate: 0, // T2: Default to 0 (not Date.now()) so seed gate works for never-cached rooms
     activeLiveCueId: undefined,
     showClock: false,
     message: {
