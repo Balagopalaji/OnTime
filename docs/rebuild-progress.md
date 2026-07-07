@@ -28,7 +28,8 @@ remain test-first or byte-faithful until their boundaries are proven. Heartbeat 
 characterization before its carve. The fifth Fable milestone audit artifact is now tracked at
 `docs/rebuild-fifth-milestone-audit.md`; its required CI package-coverage fixes landed in #72, and the
 strict `HandshakeError` U1 slice landed in #73. The sixth milestone audit returned GO; its lockfile
-LOW was fixed in #81, and the U1 Timer/Cue wire-envelope slice landed in #82.
+LOW was fixed in #81, the U1 Timer/Cue wire-envelope slice landed in #82, the RoomState/envelope slice
+landed in #84, and D7 CRLF hygiene landed in #86 to normalize TS/TSX/JS source files to LF.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -159,6 +160,10 @@ one-per-payload.
 - PR #80 docs(rebuild): sixth milestone audit (GO) + re-land PR-sizing rule
 - PR #81 chore(lockfile): sync workspace dependencies
 - PR #82 refactor(interface-contracts): adopt timer and cue wire envelopes (U1 slice 7)
+- PR #83 docs(rebuild): sync ledger after timer cue envelopes
+- PR #84 refactor(interface-contracts): adopt companion room-state envelopes (U1 slice 8)
+- PR #85 docs(rebuild): seed/sync room-state investigation (Fable)
+- PR #86 chore(repo): normalize source line endings (D7)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -177,11 +182,12 @@ Recorded by Claude while Codex/GLM were out of tokens. Codex is back; this block
 4. **RoomState (decision pass, ratified):** keep companion's lean `RoomState` as an explicit projection (`Pick<shared RoomState, …> & { title?; timezone? }`, rename `CompanionRoomState`); replace the unsafe `room.state as RoomState` cast at `frontend/src/context/UnifiedDataContext.tsx:~3091` with a tested adapter. Do NOT structurally unify (cloud-persisted entity vs clock-domain projection).
 
 **Roles going forward (Codex back):** Codex orchestrates (authors GLM prompts) + merges; GLM (±Codex) builds; Claude reviews independently + supplies decision/placement analysis. **Next GLM prompt authored by Codex, not Claude** (reviewer independence — Claude should not both spec and review). Parallel Codex+GLM building only on DISJOINT files (god-file mutex).
+For frontend-touching builder prompts, include `npm run lint --workspace frontend`; #84 showed `tsc` + Vitest can miss ESLint-only failures.
 
 **SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. The one LOW (#78 lockfile drift) is fixed by #81. Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
 
 **Next units (priority order):**
-1. **RoomState + envelopes** (`RoomStateSnapshot`/`RoomStateDelta`/`RoomStatePatchPayload`/`SyncRoomStatePayload`) per decision 4 above.
+1. **Seed-state follow-up decisions/fixes** per `docs/rebuild-seed-state-investigation.md`: SEED auth model, whether `progress` belongs in the seed contract, and `getRoomState` default `lastUpdate`.
 2. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
 3. **U7 companion cache adapter** — include cache round-trip tests when carving this code (sixth-audit Obs-3).
 4. **U8 predicate wiring** — wire the zero-caller predicates or mark test mirrors explicitly.
@@ -476,8 +482,14 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   (#82 → `packages/interface-contracts/src/timer-cue-envelopes.ts`; all 16 Timer/Cue wire envelopes adopted
   in one sized slice; companion and frontend duplicates removed via type-only imports/aliases; `main.ts`
   ratchet 7697→7581 and `UnifiedDataContext.tsx` 6658→6612; RoomState and LiveCue/presentation stayed out).
-  **U1 remainder still open**: RoomState + envelopes and LiveCue/presentation are deferred to their decision-gated
-  U1 follow-up slices per the placement pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
+  **U1 slice 8 DONE** (#84 → `packages/interface-contracts/src/room-state-envelopes.ts`; `CompanionRoomState`
+  + `RoomStateSnapshot`/`RoomStateDelta`/`RoomStatePatchPayload`/`SyncRoomStatePayload` adopted; `emitSyncRoomState`
+  uses a behavior-neutral adapter; `seedCompanion` remains verbatim after Claude caught the double-counting hazard).
+  **Seed-state investigation tracked** (#85 → `docs/rebuild-seed-state-investigation.md`; follow-up owner decisions:
+  seed auth, `progress` contract, and `getRoomState` default `lastUpdate`). **D7 CRLF hygiene DONE** (#86 →
+  `.gitattributes`; tracked TS/TSX/JS sources normalized to LF, eliminating the recurring mixed-line-ending churn).
+  **U1 remainder still open**: LiveCue/presentation is deferred to its decision-gated U1 follow-up slice per the
+  placement pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
   `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the zero-caller predicates.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
