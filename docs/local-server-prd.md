@@ -71,7 +71,7 @@ Scope: Companion local server requirements (Electron/Node).
   - If no response after timeout, force takeover allowed with confirmation (no PIN).
 - Room PIN edits are **owner-only**; Companion caches `ownerId` (from JOIN_ROOM or first authenticated owner) to enforce offline.
 - Takeover attempts are logged in Companion cache for audit.
-- Controller request notifications are emitted to the active controller (event type TBD in `docs/interface.md`).
+- Controller request notifications are emitted to the active controller as `CONTROL_REQUEST_RECEIVED` (see `docs/interface.md`).
 
 ## Phase 2 Show Control Signals
 - Companion emits `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`, `PRESENTATION_LOADED`, and `PRESENTATION_UPDATE` events (see `docs/interface.md`).

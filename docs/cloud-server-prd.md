@@ -21,7 +21,7 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 - LAN viewer token issuance and pairing (Companion-only; cloud remains unchanged).
 
 ## Roles & Permissions
-- **Controller (lock holder)**: Authenticated write access to room and timers (Show Control + Production tiers).
+- **Controller (lock holder)**: Authenticated write access to room and timers.
 - **Controller (non-authoritative)**: Read-only access; must request/force takeover.
 - **Operator**: Authenticated user approved via invite code; can write cues for their role (Phase 3).
 - **Viewer (Cloud)**: Public read-only access (no auth required).
