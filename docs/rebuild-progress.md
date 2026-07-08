@@ -62,7 +62,11 @@ carrying companion `lastUpdate: 0` — was fixed in #97 (`resolveSnapshotTimesta
 `packages/local-sync-arbitration`), and the audit + the owner's arbitration/control decisions were recorded
 in #98 (`docs/rebuild-seventh-milestone-audit.md`, `docs/rebuild-arbitration-decisions.md` — the spec for
 U4/U5). **N2 RESOLVED (#97):** snapshot arbitration now anchors on the envelope `timestamp` when
-`state.lastUpdate` is the `0` sentinel (never-cached room), so the `0`-anchor gap is closed + tested.
+`state.lastUpdate` is the `0` sentinel (never-cached room), so the `0`-anchor gap is closed + tested. A spec-conformance check of the shipped arbitration
+against `rebuild-arbitration-decisions.md` confirmed every current-behavior principle holds, with one GAP
+(GAP-1) fixed in #101: the skew guard now falls back to room authority/mode instead of hardcoding cloud,
+so a materially-newer companion no longer loses to stale cloud in local mode (skew policy recorded in the
+decisions doc §1). The `updateRoomActiveLiveCueId` lastUpdate-bump landed in #100.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -209,6 +213,9 @@ one-per-payload.
 - PR #96 docs(contracts): per-mode takeover authorization matrix (M4)
 - PR #97 fix(unified): anchor snapshot freshness on envelope timestamp when lastUpdate is 0 (7th-audit MINOR-1)
 - PR #98 docs(rebuild): add 7th milestone audit + arbitration/control decisions
+- PR #99 docs(rebuild): sync ledger through #98 — 7th audit GO, MINOR-1 fixed, N2 resolved
+- PR #100 fix(companion): bump room lastUpdate when activeLiveCueId changes
+- PR #101 fix(arbitration): large-skew fallback to room authority/mode instead of hardcoded cloud (GAP-1)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
