@@ -1,6 +1,6 @@
 # OnTime Rebuild Progress
 
-_Updated: 2026-07-06._
+_Updated: 2026-07-08._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -29,7 +29,8 @@ characterization before its carve. The fifth Fable milestone audit artifact is n
 `docs/rebuild-fifth-milestone-audit.md`; its required CI package-coverage fixes landed in #72, and the
 strict `HandshakeError` U1 slice landed in #73. The sixth milestone audit returned GO; its lockfile
 LOW was fixed in #81, the U1 Timer/Cue wire-envelope slice landed in #82, the RoomState/envelope slice
-landed in #84, and D7 CRLF hygiene landed in #86 to normalize TS/TSX/JS source files to LF.
+landed in #84, D7 CRLF hygiene landed in #86 to normalize TS/TSX/JS source files to LF, and the
+seed-state corrective follow-up landed in #88.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -164,6 +165,8 @@ one-per-payload.
 - PR #84 refactor(interface-contracts): adopt companion room-state envelopes (U1 slice 8)
 - PR #85 docs(rebuild): seed/sync room-state investigation (Fable)
 - PR #86 chore(repo): normalize source line endings (D7)
+- PR #87 docs(rebuild): sync ledger after roomstate and crlf hygiene
+- PR #88 fix(companion): validate and normalize seed room state
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -187,10 +190,10 @@ For frontend-touching builder prompts, include `npm run lint --workspace fronten
 **SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. The one LOW (#78 lockfile drift) is fixed by #81. Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
 
 **Next units (priority order):**
-1. **Seed-state follow-up decisions/fixes** per `docs/rebuild-seed-state-investigation.md`: SEED auth model, whether `progress` belongs in the seed contract, and `getRoomState` default `lastUpdate`.
-2. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
-3. **U7 companion cache adapter** — include cache round-trip tests when carving this code (sixth-audit Obs-3).
-4. **U8 predicate wiring** — wire the zero-caller predicates or mark test mirrors explicitly.
+1. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
+2. **U7 companion cache adapter** — include cache round-trip tests when carving this code (sixth-audit Obs-3).
+3. **U8 predicate wiring** — wire the zero-caller predicates or mark test mirrors explicitly.
+4. **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope; N2 remains a milestone-gate watch to confirm snapshot arbitration tolerates a `0` anchor before the next milestone cut.
 Prioritize timer/sync/lock god-file carving (higher value + bigger god-file chunks than LiveCue).
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
@@ -488,6 +491,11 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   **Seed-state investigation tracked** (#85 → `docs/rebuild-seed-state-investigation.md`; follow-up owner decisions:
   seed auth, `progress` contract, and `getRoomState` default `lastUpdate`). **D7 CRLF hygiene DONE** (#86 →
   `.gitattributes`; tracked TS/TSX/JS sources normalized to LF, eliminating the recurring mixed-line-ending churn).
+  **Seed-state corrective follow-up DONE** (#88 → validates and normalizes `SEED_COMPANION_CACHE` payloads,
+  stores the lean seed projection, removes the stale seeded `progress[nextId]` fallback, sets unseen-room
+  `getRoomState` default `lastUpdate` to `0`, adds real-handler seed coverage, and records the `emitSyncRoomState`
+  contract comment). `SEED_COMPANION_CACHE` auth is intentionally deferred to LAN-mode scope; N2 remains a
+  milestone-gate watch on snapshot arbitration with a `0` anchor.
   **U1 remainder still open**: LiveCue/presentation is deferred to its decision-gated U1 follow-up slice per the
   placement pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
   `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the zero-caller predicates.
