@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
-import { ARBITRATION_FLAGS, arbitrate } from '../lib/arbitration'
+import { ARBITRATION_FLAGS, arbitrate, resolveSnapshotTimestamp } from '../lib/arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -4001,7 +4001,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
 
     const handleRoomStateSnapshot = (payload: RoomStateSnapshot) => {
       const baseRoom = firebase.getRoom(payload.roomId)
-      const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
+      const snapshotTs = resolveSnapshotTimestamp(payload.state.lastUpdate, payload.timestamp)
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
       const firebaseTs = baseRoom?.state.lastUpdate ?? 0
       const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
