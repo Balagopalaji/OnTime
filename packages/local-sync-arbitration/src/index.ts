@@ -33,6 +33,7 @@ export type ArbitrationDecision = {
     | 'viewer sync guard'
     | 'hold active'
     | 'no data'
+    | 'skew - authority fallback'
 }
 
 export type ArbitrationLastAcceptedCache = {
@@ -136,9 +137,14 @@ export const arbitrate = (
     return commitDecision(input, { acceptSource: holdSource, reason: 'hold active' }, options)
   }
 
-  // 6) Skew guard
+  // 6) Skew guard: beyond the threshold, timestamps can't be trusted as absolute
+  // (clock drift vs a genuinely-stale side is indistinguishable). Fall back to the
+  // room's authority/mode — the same fallback used when neither side has data —
+  // rather than hardcoding cloud or trusting the apparently-"newer" side.
+  // See docs/rebuild-arbitration-decisions.md §1 (skew policy).
   if (skewed) {
-    return commitDecision(input, { acceptSource: 'cloud', reason: 'cloud newer' }, options)
+    const skewFallback = authoritySource ?? pickModeBias(input)
+    return commitDecision(input, { acceptSource: skewFallback, reason: 'skew - authority fallback' }, options)
   }
 
   // 7) Both online but no data on either side

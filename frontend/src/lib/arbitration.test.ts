@@ -43,7 +43,7 @@ describe('arbitrate', () => {
 
     const decision = arbitrate(input)
     expect(decision.acceptSource).toBe('cloud')
-    expect(decision.reason).toBe('cloud newer')
+    expect(decision.reason).toBe('skew - authority fallback')
   })
 
   it('uses last accepted when both offline', async () => {
@@ -183,6 +183,6 @@ describe('arbitrate', () => {
     })
 
     expect(overThreshold.acceptSource).toBe('cloud')
-    expect(overThreshold.reason).toBe('cloud newer')
+    expect(overThreshold.reason).toBe('skew - authority fallback')
   })
 })
