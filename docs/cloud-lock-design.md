@@ -47,7 +47,7 @@ Controller lock/takeover enforcement exists only in the Companion (local) path. 
 
 Enforce single authoritative controller when the room is controlled via Firebase (cloud path), achieving parity with Companion lock semantics.
 
-**Tier gating:** Cloud lock enforcement applies to Show Control + Production tiers. Basic tier remains unlocked (multiple controllers allowed) unless upgraded. **Note:** tier gating is enforced in the frontend; Firestore rules do not enforce tiers.
+**Tier gating:** Cloud lock enforcement is **not** tier-gated — it applies to all rooms (including Basic) when online. The frontend's `isCloudLockEligible` returns true for any loaded room, and Firestore rules enforce `isLockHolderByUserId` on timer/state writes for every room (no tier gate). Tier gating applies only to show-control **features** (live cues, show planner), not to lock enforcement.
 
 ### Non-Goals (Pass A)
 
@@ -369,11 +369,11 @@ service cloud.firestore {
         allow write: if request.auth != null && isLockHolderByUserId(roomId);
       }
 
-      // Live cues: Show-Control-gated read; lock OR service account (Companion) write.
-      // Deployed rule (firebase/firestore.rules): allow read: if hasShowControl(roomId)
+      // Live cues: Show-Control-gated for BOTH read and write; write also requires lock holder or service account.
+      // Deployed rule (firebase/firestore.rules):
       match /liveCues/{cueId} {
         allow read: if hasShowControl(roomId);
-        allow write: if request.auth != null
+        allow create, update, delete: if hasShowControl(roomId)
             && (isLockHolderByUserId(roomId) || isServiceAccount());
       }
     }

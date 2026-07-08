@@ -441,7 +441,7 @@ useEffect(() => {
 
 ### 3.5.2 Cloud Mode Lock Enforcement (Implemented)
 
-When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcement uses Firestore instead of Companion's in-memory lock. Cloud lock enforcement is gated to Show Control + Production tiers; Basic remains unlocked until upgraded.
+When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcement uses Firestore instead of Companion's in-memory lock. Cloud lock enforcement is **not** tier-gated — it applies to all rooms (including Basic) when online (frontend `isCloudLockEligible` returns true for any loaded room; Firestore rules enforce `isLockHolderByUserId` on timer/state writes for every room).
 
 **Lock source resolution:**
 - `roomAuthority.source === 'companion'` → Use Companion lock (Socket.IO events, in-memory store)

@@ -137,9 +137,9 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 **Overview**
 Companion lock enforcement and cloud (Firebase) lock enforcement are both implemented and live. Cloud lock state is stored in Firestore (`rooms/{roomId}/lock/current`) and managed via Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`, `requestControl`, `denyControl`, `handoverLock`, `syncLockFromCompanion`).
 
-**Tier gating**
-- Show Control + Production tiers enforce cloud lock.
-- Basic tier remains unlocked (multiple controllers allowed) unless upgraded.
+**Tier gating (features vs lock)**
+- Cloud controller lock is **not** tier-gated: it applies to all rooms (including Basic) when online (`isCloudLockEligible` returns true for any loaded room; Firestore rules enforce `isLockHolderByUserId` on timer/state writes for every room).
+- Tier gating applies to show-control **features** only (live cues, show-planner sections/segments/manual cues, crew chat), not to lock enforcement.
 - **Basic/Standalone:** allow local-only control when offline, but sync + viewer URLs when online.
 
 **Lock source resolution**
