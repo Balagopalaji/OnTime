@@ -340,7 +340,7 @@ test('active timer patch without currentTime uses target progress or zero', asyn
     companionNow: 200_000,
   })
 
-  assert.equal(withProgress.nextState.currentTime, 12_000)
+  assert.equal(withProgress.nextState.currentTime, 0, 'T5: activeTimerId-only PATCH resolves to 0, not seeded progress')
   assert.equal(withProgress.nextState.lastUpdate, 200_000)
   assert.equal(withoutProgress.nextState.currentTime, 0)
   assert.equal(withoutProgress.nextState.lastUpdate, 200_000)

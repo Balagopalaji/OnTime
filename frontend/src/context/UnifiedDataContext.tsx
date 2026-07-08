@@ -2979,6 +2979,8 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     [enqueueCueAction, handshakeStatus, isLockedOut, markControllerWrite, socket],
   )
 
+  // lastUpdate is arbitration metadata, not the elapsed anchor, on this payload;
+  // safe only because handleSyncRoomState re-anchors on receipt (H-1b).
   const emitSyncRoomState = useCallback(
     (roomId: string) => {
       if (!socket?.connected) return
@@ -3013,24 +3015,51 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     [clientId, computeCurrentTimeWithProgress, debugCompanion, firebase, isLockedOut, socket],
   )
 
+  /**
+   * Project a lean room state for Companion cache seeding.
+   * Emits STORED values only (no computed currentTime).
+   * Skips rooms without a lastUpdate timestamp.
+   */
+  const toSeedRoomState = (room: { id: string; state: Partial<CompanionRoomState> }) => {
+    const { state } = room
+    if (!state?.lastUpdate) return undefined
+
+    return {
+      activeTimerId: state.activeTimerId ?? null,
+      isRunning: state.isRunning ?? false,
+      currentTime: state.currentTime ?? 0,
+      lastUpdate: state.lastUpdate,
+      ...(state.showClock !== undefined && { showClock: state.showClock }),
+      ...(state.message && { message: state.message }),
+      ...(state.title && { title: state.title }),
+      ...(state.timezone && { timezone: state.timezone }),
+      ...(state.activeLiveCueId && { activeLiveCueId: state.activeLiveCueId }),
+    }
+  }
+
   const seedCompanion = useCallback(() => {
     if (!socket?.connected) return
     if (seedFiredRef.current) return
 
     const firebaseRooms = firebase.rooms ?? []
 
-    const rooms = firebaseRooms.map((room) => {
-      const timers = firebase.getTimers(room.id)
-      const cues = firebase.getCues(room.id)
-      const pin = roomPins[room.id] ?? undefined
-      return {
-        roomId: room.id,
-        state: room.state,
-        ...(timers.length > 0 ? { timers } : {}),
-        ...(cues.length > 0 ? { cues } : {}),
-        ...(pin ? { pin } : {}),
-      }
-    })
+    const rooms = firebaseRooms
+      .map((room) => {
+        const leanState = toSeedRoomState(room)
+        if (!leanState) return undefined // Skip rooms without lastUpdate
+
+        const timers = firebase.getTimers(room.id)
+        const cues = firebase.getCues(room.id)
+        const pin = roomPins[room.id] ?? undefined
+        return {
+          roomId: room.id,
+          state: leanState,
+          ...(timers.length > 0 ? { timers } : {}),
+          ...(cues.length > 0 ? { cues } : {}),
+          ...(pin ? { pin } : {}),
+        }
+      })
+      .filter((room): room is NonNullable<typeof room> => room !== undefined)
 
     const tombstones = Object.values(deletedRoomMeta)
     if (rooms.length === 0 && tombstones.length === 0) return

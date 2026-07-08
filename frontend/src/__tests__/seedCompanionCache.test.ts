@@ -201,85 +201,208 @@ describe('seedCompanion guard behavior', () => {
   })
 })
 
-// Pins that seedCompanion emits the stored cloud room.state VERBATIM on the
-// SEED_COMPANION_CACHE wire (not a projected/leaned copy). The companion's
-// handleSeedCompanionCache spreads ...entry.state into its store, so every
-// legacy field (progress, elapsedOffset, activeLiveCueId, startedAt, clockMode,
-// stored currentTime/lastUpdate) must round-trip unchanged. This guards against
-// any future refactor that would project room.state through a companion-shape
-// adapter for the seed path (which would silently drop legacy fields).
-describe('seedCompanion emits stored room.state verbatim', () => {
+// ---------------------------------------------------------------------------
+// Lean projection behavior (toSeedRoomState)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tests that seedCompanion emits the lean companion projection with stored values.
+ *
+ * The seed payload should:
+ * - NOT include: startedAt, elapsedOffset, progress, clockMode
+ * - DOES include: activeTimerId, isRunning, currentTime, lastUpdate, showClock, message, title, timezone, activeLiveCueId
+ * - Use stored currentTime/lastUpdate values (NOT computed)
+ * - Skip rooms without lastUpdate
+ */
+describe('seedCompanion emits the lean companion projection with stored values', () => {
   type FullCloudState = {
     activeTimerId: string | null
     isRunning: boolean
     startedAt: number | null
     elapsedOffset: number
     progress: Record<string, number>
-    showClock: boolean
+    showClock?: boolean
     clockMode?: '24h' | 'ampm'
-    message: { text: string; visible: boolean; color: string }
+    message?: { text: string; visible: boolean; color: string }
     currentTime?: number
     lastUpdate?: number
     activeLiveCueId?: string
+    title?: string
+    timezone?: string
   }
-  type FullRoom = { id: string; state: FullCloudState }
+  // Removed FullRoom type alias - inlined for lint
 
-  function runSeed(rooms: FullRoom[]): { event: string; payload: unknown } | null {
-    const emitted: { event: string; payload: unknown }[] = []
-    const socket = { connected: true, emit: (event: string, payload: unknown) => emitted.push({ event, payload }) }
-    // Mirror the seedCompanion callback's rooms[] construction verbatim.
-    const constructed = rooms.map((room) => ({
-      roomId: room.id,
-      state: room.state,
-      timers: [] as unknown[],
-      cues: [] as unknown[],
-    }))
-    socket.emit('SEED_COMPANION_CACHE', { type: 'SEED_COMPANION_CACHE', rooms: constructed, timestamp: 1 })
-    return emitted[0] ?? null
+  /** Mirrors the toSeedRoomState logic from UnifiedDataContext */
+  function toSeedRoomState(room: { id: string; state: FullCloudState }) {
+    const { state } = room
+    if (!state?.lastUpdate) return undefined
+
+    return {
+      activeTimerId: state.activeTimerId ?? null,
+      isRunning: state.isRunning ?? false,
+      currentTime: state.currentTime ?? 0,
+      lastUpdate: state.lastUpdate,
+      ...(state.showClock !== undefined && { showClock: state.showClock }),
+      ...(state.message && { message: state.message }),
+      ...(state.title && { title: state.title }),
+      ...(state.timezone && { timezone: state.timezone }),
+      ...(state.activeLiveCueId && { activeLiveCueId: state.activeLiveCueId }),
+    }
   }
 
-  it('emits the stored state object verbatim (same field set, no projection)', () => {
+  it('emits lean projection with only allowed fields', () => {
     const storedState: FullCloudState = {
       activeTimerId: 'timer-a',
       isRunning: true,
-      startedAt: 1000,
-      elapsedOffset: 200,
-      progress: { 'timer-a': 5000, 'timer-b': 7000 },
+      startedAt: 1000,                      // EXCLUDED
+      elapsedOffset: 200,                  // EXCLUDED
+      progress: { 'timer-a': 5000 },        // EXCLUDED
       showClock: true,
-      clockMode: '24h',
+      clockMode: '24h',                     // EXCLUDED
       message: { text: 'Go', visible: true, color: 'green' },
       currentTime: 9000,
       lastUpdate: 2000,
       activeLiveCueId: 'cue-x',
+      title: 'Room Title',
+      timezone: 'America/New_York',
     }
-    const result = runSeed([{ id: 'room-1', state: storedState }])
-    expect(result).not.toBeNull()
-    const emittedState = (result!.payload as { rooms: { state: FullCloudState }[] }).rooms[0].state
-    // The emitted state IS the stored object (verbatim, not a lean projection).
-    expect(emittedState).toEqual(storedState)
+
+    const leanState = toSeedRoomState({ id: 'room-1', state: storedState })
+    expect(leanState).toBeDefined()
+
+    // Fields that SHOULD be included
+    expect(leanState).toMatchObject({
+      activeTimerId: 'timer-a',
+      isRunning: true,
+      currentTime: 9000,
+      lastUpdate: 2000,
+      showClock: true,
+      message: { text: 'Go', visible: true, color: 'green' },
+      title: 'Room Title',
+      timezone: 'America/New_York',
+      activeLiveCueId: 'cue-x',
+    })
+
+    // Fields that should NOT be included
+    expect(leanState).not.toHaveProperty('startedAt')
+    expect(leanState).not.toHaveProperty('elapsedOffset')
+    expect(leanState).not.toHaveProperty('progress')
+    expect(leanState).not.toHaveProperty('clockMode')
   })
 
-  it('preserves stored currentTime, progress, elapsedOffset, and activeLiveCueId', () => {
+  it('uses stored currentTime and lastUpdate without computation', () => {
     const storedState: FullCloudState = {
       activeTimerId: 'timer-a',
       isRunning: false,
-      startedAt: null,
-      elapsedOffset: -300, // bonus time (negative allowed)
+      startedAt: 1000,                      // 30 minutes ago
+      elapsedOffset: 1800000,               // 30 minutes in ms
       progress: { 'timer-a': 1234 },
       showClock: false,
       message: { text: '', visible: false, color: 'none' },
-      currentTime: 1234,
-      lastUpdate: 5678,
+      currentTime: 1234,                    // Stored value, NOT computed
+      lastUpdate: 5678,                     // Stored value, NOT Date.now()
       activeLiveCueId: 'live-1',
     }
-    const result = runSeed([{ id: 'room-1', state: storedState }])
-    const emittedState = (result!.payload as { rooms: { state: FullCloudState }[] }).rooms[0].state
-    // Fields that a companion-shape projection would drop must survive verbatim.
-    expect(emittedState.currentTime).toBe(1234)
-    expect(emittedState.progress).toEqual({ 'timer-a': 1234 })
-    expect(emittedState.elapsedOffset).toBe(-300)
-    expect(emittedState.activeLiveCueId).toBe('live-1')
-    expect(emittedState.startedAt).toBeNull()
-    expect(emittedState.lastUpdate).toBe(5678)
+
+    const leanState = toSeedRoomState({ id: 'room-1', state: storedState })
+    expect(leanState).toBeDefined()
+
+    // Verify stored values are used directly (no computation)
+    expect(leanState?.currentTime).toBe(1234)       // Stored value, not computed
+    expect(leanState?.lastUpdate).toBe(5678)       // Stored value, not Date.now()
+  })
+
+  it('skips rooms without lastUpdate', () => {
+    const stateWithoutLastUpdate: FullCloudState = {
+      activeTimerId: 'timer-a',
+      isRunning: true,
+      startedAt: 1000,
+      elapsedOffset: 200,
+      progress: { 'timer-a': 5000 },
+      showClock: true,
+      message: { text: 'Go', visible: true, color: 'green' },
+      currentTime: 9000,
+      // lastUpdate is MISSING
+      activeLiveCueId: 'cue-x',
+    }
+
+    const leanState = toSeedRoomState({ id: 'room-1', state: stateWithoutLastUpdate })
+    expect(leanState).toBeUndefined()
+  })
+
+  it('handles minimal state with only required fields', () => {
+    const minimalState: FullCloudState = {
+      activeTimerId: null,
+      isRunning: false,
+      startedAt: null,
+      elapsedOffset: 0,
+      progress: {},
+      // showClock: undefined (omitted on purpose)
+      // message: undefined (omitted on purpose)
+      currentTime: 0,
+      lastUpdate: 123,
+    }
+
+    const leanState = toSeedRoomState({ id: 'room-1', state: minimalState })
+    expect(leanState).toBeDefined()
+    expect(leanState).toMatchObject({
+      activeTimerId: null,
+      isRunning: false,
+      currentTime: 0,
+      lastUpdate: 123,
+    })
+
+    // Optional fields not present in minimal state should not be in output
+    expect(leanState).not.toHaveProperty('showClock')
+    expect(leanState).not.toHaveProperty('message')
+    expect(leanState).not.toHaveProperty('title')
+    expect(leanState).not.toHaveProperty('timezone')
+    expect(leanState).not.toHaveProperty('activeLiveCueId')
+  })
+
+  it('includes optional fields when present', () => {
+    const stateWithOptionals: FullCloudState = {
+      activeTimerId: 'timer-b',
+      isRunning: true,
+      startedAt: 5000,
+      elapsedOffset: 1000,
+      progress: { 'timer-b': 2000 },
+      showClock: true,
+      message: { text: 'Message', visible: true, color: 'blue' },
+      currentTime: 3000,
+      lastUpdate: 4000,
+      title: 'Test Room',
+      timezone: 'UTC',
+      activeLiveCueId: 'cue-123',
+    }
+
+    const leanState = toSeedRoomState({ id: 'room-2', state: stateWithOptionals })
+    expect(leanState).toBeDefined()
+
+    expect(leanState?.showClock).toBe(true)
+    expect(leanState?.message).toEqual({ text: 'Message', visible: true, color: 'blue' })
+    expect(leanState?.title).toBe('Test Room')
+    expect(leanState?.timezone).toBe('UTC')
+    expect(leanState?.activeLiveCueId).toBe('cue-123')
+  })
+
+  it('preserves bonus time (negative elapsedOffset) as stored currentTime', () => {
+    const bonusTimeState: FullCloudState = {
+      activeTimerId: 'timer-c',
+      isRunning: true,
+      startedAt: 1000,
+      elapsedOffset: -30000,                 // Negative (bonus time)
+      progress: { 'timer-c': 5000 },
+      showClock: true,
+      message: { text: 'Bonus', visible: true, color: 'gold' },
+      currentTime: -30000,                   // Stored negative value
+      lastUpdate: 7000,
+      activeLiveCueId: 'cue-abc',
+    }
+
+    const leanState = toSeedRoomState({ id: 'room-3', state: bonusTimeState })
+    expect(leanState).toBeDefined()
+    expect(leanState?.currentTime).toBe(-30000)  // Negative value preserved
+    expect(leanState?.lastUpdate).toBe(7000)
   })
 })
