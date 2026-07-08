@@ -277,7 +277,7 @@ Notes:
 - **Future (Pass B / Enterprise):** `controlPolicy: 'shared_with_pin'` for multi-controller access with PIN authorization.
 - See `docs/cloud-lock-design.md` for full design details.
 
-**Planned: `rooms/{roomId}/clients/{clientId}`** (cloud controller presence list)
+**`rooms/{roomId}/clients/{clientId}`** (cloud controller presence list)
 - **Purpose:** Support cloud handover targets (presence list for controller UI).
 - `clientId: string`
 - `userId: string`
@@ -312,7 +312,7 @@ Notes:
 
 All lock operations use Cloud Functions to ensure atomic, server-timestamped operations.
 
-**`joinAsOperator`** - Validate invite code and add an operator
+**`joinAsOperator`** (shipped) - Validate invite code and add an operator
 ```json
 // Input
 {
@@ -376,9 +376,8 @@ Notes:
 { "success": false, "error": "PERMISSION_DENIED" }
 ```
 Notes:
-- Authorization requires one of: valid PIN, `reauthenticated: true`, stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
-- `reauthenticated` is a client hint only; it never authorizes takeover by itself.
-- Server verifies reauth using Firebase Auth token `auth_time` within a bounded recency window.
+- Authorization requires one of: valid PIN, server-verified recent reauth (signalled via `reauthenticated`), stale lock (>90s), or 30s timeout since REQUEST_CONTROL.
+- `reauthenticated` is a client hint; the server verifies it against the Firebase Auth token `auth_time` within a bounded recency window (5 minutes). A server-verified recent reauth authorizes takeover; the hint alone does not.
 - Callable contract canonical key is `reauthenticated`; `reauthRequired` is accepted temporarily as a backward-compatible alias.
 - `controlRequest` lifecycle: `requestControl` creates/updates `rooms/{roomId}/controlRequest/current`; `forceTakeover` and `deny` delete it; timeout sets `status: 'expired'`.
 
@@ -511,6 +510,8 @@ Notes:
   }
 }
 ```
+Notes:
+- `interfaceVersion` is the wire protocol version emitted by the server (`INTERFACE_VERSION` in `companion/src/main.ts`); it is distinct from this document's revision (v1.4.1) and is currently `1.2.0`.
 
 **Server → Client: `HANDSHAKE_ERROR`**
 ```json
@@ -846,7 +847,7 @@ Notes:
 }
 ```
 
-**Show Control Events (planned)**
+**Show Control Events (shipped)**
 - `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`
 - `PRESENTATION_LOADED`, `PRESENTATION_UPDATE`
 - `PRESENTATION_CLEAR` (presentation closed; no idle/background clear; payload includes `cueId` when available)

@@ -49,7 +49,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 
 ## Controller Lock Enforcement (Shipped)
 
-Show Control + Production tiers enforce single-controller lock to prevent concurrent writes from multiple controllers.
+All rooms enforce single-controller lock to prevent concurrent writes from multiple controllers (cloud lock is not tier-gated; tiers gate features only).
 
 **Basic/Standalone behavior:** Basic rooms can operate as a simple local timer when offline (no cloud sync), but still use cloud sync + viewer URLs when online.
 
@@ -74,7 +74,7 @@ Companion mode lock and cloud mode lock are both implemented. Cloud lock uses a 
 - Companion provides this via `roomClients`; cloud mirrors the same UX via the `clients/*` presence collection and the `handoverLock` Cloud Function.
 
 ## Planned Phases (Roadmap)
-- Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (see `docs/phase-2-overview.md`).
+- Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (shipped; see `docs/phase-2-overview.md`).
 - Phase 3: LAN offline viewers + Show Planner (sections/segments, cues, crew chat), operator invite flow, viewer-only Electron app, and Save/Load Sessions (see Phase 3 docs).
   - LAN viewer delivery: Companion-served viewer bundle (versioned path) over HTTPS/WSS, private-subnet allowlist, and QR/manual pairing (code TTL 10 min, viewer token TTL 8 hours, max 20 devices).
   - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
