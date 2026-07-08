@@ -53,7 +53,8 @@ characterization before its carve. The fifth Fable milestone audit artifact is n
 strict `HandshakeError` U1 slice landed in #73. The sixth milestone audit returned GO; its lockfile
 LOW was fixed in #81, the U1 Timer/Cue wire-envelope slice landed in #82, the RoomState/envelope slice
 landed in #84, D7 CRLF hygiene landed in #86 to normalize TS/TSX/JS source files to LF, and the
-seed-state corrective follow-up landed in #88.
+seed-state corrective follow-up landed in #88. The public README was refreshed in #90, LF normalization
+was completed in #91, and the current PRD/rebuild-doc source set was reconciled in #92/#93.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -193,6 +194,8 @@ one-per-payload.
 - PR #89 docs(rebuild): sync ledger after seed-state fix
 - PR #90 docs(readme): refresh rebuild status
 - PR #91 chore(repo): finish LF normalization (#86 follow-up)
+- PR #92 docs: sync specs to post-rebuild codebase (contracts, references, index, archive)
+- PR #93 docs: oracle-review fixes (spec + rebuild plan/progress solidity)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
