@@ -29,7 +29,7 @@ the base for a "v2" implementation:
 - `frontend/src/context/UnifiedDataContext.tsx`
 - `frontend/src/context/FirebaseDataContext.tsx`
 - `frontend/src/context/MockDataContext.tsx`, except as test reference
-- `frontend/src/context/CompanionDataContext.tsx`, if present on a branch
+- `frontend/src/context/CompanionDataContext.tsx`
 - `frontend/src/context/CompanionConnectionContext.tsx`, except as transport reference
 - `companion/src/main.ts`
 - any current mixed Cloud/Local/cue/show-control data flow
@@ -115,7 +115,8 @@ of a move/extraction PR.
 
 ## 6. Banned Pattern Gates
 
-The guardrail PR should add scripts or lint rules for these checks before Stage 1b:
+These checks ship in `scripts/check-rebuild-guardrails.mjs` + `.dependency-cruiser.cjs` (landed
+across #4/#34/#35/#41/#61/#64) and run in required CI:
 
 ```text
 No imports from frontend/src/context/UnifiedDataContext into packages/
@@ -124,17 +125,33 @@ No @ontime/local-sync-arbitration import from Cloud-only app code
 No Firebase/Socket.IO/React/Electron imports in pure packages
 No new file over 400 production lines without explicit approval
 No new function that reimplements timer elapsed math outside timer-core
-No stale mergeProgress(roomProgress, cachedProgress) cache-wins call
+No mergeProgress(roomProgress, cachedProgress) cache-wins call
 No Math.max(0, elapsed...) clamp in timer elapsed calculations
 ```
 
-These can begin as grep checks and later become dependency-cruiser or ESLint boundary
-rules.
+Notes on the gates (precise definitions):
+
+- **400-line new-file cap:** the **D5 ≤500-line pure-wiring composition shim** is the one
+  pre-approved exception (allowed only where a file must physically exist — React provider
+  composition root / Electron entry — holding ZERO logic; see `rebuild-plan.md` D5). All other
+  new files stay under 400 production lines unless explicitly approved. **CI scope:**
+  `checkFileSizeCeilings()` enforces this cap only for `packages/` and `apps/` files; carves in
+  `companion/src` and `frontend/src` are not size-gated by CI and must be checked in review.
+- **`mergeProgress` cache-wins:** the banned pattern is the **reversed argument order**
+  `mergeProgress(roomProgress, cachedProgress)` — cache as the priority (second) argument, so
+  cache wins on key conflicts. The correct contract is
+  `mergeProgress(cachedProgress, freshProgress)`: the fresh source wins and the cache only fills
+  keys absent from the fresh source (`docs/timer-logic.md` §4 is authoritative). The guardrail
+  greps for that exact reversed order.
+- These began as grep checks; the import/boundary rules are now dependency-cruiser enforced.
+  The duplicate-formula, clamp, and progress-merge-order checks remain grep tripwires — the
+  timer test-net is the real guarantee against reordered/aliased forms.
 
 ## 7. Line-Ending Hygiene
 
-The repo currently has mixed CRLF/LF files. Behavior PRs must not include line-ending
-normalization.
+TS/TSX/JS source files were normalized to LF in #86 and finished in #91 (D7), so the repo no
+longer carries mixed line endings in source. Behavior PRs must still not include line-ending
+normalization — keep it in dedicated hygiene PRs.
 
 Before high-risk extraction from large files, add a separate hygiene PR if needed:
 
@@ -154,6 +171,10 @@ If those commands fail because of line endings, fix the extraction patch or spli
 PR first.
 
 ## 8. Extraction Workflow
+
+**Destination is mandatory:** state the §3/§4 target destination (package or `app-internal`)
+in the PR description and ledger entry. A carve with no destination is not a valid unit
+(guardrail G3; paired with the `// rebuild-target:` marker check, G1).
 
 Every extraction PR must follow this order:
 
@@ -277,6 +298,8 @@ Do not copy or import UnifiedDataContext, FirebaseDataContext, MockDataContext, 
 Do not move frontend/, companion/, or functions/ into apps/.
 Do not make Cloud import local-sync-arbitration.
 Do not mix viewer polish, timer fixes, and extraction in one PR.
+Name your §3/§4 target destination in the PR; a carve with no destination is not a valid unit.
+Every new or renamed module under companion/src/ or frontend/src/{context,lib,utils}/ must carry a `// rebuild-target: packages/<name>` or `// rebuild-target: app-internal (<app>)` header (guardrail G1); CI fails without it.
 
 Your task is one package or one narrow boundary only.
 First add/identify tests. Then extract or rewrite behind those tests.

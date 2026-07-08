@@ -190,6 +190,9 @@ one-per-payload.
 - PR #86 chore(repo): normalize source line endings (D7)
 - PR #87 docs(rebuild): sync ledger after roomstate and crlf hygiene
 - PR #88 fix(companion): validate and normalize seed room state
+- PR #89 docs(rebuild): sync ledger after seed-state fix
+- PR #90 docs(readme): refresh rebuild status
+- PR #91 chore(repo): finish LF normalization (#86 follow-up)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -212,12 +215,13 @@ For frontend-touching builder prompts, include `npm run lint --workspace fronten
 
 **SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. The one LOW (#78 lockfile drift) is fixed by #81. Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/archive/rebuild-fifth-milestone-audit.md`.
 
-**Next units (priority order):**
-1. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
-2. **U7 companion cache adapter** — include cache round-trip tests when carving this code (sixth-audit Obs-3).
-3. **U8 predicate wiring** — wire the zero-caller predicates or mark test mirrors explicitly.
-4. **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope; N2 remains a milestone-gate watch to confirm snapshot arbitration tolerates a `0` anchor before the next milestone cut.
-Prioritize timer/sync/lock god-file carving (higher value + bigger god-file chunks than LiveCue).
+**Next units (canonical — single source of truth; `rebuild-companion-coupling.md` and the handoff block below defer here):** Organized by god-file lane so PRs stay serial on each god-file mutex while lanes may interleave.
+
+- **Lane A — `UnifiedDataContext.tsx` (priority; biggest god-file value):** **U4/U5** — expand `local-sync-arbitration` (carve the timer/sync/lock merge + arbitration out of the frontend god-file). The M5 fresh-wins `mergeProgress` contract is the extraction source of truth.
+- **Lane B — `companion/src/main.ts`:** **U7** disk room-cache adapter (include cache round-trip tests — sixth-audit Obs-3) → **then** the **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter; required for D5; decision-gated on `instanceId` and sequenced AFTER Lane A's timer-side work).
+- **Fast-lane (low-risk, anytime, no god-file mutex contention):** **U8** wire/mark the zero-caller predicates; companion-side `ControllerLock` dedup (sixth-audit Obs-2 / DoD #4).
+  - **Companion `ControllerLock` dedup:** `companion/src/control-lock-utils.ts` still defines a field-identical local `ControllerLock` next to the canonical one in `@ontime/shared-types` (#76). Drop the local copy and import from shared-types — required for DoD #4 (single wire-shape).
+- **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope; N2 remains a milestone-gate watch to confirm snapshot arbitration tolerates a `0` anchor before the next milestone cut.
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
@@ -520,8 +524,9 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   contract comment). `SEED_COMPANION_CACHE` auth is intentionally deferred to LAN-mode scope; N2 remains a
   milestone-gate watch on snapshot arbitration with a `0` anchor.
   **U1 remainder still open**: LiveCue/presentation is deferred to its decision-gated U1 follow-up slice per the
-  placement pass (keep code PRs serial on the god-file mutex). **Then, in priority order:** U4/U5
-  `local-sync-arbitration` expansion → U7 companion cache adapter → U8 wire the zero-caller predicates.
+  placement pass (keep code PRs serial on the god-file mutex). **Next-units priority is defined once, in the
+  "Next units (canonical)" block in Current Stage above** (Lane A: U4/U5 → Lane B: U7 → LiveCue → fast-lane U8);
+  do not re-state a different ordering here.
 - **Anti-drift guardrails (plan §5):** **G1 LANDED (#61)** — every new `companion/src` / `frontend/src/context`
   module without a `// rebuild-target: <package | app-internal>` header now fails CI; the 5 landed carve modules
   are backfilled. **G2 LANDED (#64, ratcheted by #66/#67/#69)** — guardrails count populated §3 target packages
@@ -551,7 +556,7 @@ for companion; controller installer packaging under npm workspaces (electron hoi
 ## Deferred (unchanged)
 
 - ~~triage + fix the 3 genuinely-failing test files (useSortableList, CuesPanel, AppModeContext)~~ **DONE (#28)** — harness bugs (missing `vi` import / missing testing-library `cleanup`), now un-excluded; full frontend suite (211 tests) gates.
-- line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)
+- ~~line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)~~ **DONE (#86 + #91)** — TS/TSX/JS source files normalized to LF (D7); behavior PRs must still not mix in line-ending churn.
 - timer-core CJS build so `companion` can import the canonical elapsed helper (instead of its documented drift-guarded mirror) — deferred by decision (#29); do during companion build/packaging work.
 - ~~`mergeCueVideos` regression during `presentation-core` extraction~~ **DONE (#67)** — seeded
   `packages/presentation-core` and pinned the empty-overwrite regression.

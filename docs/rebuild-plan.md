@@ -34,6 +34,12 @@ Do not rely on chat history.
 
 ## Headline finding (verified)
 
+> **Point-in-time snapshot (as of 2026-07-04):** the metrics below — 3 of 10 packages populated,
+> god-files at 7,977 + 6,706 lines, zero Stage-1b package population — describe the state when this
+> plan was ratified. They are NOT current; `docs/rebuild-progress.md` supersedes them (packages now
+> at 6/10; both god-files shrunk under the ratchet). This section is retained as the rationale for
+> the re-aimed sequence, not as a live status report.
+
 The carve program has been shrinking the wrong god-file toward no destination. Since #36, every
 implementation carve (#47, #49, #56, #57) targeted `companion/src/main.ts` — overwhelmingly
 `apps/local-companion` app-internal server code — while `frontend/src/context/UnifiedDataContext.tsx`,
@@ -53,7 +59,7 @@ and no doc defined a measurable "done". Verified this session: `ls packages/` = 
 Target legend: a §3 `packages/*`, a §4 `apps/*`, **app-internal** (stays in the app even at Stage 4), or
 **open-decision**.
 
-### 1a. `companion/src/main.ts` (~7,977 lines)
+### 1a. `companion/src/main.ts` (~7,977 lines as of 2026-07-04; rebuild-progress supersedes)
 
 | Region | Target destination | Landed / right place? |
 |---|---|---|
@@ -71,7 +77,7 @@ Target legend: a §3 `packages/*`, a §4 `apps/*`, **app-internal** (stays in th
 | Disk room cache | **app-internal** persistence adapter (injected fs/clock) | Sequenced after token endpoint (U7). |
 | JWT/keychain/token persistence | **app-internal** | Fine. |
 
-### 1b. `frontend/src/context/UnifiedDataContext.tsx` (~6,706 lines) — the bigger reconciliation
+### 1b. `frontend/src/context/UnifiedDataContext.tsx` (~6,706 lines as of 2026-07-04; rebuild-progress supersedes) — the bigger reconciliation
 
 | Region | Target destination | Landed / right place? |
 |---|---|---|
@@ -93,7 +99,7 @@ Target legend: a §3 `packages/*`, a §4 `apps/*`, **app-internal** (stays in th
 | Item | Verdict | Reasoning |
 |---|---|---|
 | `control-lock-utils` predicates + `normalizeRoomPin` (#47) | **ACCEPT AS INTERNAL** — do NOT graduate to `lock-view-model` | These are *server* clear/supersede/PIN decisions. §3: `lock-view-model` must not own server enforcement; §6 forbids a 2nd enforcement impl. Sharing them with clients is the dual-enforcement smell. Caveat: two predicates have zero production callers (4th-audit LOW) → wire through inline sites or delete (U8). |
-| `ControllerLock` type + `buildControllerLock` (#49) | **SPLIT → re-home type to `interface-contracts`** when it lands | `ControllerLock` is the wire shape emitted to and re-parsed by the frontend — an interface contract, currently defined independently on both sides. One definition, both import. Same for `CONTROL_REQUEST_STATUS` reason vocabulary that crosses the wire. |
+| `ControllerLock` type + `buildControllerLock` (#49) | **LANDED in `shared-types` (#76)** — accepted placement differs from the original "re-home to interface-contracts" verdict | `ControllerLock` is a domain entity re-homed to `@ontime/shared-types` (not `interface-contracts`): the `ControllerLockStatePayload` wire envelope in interface-contracts references it via `import type`, and companion's `buildControllerLock` consumes it. Accepted placement (defensible — it is a domain type, not a wire-only contract). `CONTROL_REQUEST_STATUS` reason vocabulary went to interface-contracts (U1 slice 6). Residual: companion still carries a field-identical local copy (`control-lock-utils.ts`) — dedup tracked in the rebuild-progress next-units list (sixth-audit Obs-2). |
 | `control-audit-utils` (#56) | **ACCEPT AS INTERNAL** | Server-side store + cache scheduling; never crosses the wire (verified: 0 hits in `frontend/src`). |
 | `pending-control-timeout-utils` (#57) | **ACCEPT AS INTERNAL** | Server 30s enforcement mechanics; correctly injected/testable. |
 | `lock-handshake-utils` | **ACCEPT AS INTERNAL** | Server disconnect/transfer authority. |

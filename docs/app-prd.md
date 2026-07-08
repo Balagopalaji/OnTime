@@ -42,14 +42,14 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 
 ### Parallel Sync Principles (Core Architecture)
 - **No single primary:** Firebase and Companion are equal sources of truth.
-- **Dual-write always:** If a channel is available, we write to it. We do not switch write targets.
+- **Dual-write always:** If a channel is available, we write to it. We do not switch write targets. _(Scope: applies to Local-enabled builds — Companion + Cloud both active. The Cloud-only controller build target does not dual-write; see `docs/rebuild-architecture.md` §5 and decision D1.)_
 - **Timestamp arbitration:** Readers pick the freshest `lastUpdate`.
 - **Confidence window:** Mode is only a tie-breaker when timestamps are within a short, configurable window (see `docs/local-mode.md`).
 - **Safe reconnect:** A returning source must sync before it can override state.
 
 ## Controller Lock Enforcement (Shipped)
 
-Show Control + Production tiers enforce single-controller lock to prevent concurrent writes from multiple controllers.
+All rooms enforce single-controller lock to prevent concurrent writes from multiple controllers (cloud lock is not tier-gated; tiers gate features only).
 
 **Basic/Standalone behavior:** Basic rooms can operate as a simple local timer when offline (no cloud sync), but still use cloud sync + viewer URLs when online.
 
@@ -74,7 +74,7 @@ Companion mode lock and cloud mode lock are both implemented. Cloud lock uses a 
 - Companion provides this via `roomClients`; cloud mirrors the same UX via the `clients/*` presence collection and the `handoverLock` Cloud Function.
 
 ## Planned Phases (Roadmap)
-- Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (see `docs/phase-2-overview.md`).
+- Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (shipped; see `docs/phase-2-overview.md`).
 - Phase 3: LAN offline viewers + Show Planner (sections/segments, cues, crew chat), operator invite flow, viewer-only Electron app, and Save/Load Sessions (see Phase 3 docs).
   - LAN viewer delivery: Companion-served viewer bundle (versioned path) over HTTPS/WSS, private-subnet allowlist, and QR/manual pairing (code TTL 10 min, viewer token TTL 8 hours, max 20 devices).
   - Tier gating (Phase 3): Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.

@@ -145,13 +145,18 @@ The frontend caches room snapshots (including progress maps) in localStorage for
 - On duration change: reset progress to 0 and update state if active timer
 - Persist to localStorage immediately
 
-**Cache Read (getRoom):**
-- When building a room from Firebase or Companion, merge cached progress:
+**Cache Read (getRoom) — fresh source wins; cache only fills gaps:**
+- When building a room from Firebase or Companion, cached progress is merged in as **fallback** data only.
+- **Freshness rule (authoritative):** for any timer key present in the fresh source (Firebase/Companion room progress), the fresh value WINS. The cache only supplies progress for timer keys ABSENT from the fresh source.
+- The call-site contract passes cache as the base and fresh progress as the priority, so fresh overrides on conflicts and the cache fills the gaps:
 ```typescript
-const mergedProgress = { ...roomProgress, ...cachedProgress }
+// Correct order: fresh progress (priority) overrides cache (base); cache fills missing keys.
+// mergeProgress is the shared helper from @ontime/timer-core.
+const mergedProgress = mergeProgress(cachedProgress, roomProgress)
 ```
-- Cached values take priority (they're more recent from local actions)
-- This preserves bonus time (negative elapsed) when switching modes or refreshing
+- The reversed order `mergeProgress(roomProgress, cachedProgress)` makes the cache win on conflicts. That is the historical stale-override bug (a stale cached value overrode fresh cloud progress mid-show) and is banned by the rebuild guardrail (`scripts/check-rebuild-guardrails.mjs`, which greps for that exact argument order). Verified live call sites — `UnifiedDataContext` `getRoom`/`mergeProgressFromCache` — use the correct fresh-wins order.
+- Bonus time (negative elapsed) is preserved because the fresh value — including negative — wins; an older cached positive value cannot regress a freshly-nudged timer.
+- This per-key merge is distinct from the §5 snapshot-staleness test: §5 decides whether a whole snapshot is too old to use as the source at all; §4 decides how a usable fresh source's progress map combines with the cache. Do not feed a §5-stale snapshot in as the "fresh" argument.
 
 **Cache Invalidation:**
 - Cache is updated on every timer action
