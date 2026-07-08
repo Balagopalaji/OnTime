@@ -62,7 +62,7 @@ Companion mode lock and cloud mode lock are both implemented. Cloud lock uses a 
 **Behavior:**
 - Only one controller can write to a room at a time.
 - Second controller sees read-only UI with request/force takeover options.
-- Heartbeat (30s) + stale detection (90s) ensures abandoned locks can be reclaimed.
+- **Cloud:** heartbeat (30s) + stale-lock detection (90s) lets abandoned locks be reclaimed. **Companion/local** has no heartbeat-stale path — takeover there is PIN or a 30s unanswered `REQUEST_CONTROL` (see the per-mode takeover matrix in `docs/interface.md`).
 - Viewers are unaffected; public read access always works.
 
 **Future (Enterprise):**

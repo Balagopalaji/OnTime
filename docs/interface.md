@@ -661,8 +661,10 @@ Notes:
 }
 ```
 Notes:
-- Provide either `pin` or `reauthenticated` for immediate takeover.
-- `reauthenticated` is canonical; `reauthRequired` is legacy alias support for older clients.
+- **Authorization is mode-specific** (takeover matrix):
+  - **Cloud:** PIN | server-verified recent reauth (`auth_time` ≤ 5 min, signalled via `reauthenticated`) | stale lock (>90s without heartbeat) | 30s `REQUEST_CONTROL` timeout. A client-supplied `reauthenticated` is **not** authority by itself — the server verifies `auth_time`.
+  - **Companion/local:** PIN | 30s unanswered `REQUEST_CONTROL` timeout. OAuth/reauth is **not** required locally and is **not** local authorization: Companion cannot verify Firebase `auth_time`, so a `reauthenticated` hint is accepted on the wire for compatibility but is ignored. There is no heartbeat-stale takeover path in Companion (Stage 1b). Local Companion supports assistants/operators/controllers with room access who do not have owner OAuth details.
+- `reauthenticated` is the canonical key; `reauthRequired` is accepted as a backward-compatible alias.
 
 **Client → Server: `HAND_OVER`**
 ```json
