@@ -2,7 +2,13 @@
 
 **Live event timer and presentation-follow app** — real-time multi-timer control with cloud and LAN viewer surfaces, an Electron desktop controller, and a Companion app for PowerPoint/local integration.
 
-This is an advanced prototype and interview-demo project. The current branch intentionally narrows scope to stabilize the timer/viewer experience end-to-end, rather than ship a full show-control suite.
+This is an advanced prototype and active rebuild project. The current work is stabilizing the timer/viewer/Companion experience while extracting the large frontend and Companion god-files into tested packages and app-internal modules.
+
+For the current rebuild state, start with:
+
+- [`docs/rebuild-progress.md`](docs/rebuild-progress.md) — live rebuild ledger, landed PRs, next units, and baton policy
+- [`docs/rebuild-extraction-rules.md`](docs/rebuild-extraction-rules.md) — extraction rules and stop conditions
+- [`docs/rebuild-sixth-milestone-audit.md`](docs/rebuild-sixth-milestone-audit.md) — latest milestone audit snapshot
 
 ---
 
@@ -26,6 +32,7 @@ This is an advanced prototype and interview-demo project. The current branch int
 | Realtime | Firebase Firestore (live listeners), Socket.IO |
 | Auth / backend | Firebase Auth, Cloud Functions |
 | Desktop | Electron (controller + Companion) |
+| Shared packages | npm workspaces under `packages/*` |
 | Testing | Vitest, Testing Library |
 
 ---
@@ -38,8 +45,18 @@ companion/    Electron Companion app — LAN viewer server, PowerPoint bridge, l
 controller/   Thin Electron wrapper for the controller surface
 functions/    Firebase Cloud Functions
 firebase/     Firestore security rules and emulator config
+packages/     Extracted shared packages and rebuild targets
 docs/         Architecture notes, PRDs, QA artifacts
 ```
+
+Current extracted packages include:
+
+- `@ontime/timer-core`
+- `@ontime/shared-types`
+- `@ontime/local-sync-arbitration`
+- `@ontime/interface-contracts`
+- `@ontime/lock-view-model`
+- `@ontime/presentation-core`
 
 ---
 
@@ -83,6 +100,12 @@ The frontend's `UnifiedDataContext` merges Firebase and Companion state using ti
 
 ### Prerequisites
 
+Install dependencies from the repository root so npm workspaces link the local packages:
+
+```bash
+npm install
+```
+
 Copy the env template and fill in your Firebase project credentials:
 
 ```bash
@@ -93,20 +116,18 @@ cp frontend/.env.example frontend/.env.local
 ### Frontend (web app)
 
 ```bash
-cd frontend
-npm install
-npm run dev          # Vite dev server at localhost:5173
-npm run test         # Vitest unit tests
-npm run lint         # ESLint
-npm run typecheck    # tsc strict check (some debt outside the demo cut)
+npm run dev --workspace frontend          # Vite dev server at localhost:5173
+npm run test --workspace frontend         # Vitest unit tests
+npm run lint --workspace frontend         # ESLint
+npm run typecheck --workspace frontend    # TypeScript check
 ```
 
 ### Companion (local bridge + LAN viewer)
 
 ```bash
-cd companion
-npm install
-npm run dev          # Electron dev mode (hot reload)
+npm run dev --workspace companion         # Electron dev mode (hot reload)
+npm run build --workspace companion       # TypeScript build
+npm run test --workspace companion        # Build + node:test companion suite
 ```
 
 > **Note:** `npm run dev` is fine for development iteration. For testing LAN viewer behavior end-to-end, use the packaged build (see below) — the viewer bundle path differs between dev and packaged modes.
@@ -147,4 +168,20 @@ This repo is a focused technical prototype demonstrating:
 - Electron desktop packaging and local network integration
 - Firebase security rules, token-based pairing, and role-aware viewer access
 
-TypeScript strictness is enforced in the core data and context layers. There is acknowledged debt in peripheral areas outside the demo cut — `npm run typecheck` will surface it.
+The rebuild is currently in Stage 1b. Stage 1a extracted the first shared packages; Stage 1b is carving the remaining frontend and Companion logic into package-sized modules while keeping CI guardrails green. The two main files still being reduced are:
+
+- `frontend/src/context/UnifiedDataContext.tsx`
+- `companion/src/main.ts`
+
+Before sharing rebuild work, run:
+
+```bash
+npm run guardrails
+```
+
+For frontend-touching changes, also run:
+
+```bash
+npm run lint --workspace frontend
+npm run test --workspace frontend
+```
