@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-07-08
 Scope: Client (frontend) requirements and behavior for the OnTime app.
 ---
 
@@ -117,10 +117,10 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 - LAN viewer delivery is via Companion-served viewer bundle over HTTPS/WSS (no HTTP fallback) with a "Trust Required" screen on cert errors.
 - Pairing defaults: code TTL 10 min (not persisted across restart), viewer tokens TTL 8 hours, max 20 devices per room, reusable until expiry unless revoked.
 
-## Planned Cloud Controller Lock Enforcement (Milestone 5)
+## Cloud Controller Lock Enforcement (Shipped)
 
 **Overview**
-Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is planned for Milestone 5 and is **not** live yet. When implemented, lock state will be stored in Firestore and managed via Cloud Functions.
+Companion lock enforcement and cloud (Firebase) lock enforcement are both implemented and live. Cloud lock state is stored in Firestore (`rooms/{roomId}/lock/current`) and managed via Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`, `requestControl`, `denyControl`, `handoverLock`, `syncLockFromCompanion`).
 
 **Tier gating**
 - Show Control + Production tiers enforce cloud lock.
@@ -165,9 +165,9 @@ Companion lock enforcement is implemented. Cloud (Firebase) lock enforcement is 
 
 **Design document:** See `docs/cloud-lock-design.md` for full technical details.
 
-**Planned (Follow-up): Cloud handover presence**
-- Add cloud presence list (`rooms/{roomId}/clients/*`) so controllers can hand over without a request in cloud mode.
-- Companion already provides this via `roomClients`; cloud will mirror the same UX once presence is available.
+**Cloud handover presence (shipped)**
+- Cloud presence list (`rooms/{roomId}/clients/*`) lets controllers hand over without a request in cloud mode.
+- Companion provides this via `roomClients`; cloud mirrors the same UX via the `clients/*` presence collection and the `handoverLock` Cloud Function.
 
 ## Show Control UI (Phase 2c)
 **Tier gating**

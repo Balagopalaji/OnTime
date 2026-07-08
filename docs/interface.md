@@ -2,13 +2,14 @@
 Type: Interface
 Status: current
 Owner: KDB
-Last updated: 2026-01-28
+Last updated: 2026-07-08
 Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Companion).
 ---
 
-# Interface Specification (v1.4.0)
+# Interface Specification (v1.4.1)
 
 **Changelog**
+- v1.4.1 (2026-07-08): Documented shipped Companion behavior — `HANDSHAKE_PENDING` handshake error code, `CUE_ERROR` envelope, cue CRUD events shipped (not planned), and `SEED_COMPANION_CACHE` lean-projection / default-timestamp overwrite rules.
 - v1.4.0 (2026-01-19): Added operator access schemas (`config/invite`, `operators`, `blocked`) and security rules summary (Phase 3).
 - v1.3.0 (2026-01-10): Added cloud controller lock schema and Cloud Functions API (Milestone 5).
 - v1.2.0 (2025-12-30): Added planned show cue + crew chat schemas (Phase 3).
@@ -500,7 +501,7 @@ Notes:
   "message": "Invalid token."
 }
 ```
-**Handshake error codes (current):** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`.
+**Handshake error codes (current):** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`, `HANDSHAKE_PENDING` (Companion-only; emitted when the same client already has a join/handshake pending for the room).
 
 **Server → Client: `COMPANION_MODE_CHANGED`**
 ```json
@@ -718,11 +719,14 @@ Notes:
 - Non-timer metadata patches do not update timer `lastUpdate`.
 - Only the following change keys are accepted: `activeTimerId`, `isRunning`, `currentTime`, `lastUpdate`, `showClock`, `message`, `title`, `timezone`.
 
-**Planned Phase 3 events (Companion offline support, optional)**
+**Companion cue events (shipped)**
 - Cue CRUD: `CREATE_CUE`, `CUE_CREATED`, `UPDATE_CUE`, `CUE_UPDATED`, `DELETE_CUE`, `CUE_DELETED`, `REORDER_CUES`, `CUES_REORDERED`.
+- Cue errors: `CUE_ERROR` (see envelope below).
+
+**Planned Phase 3 events (Companion offline support, not yet shipped)**
 - Cue acknowledgment: `ACK_CUE`, `CUE_ACKED`.
 
-**Cue Event Payloads (Phase 3C Pass A)**
+**Cue Event Payloads**
 - `CREATE_CUE` / `CUE_CREATED`: `{ roomId, cue }`
 - `UPDATE_CUE` / `CUE_UPDATED`: `{ roomId, cueId, changes }`
 - `DELETE_CUE` / `CUE_DELETED`: `{ roomId, cueId }`
@@ -731,7 +735,8 @@ Notes:
 - Timer delegation: `DELEGATE_TIMER`, `TIMER_DELEGATED`, `RECLAIM_TIMER`, `TIMER_RECLAIMED`.
 - Crew chat: `SEND_CHAT`, `CHAT_MESSAGE`.
 Notes:
-- Firestore is the canonical store for cues/chat; Companion events are optional to enable offline/LAN flows.
+- Firestore is the canonical store for cues; Companion cue CRUD events are shipped (local/LAN) and mirror the Firestore cue writes.
+- `ACK_CUE`/`CUE_ACKED`, timer delegation, and crew chat remain planned (not yet shipped).
 
 **Client → Server: `SEED_COMPANION_CACHE`**
 ```json
@@ -754,7 +759,8 @@ Notes:
 ```
 Notes:
 - Bulk-pushes cloud room data to Companion without triggering JOIN/handshake per room.
-- Overwrite-safe: per-room state applied only if incoming `state.lastUpdate > local state.lastUpdate`; per-item timers/cues applied only if incoming `updatedAt > local updatedAt`; pins applied only if incoming `updatedAt > local updatedAt`.
+- Overwrite-safe: per-room state applied only if incoming `state.lastUpdate > local state.lastUpdate`; per-item timers/cues applied only if incoming `updatedAt > local updatedAt`; pins applied only if incoming `updatedAt > local updatedAt`. Missing timestamps on either side default to `0`, so a seed never overwrites a room that has any real mutation timestamp, and two timestamp-less entries do not cross-overwrite.
+- Seed state is validated and stored as a **lean projection** of explicit fields (`activeTimerId`, `isRunning`, `currentTime`, `lastUpdate`, plus optional `showClock`, `title`, `timezone`, `activeLiveCueId`, and a deep-merged `message`); invalid or rich-field payloads are rejected.
 - Rooms with a local tombstone are ignored; incoming tombstones are applied before room data.
 - Does not emit socket broadcasts or trigger JOIN logic.
 - Triggered once per successful reconnect/handshake when cloud is online.
@@ -809,6 +815,18 @@ Notes:
 }
 ```
 
+**Server → Client: `CUE_ERROR`**
+```json
+{
+  "type": "CUE_ERROR",
+  "roomId": "abc123",
+  "code": "INVALID_FIELDS",
+  "message": "Cue requires title and createdBy.",
+  "clientId": "client-uuid",
+  "timestamp": 1234567899
+}
+```
+
 **Show Control Events (planned)**
 - `LIVE_CUE_CREATED`, `LIVE_CUE_UPDATED`, `LIVE_CUE_ENDED`
 - `PRESENTATION_LOADED`, `PRESENTATION_UPDATE`
@@ -819,7 +837,9 @@ Notes:
 
 **`TIMER_ERROR` codes:** `INVALID_PAYLOAD`, `INVALID_FIELDS`, `NOT_FOUND`
 
-**`HANDSHAKE_ERROR` codes:** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`
+**`CUE_ERROR` codes:** `INVALID_PAYLOAD`, `INVALID_FIELDS`, `NOT_FOUND`
+
+**`HANDSHAKE_ERROR` codes:** `INVALID_TOKEN`, `INVALID_PAYLOAD`, `CONTROLLER_TAKEN`, `HANDSHAKE_PENDING` (Companion-only)
 
 **Show-control errors (planned):** `FEATURE_UNAVAILABLE`
 

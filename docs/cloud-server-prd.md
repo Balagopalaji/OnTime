@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-07-08
 Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 ---
 
@@ -33,14 +33,14 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 
 ## Current Behavior (Reality)
 - Firebase is the cloud persistence layer with public reads and authenticated writes.
-- Cloud controller lock enforcement is not yet implemented (see Milestone 5).
+- Cloud controller lock enforcement is implemented (Firestore lock document + Cloud Functions + rules).
 - Data model fields are consumed by the frontend and mirrored by Companion.
 - Deleted rooms write tombstones to `deleted_rooms/{roomId}` with `deletedAt`/`expiresAt` (Firestore TTL on `expiresAt`).
 - Sync behavior is coordinated with Companion per `docs/local-mode.md`.
 - Timer math rules are defined in `docs/timer-logic.md`.
 
 ## Planned Phases (Roadmap)
-- Milestone 5: Cloud controller lock enforcement (lock document + Cloud Functions + rules).
+- Cloud controller lock enforcement (lock document + Cloud Functions + rules) — shipped (was Milestone 5).
 - Phase 3: security rules for sections, segments, cues, crew chat, operators, blocked, config/invite.
 - Phase 3: `joinAsOperator` Cloud Function for invite validation and operator creation.
 - Role-based cue ownership (operators can edit only their role cues; TD/Director override).
@@ -50,7 +50,7 @@ Scope: Cloud (Firebase) backend requirements and data model for OnTime.
 
 ## Acceptance Criteria
 - Viewer read access remains public and reliable.
-- Lock-holder writes enforced by Firestore rules (Milestone 5).
+- Lock-holder writes enforced by Firestore rules (shipped).
 - Operator access enforced by rules + Cloud Function validation.
 - Data model fields match frontend expectations.
 
