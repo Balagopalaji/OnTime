@@ -44,7 +44,7 @@ disk/process effects.
 The **loopback token endpoint** unit has shipped as `companion/src/token-server.ts` (`createTokenHandler`,
 `startTokenServer`, `startSecureTokenServer`), with `companion/src/main.ts` retaining only composition roots.
 
-The next implementation PR should target the **disk room-cache adapter** described in Appendix A:
+**Canonical next-units ordering lives in `docs/rebuild-progress.md` ("Next units (canonical)"); this map does not issue a separate recommendation.** Per that ordering, the companion-lane (`main.ts`) next unit is the **disk room-cache adapter (U7)** described in Appendix A — but the overall priority is Lane A (U4/U5, `UnifiedDataContext`), so sequence U7 accordingly:
 
 1. Extract only the disk cache adapter + scheduler, not room mutation logic.
 2. Inject a deps object: cache-path resolver, fs-like API, clock, logger, debounce-timer API, and a

@@ -42,7 +42,7 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 
 ### Parallel Sync Principles (Core Architecture)
 - **No single primary:** Firebase and Companion are equal sources of truth.
-- **Dual-write always:** If a channel is available, we write to it. We do not switch write targets.
+- **Dual-write always:** If a channel is available, we write to it. We do not switch write targets. _(Scope: applies to Local-enabled builds — Companion + Cloud both active. The Cloud-only controller build target does not dual-write; see `docs/rebuild-architecture.md` §5 and decision D1.)_
 - **Timestamp arbitration:** Readers pick the freshest `lastUpdate`.
 - **Confidence window:** Mode is only a tie-breaker when timestamps are within a short, configurable window (see `docs/local-mode.md`).
 - **Safe reconnect:** A returning source must sync before it can override state.
