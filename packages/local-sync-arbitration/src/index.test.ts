@@ -82,7 +82,7 @@ describe('arbitrate', () => {
 
     const decision = arbitrate(input)
     expect(decision.acceptSource).toBe('cloud')
-    expect(decision.reason).toBe('cloud newer')
+    expect(decision.reason).toBe('skew - authority fallback')
   })
 
   it('uses last accepted when both offline', async () => {
@@ -248,7 +248,22 @@ describe('arbitrate', () => {
     })
 
     expect(overThreshold.acceptSource).toBe('cloud')
-    expect(overThreshold.reason).toBe('cloud newer')
+    expect(overThreshold.reason).toBe('skew - authority fallback')
+  })
+
+  it('on large skew, falls back to the room authority rather than a hardcoded source', async () => {
+    const { arbitrate } = await import('./index')
+    // local-authority room: companion is materially newer than stale cloud by >threshold.
+    // Old behavior hardcoded cloud (stale won). New: authority/mode fallback -> companion.
+    const decision = arbitrate({
+      ...baseInput(),
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000 + 1,
+      skewThreshold: 10 * 60 * 1000,
+      authoritySource: 'companion',
+    })
+    expect(decision.acceptSource).toBe('companion')
+    expect(decision.reason).toBe('skew - authority fallback')
   })
 })
 

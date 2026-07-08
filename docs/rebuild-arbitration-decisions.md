@@ -34,6 +34,7 @@ Read precedence:
 1. **Freshest trustworthy `lastUpdate` wins.**
 2. The **confidence window** handles close-timestamp ambiguity / holds only.
 3. **Mode is only a tie-breaker / fallback**, not primary authority.
+4. **Large skew (>10 min) is unresolvable by timestamp** — clock drift is indistinguishable from a genuinely-stale side, so "newer" is not trustworthy. Arbitration falls back to the room's **authority/mode** (the same fallback used when neither side has data), not to a hardcoded source and not to the apparently-"newer" side.
 
 Mode tie/fallback behavior:
 - **Local mode** biases Companion only for ties, confidence-window decisions, or missing-timestamp fallback.
