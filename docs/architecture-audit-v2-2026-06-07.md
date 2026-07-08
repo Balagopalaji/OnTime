@@ -1,8 +1,16 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-06-07
+Scope: Full-repo architecture & product audit v2 (point-in-time 2026-06-07; the rebuild is the active successor).
+---
+
 # OnTime — Architecture & Product Audit v2 (Corrected, Full-Repo)
 
 _Audit date: 2026-06-07 · Reviewer: deep full-repo audit · Supersedes
-`docs/architecture-audit-2026-06.md` (v1) and reconciles with
-`docs/codex-architecture-audit-2026-06-07.md`._
+`docs/archive/architecture-audit-2026-06.md` (v1) and reconciles with
+`docs/archive/codex-architecture-audit-2026-06-07.md`._
 
 > **Why a v2.** v1 was scoped to the frontend data/sync layer + the `research/ppt-video-timing`
 > diff. It **missed**: the second Electron app (`controller/`), the **C#/Windows PowerPoint
@@ -23,6 +31,21 @@ _Audit date: 2026-06-07 · Reviewer: deep full-repo audit · Supersedes
 > modules); it is not a from-scratch rewrite.
 
 ---
+
+## Contents
+
+- [0. The single most important correction](#0-the-single-most-important-correction)
+- [1. Complete asset inventory (what actually exists)](#1-complete-asset-inventory-what-actually-exists)
+- [2. The defining architectural decision: arbitration placement](#2-the-defining-architectural-decision-arbitration-placement)
+- [3. Bounded contexts (anchored to the existing tier model + `interface.md`)](#3-bounded-contexts-anchored-to-the-existing-tier-model--interfacemd)
+- [4. Target suite (reconciled: Codex lineup + v2 grounding)](#4-target-suite-reconciled-codex-lineup--v2-grounding)
+- [5. Canonical implementations (the never-duplicate list)](#5-canonical-implementations-the-never-duplicate-list)
+- [6. Keep / Extract / Rewrite / Delete (updated with full inventory)](#6-keep--extract--rewrite--delete-updated-with-full-inventory)
+- [7. Migration plan (reconciled; Codex ordering + v2 safety net)](#7-migration-plan-reconciled-codex-ordering--v2-safety-net)
+- [8. The `stable-cloud` ↔ `main` synthesis (CORRECTED 2026-06-07)](#8-the-stable-cloud--main-synthesis-corrected-2026-06-07)
+- [9. Biggest risks](#9-biggest-risks)
+- [10. Coverage statement (honest)](#10-coverage-statement-honest)
+- [11. Branch Ledger (canonical — do not treat old phase branches as rebuild sources)](#11-branch-ledger-canonical--do-not-treat-old-phase-branches-as-rebuild-sources)
 
 ## 0. The single most important correction
 

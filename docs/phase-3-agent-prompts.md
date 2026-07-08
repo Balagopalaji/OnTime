@@ -13,6 +13,47 @@ Scope: RepoPrompt agent prompt list for Phase 3 implementation passes.
 Use this file to dispatch RepoPrompt builder agents. Each prompt maps to a single pass in
 `docs/phase-3-tasklist.md`. Keep each agent run small, scoped, and verifiable.
 
+## Contents
+
+- [Global Guidance (include in every prompt)](#global-guidance-include-in-every-prompt)
+- [0) Pre-flight (Context Sync)](#0-pre-flight-context-sync)
+- [Phase 3A — Show Controller Definition](#phase-3a--show-controller-definition)
+  - [Pass A: Workflow + UX Definition](#pass-a-workflow--ux-definition)
+  - [Pass B: Authority + Data Model Alignment](#pass-b-authority--data-model-alignment)
+  - [Pass C: PRD + Plan Updates](#pass-c-prd--plan-updates)
+- [Phase 3B — LAN Offline Viewer Infrastructure](#phase-3b--lan-offline-viewer-infrastructure)
+  - [Pass A0: Bundle Strategy Note](#pass-a0-bundle-strategy-note)
+  - [Pass B0: Cert Trust UX Note](#pass-b0-cert-trust-ux-note)
+  - [Pass A: Viewer Bundle Packaging](#pass-a-viewer-bundle-packaging)
+  - [Pass B1: HTTPS/WSS + PNA/CORS (Self-signed)](#pass-b1-httpswss--pnacors-self-signed)
+  - [Pass B2: HTTPS/WSS (BYO cert)](#pass-b2-httpswss-byo-cert)
+  - [Pass C: Pairing + Tokens](#pass-c-pairing--tokens)
+  - [Pass D: Role Enforcement + Read-Only Guards](#pass-d-role-enforcement--read-only-guards)
+  - [Pass E: Offline QA + Recovery](#pass-e-offline-qa--recovery)
+- [Phase 3C — Show Controller Build](#phase-3c--show-controller-build)
+  - [Pass A: Data + Rules](#pass-a-data--rules)
+  - [Pass B: Sections + Segments UI](#pass-b-sections--segments-ui)
+  - [Pass C: Cues UI](#pass-c-cues-ui)
+  - [Pass D: Crew Chat](#pass-d-crew-chat)
+  - [Pass E: Viewer Panels](#pass-e-viewer-panels)
+  - [Pass F: Permissions + Gating](#pass-f-permissions--gating)
+  - [Pass G: StageState Payload (Future, Additive, Read-Only)](#pass-g-stagestate-payload-future-additive-read-only)
+- [Phase 3D — Save/Load Sessions](#phase-3d--saveload-sessions)
+  - [Pass A: Data Model + Security Rules](#pass-a-data-model--security-rules)
+  - [Pass B: Save Flow](#pass-b-save-flow)
+  - [Pass C: Sessions Page + Restore Flow](#pass-c-sessions-page--restore-flow)
+  - [Pass D: Companion Offline Queue](#pass-d-companion-offline-queue)
+  - [Pass E: Testing + QA](#pass-e-testing--qa)
+- [Phase 3E — Hardening + Release](#phase-3e--hardening--release)
+  - [Pass A: Test Coverage](#pass-a-test-coverage)
+  - [Pass B: Performance + Reliability](#pass-b-performance--reliability)
+  - [Pass C: Documentation](#pass-c-documentation)
+- [Phase 2 Carryover Prompts](#phase-2-carryover-prompts)
+  - [Carryover (Phase 3A/3C)](#carryover-phase-3a3c)
+  - [Carryover (Phase 3B)](#carryover-phase-3b)
+  - [Carryover (Phase 3C)](#carryover-phase-3c)
+  - [Carryover (Phase 3E)](#carryover-phase-3e)
+
 ## Global Guidance (include in every prompt)
 - Read `docs/phase-3-tasklist.md` and the relevant pass before coding.
 - Also read: `docs/client-prd.md`, `docs/local-server-prd.md`, `docs/cloud-server-prd.md`, `docs/local-offline-lan-plan.md`, `docs/interface.md`, `docs/local-mode.md`, `docs/edge-cases.md`, `docs/phase-3-unified-arbitration-plan.md`, `docs/phase-3-arbitration-agent-guide.md`.

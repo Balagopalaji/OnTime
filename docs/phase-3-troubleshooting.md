@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-01
+Scope: Phase 3 troubleshooting log — observed issues, evidence, and fixes for token refresh, takeover, and presence.
+---
+
 # Phase 3 Troubleshooting Log
 
 ## Scope

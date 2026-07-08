@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-07-08
 Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 ---
 
@@ -47,17 +47,17 @@ Scope: End-to-end product requirements for OnTime (Client + Cloud + Local).
 - **Confidence window:** Mode is only a tie-breaker when timestamps are within a short, configurable window (see `docs/local-mode.md`).
 - **Safe reconnect:** A returning source must sync before it can override state.
 
-## Controller Lock Enforcement (Target: Milestone 5)
+## Controller Lock Enforcement (Shipped)
 
-Show Control + Production tiers will enforce single-controller lock to prevent concurrent writes from multiple controllers. Basic tier remains unlocked (multiple controllers allowed) until explicitly upgraded.
+Show Control + Production tiers enforce single-controller lock to prevent concurrent writes from multiple controllers.
 
 **Basic/Standalone behavior:** Basic rooms can operate as a simple local timer when offline (no cloud sync), but still use cloud sync + viewer URLs when online.
 
-Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
+Companion mode lock and cloud mode lock are both implemented. Cloud lock uses a Firestore lock document (`rooms/{roomId}/lock/current`) + Cloud Functions + security-rule enforcement.
 
 **Lock enforcement applies to:**
 - **Companion mode:** In-memory lock with Socket.IO events (existing).
-- **Cloud mode:** Firestore lock document with Cloud Functions (Milestone 5).
+- **Cloud mode:** Firestore lock document with Cloud Functions (shipped).
 
 **Behavior:**
 - Only one controller can write to a room at a time.
@@ -69,9 +69,9 @@ Companion mode lock is implemented; cloud mode lock is planned for Milestone 5.
 - Shared control policy with authority levels (Owner/Operator/Assistant).
 - See `docs/cloud-lock-design.md` for full design details.
 
-**Planned (Follow-up): Cloud handover presence**
-- Add cloud presence list (`rooms/{roomId}/clients/*`) so controllers can hand over without a request in cloud mode.
-- Companion already provides this via `roomClients`; cloud will mirror the same UX once presence is available.
+**Cloud handover presence (shipped)**
+- Cloud presence list (`rooms/{roomId}/clients/*`) lets controllers hand over without a request in cloud mode.
+- Companion provides this via `roomClients`; cloud mirrors the same UX via the `clients/*` presence collection and the `handoverLock` Cloud Function.
 
 ## Planned Phases (Roadmap)
 - Phase 2: Electron controller + transport hardening + show-control core + cloud lock enforcement (see `docs/phase-2-overview.md`).

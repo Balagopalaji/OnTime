@@ -2,7 +2,7 @@
 Type: Plan
 Status: planned
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-07-08
 Scope: Phase 2 plan and roadmap (transport hardening, Electron controller, show control core).
 ---
 
@@ -11,6 +11,22 @@ Scope: Phase 2 plan and roadmap (transport hardening, Electron controller, show 
 Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize Companion + parallel transport, deliver Show Control essentials (live cues, presentation import, dual-header UI), and add production-grade UX (viewer polish, authority/reconnect hardening). Success means Basic tier stays lean (<50 MB Companion in Minimal mode), Show Control gains live cue visibility with low bandwidth, and Production tier has groundwork for media workflows without breaking current users or increasing Firebase costs.
 
 **Scope boundary:** Phase 2 focuses on Electron controller + bridge + transport hardening + show control core. LAN offline viewers are explicitly deferred to **Phase 3** (see below).
+
+## Contents
+
+- [Goals & Scope](#goals--scope)
+- [Modular Product Principles (Phase 2)](#modular-product-principles-phase-2)
+- [Scope Breakdown](#scope-breakdown)
+- [Phase 2 Plan (Detailed)](#phase-2-plan-detailed)
+  - [Phase 2a — Electron Controller Delivery](#phase-2a--electron-controller-delivery)
+  - [Phase 2b — Transport Hardening + Bridge Polish](#phase-2b--transport-hardening--bridge-polish)
+  - [Phase 2c — Show Control Core](#phase-2c--show-control-core)
+- [Show Control Architecture (Planned Summary)](#show-control-architecture-planned-summary)
+- [Milestones (High-Level)](#milestones-high-level)
+- [Phase 3 (Planned) — LAN Offline Viewers](#phase-3-planned--lan-offline-viewers)
+- [Cross-Cutting Risks & Mitigations](#cross-cutting-risks--mitigations)
+- [QA Focus Hooks](#qa-focus-hooks)
+- [Rollout Expectations](#rollout-expectations)
 
 ## Goals & Scope
 - **Transport stability:** Harden Companion multi-client flows, reconnection/backoff, and authority handling across Local/Cloud.
@@ -268,7 +284,8 @@ This section summarizes the show-control architecture at a high level. Canonical
    - Companion tray/window for mode selection/status reflecting capabilities; stays within RAM budgets.
    - Success: Resource targets met; clear gating/messaging without technical jargon.
 
-5. **Cloud Controller Lock Enforcement**
+5. **Cloud Controller Lock Enforcement** — ✅ Shipped
+   - **Status:** Implemented in `functions/src/lock.ts` (8 onCall lock fns) + `firebase/firestore.rules` (`isLockHolderByUserId`) + `frontend/src/context/UnifiedDataContext.tsx` (`httpsCallable` wiring, 30s heartbeat, lock subscription).
    - Enforce single authoritative controller in cloud/Firebase mode (parity with Companion lock).
    - Firestore lock document (`rooms/{roomId}/lock/current`) with Cloud Functions for atomic acquire/release/force.
    - Rules enforce lock holder by `userId`; Cloud Functions validate `clientId` for per-tab enforcement.

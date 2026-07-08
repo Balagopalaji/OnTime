@@ -2,7 +2,7 @@
 Type: Index
 Status: draft
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-07-08
 Scope: Feature-to-document mapping with implementation verification status.
 ---
 
@@ -15,14 +15,14 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Room management (create/delete/list, metadata) | `docs/app-prd.md` | PRD | current | `frontend/src/context/UnifiedDataContext.tsx` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | Timer CRUD + reorder | `docs/client-prd.md` | PRD | current | `frontend/src/context/UnifiedDataContext.tsx` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
-| Timer math & transitions | `docs/timer-logic.md` | Reference | current | `frontend/src/utils/timer-utils.ts`, `frontend/src/hooks/useTimerEngine.ts` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
+| Timer math & transitions | `docs/timer-logic.md` | Reference | current | `frontend/src/utils/timer-utils.ts`, `frontend/src/hooks/useTimerEngine.ts`, `packages/timer-core` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | Viewer display + status | `docs/client-prd.md` | PRD | current | `frontend/src/routes/ViewerPage.tsx` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | Message overlay + presets | `docs/client-prd.md` | PRD | current | `frontend/src/components/controller/MessagePanel.tsx` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | App modes (auto/local/cloud) - loopback Companion | `docs/local-mode.md` | Reference | current | `frontend/src/context/AppModeContext.tsx` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
 | App modes (auto/local/cloud) - LAN/offline Companion | `docs/local-offline-lan-plan.md` | Plan | planned | n/a |  |  |  |
-| Companion connection + token flow | `docs/local-server-prd.md` | PRD | current | `frontend/src/context/CompanionConnectionContext.tsx`, `companion/src/main.ts` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
-| Companion controller lock + takeover | `docs/local-server-prd.md` | PRD | current | `companion/src/main.ts` |  |  |  |
-| Cloud controller lock enforcement (Milestone 5) | `docs/cloud-lock-design.md` | Reference | planned | `firebase/firestore.rules`, `firebase/functions/*` (planned), `frontend/src/context/UnifiedDataContext.tsx` |  |  | `docs/phase-2-tasklist.md` |
+| Companion connection + token flow | `docs/local-server-prd.md` | PRD | current | `frontend/src/context/CompanionConnectionContext.tsx`, `companion/src/token-server.ts` | KDB | 2025-12-29 | `docs/archive/review-checklist-phase-0.md` |
+| Companion controller lock + takeover | `docs/local-server-prd.md` | PRD | current | `companion/src/control-lock-utils.ts`, `companion/src/lock-handshake-utils.ts`, `companion/src/control-audit-utils.ts`, `companion/src/pending-control-timeout-utils.ts`, `packages/lock-view-model`, `packages/interface-contracts` |  |  |  |
+| Cloud controller lock enforcement (Milestone 5) | `docs/cloud-lock-design.md` | Reference | current | `functions/src/lock.ts`, `firebase/firestore.rules`, `frontend/src/context/UnifiedDataContext.tsx` |  |  | `docs/phase-2-tasklist.md` |
 | Parallel sync principles | `docs/app-prd.md`, `docs/client-prd.md`, `docs/local-mode.md`, `docs/phase-3-unified-arbitration-plan.md` | PRD/Reference/Plan | current | `frontend/src/context/UnifiedDataContext.tsx` |  |  |  |
 | Unified arbitration plan | `docs/phase-3-unified-arbitration-plan.md` | Plan | draft | n/a |  |  |  |
 | Arbitration roadmap | `docs/phase-3-arbitration-roadmap.md` | Plan | draft | n/a |  |  |  |

@@ -1,15 +1,15 @@
 # System Context
 
 **Verified against files:**
-- `/Users/radhabalagopala/Dev/OnTime/companion/src/main.ts`
-- `/Users/radhabalagopala/Dev/OnTime/docs/interface.md`
-- `/Users/radhabalagopala/Dev/OnTime/docs/local-offline-lan-plan.md`
-- `/Users/radhabalagopala/Dev/OnTime/docs/local-server-prd.md`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/AppModeContext.tsx`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/AuthContext.tsx`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/CompanionConnectionContext.tsx`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/FirebaseDataContext.tsx`
-- `/Users/radhabalagopala/Dev/OnTime/frontend/src/context/UnifiedDataContext.tsx`
+- `companion/src/main.ts`
+- `docs/interface.md`
+- `docs/local-offline-lan-plan.md`
+- `docs/local-server-prd.md`
+- `frontend/src/context/AppModeContext.tsx`
+- `frontend/src/context/AuthContext.tsx`
+- `frontend/src/context/CompanionConnectionContext.tsx`
+- `frontend/src/context/FirebaseDataContext.tsx`
+- `frontend/src/context/UnifiedDataContext.tsx`
 
 **Last verified:** 2026-02-06
 

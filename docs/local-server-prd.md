@@ -2,7 +2,7 @@
 Type: PRD
 Status: draft
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-07-08
 Scope: Companion local server requirements (Electron/Node).
 ---
 
@@ -37,7 +37,7 @@ Scope: Companion local server requirements (Electron/Node).
 - `HANDSHAKE_ACK` includes `roomId` for per-room hold windows.
 - Companion enforces a single authoritative controller per room (lock + takeover).
 - Companion accepts `DELETE_ROOM` (controller-only) to tombstone and purge local room data.
-- Cloud controller lock enforcement is **not** implemented yet (Milestone 5; see `docs/cloud-lock-design.md`).
+- Cloud controller lock enforcement is implemented (Firestore lock document + Cloud Functions + rules; see `docs/cloud-lock-design.md`).
 - Existing Companion trust flow modal + trust-page launch is available for local controller setup.
 
 ## Phase 3 LAN Viewer Hosting (Requirements)

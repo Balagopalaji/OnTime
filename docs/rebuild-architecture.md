@@ -1,6 +1,14 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-07-08
+Scope: Target architecture for the OnTime modular rebuild.
+---
+
 # OnTime Rebuild Architecture
 
-_Draft date: 2026-06-08._
+_Draft date: 2026-06-08. Updated 2026-07-08._
 
 This document defines the target architecture for the OnTime modular rebuild. It is based on
 the current source-of-truth docs and the 2026-06 architecture audits. Archive docs are
@@ -51,20 +59,21 @@ The target products are:
 ## 3. Target Package Topology
 
 These package names describe ownership. They should be introduced gradually; do not create
-empty packages just to make the tree look finished.
+empty packages just to make the tree look finished. Six of the ten are now **landed** (marked below);
+the remaining four are still target-only.
 
-| Package | Owns | Must not own/import |
-|---|---|---|
-| `packages/shared-types` | Room, timer, lock, cue, viewer, presentation, tier, and role types shared by apps | Runtime behavior, Firebase SDK, Socket.IO, React, Electron |
-| `packages/interface-contracts` | Firestore schema types, Cloud Function request/response types, Socket.IO payload types, read-side viewer schemas | Runtime behavior, Firebase SDK clients, Socket.IO clients/servers |
-| `packages/timer-core` | Pure timer math and state transitions from `docs/timer-logic.md` | UI, persistence, transport, Date.now hidden inside core functions |
-| `packages/cloud-adapter-firestore` | Firestore read/write adapter, Cloud Function client calls, schema mapping | Local arbitration, Companion queueing, LAN state |
-| `packages/local-sync-arbitration` | Local/Companion-owned sync, authority switching, queue merge/replay, cloud/local reconciliation | Cloud-only UI, Firebase authority enforcement, viewer rendering |
-| `packages/viewer-renderer` | Shared viewer display model and theme rendering contracts for web/native viewers | Controller actions, writes, lock control, arbitration |
-| `packages/presentation-core` | Normalized `PresentationState`, live cue video metadata, `videos[]` merge rules, probe output schema | PowerPoint COM/AX implementation, UI, transport |
-| `packages/ppt-bridge` | Bridge contract and adapters around the Windows C# probe and future macOS probe | Core timer state, rooms, Cloud, Cue Controller |
-| `packages/cue-controller-core` | Optional show-control domain model, triggers, OSC/HTTP/MIDI abstractions | Cloud timer core, Local sync authority, viewer rendering |
-| `packages/lock-view-model` | Pure lock display/request lifecycle helpers | Server enforcement decisions |
+| Package | Status | Owns | Must not own/import |
+|---|---|---|---|
+| `packages/shared-types` | landed | Room, timer, lock, cue, viewer, presentation, tier, and role types shared by apps | Runtime behavior, Firebase SDK, Socket.IO, React, Electron |
+| `packages/interface-contracts` | landed | Firestore schema types, Cloud Function request/response types, Socket.IO payload types, read-side viewer schemas | Runtime behavior, Firebase SDK clients, Socket.IO clients/servers |
+| `packages/timer-core` | landed | Pure timer math and state transitions from `docs/timer-logic.md` | UI, persistence, transport, Date.now hidden inside core functions |
+| `packages/cloud-adapter-firestore` | target | Firestore read/write adapter, Cloud Function client calls, schema mapping | Local arbitration, Companion queueing, LAN state |
+| `packages/local-sync-arbitration` | landed | Local/Companion-owned sync, authority switching, queue merge/replay, cloud/local reconciliation | Cloud-only UI, Firebase authority enforcement, viewer rendering |
+| `packages/viewer-renderer` | target | Shared viewer display model and theme rendering contracts for web/native viewers | Controller actions, writes, lock control, arbitration |
+| `packages/presentation-core` | landed | Normalized `PresentationState`, live cue video metadata, `videos[]` merge rules, probe output schema | PowerPoint COM/AX implementation, UI, transport |
+| `packages/ppt-bridge` | target | Bridge contract and adapters around the Windows C# probe and future macOS probe | Core timer state, rooms, Cloud, Cue Controller |
+| `packages/cue-controller-core` | target | Optional show-control domain model, triggers, OSC/HTTP/MIDI abstractions | Cloud timer core, Local sync authority, viewer rendering |
+| `packages/lock-view-model` | landed | Pure lock display/request lifecycle helpers | Server enforcement decisions |
 
 ### Local Sync Module
 
@@ -150,8 +159,7 @@ It should feed:
 - `apps/ppt-timer` for the standalone free app
 - `apps/local-companion` when Local needs presentation state integration
 
-The deferred `mergeCueVideos` regression belongs in `presentation-core` once the merge rule
-is extractable.
+`mergeCueVideos` now lives in `packages/presentation-core` (`mergeCueVideos`, `CueVideo`).
 
 ## 8. Viewer Products
 

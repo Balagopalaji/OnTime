@@ -10,6 +10,29 @@ Scope: Phase 2 task list and prerequisites.
 
 This file translates the Phase 2 plan into granular, implementable steps for builder agents. Phase 2 starts only after Phase 1D gaps are closed (see checklist below) and the unified data provider architecture is stable. Same codebase for all tiers; features are gated via flags/rules, not forks. Milestones are split into explicit passes to keep each builder run small and verifiable.
 
+## Contents
+
+- [Pre-Phase 2: Verify Phase 1D Completion](#pre-phase-2-verify-phase-1d-completion)
+  - [✅ High Priority (Complete)](#high-priority-complete)
+  - [✅ Medium Priority (Complete)](#medium-priority-complete)
+  - [⏸️ Low Priority (Deferred to Phase 2)](#low-priority-deferred-to-phase-2)
+  - [✅ Cleanup (Complete)](#cleanup-complete)
+- [Guardrails & Targets](#guardrails--targets)
+- [Phase 2 Deferrals (Recorded)](#phase-2-deferrals-recorded)
+- [Error UX Matrix (Phase 2)](#error-ux-matrix-phase-2)
+- [Deferred to Phase 4 (Not in Phase 2 scope)](#deferred-to-phase-4-not-in-phase-2-scope)
+- [Builder Pass Guidance](#builder-pass-guidance)
+- [Milestone 0: Electron Controller Wrapper (Phase 2a)](#milestone-0-electron-controller-wrapper-phase-2a)
+- [Milestone 1: Transport Hardening & Tier Gating](#milestone-1-transport-hardening--tier-gating)
+- [Milestone 2: Show Control Core (Presentation Status + Dual Header)](#milestone-2-show-control-core-presentation-status--dual-header)
+- [Milestone 3: Presentation Import & File Operations](#milestone-3-presentation-import--file-operations)
+- [Milestone 4: UX Polish & Companion GUI](#milestone-4-ux-polish--companion-gui)
+- [Milestone 5: Cloud Controller Lock Enforcement](#milestone-5-cloud-controller-lock-enforcement)
+- [Future: Enterprise Shared Control (Post-Milestone 5)](#future-enterprise-shared-control-post-milestone-5)
+- [Cross-Milestone QA & Harness](#cross-milestone-qa--harness)
+- [Rollout & Backout Checklist](#rollout--backout-checklist)
+- [Open Follow-Ups (Track & Resolve)](#open-follow-ups-track--resolve)
+
 ## Pre-Phase 2: Verify Phase 1D Completion
 
 **STATUS (2025-12-29):** ✅ Phase 1D Parallel Sync is COMPLETE. All high and medium priority items are implemented.

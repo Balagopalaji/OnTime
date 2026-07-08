@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-01-13
+Scope: PowerPoint video timing debug notes (Windows, dev-only) — investigation state, COM variance matrix, and native STA helper.
+---
+
 # PowerPoint Video Timing Debug Notes (Windows, Dev-Only)
 
 Purpose
