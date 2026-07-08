@@ -77,6 +77,8 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/rebuild-extraction-rules.md` (rules governing Stage 1+ rebuild extraction work)
 - `docs/rebuild-companion-coupling.md` (verified coupling map of companion/src/main.ts)
 - `docs/rebuild-sixth-milestone-audit.md` (rebuild batch #72–#79 audit)
+- `docs/rebuild-seventh-milestone-audit.md` (narrow audit of code-touching #80–#95; GO)
+- `docs/rebuild-arbitration-decisions.md` (owner decisions: data arbitration, control-lock authority, conflict UX, local/Cloud model)
 - `docs/architecture/diagrams/diagram-index.md` (Architecture diagrams sub-index (timer lifecycle, system context).)
 
 ## Tasklists
