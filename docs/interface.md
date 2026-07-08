@@ -16,6 +16,25 @@ Scope: Canonical protocol contract for Client, Cloud (Firebase), and Local (Comp
 - v1.1.0 (2025-12-30): Added live cue video timing metadata fields (additive).
 - v1.0.0 (2025-12-30): Initial consolidated interface specification; aligned with current Companion + Firebase behavior.
 
+## Contents
+
+- [1. Scope and Roles](#1-scope-and-roles)
+- [2. Frontend ↔ Cloud (Firestore)](#2-frontend--cloud-firestore)
+  - [2.1 Collections and Schemas](#21-collections-and-schemas)
+  - [2.2 Security Rules (Summary)](#22-security-rules-summary)
+  - [2.3 Cloud Functions API (Milestone 5)](#23-cloud-functions-api-milestone-5)
+  - [2.4 Companion Service Account Claims (Cloud liveCues bypass)](#24-companion-service-account-claims-cloud-livecues-bypass)
+- [3. Frontend ↔ Local (Companion)](#3-frontend--local-companion)
+  - [3.1 Token Model](#31-token-model)
+  - [3.1.1 Pairing HTTP Endpoints (loopback-only)](#311-pairing-http-endpoints-loopback-only)
+  - [3.1.2 Pairing Claim Endpoint (LAN-safe)](#312-pairing-claim-endpoint-lan-safe)
+  - [3.2 WebSocket Events](#32-websocket-events)
+  - [3.3 Error Codes](#33-error-codes)
+  - [3.4 PNA/CORS Requirements](#34-pnacors-requirements)
+- [4. Companion REST API (Loopback by Default)](#4-companion-rest-api-loopback-by-default)
+- [5. Bridge Protocol (Local ↔ Cloud)](#5-bridge-protocol-local--cloud)
+- [6. Versioning & Deprecation](#6-versioning--deprecation)
+
 ## 1. Scope and Roles
 - **Controller**: Authenticated owner role; can write and control timers.
 - **Viewer**: Read-only access to room state.

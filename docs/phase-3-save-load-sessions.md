@@ -8,6 +8,29 @@ Scope: Save/Load Sessions feature — Phase 3 scope. Export/Import to file defer
 
 # Save/Load Sessions — Spec
 
+## Contents
+
+- [Summary](#summary)
+- [Guardrails (Do Not Violate)](#guardrails-do-not-violate)
+- [Goals](#goals)
+- [Non-goals (Phase 4)](#non-goals-phase-4)
+- [Data Model](#data-model)
+  - [Cloud (Firestore)](#cloud-firestore)
+- [Local Queue (Companion Offline)](#local-queue-companion-offline)
+- [Limits](#limits)
+- [Save Flow](#save-flow)
+- [Restore Flow](#restore-flow)
+- [Delete Flow](#delete-flow)
+- [UI](#ui)
+  - [Dashboard (room card)](#dashboard-room-card)
+  - [Sessions Page (`/sessions`)](#sessions-page-sessions)
+  - [Offline indicator](#offline-indicator)
+- [Security Rules (Firestore)](#security-rules-firestore)
+- [Types (TypeScript)](#types-typescript)
+- [Migration / Schema Evolution](#migration--schema-evolution)
+- [Dependencies (Already Completed)](#dependencies-already-completed)
+- [Testing Checklist](#testing-checklist)
+
 ## Summary
 
 Users can save the current state of a room as a **session** (snapshot or template) and later restore it as a new room on any device. Sessions are stored in the cloud under user scope. Offline saves are queued locally and uploaded on reconnect.

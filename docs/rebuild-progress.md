@@ -12,6 +12,21 @@ _Updated: 2026-07-08._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
+## Contents
+
+- [Current Stage](#current-stage)
+- [Baton Policy — updated 2026-06-13 (faster cadence for inert work)](#baton-policy--updated-2026-06-13-faster-cadence-for-inert-work)
+- [Landed (on `main`)](#landed-on-main)
+- [Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)](#session-sync--2026-07-06-claude-solo-orchestrated-codexglm-token-blocked)
+- [Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)](#claude-offline-session-summary-for-codex--2026-06-11-while-you-were-out-of-tokens)
+- [Fable independent review (2026-06-11) — corrective backlog (do BEFORE Stage 1b carve-outs)](#fable-independent-review-2026-06-11--corrective-backlog-do-before-stage-1b-carve-outs)
+- [Fable SECOND review (2026-06-13, pre-Stage-1b gate) — corrective backlog (DONE)](#fable-second-review-2026-06-13-pre-stage-1b-gate--corrective-backlog-done)
+- [Fable THIRD milestone audit (2026-06-30, over #31–#39) — CONDITIONAL GO → conditions now met](#fable-third-milestone-audit-2026-06-30-over-3139--conditional-go--conditions-now-met)
+- [Fable FOURTH milestone audit (2026-07-04, over #40–#52) — GO](#fable-fourth-milestone-audit-2026-07-04-over-4052--go)
+  - [Codex — baton handoff / next heartbeat](#codex--baton-handoff--next-heartbeat)
+- [Deferred (unchanged)](#deferred-unchanged)
+- [Standing Stop Conditions](#standing-stop-conditions)
+
 ## Current Stage
 
 **Stage 1a COMPLETE (M1, tag `M1-stage-1a`); both Fable corrective backlogs cleared; Stage 1b is underway.**
@@ -34,7 +49,7 @@ loopback `/api/token` is the clearest leaf-candidate; disk room cache is a persi
 with a broad store footprint; pairing/viewer-token routes, file operations, control-lock/takeover, and sync
 remain test-first or byte-faithful until their boundaries are proven. Heartbeat lock refresh still needs
 characterization before its carve. The fifth Fable milestone audit artifact is now tracked at
-`docs/rebuild-fifth-milestone-audit.md`; its required CI package-coverage fixes landed in #72, and the
+`docs/archive/rebuild-fifth-milestone-audit.md`; its required CI package-coverage fixes landed in #72, and the
 strict `HandshakeError` U1 slice landed in #73. The sixth milestone audit returned GO; its lockfile
 LOW was fixed in #81, the U1 Timer/Cue wire-envelope slice landed in #82, the RoomState/envelope slice
 landed in #84, D7 CRLF hygiene landed in #86 to normalize TS/TSX/JS source files to LF, and the
@@ -195,7 +210,7 @@ Recorded by Claude while Codex/GLM were out of tokens. Codex is back; this block
 **Roles going forward (Codex back):** Codex orchestrates (authors GLM prompts) + merges; GLM (±Codex) builds; Claude reviews independently + supplies decision/placement analysis. **Next GLM prompt authored by Codex, not Claude** (reviewer independence — Claude should not both spec and review). Parallel Codex+GLM building only on DISJOINT files (god-file mutex).
 For frontend-touching builder prompts, include `npm run lint --workspace frontend`; #84 showed `tsc` + Vitest can miss ESLint-only failures.
 
-**SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. The one LOW (#78 lockfile drift) is fixed by #81. Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/rebuild-fifth-milestone-audit.md`.
+**SIXTH milestone audit DONE — GO** (2026-07-06, over #72–#79). Fresh-context Fable, all gates green, #78 behavior-neutral + #76 path-A ESM/CJS sound, guardrails/mutation probes all bite. The one LOW (#78 lockfile drift) is fixed by #81. Artifacts: `docs/rebuild-sixth-milestone-audit.md` (this batch), `docs/archive/rebuild-fifth-milestone-audit.md`.
 
 **Next units (priority order):**
 1. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
@@ -479,7 +494,7 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   at `UnifiedDataContext.test.ts:781` already matched the strict shape). G5 one-definition tripwire
   deferred until the rest of the wire block (`HandshakeAck`/`JoinRoomPayload`/…) migrates in subsequent
   U1 slices.
-  **Fifth milestone audit artifact tracked** (`docs/rebuild-fifth-milestone-audit.md`): F1/F2 package CI
+  **Fifth milestone audit artifact tracked** (`docs/archive/rebuild-fifth-milestone-audit.md`): F1/F2 package CI
   coverage fixed in #72, F3 `HandshakeError` split fixed in #73; residual observation is the perf-only
   double `parseAllowedOrigins()` note. **U1 slice 5 DONE** (#75 → `packages/interface-contracts`;
   strict `HandshakeAck` server→client payload adopted type-only by companion/frontend; loose frontend ack
@@ -496,7 +511,7 @@ verified and the product decisions were ratified by the owner. Key rulings that 
   **U1 slice 8 DONE** (#84 → `packages/interface-contracts/src/room-state-envelopes.ts`; `CompanionRoomState`
   + `RoomStateSnapshot`/`RoomStateDelta`/`RoomStatePatchPayload`/`SyncRoomStatePayload` adopted; `emitSyncRoomState`
   uses a behavior-neutral adapter; `seedCompanion` remains verbatim after Claude caught the double-counting hazard).
-  **Seed-state investigation tracked** (#85 → `docs/rebuild-seed-state-investigation.md`; follow-up owner decisions:
+  **Seed-state investigation tracked** (#85 → `docs/archive/rebuild-seed-state-investigation.md`; follow-up owner decisions:
   seed auth, `progress` contract, and `getRoomState` default `lastUpdate`). **D7 CRLF hygiene DONE** (#86 →
   `.gitattributes`; tracked TS/TSX/JS sources normalized to LF, eliminating the recurring mixed-line-ending churn).
   **Seed-state corrective follow-up DONE** (#88 → validates and normalizes `SEED_COMPANION_CACHE` payloads,

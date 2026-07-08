@@ -8,6 +8,21 @@ Scope: Client (frontend) requirements and behavior for the OnTime app.
 
 # OnTime Client PRD
 
+## Contents
+
+- [Goals / Non-goals](#goals--non-goals)
+- [Roles & Permissions](#roles--permissions)
+- [User Flows](#user-flows)
+- [Current Behavior (Reality)](#current-behavior-reality)
+  - [Parallel Sync Principles (Core Architecture)](#parallel-sync-principles-core-architecture)
+- [Phase 2 UX (Electron Controller + Transport)](#phase-2-ux-electron-controller--transport)
+- [Cloud Controller Lock Enforcement (Shipped)](#cloud-controller-lock-enforcement-shipped)
+- [Show Control UI (Phase 2c)](#show-control-ui-phase-2c)
+- [Planned Phases (Roadmap)](#planned-phases-roadmap)
+- [Acceptance Criteria](#acceptance-criteria)
+- [Out of Scope](#out-of-scope)
+- [Legacy MVP UI Spec (Pre-Phase 1D)](#legacy-mvp-ui-spec-pre-phase-1d)
+
 ## Goals / Non-goals
 **Goals**
 - Deliver a controller and viewer experience aligned with the current dual-sync architecture (Firebase + Companion).

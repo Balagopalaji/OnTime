@@ -13,6 +13,16 @@ Scope: Curated summary of arbitration research and raw reports.
 Date: 2026-01-27
 Branch: fix/companion-cloud-issues (research snapshot)
 
+## Contents
+
+- [Why this doc exists](#why-this-doc-exists)
+- [Parallel Sync Philosophy (baseline)](#parallel-sync-philosophy-baseline)
+- [Findings summary (curated)](#findings-summary-curated)
+- [Impact on observed bugs](#impact-on-observed-bugs)
+- [Recommended next steps (high-level)](#recommended-next-steps-high-level)
+- [Raw reports](#raw-reports)
+  - [gemini say this](#gemini-say-this)
+
 ## Why this doc exists
 Short, curated summary of arbitration findings to keep the investigation durable. Paste raw research reports below this section if needed.
 

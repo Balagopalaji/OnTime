@@ -12,6 +12,22 @@ Phase 2 builds on the Phase 1D foundation to make OnTime "show-ready": stabilize
 
 **Scope boundary:** Phase 2 focuses on Electron controller + bridge + transport hardening + show control core. LAN offline viewers are explicitly deferred to **Phase 3** (see below).
 
+## Contents
+
+- [Goals & Scope](#goals--scope)
+- [Modular Product Principles (Phase 2)](#modular-product-principles-phase-2)
+- [Scope Breakdown](#scope-breakdown)
+- [Phase 2 Plan (Detailed)](#phase-2-plan-detailed)
+  - [Phase 2a — Electron Controller Delivery](#phase-2a--electron-controller-delivery)
+  - [Phase 2b — Transport Hardening + Bridge Polish](#phase-2b--transport-hardening--bridge-polish)
+  - [Phase 2c — Show Control Core](#phase-2c--show-control-core)
+- [Show Control Architecture (Planned Summary)](#show-control-architecture-planned-summary)
+- [Milestones (High-Level)](#milestones-high-level)
+- [Phase 3 (Planned) — LAN Offline Viewers](#phase-3-planned--lan-offline-viewers)
+- [Cross-Cutting Risks & Mitigations](#cross-cutting-risks--mitigations)
+- [QA Focus Hooks](#qa-focus-hooks)
+- [Rollout Expectations](#rollout-expectations)
+
 ## Goals & Scope
 - **Transport stability:** Harden Companion multi-client flows, reconnection/backoff, and authority handling across Local/Cloud.
 - **Tier-correct UX:** End-to-end gating for Basic/Show Control/Production with clear upgrade prompts and capability-aware UI.
