@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-06-08
+Scope: Rules governing Stage 1+ rebuild extraction work (prevent copying tangled legacy code into cleaner folders).
+---
+
 # OnTime Rebuild Extraction Rules
 
 _Draft date: 2026-06-08._

@@ -2,7 +2,7 @@
 Type: Index
 Status: current
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-07-08
 Scope: Canonical documentation index and taxonomy for the OnTime repo.
 ---
 
@@ -55,6 +55,7 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/phase-3-arbitration-roadmap.md` (arbitration implementation roadmap)
 - `docs/phase-3-standalone-ppt-timer.md` (standalone PowerPoint video timer draft)
 - `docs/phase-3-save-load-sessions.md` (Save/Load Sessions spec)
+- `docs/rebuild-plan.md` (authoritative next-phase rebuild plan)
 
 ## References
 - `docs/local-mode.md` (parallel sync architecture)
@@ -67,15 +68,23 @@ This index lists canonical documentation by type and links to the feature matrix
 - `docs/phase-3-pairing-ux.md` (Phase 3 LAN viewer pairing UX)
 - `docs/phase-3-bundle-strategy.md` (Phase 3 LAN viewer bundle strategy)
 - `docs/phase-3-cert-trust-ux.md` (Phase 3 LAN viewer cert trust UX)
-- `docs/phase-3-unified-arbitration-plan.md` (arbitration source of truth)
 - `docs/phase-3-arbitration-research.md` (arbitration research summary)
 - `docs/phase-3-arbitration-agent-guide.md` (arbitration agent guide)
+- `docs/phase-3-troubleshooting.md` (Phase 3 troubleshooting log)
+- `docs/architecture-audit-v2-2026-06-07.md` (Full-repo architecture audit (point-in-time 2026-06-07; the rebuild is the active successor).)
+- `docs/changelog.md` (Frozen at 2026-02-09 (pre-rebuild); rebuild-era change tracking lives in docs/rebuild-progress.md.)
+- `docs/rebuild-architecture.md` (target architecture for the modular rebuild)
+- `docs/rebuild-extraction-rules.md` (rules governing Stage 1+ rebuild extraction work)
+- `docs/rebuild-companion-coupling.md` (verified coupling map of companion/src/main.ts)
+- `docs/rebuild-sixth-milestone-audit.md` (rebuild batch #72–#79 audit)
+- `docs/architecture/diagrams/diagram-index.md` (Architecture diagrams sub-index (timer lifecycle, system context).)
 
 ## Tasklists
 - `docs/tasks.md`
 - `docs/phase-2-tasklist.md`
 - `docs/phase-3-tasklist.md`
 - `docs/phase-3-agent-prompts.md`
+- `docs/rebuild-progress.md` (rebuild state ledger)
 
 ## Archive Policy
 - Archived docs are historical only and never sources of truth.

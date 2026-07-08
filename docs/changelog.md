@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-02-09
+Scope: Pre-rebuild change log; frozen at 2026-02-09. Rebuild-era change tracking lives in docs/rebuild-progress.md.
+---
+
 ## Date: 2026-02-09
 
 ### Scope/Pass label

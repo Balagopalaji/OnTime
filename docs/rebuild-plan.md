@@ -1,3 +1,11 @@
+---
+Type: Plan
+Status: current
+Owner: KDB
+Last updated: 2026-07-04
+Scope: Authoritative next-phase rebuild plan; operationalizes rebuild-architecture.md.
+---
+
 # OnTime Rebuild Plan & Reconciliation
 
 _Prepared 2026-07-04. Authored by a fresh-context Fable architect; load-bearing claims independently

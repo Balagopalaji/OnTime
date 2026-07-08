@@ -1,3 +1,11 @@
+---
+Type: Tasklist
+Status: current
+Owner: KDB
+Last updated: 2026-07-08
+Scope: Rebuild state ledger, updated at the end of each rebuild PR.
+---
+
 # OnTime Rebuild Progress
 
 _Updated: 2026-07-08._

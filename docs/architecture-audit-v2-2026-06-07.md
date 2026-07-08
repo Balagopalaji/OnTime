@@ -1,3 +1,11 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-06-07
+Scope: Full-repo architecture & product audit v2 (point-in-time 2026-06-07; the rebuild is the active successor).
+---
+
 # OnTime — Architecture & Product Audit v2 (Corrected, Full-Repo)
 
 _Audit date: 2026-06-07 · Reviewer: deep full-repo audit · Supersedes
