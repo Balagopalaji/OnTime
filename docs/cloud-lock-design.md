@@ -1,11 +1,37 @@
+---
+Type: Reference
+Status: current
+Owner: KDB
+Last updated: 2026-07-08
+Scope: Cloud controller lock design (Firestore lock document + Cloud Functions + security rules).
+---
+
 # Cloud Controller Lock - Design Document
 
-**Status:** Draft
+**Status:** Implemented (Pass A shipped)
 **Author:** Planning Session
 **Date:** 2026-01-10
-**Milestone:** 5 (Pass A)
+**Milestone:** 5 (Pass A) — shipped
+**Implemented in:** `functions/src/lock.ts`, `firebase/firestore.rules`, `frontend/src/context/UnifiedDataContext.tsx`
 
 ---
+
+## Contents
+
+- [1. Overview](#1-overview)
+- [2. Lock Schema](#2-lock-schema)
+- [3. Client Identity](#3-client-identity)
+- [4. Cloud Functions API](#4-cloud-functions-api)
+- [5. Firestore Security Rules](#5-firestore-security-rules)
+- [6. Frontend Integration](#6-frontend-integration)
+- [7. Timing Constants](#7-timing-constants)
+- [8. Authority Resolution](#8-authority-resolution)
+- [9. Edge Cases](#9-edge-cases)
+- [10. Phase 3 Compatibility](#10-phase-3-compatibility)
+- [11. Cloud Handover Presence](#11-cloud-handover-presence)
+- [12. Implementation Checklist](#12-implementation-checklist)
+- [12. Open Questions](#12-open-questions)
+- [Appendix: Comparison with Companion Lock](#appendix-comparison-with-companion-lock)
 
 ## 1. Overview
 
@@ -343,9 +369,10 @@ service cloud.firestore {
         allow write: if request.auth != null && isLockHolderByUserId(roomId);
       }
 
-      // Live cues: requires lock OR service account (Companion)
+      // Live cues: Show-Control-gated read; lock OR service account (Companion) write.
+      // Deployed rule (firebase/firestore.rules): allow read: if hasShowControl(roomId)
       match /liveCues/{cueId} {
-        allow read: if true;
+        allow read: if hasShowControl(roomId);
         allow write: if request.auth != null
             && (isLockHolderByUserId(roomId) || isServiceAccount());
       }
@@ -659,7 +686,9 @@ Pass B requirements (not in scope for Pass A):
 
 ---
 
-## 11. Planned: Cloud Handover Presence (Follow-up)
+## 11. Cloud Handover Presence (Implemented)
+
+**Status:** Implemented — `handoverLock` Cloud Function (`functions/src/lock.ts`) swaps `lock/current` from a fresh `rooms/{roomId}/clients/{clientId}` presence doc and clears `controlRequest/current`; presence writes are allowed by `firebase/firestore.rules` (`clients/{clientId}`).
 
 **Goal:** Provide a cloud-mode presence list so the lock holder can hand over control without a request, matching Companion UX.
 
@@ -717,21 +746,23 @@ Notes:
 
 ## 12. Implementation Checklist
 
-### Pass A Tasks
+### Pass A Tasks — shipped
 
-- [ ] **A1:** Add `lock` document schema to Firestore
-- [ ] **A2:** Implement Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`)
-- [ ] **A3:** Update Firestore security rules (lock holder check)
-- [ ] **A3b:** Define cloud PIN storage location + owner-only write rules
-- [ ] **A3c:** Define Companion service account claims contract (liveCues bypass)
-- [ ] **A4:** Persist `clientId` in `sessionStorage`
-- [ ] **A5:** Add heartbeat loop to controller pages (30s interval)
-- [ ] **A6:** Subscribe to lock document in `UnifiedDataContext`
-- [ ] **A7:** Integrate lock state with existing `resolveControllerLockState()`
-- [ ] **A8:** Add queue flush validation
-- [ ] **A9:** Implement `visibilitychange` handler (stop heartbeat when hidden)
-- [ ] **A10:** Test: simultaneous acquisition, refresh, offline, takeover
-- [ ] **A11:** Update documentation (interface.md, client-prd.md, local-mode.md)
+Implementation: `functions/src/lock.ts` (8 onCall fns) + `firebase/firestore.rules` (`isLockHolderByUserId`, `lock/current`, `controlRequest`, `clients`, `config/pin`, service-account liveCues bypass) + `frontend/src/context/UnifiedDataContext.tsx` (`httpsCallable` wiring, `onSnapshot` lock subscription, 30s heartbeat, queue-flush lock check, `visibilitychange` gating).
+
+- [x] **A1:** Add `lock` document schema to Firestore
+- [x] **A2:** Implement Cloud Functions (`acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`) — plus `requestControl`, `denyControl`, `handoverLock`, `syncLockFromCompanion`
+- [x] **A3:** Update Firestore security rules (lock holder check)
+- [x] **A3b:** Define cloud PIN storage location + owner-only write rules
+- [x] **A3c:** Define Companion service account claims contract (liveCues bypass)
+- [x] **A4:** Persist `clientId` in `sessionStorage`
+- [x] **A5:** Add heartbeat loop to controller pages (30s interval)
+- [x] **A6:** Subscribe to lock document in `UnifiedDataContext`
+- [x] **A7:** Integrate lock state with existing `resolveControllerLockState()`
+- [x] **A8:** Add queue flush validation
+- [x] **A9:** Implement `visibilitychange` handler (stop heartbeat when hidden)
+- [x] **A10:** Test: simultaneous acquisition, refresh, offline, takeover
+- [x] **A11:** Update documentation (interface.md, client-prd.md, local-mode.md)
 
 ### Documentation Updates
 

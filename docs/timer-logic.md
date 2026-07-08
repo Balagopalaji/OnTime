@@ -2,13 +2,13 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-07-08
 Scope: Authoritative timer math and state transitions.
 ---
 
 # Timer Logic (Source of Truth)
 
-Last Updated: 2025-12-30
+Last Updated: 2026-07-08
 Status: CURRENT
 
 ## 1) State Surfaces
@@ -175,7 +175,7 @@ const mergedProgress = { ...roomProgress, ...cachedProgress }
 - **Empty companion timers:** Fall back to cached timers to prevent rundown disappearing.
 
 ## 7) Shared Helpers
-Located in `frontend/src/utils/timer-utils.ts`, used by both `FirebaseDataContext` and `UnifiedDataContext`:
+**Canonical home:** `@ontime/timer-core` (`packages/timer-core/src/index.ts`). `frontend/src/utils/timer-utils.ts` is now a thin re-export shim retained for app callers; both `FirebaseDataContext` and `UnifiedDataContext` import through it:
 
 ```typescript
 // timer-utils.ts

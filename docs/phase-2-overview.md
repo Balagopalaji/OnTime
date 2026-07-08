@@ -2,7 +2,7 @@
 Type: Plan
 Status: planned
 Owner: KDB
-Last updated: 2025-12-30
+Last updated: 2026-07-08
 Scope: Phase 2 plan and roadmap (transport hardening, Electron controller, show control core).
 ---
 
@@ -268,7 +268,8 @@ This section summarizes the show-control architecture at a high level. Canonical
    - Companion tray/window for mode selection/status reflecting capabilities; stays within RAM budgets.
    - Success: Resource targets met; clear gating/messaging without technical jargon.
 
-5. **Cloud Controller Lock Enforcement**
+5. **Cloud Controller Lock Enforcement** — ✅ Shipped
+   - **Status:** Implemented in `functions/src/lock.ts` (8 onCall lock fns) + `firebase/firestore.rules` (`isLockHolderByUserId`) + `frontend/src/context/UnifiedDataContext.tsx` (`httpsCallable` wiring, 30s heartbeat, lock subscription).
    - Enforce single authoritative controller in cloud/Firebase mode (parity with Companion lock).
    - Firestore lock document (`rooms/{roomId}/lock/current`) with Cloud Functions for atomic acquire/release/force.
    - Rules enforce lock holder by `userId`; Cloud Functions validate `clientId` for per-tab enforcement.

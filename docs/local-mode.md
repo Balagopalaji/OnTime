@@ -2,7 +2,7 @@
 Type: Reference
 Status: current
 Owner: KDB
-Last updated: 2026-02-08
+Last updated: 2026-07-08
 Scope: Parallel sync architecture reference (Phase 1D).
 ---
 
@@ -13,6 +13,17 @@ Supersedes: prior single-provider model, "Hybrid" mode, Firebase-only MVP specs 
 Last Updated: 2025-12-30
 
 # Local Mode Architecture (Phase 1D)
+
+## Contents
+
+- [1. Goal](#1-goal)
+- [2. Architecture](#2-architecture)
+- [3. Technical Specifications](#3-technical-specifications)
+- [4. Phased Implementation Strategy](#4-phased-implementation-strategy)
+- [5. Edge Cases & Implementation Notes](#5-edge-cases--implementation-notes)
+- [6. Verification Plan](#6-verification-plan)
+- [7. Testing and Risks](#7-testing-and-risks)
+- [9. Code Gaps vs Target Architecture](#9-code-gaps-vs-target-architecture)
 
 ## 1. Goal
 Establish a stable, offline-capable "Local Mode" where the OnTime Controller and Viewers communicate via a local Companion App (WebSocket Relay) instead of Firebase. This serves as the foundation for future Show Control features.
@@ -399,7 +410,7 @@ useEffect(() => {
 }, [subscribedRooms])
 ```
 
-**TO BE IMPLEMENTED:** Room lock + heartbeat + `CONTROLLER_TAKEOVER` event.
+**Implemented:** Room lock + heartbeat + controller-takeover flow (heartbeat via companion `handleHeartbeat` + frontend `socket.emit('HEARTBEAT')`; takeover via `REQUEST_CONTROL` / `FORCE_TAKEOVER` / `HAND_OVER` with pending-control timeout in `companion/src/pending-control-timeout-utils.ts`).
 
 ### 3.4 File Operations API (Required for Phase 2)
 *   `POST /api/open`: Opens local file in default OS app. Body: `{ path: string }`.
@@ -408,7 +419,7 @@ useEffect(() => {
 
 **Video metadata note:** Duration/resolution extraction should use a bundled `ffprobe` binary in production Companion builds so end users do not need separate FFmpeg installs. The bundled `ffprobe` MUST come from an **LGPL-only** FFmpeg build (no GPL / no “nonfree” components) unless explicitly approved and documented. If `ffprobe` is not present (dev builds/edge cases), return a warning and fallback to size-only metadata.
 
-**PowerPoint video timing (Windows helper):** PowerPoint video timing on Windows uses a dedicated STA helper (`companion/ppt-probe/ppt-probe.exe`) because COM access from the Electron/PowerShell host can intermittently fail or return empty Shapes. The helper emits `videos[]` for all media on the current slide (Shape Id/Name + `duration`, `elapsed`, `remaining`, `status`) and the primary timing tuple (`videoDuration`, `videoElapsed`, `videoRemaining`, `videoPlaying`). Frontend merges must preserve rich `videos[]` metadata when newer/shallow records arrive; see `frontend/src/context/UnifiedDataContext.tsx` `mergeCueVideos` in `getLiveCueRecords`.
+**PowerPoint video timing (Windows helper):** PowerPoint video timing on Windows uses a dedicated STA helper (`companion/bin/ppt-probe.exe`, packaged under `resources/bin` at runtime) because COM access from the Electron/PowerShell host can intermittently fail or return empty Shapes. The helper emits `videos[]` for all media on the current slide (Shape Id/Name + `duration`, `elapsed`, `remaining`, `status`) and the primary timing tuple (`videoDuration`, `videoElapsed`, `videoRemaining`, `videoPlaying`). Frontend merges must preserve rich `videos[]` metadata when newer/shallow records arrive; see `mergeCueVideos` (now in `packages/presentation-core/src/index.ts`), invoked from `getLiveCueRecords` in `frontend/src/context/UnifiedDataContext.tsx`.
 
 ### 3.5 Security & Authentication
 *   **Token:** Companion exposes a short-lived token via `GET /api/token` (loopback only + Origin allowlist).
@@ -428,7 +439,7 @@ useEffect(() => {
 - Second controller rejected by default (`HANDSHAKE_ERROR: CONTROLLER_TAKEN`)
 - Optional takeover (`JOIN_ROOM.takeOver=true`) disconnects existing controller and claims the lock
 
-### 3.5.2 Cloud Mode Lock Enforcement (Milestone 5)
+### 3.5.2 Cloud Mode Lock Enforcement (Implemented)
 
 When operating in cloud mode (`roomAuthority.source === 'cloud'`), lock enforcement uses Firestore instead of Companion's in-memory lock. Cloud lock enforcement is gated to Show Control + Production tiers; Basic remains unlocked until upgraded.
 
@@ -571,7 +582,7 @@ onSnapshot(roomRef, (snap) => {
 - Per-change-type queue merge and timestamp replay (implemented; verify)
 - Firebase to Companion sync when Firebase is newer (implemented; verify)
 - Staleness detection (implemented with duration cap + optional adjustment log; no authority/variance logic yet)
-- Room lock prompt + heartbeat + `CONTROLLER_TAKEOVER` (not implemented)
+- Room lock prompt + heartbeat + controller-takeover (implemented)
 - Mode types `auto | cloud | local` (implemented; verify)
 
 **Regression risks:**
@@ -597,12 +608,8 @@ onSnapshot(roomRef, (snap) => {
 - **Staleness detection** - duration-based cap + optional adjustment log; no authority/variance logic
 - **Timer list arbitration** - prefers Firebase timers when available; no timestamp-based arbitration between sources
 
-### ⏸️ Future (Milestone 5)
-- **Cloud lock enforcement not implemented**
-  - Location: `frontend/src/context/UnifiedDataContext.tsx`, `firebase/firestore.rules`, new `functions/` directory
-  - Issue: Cloud mode has no lock enforcement; multiple controllers can write concurrently
-  - Fix: Add Firestore lock document, Cloud Functions API, rules update, frontend heartbeat loop
-  - Design: See `docs/cloud-lock-design.md` for full specification
+### ✅ Implemented (was Milestone 5)
+- **Cloud lock enforcement** — Firestore lock document (`rooms/{roomId}/lock/current`) + Cloud Functions (`functions/src/lock.ts`: `acquireLock`, `releaseLock`, `forceTakeover`, `updateHeartbeat`, `requestControl`, `denyControl`, `handoverLock`, `syncLockFromCompanion`) + `isLockHolderByUserId` rules enforcement on `state/current`, `timers`, `liveCues` + frontend `httpsCallable` wiring in `UnifiedDataContext.tsx`. See `docs/cloud-lock-design.md`.
 
 **Alignment checklist**
 - [x] Companion participates in Cloud mode (subscription-based)
@@ -612,5 +619,5 @@ onSnapshot(roomRef, (snap) => {
 - [ ] Staleness detection parity (authority/variance logic)
 - [ ] Timer list arbitration by timestamp
 - [x] Mode types use `auto | cloud | local`
-- [x] Companion lock + takeover UX (Phase 2, Milestone 1) - lock/takeover works, but periodic heartbeat not yet implemented
-- [ ] Cloud lock enforcement (Milestone 5) - see `docs/cloud-lock-design.md`
+- [x] Companion lock + takeover UX (Phase 2, Milestone 1) - lock/takeover + periodic heartbeat implemented (companion `handleHeartbeat` + frontend `socket.emit('HEARTBEAT')`)
+- [x] Cloud lock enforcement - implemented (see `docs/cloud-lock-design.md`)
