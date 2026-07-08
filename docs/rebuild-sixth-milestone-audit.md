@@ -8,7 +8,7 @@ Scope: Independent fresh-context audit of rebuild batch #72–#79 (head 1cb421c)
 
 # Sixth Milestone Audit — OnTime Rebuild
 
-_Independent fresh-context Fable audit of the cumulative diff `0cdf8c7` (#71, fifth-audit endpoint) → `origin/main`. Performed 2026-07-06 in an isolated worktree (repo untouched; all probes reverted). Batch audited: #72, #73, #75, #76, #77, #78, #79 (head `1cb421c`). This is the durable artifact for Claude / GLM / Codex; the ledger carries the pointer._
+_Independent fresh-context Fable audit of the cumulative diff `0cdf8c7` (#71, fifth-audit endpoint) → `origin/main`. Performed 2026-07-06 in an isolated worktree (repo untouched; all probes reverted). Batch audited: #72, #73, #75, #76, #77, #78, #79 (head `1cb421c`). (#74 — docs-only fifth-audit ledger sync — falls in the PR range but was excluded from the code batch: no production diff to audit.) This is the durable artifact for Claude / GLM / Codex; the ledger carries the pointer._
 
 ## Verdict: **GO**
 
