@@ -54,7 +54,15 @@ strict `HandshakeError` U1 slice landed in #73. The sixth milestone audit return
 LOW was fixed in #81, the U1 Timer/Cue wire-envelope slice landed in #82, the RoomState/envelope slice
 landed in #84, D7 CRLF hygiene landed in #86 to normalize TS/TSX/JS source files to LF, and the
 seed-state corrective follow-up landed in #88. The public README was refreshed in #90, LF normalization
-was completed in #91, and the current PRD/rebuild-doc source set was reconciled in #92/#93.
+was completed in #91, and the current PRD/rebuild-doc source set was reconciled in #92/#93. The ledger
+was synced in #94 and the fast-lane two-speed carve system landed in #95. The M4 per-mode takeover matrix
+was documented in #96. The **7th milestone audit (narrow, GO)** ran over the code-touching PRs since the
+6th (#84/#88/#91 + #82); its one finding — MINOR-1, snapshot arbitration false-rejecting live snapshots
+carrying companion `lastUpdate: 0` — was fixed in #97 (`resolveSnapshotTimestamp` in
+`packages/local-sync-arbitration`), and the audit + the owner's arbitration/control decisions were recorded
+in #98 (`docs/rebuild-seventh-milestone-audit.md`, `docs/rebuild-arbitration-decisions.md` — the spec for
+U4/U5). **N2 RESOLVED (#97):** snapshot arbitration now anchors on the envelope `timestamp` when
+`state.lastUpdate` is the `0` sentinel (never-cached room), so the `0`-anchor gap is closed + tested.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -196,6 +204,11 @@ one-per-payload.
 - PR #91 chore(repo): finish LF normalization (#86 follow-up)
 - PR #92 docs: sync specs to post-rebuild codebase (contracts, references, index, archive)
 - PR #93 docs: oracle-review fixes (spec + rebuild plan/progress solidity)
+- PR #94 docs(rebuild): sync ledger through spec docs
+- PR #95 feat(rebuild): add fast-lane two-speed carve system
+- PR #96 docs(contracts): per-mode takeover authorization matrix (M4)
+- PR #97 fix(unified): anchor snapshot freshness on envelope timestamp when lastUpdate is 0 (7th-audit MINOR-1)
+- PR #98 docs(rebuild): add 7th milestone audit + arbitration/control decisions
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -224,7 +237,7 @@ For frontend-touching builder prompts, include `npm run lint --workspace fronten
 - **Lane B — `companion/src/main.ts`:** **U7** disk room-cache adapter (include cache round-trip tests — sixth-audit Obs-3) → **then** the **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter; required for D5; decision-gated on `instanceId` and sequenced AFTER Lane A's timer-side work).
 - **Fast-lane (low-risk, anytime, no god-file mutex contention):** **U8** wire/mark the zero-caller predicates; companion-side `ControllerLock` dedup (sixth-audit Obs-2 / DoD #4).
   - **Companion `ControllerLock` dedup:** `companion/src/control-lock-utils.ts` still defines a field-identical local `ControllerLock` next to the canonical one in `@ontime/shared-types` (#76). Drop the local copy and import from shared-types — required for DoD #4 (single wire-shape).
-- **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope; N2 remains a milestone-gate watch to confirm snapshot arbitration tolerates a `0` anchor before the next milestone cut.
+- **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope. ~~N2 milestone-gate watch (snapshot arbitration tolerating a `0` anchor)~~ **RESOLVED (#97)** — `resolveSnapshotTimestamp` anchors a live snapshot on the envelope `timestamp` when `lastUpdate` is the `0` sentinel; the gap is fixed + tested.
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
 
