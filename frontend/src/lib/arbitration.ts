@@ -5,7 +5,7 @@ export type {
   ArbitrationLastAcceptedCache,
   ArbitrationOptions,
 } from '@ontime/local-sync-arbitration'
-export { ARBITRATION_FLAGS } from '@ontime/local-sync-arbitration'
+export { ARBITRATION_FLAGS, resolveSnapshotTimestamp } from '@ontime/local-sync-arbitration'
 import {
   arbitrate as arbitrateCore,
   type ArbitrationDecision,

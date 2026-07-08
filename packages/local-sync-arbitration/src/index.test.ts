@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ArbitrationDecision, ArbitrationLastAcceptedCache } from './index'
+import { resolveSnapshotTimestamp } from './index'
 
 const baseInput = () => ({
   roomId: 'room-1',
@@ -309,5 +310,23 @@ describe('arbitrate mode bias', () => {
 
     expect(decision.acceptSource).toBe('companion')
     expect(decision.reason).toBe('mode bias')
+  })
+})
+
+describe('resolveSnapshotTimestamp', () => {
+  // Regression for 7th-audit MINOR-1: a never-cached room carries
+  // state.lastUpdate = 0 (companion getRoomState sentinel). The live snapshot
+  // must anchor on the envelope timestamp, not be dropped as epoch-stale.
+  it('uses the envelope timestamp when stateLastUpdate is 0 (never-cached room)', () => {
+    expect(resolveSnapshotTimestamp(0, 5_000, 9_999)).toBe(5_000)
+  })
+
+  it('prefers a real stateLastUpdate over the envelope timestamp', () => {
+    expect(resolveSnapshotTimestamp(2_000, 5_000, 9_999)).toBe(2_000)
+  })
+
+  it('falls back to now when both lastUpdate and envelope are 0/missing', () => {
+    expect(resolveSnapshotTimestamp(0, 0, 9_999)).toBe(9_999)
+    expect(resolveSnapshotTimestamp(undefined, undefined, 9_999)).toBe(9_999)
   })
 })

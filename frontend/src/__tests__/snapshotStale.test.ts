@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Room, Timer } from '../types'
-import { isSnapshotStale, resolveSnapshotTimestamp } from '../context/UnifiedDataContext'
+import { isSnapshotStale } from '../context/UnifiedDataContext'
 
 const baseState: Room['state'] = {
   activeTimerId: null,
@@ -68,23 +68,5 @@ describe('isSnapshotStale', () => {
     const fresh: Room['state'] = { ...baseState }
     const now = 1_000_000
     expect(isSnapshotStale(fresh, now - 100_000_000, now)).toBe(false)
-  })
-})
-
-describe('resolveSnapshotTimestamp', () => {
-  // Regression for 7th-audit MINOR-1: a never-cached room carries
-  // state.lastUpdate = 0 (companion getRoomState sentinel). The live snapshot
-  // must anchor on the envelope timestamp, not be dropped as epoch-stale.
-  it('uses the envelope timestamp when state.lastUpdate is 0 (never-cached room)', () => {
-    expect(resolveSnapshotTimestamp(0, 5_000, 9_999)).toBe(5_000)
-  })
-
-  it('prefers a real state.lastUpdate over the envelope timestamp', () => {
-    expect(resolveSnapshotTimestamp(2_000, 5_000, 9_999)).toBe(2_000)
-  })
-
-  it('falls back to now when both lastUpdate and envelope are 0/missing', () => {
-    expect(resolveSnapshotTimestamp(0, 0, 9_999)).toBe(9_999)
-    expect(resolveSnapshotTimestamp(undefined, undefined, 9_999)).toBe(9_999)
   })
 })

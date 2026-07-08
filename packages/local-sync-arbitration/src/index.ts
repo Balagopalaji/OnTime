@@ -232,3 +232,22 @@ export const arbitrate = (
   const fallback = preferSource ?? (allowFallbackToMode ? pickModeBias(input) : authoritySource) ?? 'cloud'
   return commitDecision(input, { acceptSource: fallback, reason: 'mode bias' }, options)
 }
+
+/**
+ * Resolve the freshness timestamp for an incoming room-state snapshot.
+ *
+ * Contract: a live broadcast's freshness anchor is the envelope `timestamp`
+ * (emit time) whenever `state.lastUpdate` is the sentinel `0` (never-cached
+ * room). A real `lastUpdate` (>0) always takes precedence. `lastUpdate` is
+ * wall-clock ms; `0` means "never cached" (see companion `getRoomState`),
+ * NOT a real anchor — so `||` (not `??`) is correct. Using `??` here would
+ * let a `0` sentinel become the anchor, falsely losing arbitration and
+ * dropping the live snapshot (7th-audit MINOR-1).
+ */
+export const resolveSnapshotTimestamp = (
+  stateLastUpdate: number | undefined,
+  envelopeTimestamp: number | undefined,
+  now: number = Date.now(),
+): number => {
+  return stateLastUpdate || envelopeTimestamp || now
+}
