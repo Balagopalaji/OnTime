@@ -73,7 +73,7 @@ the remaining four are still target-only.
 | `packages/presentation-core` | landed | Normalized `PresentationState`, live cue video metadata, `videos[]` merge rules, probe output schema | PowerPoint COM/AX implementation, UI, transport |
 | `packages/ppt-bridge` | target | Bridge contract and adapters around the Windows C# probe and future macOS probe | Core timer state, rooms, Cloud, Cue Controller |
 | `packages/cue-controller-core` | target | Optional show-control domain model, triggers, OSC/HTTP/MIDI abstractions | Cloud timer core, Local sync authority, viewer rendering |
-| `packages/lock-view-model` | landed | Pure lock display/request lifecycle helpers | Server enforcement decisions |
+| `packages/lock-view-model` | landed | Pure **client-side** lock display/request-lifecycle derivation only (display-state + request lifecycle) | Server enforcement decisions (clear/supersede/timeout stay app-internal to Companion + Cloud Functions) |
 
 ### Local Sync Module
 
@@ -259,11 +259,28 @@ Only after packages and adapters are stable:
 Move existing app folders into final `apps/` topology only after the apps are already thin
 and tests prove the boundaries. This is a late mechanical PR, not an architecture PR.
 
+**Per-stage exit criteria:** each stage above has measurable exit gates (ratchet line ceilings,
+package-population counts, boundary checks). Those gates are defined authoritatively in
+`docs/rebuild-plan.md` §3 "Per-stage exit criteria" (Stage 1b / Stage 2 / Stage 3 / Stage 4
+exits) and supersede any narrative "done" claim for a stage. The architecture doc does not
+restate them inline to avoid drift; link to the plan for the current numbers.
+
 ## 10. Open Decisions
 
-- Whether Cloud and Local controller are separate builds or separate apps.
-- Whether native iOS/Android viewers consume generated TypeScript-derived schemas or a
-  language-neutral schema.
-- Whether native controller apps are commercial priority or later platform expansion.
-- Whether Cue/Show Controller is a paid product, separate free tool, or deferred.
-- Whether NDI is an output package, separate app, or licensed plugin.
+> The product-level questions below have all been **ratified** in `docs/rebuild-plan.md` §
+> "Decisions" (D1–D4). They are retained here as the architectural framing and annotated with
+> their ruling. The remaining process-gating items are D6 (takeover-policy docs reconciliation /
+> branch protection) and D7 (line-ending hygiene timing) — see the plan.
+
+- Cloud vs Local controller — separate builds or separate apps? **Decided — see
+  `rebuild-plan.md` Decisions (D1):** one codebase, two build targets.
+- Native iOS/Android viewer schema source — generated TypeScript-derived or language-neutral?
+  **Decided — see `rebuild-plan.md` Decisions (D2):** plain TS types in `interface-contracts`
+  for now, structured so JSON-Schema generation can be added before any native viewer work.
+- Native controller apps — commercial priority or later platform expansion? **Decided — see
+  `rebuild-plan.md` Decisions (D4):** waived from the Definition of Done; revisit post-Stage 3.
+- Cue/Show Controller — paid product, free tool, or deferred? **Decided — see
+  `rebuild-plan.md` Decisions (D3):** deferred and waived from the Definition of Done; cue
+  types still go to `shared-types` / `interface-contracts`.
+- NDI — output package, separate app, or licensed plugin? **Decided — see `rebuild-plan.md`
+  Decisions (D4):** waived from the Definition of Done; no near-term work.

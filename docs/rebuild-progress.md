@@ -190,6 +190,9 @@ one-per-payload.
 - PR #86 chore(repo): normalize source line endings (D7)
 - PR #87 docs(rebuild): sync ledger after roomstate and crlf hygiene
 - PR #88 fix(companion): validate and normalize seed room state
+- PR #89 docs(rebuild): sync ledger after seed-state fix
+- PR #90 docs(readme): refresh rebuild status
+- PR #91 chore(repo): finish LF normalization (#86 follow-up)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -216,6 +219,7 @@ For frontend-touching builder prompts, include `npm run lint --workspace fronten
 1. **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter) — required for D5, sequenced after the timer-side work.
 2. **U7 companion cache adapter** — include cache round-trip tests when carving this code (sixth-audit Obs-3).
 3. **U8 predicate wiring** — wire the zero-caller predicates or mark test mirrors explicitly.
+   - **Companion `ControllerLock` dedup (sixth-audit Obs-2):** `companion/src/control-lock-utils.ts` still defines a field-identical local `ControllerLock` next to the canonical one in `@ontime/shared-types` (#76). Drop the local copy and import from shared-types — required for DoD #4 (single wire-shape). Fold into a lock-adjacent U-series unit (sub-bullet only; does not reorder this list).
 4. **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope; N2 remains a milestone-gate watch to confirm snapshot arbitration tolerates a `0` anchor before the next milestone cut.
 Prioritize timer/sync/lock god-file carving (higher value + bigger god-file chunks than LiveCue).
 
@@ -551,7 +555,7 @@ for companion; controller installer packaging under npm workspaces (electron hoi
 ## Deferred (unchanged)
 
 - ~~triage + fix the 3 genuinely-failing test files (useSortableList, CuesPanel, AppModeContext)~~ **DONE (#28)** — harness bugs (missing `vi` import / missing testing-library `cleanup`), now un-excluded; full frontend suite (211 tests) gates.
-- line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)
+- ~~line-ending normalization hygiene PR (mixed CRLF/LF across repo — every edit must de-churn)~~ **DONE (#86 + #91)** — TS/TSX/JS source files normalized to LF (D7); behavior PRs must still not mix in line-ending churn.
 - timer-core CJS build so `companion` can import the canonical elapsed helper (instead of its documented drift-guarded mirror) — deferred by decision (#29); do during companion build/packaging work.
 - ~~`mergeCueVideos` regression during `presentation-core` extraction~~ **DONE (#67)** — seeded
   `packages/presentation-core` and pinned the empty-overwrite regression.
