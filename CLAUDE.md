@@ -75,7 +75,7 @@ elapsedOffset: number  // base elapsed ms for paused state
 
 ## Timer Logic Guardrails
 - `docs/timer-logic.md` is authoritative; align code and tests to it before changing timer behavior.
-- Use shared helpers `frontend/src/utils/timer-utils.ts` for elapsed/nudge/progress; do not reimplement formulas or clamp elapsed (negative values represent bonus time).
+- Use shared helpers from `@ontime/timer-core` (`packages/timer-core/src/index.ts`) for elapsed/nudge/progress; `frontend/src/utils/timer-utils.ts` is now a thin re-export shim of that package. Do not reimplement formulas or clamp elapsed (negative values represent bonus time).
 - Timer actions (start/pause/reset/nudge/set active/duration edit) must update the full state tuple: `activeTimerId`, `isRunning`, `elapsedOffset/currentTime`, `startedAt`, `lastUpdate`, `progress`.
 - Duration changes reset progress to `0` immediately (including active timer); rundown reorder must not alter elapsed.
 - Run timer-focused tests (`useTimerEngine`, `snapshotStale`, related specs) plus `npm run lint && npm run test` before committing timer changes.
@@ -90,6 +90,10 @@ elapsedOffset: number  // base elapsed ms for paused state
 | Unified data orchestration | `frontend/src/context/UnifiedDataContext.tsx` |
 | Companion connection | `frontend/src/context/CompanionConnectionContext.tsx` |
 | Companion main process | `companion/src/main.ts` |
+| Companion carved modules | `companion/src/{token-server,control-lock-utils,control-audit-utils,pending-control-timeout-utils,lock-handshake-utils}.ts` |
+| Controller Electron app | `controller/src/main.ts` (desktop wrapper around the frontend) |
+| Shared workspace packages | `packages/{shared-types,timer-core,interface-contracts,local-sync-arbitration,lock-view-model,presentation-core}` |
+| Timer math (canonical) | `packages/timer-core/src/index.ts` (re-exported via `frontend/src/utils/timer-utils.ts`) |
 | Security rules | `firebase/firestore.rules` |
 
 ## Documentation
