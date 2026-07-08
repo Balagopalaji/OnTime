@@ -28,6 +28,10 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
+      - name: Fast-lane eligibility
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'fast-lane')
+        run: FAST_LANE_BASE=origin/${{ github.base_ref }} node scripts/check-fast-lane.mjs
+
       - name: Rebuild boundary and pattern checks
         run: npm run guardrails
 
