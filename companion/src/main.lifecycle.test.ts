@@ -382,3 +382,18 @@ test('start timer action ignores non-finite currentTime elapsed', async () => {
   assert.equal(switchedTimer.currentTime, 0)
   assert.equal(switchedTimer.lastUpdate, 103_000)
 })
+
+test('updateRoomActiveLiveCueId bumps room lastUpdate so a live-cue change is a real mutation', async () => {
+  const { updateRoomActiveLiveCueId, getRoomState } = await loadLifecycleHelpers()
+  const roomId = 'room-active-livecue-test'
+  // never-cached room -> lastUpdate starts at the 0 sentinel (getRoomState default).
+  const before = getRoomState(roomId)
+  assert.equal(before.lastUpdate, 0)
+  updateRoomActiveLiveCueId(roomId, 'cue-x')
+  const after = getRoomState(roomId)
+  assert.equal(after.activeLiveCueId, 'cue-x')
+  assert.ok(
+    after.lastUpdate > 0,
+    'lastUpdate must bump so a live-cue change is a real mutation (not overwritable by a seed)',
+  )
+})

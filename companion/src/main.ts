@@ -686,11 +686,11 @@ function getRoomLiveCues(roomId: string): Map<string, { cue: LiveCue; updatedAt:
   return initial;
 }
 
-function updateRoomActiveLiveCueId(roomId: string, activeLiveCueId: string | null) {
+export function updateRoomActiveLiveCueId(roomId: string, activeLiveCueId: string | null) {
   const state = getRoomState(roomId);
   if (state.activeLiveCueId === activeLiveCueId) return;
   const now = Date.now();
-  const nextState: RoomState = { ...state, activeLiveCueId: activeLiveCueId ?? undefined };
+  const nextState: RoomState = { ...state, activeLiveCueId: activeLiveCueId ?? undefined, lastUpdate: now };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
 
