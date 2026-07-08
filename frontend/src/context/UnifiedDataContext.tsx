@@ -767,6 +767,25 @@ export const isSnapshotStale = (
   return false
 }
 
+/**
+ * Resolve the freshness timestamp for an incoming room-state snapshot.
+ *
+ * Contract: a live broadcast's freshness anchor is the envelope `timestamp`
+ * (server emit time) whenever `state.lastUpdate` is the sentinel `0`
+ * (never-cached room). A real `lastUpdate` (>0) always takes precedence.
+ * `lastUpdate` is wall-clock ms; `0` means "never cached" (see companion
+ * `getRoomState`), NOT a real anchor — so `||` (not `??`) is correct.
+ * Using `??` here would let a `0` sentinel become the anchor, falsely losing
+ * arbitration and dropping the live snapshot (7th-audit MINOR-1).
+ */
+export const resolveSnapshotTimestamp = (
+  stateLastUpdate: number | undefined,
+  envelopeTimestamp: number | undefined,
+  now: number = Date.now(),
+): number => {
+  return stateLastUpdate || envelopeTimestamp || now
+}
+
 export const buildRoomFromCompanion = (
   roomId: string,
   companionState: CompanionRoomState,
@@ -4001,7 +4020,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
 
     const handleRoomStateSnapshot = (payload: RoomStateSnapshot) => {
       const baseRoom = firebase.getRoom(payload.roomId)
-      const snapshotTs = payload.state.lastUpdate ?? payload.timestamp ?? Date.now()
+      const snapshotTs = resolveSnapshotTimestamp(payload.state.lastUpdate, payload.timestamp)
       const existingTs = companionRoomsRef.current[payload.roomId]?.lastUpdate ?? 0
       const firebaseTs = baseRoom?.state.lastUpdate ?? 0
       const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
