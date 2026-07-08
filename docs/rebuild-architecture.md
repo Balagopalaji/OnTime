@@ -269,8 +269,9 @@ restate them inline to avoid drift; link to the plan for the current numbers.
 
 > The product-level questions below have all been **ratified** in `docs/rebuild-plan.md` §
 > "Decisions" (D1–D4). They are retained here as the architectural framing and annotated with
-> their ruling. The remaining process-gating items are D6 (takeover-policy docs reconciliation /
-> branch protection) and D7 (line-ending hygiene timing) — see the plan.
+> their ruling. The remaining process-gating item is D6 (takeover-policy docs reconciliation /
+> branch protection). D7 (line-ending hygiene) is **DONE** — #86 + #91 normalized TS/TSX/JS source to LF
+> (see `rebuild-extraction-rules.md` §7).
 
 - Cloud vs Local controller — separate builds or separate apps? **Decided — see
   `rebuild-plan.md` Decisions (D1):** one codebase, two build targets.

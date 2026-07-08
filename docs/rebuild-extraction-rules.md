@@ -134,7 +134,9 @@ Notes on the gates (precise definitions):
 - **400-line new-file cap:** the **D5 ≤500-line pure-wiring composition shim** is the one
   pre-approved exception (allowed only where a file must physically exist — React provider
   composition root / Electron entry — holding ZERO logic; see `rebuild-plan.md` D5). All other
-  new files stay under 400 production lines unless explicitly approved.
+  new files stay under 400 production lines unless explicitly approved. **CI scope:**
+  `checkFileSizeCeilings()` enforces this cap only for `packages/` and `apps/` files; carves in
+  `companion/src` and `frontend/src` are not size-gated by CI and must be checked in review.
 - **`mergeProgress` cache-wins:** the banned pattern is the **reversed argument order**
   `mergeProgress(roomProgress, cachedProgress)` — cache as the priority (second) argument, so
   cache wins on key conflicts. The correct contract is
