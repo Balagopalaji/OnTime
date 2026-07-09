@@ -9,7 +9,8 @@ phase: closed
 spec: docs/rebuild-arbitration-decisions.md
 plan: docs/rebuild-plan.md §4 (U4 row), §1b UnifiedDataContext table; docs/rebuild-extraction-rules.md
 issue: U4 (backlog)
-pr: TBD
+pr: "110 (https://github.com/Balagopalaji/OnTime/pull/110)"
+commit: 29ecb1b
 oracle: HARD-CONSTRAINT — do not call ask_oracle (prior stall). Inline deterministic gate only; escalate on block.
 git_scope: branch+pr ONLY (implement, commit, push, open PR, STOP — do NOT merge)
 ```
