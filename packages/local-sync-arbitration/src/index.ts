@@ -1,3 +1,6 @@
+// rebuild-target: packages/local-sync-arbitration
+import type { Room, Timer } from '@ontime/shared-types'
+
 export type ArbitrationDomain = 'room' | 'lock' | 'pin' | 'timer' | 'cue' | 'liveCue'
 
 export type ArbitrationInput = {
@@ -263,4 +266,116 @@ export const resolveSnapshotTimestamp = (
   now: number = Date.now(),
 ): number => {
   return stateLastUpdate || envelopeTimestamp || now
+}
+
+// Reconnect/authority reconciliation helpers carved byte-faithful from
+// frontend/src/context/UnifiedDataContext.tsx (Stage 1b U4).
+
+export const normalizeRoomAuthoritySource = (
+  source: 'cloud' | 'companion' | 'pending',
+): 'cloud' | 'companion' | undefined => {
+  if (source === 'pending') return undefined
+  return source
+}
+
+const BASE_CONFIDENCE_WINDOW_MS = 2000
+const CHURN_CONFIDENCE_WINDOW_MS = 4000
+
+export const getConfidenceWindowMs = (hasReconnectChurn: boolean): number =>
+  hasReconnectChurn ? CHURN_CONFIDENCE_WINDOW_MS : BASE_CONFIDENCE_WINDOW_MS
+
+export type ResolveRoomSourceInput = {
+  roomId: string
+  isCompanionLive: boolean
+  viewerSyncGuard: boolean
+  firebaseTs: number
+  companionTs: number
+  authoritySource: 'cloud' | 'companion' | 'pending'
+  mode: 'auto' | 'cloud' | 'local'
+  effectiveMode: 'cloud' | 'local'
+  confidenceWindowMs: number
+  controllerTieBreaker?: 'cloud' | 'companion'
+  cloudOnline: boolean
+  holdActive?: boolean
+  preferSource?: 'cloud' | 'companion'
+  // Defaults to core arbitrate; the app shim injects its wrapped arbitrate (cache + logging)
+  // so the carved function stays byte-faithful to the pre-extraction behavior.
+  arbitrateFn?: (input: ArbitrationInput, options?: ArbitrationOptions) => ArbitrationDecision
+}
+
+export const resolveRoomSource = (input: ResolveRoomSourceInput): 'cloud' | 'companion' => {
+  const { arbitrateFn = arbitrate, firebaseTs, authoritySource, ...rest } = input
+  const decision = arbitrateFn({
+    ...rest,
+    domain: 'room',
+    cloudTs: firebaseTs,
+    authoritySource: normalizeRoomAuthoritySource(authoritySource),
+  })
+  return decision.acceptSource
+}
+
+export const shouldBootstrapCachedSubscriptions = ({
+  hasBootstrapped,
+  hasSocket,
+  hasToken,
+  cachedSubscriptions,
+}: {
+  hasBootstrapped: boolean
+  hasSocket: boolean
+  hasToken: boolean
+  cachedSubscriptions: Record<string, unknown>
+}): boolean => {
+  if (hasBootstrapped) return false
+  if (!hasSocket || !hasToken) return false
+  return Object.keys(cachedSubscriptions).length > 0
+}
+
+export const resolveReconciledTimerTargetId = ({
+  requestedTimerId,
+  activeTimerId,
+  timers,
+}: {
+  requestedTimerId?: string | null
+  activeTimerId?: string | null
+  timers: Timer[]
+}): string | null => {
+  if (timers.length === 0) {
+    return requestedTimerId ?? activeTimerId ?? null
+  }
+
+  const timerIds = new Set(timers.map((timer) => timer.id))
+  if (requestedTimerId && timerIds.has(requestedTimerId)) return requestedTimerId
+  if (activeTimerId && timerIds.has(activeTimerId)) return activeTimerId
+  return timers[0]?.id ?? null
+}
+
+export const isSnapshotStale = (
+  state: Room['state'],
+  snapshotTimestamp: number,
+  now: number = Date.now(),
+  timer?: Timer,
+): boolean => {
+  const age = now - snapshotTimestamp
+  // Do not clamp; bonus time can make elapsed negative.
+  const baseElapsed = (state.elapsedOffset ?? state.currentTime ?? 0) as number
+  const hasProgress =
+    baseElapsed !== 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) !== 0)
+  const adjustments = timer?.adjustmentLog?.filter(
+    (entry) => entry.timestamp > snapshotTimestamp && entry.timestamp < now,
+  ) ?? []
+  const totalAdjustments = adjustments.reduce((sum, entry) => sum + entry.delta, 0)
+  const adjustedElapsed = baseElapsed + age + totalAdjustments
+
+  if (state.isRunning) {
+    if (timer?.duration) {
+      return adjustedElapsed > timer.duration * 1000 * 3
+    }
+    return age > 30_000
+  }
+
+  if (hasProgress) {
+    return age > 24 * 60 * 60 * 1000
+  }
+
+  return false
 }

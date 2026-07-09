@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ArbitrationDecision, ArbitrationLastAcceptedCache } from './index'
-import { resolveSnapshotTimestamp } from './index'
+import type { ArbitrationDecision, ArbitrationInput, ArbitrationLastAcceptedCache } from './index'
+import {
+  getConfidenceWindowMs,
+  isSnapshotStale,
+  normalizeRoomAuthoritySource,
+  resolveReconciledTimerTargetId,
+  resolveRoomSource,
+  resolveSnapshotTimestamp,
+  shouldBootstrapCachedSubscriptions,
+} from './index'
+import type { Room, Timer } from '@ontime/shared-types'
 
 const baseInput = () => ({
   roomId: 'room-1',
@@ -402,5 +411,120 @@ describe('resolveSnapshotTimestamp', () => {
   it('falls back to now when both lastUpdate and envelope are 0/missing', () => {
     expect(resolveSnapshotTimestamp(0, 0, 9_999)).toBe(9_999)
     expect(resolveSnapshotTimestamp(undefined, undefined, 9_999)).toBe(9_999)
+  })
+})
+
+describe('normalizeRoomAuthoritySource', () => {
+  it('maps pending to undefined and passes cloud/companion through', () => {
+    expect(normalizeRoomAuthoritySource('pending')).toBeUndefined()
+    expect(normalizeRoomAuthoritySource('cloud')).toBe('cloud')
+    expect(normalizeRoomAuthoritySource('companion')).toBe('companion')
+  })
+})
+
+describe('getConfidenceWindowMs', () => {
+  it('uses a 2000ms base window and 4000ms under reconnect churn', () => {
+    expect(getConfidenceWindowMs(false)).toBe(2000)
+    expect(getConfidenceWindowMs(true)).toBe(4000)
+  })
+})
+
+describe('shouldBootstrapCachedSubscriptions', () => {
+  const subs = { 'room-a': { clientType: 'controller' } }
+  it('bootstraps only when not-yet-bootstrapped, socket+token present, and subs non-empty', () => {
+    expect(shouldBootstrapCachedSubscriptions({ hasBootstrapped: false, hasSocket: true, hasToken: true, cachedSubscriptions: subs })).toBe(true)
+    expect(shouldBootstrapCachedSubscriptions({ hasBootstrapped: true, hasSocket: true, hasToken: true, cachedSubscriptions: subs })).toBe(false)
+    expect(shouldBootstrapCachedSubscriptions({ hasBootstrapped: false, hasSocket: false, hasToken: true, cachedSubscriptions: subs })).toBe(false)
+    expect(shouldBootstrapCachedSubscriptions({ hasBootstrapped: false, hasSocket: true, hasToken: false, cachedSubscriptions: subs })).toBe(false)
+    expect(shouldBootstrapCachedSubscriptions({ hasBootstrapped: false, hasSocket: true, hasToken: true, cachedSubscriptions: {} })).toBe(false)
+  })
+})
+
+describe('resolveReconciledTimerTargetId', () => {
+  it('prefers a valid requested id, then a valid active id, then the first timer', () => {
+    const timers = [{ id: 't1' }, { id: 't2' }] as unknown as Timer[]
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: 't1', activeTimerId: 't2', timers })).toBe('t1')
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: 'x', activeTimerId: 't2', timers })).toBe('t2')
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: 'x', activeTimerId: 'y', timers })).toBe('t1')
+  })
+
+  it('falls back through requested/active/null on an empty rundown', () => {
+    const empty = [] as Timer[]
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: 'r', activeTimerId: 'a', timers: empty })).toBe('r')
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: null, activeTimerId: null, timers: empty })).toBeNull()
+  })
+})
+
+describe('isSnapshotStale', () => {
+  const baseState = {
+    activeTimerId: null,
+    isRunning: false,
+    startedAt: null,
+    elapsedOffset: 0,
+    progress: {},
+    showClock: false,
+    message: { text: '', visible: false, color: 'green' },
+    currentTime: 0,
+    lastUpdate: 0,
+  } as Room['state']
+
+  it('treats a running timer with unknown duration as stale after 30s', () => {
+    const running = { ...baseState, isRunning: true, elapsedOffset: 1_000 } as Room['state']
+    expect(isSnapshotStale(running, 1_000_000 - 10_000, 1_000_000)).toBe(false)
+    expect(isSnapshotStale(running, 1_000_000 - 31_000, 1_000_000)).toBe(true)
+  })
+
+  it('never marks a fresh timer without progress as stale', () => {
+    expect(isSnapshotStale(baseState, 1_000_000 - 100_000_000, 1_000_000)).toBe(false)
+  })
+})
+
+describe('resolveRoomSource', () => {
+  const base = {
+    roomId: 'r1',
+    isCompanionLive: true,
+    viewerSyncGuard: false,
+    firebaseTs: 1234,
+    companionTs: 1234,
+    authoritySource: 'cloud' as const,
+    mode: 'auto' as const,
+    effectiveMode: 'cloud' as const,
+    confidenceWindowMs: 2000,
+    cloudOnline: true,
+  }
+
+  it('delegates to core arbitrate by default (single-side offline wins the live side)', () => {
+    expect(resolveRoomSource({ ...base, isCompanionLive: false })).toBe('cloud')
+    expect(resolveRoomSource({ ...base, cloudOnline: false })).toBe('companion')
+  })
+
+  it('maps fields onto the injected resolver: domain room, firebaseTs->cloudTs, pending authority normalized away', () => {
+    const seen = vi.fn((_input: ArbitrationInput): ArbitrationDecision => ({
+      acceptSource: 'cloud',
+      reason: 'mode bias',
+    }))
+    const result = resolveRoomSource({
+      ...base,
+      firebaseTs: 1234,
+      companionTs: 9999,
+      authoritySource: 'pending',
+      arbitrateFn: seen,
+    })
+
+    expect(result).toBe('cloud')
+    expect(seen).toHaveBeenCalledTimes(1)
+    expect(seen.mock.calls[0][0]).toMatchObject({
+      roomId: 'r1',
+      domain: 'room',
+      cloudTs: 1234,
+      companionTs: 9999,
+      authoritySource: undefined,
+      isCompanionLive: true,
+      cloudOnline: true,
+      viewerSyncGuard: false,
+      mode: 'auto',
+      effectiveMode: 'cloud',
+      confidenceWindowMs: 2000,
+    })
   })
 })
