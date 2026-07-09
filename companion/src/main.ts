@@ -689,8 +689,7 @@ function getRoomLiveCues(roomId: string): Map<string, { cue: LiveCue; updatedAt:
 export function updateRoomActiveLiveCueId(roomId: string, activeLiveCueId: string | null) {
   const state = getRoomState(roomId);
   if (state.activeLiveCueId === activeLiveCueId) return;
-  const now = Date.now();
-  const reanchoredCurrentTime = resolveCompanionElapsedForState(state, now); // re-anchor before lastUpdate bump, else `currentTime + (now-lastUpdate)` loses accrued delta (FIX-100)
+  const now = Date.now(), reanchoredCurrentTime = resolveCompanionElapsedForState(state, now); // FIX-100: re-anchor before the lastUpdate bump, else `currentTime + (now-lastUpdate)` loses the accrued delta
   const nextState: RoomState = { ...state, activeLiveCueId: activeLiveCueId ?? undefined, currentTime: reanchoredCurrentTime, lastUpdate: now };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
