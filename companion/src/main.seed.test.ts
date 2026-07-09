@@ -345,3 +345,42 @@ test('T5: activeTimerId-only PATCH resolves currentTime to 0, not stale progress
   assert.equal(result.nextState.activeTimerId, 't2', 'activeTimerId must be updated')
   assert.equal(result.nextState.lastUpdate, companionNow, 'lastUpdate must be set to companionNow')
 })
+
+// ---------------------------------------------------------------------------
+// FIX-088S — invalid seed state must not drop the room's valid timers/cues/pin
+// Before the fix, an invalid state payload hit `continue` and skipped the
+// timers/cues/pin sections, dropping valid data for the whole room.
+// ---------------------------------------------------------------------------
+test('FIX-088S: invalid seed state skips state-apply but still applies valid timers', async () => {
+  const m = await loadSeedHelpers()
+  const roomId = 'room-fix088s'
+  m.roomStateStore.delete(roomId)
+  m.ioServers.length = 0
+
+  // Materialize the F2 default so we can observe whether state is applied.
+  m.getRoomState(roomId)
+
+  // INVALID state (rich field `startedAt` -> validator rejects) AND a VALID timer.
+  m.handleSeedCompanionCache(null as never, {
+    rooms: [
+      {
+        roomId,
+        state: { currentTime: 99_000, lastUpdate: 5_000, startedAt: 500 }, // rich -> invalid
+        timers: [{ id: 't-fix088s', duration: 60_000, updatedAt: 7_000 }],
+      },
+    ],
+    timestamp: 7_000,
+  })
+
+  // State was NOT applied: default lastUpdate 0 preserved (seeded was 5_000).
+  const stored = m.roomStateStore.get(roomId)
+  assert.equal(stored?.lastUpdate, 0, 'invalid seed state must not be applied (lastUpdate stays default 0)')
+
+  // Timer WAS applied despite the invalid state (this fails pre-fix: `continue` dropped it).
+  const timers = m.getRoomTimers(roomId)
+  assert.equal(
+    timers.get('t-fix088s')?.id,
+    't-fix088s',
+    'valid timer must be applied even when seed state is invalid'
+  )
+})
