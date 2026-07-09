@@ -82,11 +82,18 @@ export const arbitrate = (
 ): ArbitrationDecision => {
   const key = keyFor(input)
   const lastAccepted = options?.lastAcceptedSourceCache?.get(key)
-  const hasCloudData = input.cloudTs !== null && input.cloudTs !== undefined
-  const hasCompanionData = input.companionTs !== null && input.companionTs !== undefined
-  const cloudHasTimestamp = typeof input.cloudTs === 'number' && Number.isFinite(input.cloudTs)
+  // `0` is the never-cached sentinel for state.lastUpdate (see resolveSnapshotTimestamp),
+  // NOT a real wall-clock anchor. Treat ===0 as MISSING so a never-cached side routes
+  // through the no-data / missing-timestamp branches instead of computing a huge
+  // |0 - realTs| delta that always trips the skew guard (FIX-097).
+  const hasCloudData =
+    input.cloudTs !== null && input.cloudTs !== undefined && input.cloudTs !== 0
+  const hasCompanionData =
+    input.companionTs !== null && input.companionTs !== undefined && input.companionTs !== 0
+  const cloudHasTimestamp =
+    typeof input.cloudTs === 'number' && input.cloudTs !== 0 && Number.isFinite(input.cloudTs)
   const companionHasTimestamp =
-    typeof input.companionTs === 'number' && Number.isFinite(input.companionTs)
+    typeof input.companionTs === 'number' && input.companionTs !== 0 && Number.isFinite(input.companionTs)
   const skewThreshold = input.skewThreshold ?? 10 * 60 * 1000
   const allowFallbackToMode = input.allowFallbackToMode ?? true
   const preferSource = input.preferSource

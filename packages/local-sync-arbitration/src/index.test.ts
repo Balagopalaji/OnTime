@@ -74,8 +74,8 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./index')
     const input = {
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 10 * 60 * 1000 + 1,
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000 + 1,
       holdActive: true,
       skewThreshold: 10 * 60 * 1000,
     }
@@ -216,9 +216,9 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./index')
     const decision = arbitrate({
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 5000,
-      confidenceWindowMs: 1000,
+      cloudTs: 1_000,
+      companionTs: 5_000,
+      confidenceWindowMs: 1_000,
       holdActive: true,
       authoritySource: 'cloud' as const,
     })
@@ -232,8 +232,8 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./index')
     const atThreshold = arbitrate({
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 10 * 60 * 1000,
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000,
       skewThreshold: 10 * 60 * 1000,
     })
 
@@ -242,8 +242,8 @@ describe('arbitrate', () => {
 
     const overThreshold = arbitrate({
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 10 * 60 * 1000 + 1,
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000 + 1,
       skewThreshold: 10 * 60 * 1000,
     })
 
@@ -264,6 +264,65 @@ describe('arbitrate', () => {
     })
     expect(decision.acceptSource).toBe('companion')
     expect(decision.reason).toBe('skew - authority fallback')
+  })
+})
+
+describe('arbitrate zero-sentinel (FIX-097)', () => {
+  // `0` is the never-cached sentinel for state.lastUpdate (see the
+  // resolveSnapshotTimestamp doc comment) — NOT a real wall-clock anchor.
+  // arbitrate() must treat ===0 as MISSING so a never-cached side routes through
+  // the no-data / missing-timestamp branches instead of computing a huge
+  // |0 - realTs| delta that always trips the skew guard and drops a live
+  // companion snapshot in a cloud/auto room whose Firebase room hasn't loaded.
+  // S4 (real drifted clocks still skew) and S5 (real within-window clocks still
+  // use authority/hold) are guarded by the existing skew/within-window tests
+  // above, which now use real non-zero timestamps.
+  it('S1: cloudTs=0 (never-cached cloud) does not trip skew — accepts companion via no-data', async () => {
+    vi.resetModules()
+    const { arbitrate } = await import('./index')
+    const decision = arbitrate({
+      ...baseInput(),
+      cloudTs: 0,
+      companionTs: 1_700_000_000_000,
+      authoritySource: 'cloud' as const,
+      mode: 'cloud',
+      effectiveMode: 'cloud',
+    })
+
+    expect(decision.acceptSource).toBe('companion')
+    expect(decision.reason).toBe('no data')
+  })
+
+  it('S2: companionTs=0 (missing companion) routes to cloud via no-data, not skew', async () => {
+    vi.resetModules()
+    const { arbitrate } = await import('./index')
+    const decision = arbitrate({
+      ...baseInput(),
+      cloudTs: 1_700_000_000_000,
+      companionTs: 0,
+      authoritySource: 'companion' as const,
+      mode: 'local',
+      effectiveMode: 'local',
+    })
+
+    expect(decision.acceptSource).toBe('cloud')
+    expect(decision.reason).toBe('no data')
+  })
+
+  it('S3: both sides=0 route to no-data, not skew or within-window', async () => {
+    vi.resetModules()
+    const { arbitrate } = await import('./index')
+    const decision = arbitrate({
+      ...baseInput(),
+      cloudTs: 0,
+      companionTs: 0,
+      authoritySource: 'companion' as const,
+      mode: 'local',
+      effectiveMode: 'local',
+    })
+
+    expect(decision.acceptSource).toBe('companion')
+    expect(decision.reason).toBe('no data')
   })
 })
 

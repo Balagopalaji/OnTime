@@ -35,8 +35,8 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./arbitration')
     const input = {
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 10 * 60 * 1000 + 1,
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000 + 1,
       holdActive: true,
       skewThreshold: 10 * 60 * 1000,
     }
@@ -151,9 +151,9 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./arbitration')
     const decision = arbitrate({
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 5000,
-      confidenceWindowMs: 1000,
+      cloudTs: 1_000,
+      companionTs: 5_000,
+      confidenceWindowMs: 1_000,
       holdActive: true,
       authoritySource: 'cloud' as const,
     })
@@ -167,8 +167,8 @@ describe('arbitrate', () => {
     const { arbitrate } = await import('./arbitration')
     const atThreshold = arbitrate({
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 10 * 60 * 1000,
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000,
       skewThreshold: 10 * 60 * 1000,
     })
 
@@ -177,12 +177,30 @@ describe('arbitrate', () => {
 
     const overThreshold = arbitrate({
       ...baseInput(),
-      cloudTs: 0,
-      companionTs: 10 * 60 * 1000 + 1,
+      cloudTs: 1_000,
+      companionTs: 1_000 + 10 * 60 * 1000 + 1,
       skewThreshold: 10 * 60 * 1000,
     })
 
     expect(overThreshold.acceptSource).toBe('cloud')
     expect(overThreshold.reason).toBe('skew - authority fallback')
+  })
+})
+
+describe('arbitrate zero-sentinel via wrapper (FIX-097 S1)', () => {
+  it('cloudTs=0 (never-cached cloud) accepts companion via no-data through the app wrapper', async () => {
+    vi.resetModules()
+    const { arbitrate } = await import('./arbitration')
+    const decision = arbitrate({
+      ...baseInput(),
+      cloudTs: 0,
+      companionTs: 1_700_000_000_000,
+      authoritySource: 'cloud' as const,
+      mode: 'cloud',
+      effectiveMode: 'cloud',
+    })
+
+    expect(decision.acceptSource).toBe('companion')
+    expect(decision.reason).toBe('no data')
   })
 })

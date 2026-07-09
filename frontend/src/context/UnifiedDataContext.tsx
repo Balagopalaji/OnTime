@@ -4015,7 +4015,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
         ? arbitrate({
             roomId: payload.roomId,
             domain: 'room',
-            cloudTs: firebaseTs,
+            cloudTs: firebaseTs || undefined, // 0 sentinel = never-cached -> missing (FIX-097)
             companionTs: snapshotTs,
             authoritySource: normalizeRoomAuthoritySource(authority.source),
             mode,
