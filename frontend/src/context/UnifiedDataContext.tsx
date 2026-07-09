@@ -3046,14 +3046,14 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     const rooms = firebaseRooms
       .map((room) => {
         const leanState = toSeedRoomState(room)
-        if (!leanState) return undefined // Skip rooms without lastUpdate
-
         const timers = firebase.getTimers(room.id)
         const cues = firebase.getCues(room.id)
         const pin = roomPins[room.id] ?? undefined
+        // FIX-088S: keep rooms with valid timers/cues/pin even when state hasn't arrived
+        if (!leanState && timers.length === 0 && cues.length === 0 && !pin) return undefined
         return {
           roomId: room.id,
-          state: leanState,
+          ...(leanState ? { state: leanState } : {}),
           ...(timers.length > 0 ? { timers } : {}),
           ...(cues.length > 0 ? { cues } : {}),
           ...(pin ? { pin } : {}),

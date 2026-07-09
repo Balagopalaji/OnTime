@@ -6102,33 +6102,33 @@ export function handleSeedCompanionCache(_socket: Socket, payload: unknown) {
     if (entry.state) {
       // T6: Reject invalid seed state payloads (F4 partial-pair + F1 rich-field rejection)
       if (!isValidSeedRoomStatePayload(entry.state)) {
-        console.warn(`[seed] Skipping invalid seed state for room=${entry.roomId}`);
-        continue;
-      }
-
-      const localState = roomStateStore.get(entry.roomId);
-      const localTs = localState?.lastUpdate ?? 0;
-      const incomingTs = entry.state.lastUpdate ?? 0;
-      if (incomingTs > localTs) {
-        const existing = localState ?? getRoomState(entry.roomId);
-        roomStateStore.set(entry.roomId, {
-          ...existing,
-          // T4: Lean projection only - explicit fields (no rich field pollution)
-          activeTimerId: entry.state.activeTimerId ?? existing.activeTimerId,
-          isRunning: entry.state.isRunning ?? existing.isRunning,
-          currentTime: entry.state.currentTime ?? existing.currentTime,
-          lastUpdate: entry.state.lastUpdate ?? existing.lastUpdate,
-          // Optional fields (only when defined)
-          ...(entry.state.showClock !== undefined && { showClock: entry.state.showClock }),
-          ...(entry.state.title && { title: entry.state.title }),
-          ...(entry.state.timezone && { timezone: entry.state.timezone }),
-          ...(entry.state.activeLiveCueId && { activeLiveCueId: entry.state.activeLiveCueId }),
-          // Message deep-merge (preserved from original implementation)
-          message: entry.state.message
-            ? { ...(existing.message ?? {}), ...entry.state.message }
-            : existing.message,
-        });
-        roomUpdated = true;
+        // FIX-088S: don't drop the room — skip the state-apply, still process timers/cues/pin.
+        console.warn(`[seed] Skipping invalid seed state for room=${entry.roomId} (timers/cues/pin still applied)`);
+      } else {
+        const localState = roomStateStore.get(entry.roomId);
+        const localTs = localState?.lastUpdate ?? 0;
+        const incomingTs = entry.state.lastUpdate ?? 0;
+        if (incomingTs > localTs) {
+          const existing = localState ?? getRoomState(entry.roomId);
+          roomStateStore.set(entry.roomId, {
+            ...existing,
+            // T4: Lean projection only - explicit fields (no rich field pollution)
+            activeTimerId: entry.state.activeTimerId ?? existing.activeTimerId,
+            isRunning: entry.state.isRunning ?? existing.isRunning,
+            currentTime: entry.state.currentTime ?? existing.currentTime,
+            lastUpdate: entry.state.lastUpdate ?? existing.lastUpdate,
+            // Optional fields (only when defined)
+            ...(entry.state.showClock !== undefined && { showClock: entry.state.showClock }),
+            ...(entry.state.title && { title: entry.state.title }),
+            ...(entry.state.timezone && { timezone: entry.state.timezone }),
+            ...(entry.state.activeLiveCueId && { activeLiveCueId: entry.state.activeLiveCueId }),
+            // Message deep-merge (preserved from original implementation)
+            message: entry.state.message
+              ? { ...(existing.message ?? {}), ...entry.state.message }
+              : existing.message,
+          });
+          roomUpdated = true;
+        }
       }
     }
 
