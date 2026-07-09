@@ -690,14 +690,15 @@ export function updateRoomActiveLiveCueId(roomId: string, activeLiveCueId: strin
   const state = getRoomState(roomId);
   if (state.activeLiveCueId === activeLiveCueId) return;
   const now = Date.now();
-  const nextState: RoomState = { ...state, activeLiveCueId: activeLiveCueId ?? undefined, lastUpdate: now };
+  const reanchoredCurrentTime = resolveCompanionElapsedForState(state, now); // re-anchor before lastUpdate bump, else `currentTime + (now-lastUpdate)` loses accrued delta (FIX-100)
+  const nextState: RoomState = { ...state, activeLiveCueId: activeLiveCueId ?? undefined, currentTime: reanchoredCurrentTime, lastUpdate: now };
   roomStateStore.set(roomId, nextState);
   scheduleRoomCacheWrite();
 
   const delta: RoomStateDelta = {
     type: 'ROOM_STATE_DELTA',
     roomId,
-    changes: { activeLiveCueId: activeLiveCueId ?? undefined },
+    changes: { activeLiveCueId: activeLiveCueId ?? undefined, currentTime: reanchoredCurrentTime, lastUpdate: now },
     timestamp: now,
   };
   emitToRoom(roomId, 'ROOM_STATE_DELTA', delta);
