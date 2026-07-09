@@ -30,6 +30,7 @@ import {
   appendControlAudit,
   type ControlAuditEntry,
 } from './control-audit-utils';
+import { createRoomCacheAdapter } from './room-cache';
 import {
   schedulePendingControlRequestTimeout,
   type SchedulePendingControlRequestTimeoutDeps,
@@ -142,9 +143,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ];
 const LAN_HOSTS = parseLanHostEnv();
 const LAN_ENABLED = LAN_HOSTS.length > 0 && process.env.COMPANION_LAN_ENABLED !== 'false';
-const CACHE_VERSION = 2;
 const VIEWER_CACHE_DIR = 'viewer';
-const CACHE_WRITE_DEBOUNCE_MS = 2000;
 const PENDING_HANDSHAKE_TTL_MS = 2_500;
 const WS_LATENCY_TRACE_ENABLED = process.env.COMPANION_DEBUG_WS === 'true';
 const PPT_POLL_INTERVAL_MS = 1000;
@@ -867,8 +866,53 @@ let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
 let viewerBundleState: ViewerBundleState | null = null;
-let cacheWriteTimer: NodeJS.Timeout | null = null;
-let lastWriteTs = 0;
+// Disk room-cache persistence adapter (rebuild unit U7). Owns the cache
+// read/write/schedule/flush lifecycle over the persisted stores below, with the
+// filesystem / clock / timer / logger injected so it is unit-testable without
+// electron. The hoisted delegating functions keep the ~30 bare
+// `scheduleRoomCacheWrite()` call sites + `controlAuditDeps.scheduleWrite`
+// resolving unchanged — byte-faithful behavior, only the seams moved. See
+// companion/src/room-cache.ts and docs/rebuild-companion-coupling.md Appendix A.
+const roomCache = createRoomCacheAdapter({
+  stores: {
+    roomStateStore,
+    roomTimersStore,
+    roomCuesStore,
+    roomControlAuditStore,
+    roomPinStore,
+    roomOwnerStore,
+    roomViewerTokenStore,
+    roomTombstoneStore,
+  },
+  getCachePath,
+  fs: {
+    readFile: (p: string, encoding: BufferEncoding) => fs.readFile(p, encoding),
+    writeFile: (p: string, data: string, encoding: BufferEncoding) => fs.writeFile(p, data, encoding),
+    mkdir: (p: string, options: { recursive: true }) => fs.mkdir(p, options),
+    copyFile: (src: string, dest: string) => fs.copyFile(src, dest),
+    readdir: (p: string) => fs.readdir(p),
+    unlink: (p: string) => fs.unlink(p),
+  },
+  path,
+  timer: {
+    setTimeout: (handler: () => void, ms: number) => setTimeout(handler, ms),
+    clearTimeout: (handle: unknown) => clearTimeout((handle as NodeJS.Timeout | null) ?? undefined),
+  },
+  now: () => Date.now(),
+  log: console,
+});
+
+function scheduleRoomCacheWrite(): void {
+  roomCache.scheduleWrite();
+}
+
+async function loadRoomCache(): Promise<void> {
+  await roomCache.load();
+}
+
+async function flushRoomCache(): Promise<void> {
+  await roomCache.flush();
+}
 let ffprobeMissingWarned = false;
 let ffprobePath: string | null = null;
 let pptPollTimer: NodeJS.Timeout | null = null;
@@ -7339,249 +7383,4 @@ function startSecureTokenServer(token: string, expiresAt: number, tls: { key: st
   const handles = startSecureTokenServerFromModule(handler, tokenServerLifecycle, tls);
   tokenServerTlsV4 = handles.v4;
   tokenServerTlsV6 = handles.v6;
-}
-
-async function loadRoomCache() {
-  const cachePath = getCachePath();
-  try {
-    const data = await fs.readFile(cachePath, 'utf8');
-    const parsed = JSON.parse(data) as {
-      version: number;
-      lastWrite?: number;
-      rooms?: Record<string, RoomState>;
-      timers?: Record<string, Timer[]>;
-      cues?: Record<string, Cue[]>;
-      controlAudit?: Record<string, Array<{
-        action: 'request' | 'force' | 'handover' | 'deny';
-        actorId: string;
-        actorUserId?: string;
-        actorUserName?: string;
-        targetId?: string;
-        timestamp: number;
-        deviceName?: string;
-        status?: 'accepted' | 'denied';
-      }>>;
-      pins?: Record<string, {
-        pin: string;
-        updatedAt: number;
-        setBy?: string;
-        setByUserId?: string;
-        setByUserName?: string;
-      }>;
-      owners?: Record<string, {
-        ownerId: string;
-        ownerName?: string;
-        updatedAt: number;
-        setBy?: string;
-      }>;
-      viewerTokens?: Record<string, ViewerTokenEntry[]>;
-      tombstones?: Record<string, { roomId: string; deletedAt: number; expiresAt: number }>;
-    };
-    if (parsed.version !== CACHE_VERSION || !parsed.rooms) {
-      console.warn('[cache] Cache version mismatch or missing rooms; starting fresh');
-      return;
-    }
-    Object.entries(parsed.rooms).forEach(([roomId, state]) => {
-      const normalized: RoomState = {
-        ...state,
-        showClock: state.showClock ?? false,
-        message: {
-          text: '',
-          visible: false,
-          color: 'green',
-          ...(state.message ?? {}),
-        },
-        title: state.title,
-        timezone: state.timezone,
-      };
-      roomStateStore.set(roomId, normalized);
-    });
-    if (parsed.timers) {
-      Object.entries(parsed.timers).forEach(([roomId, timers]) => {
-        const map = new Map<string, Timer>();
-        (timers ?? []).forEach((timer) => {
-          if (timer && typeof timer.id === 'string') {
-            map.set(timer.id, timer);
-          }
-        });
-        if (map.size) {
-          roomTimersStore.set(roomId, map);
-        }
-      });
-    }
-    if (parsed.cues) {
-      Object.entries(parsed.cues).forEach(([roomId, cues]) => {
-        const map = new Map<string, Cue>();
-        (cues ?? []).forEach((cue) => {
-          if (cue && typeof cue.id === 'string') {
-            map.set(cue.id, cue);
-          }
-        });
-        if (map.size) {
-          roomCuesStore.set(roomId, map);
-        }
-      });
-    }
-    if (parsed.controlAudit) {
-      Object.entries(parsed.controlAudit).forEach(([roomId, entries]) => {
-        if (Array.isArray(entries)) {
-          roomControlAuditStore.set(roomId, entries.slice(-50));
-        }
-      });
-    }
-    if (parsed.pins) {
-      Object.entries(parsed.pins).forEach(([roomId, entry]) => {
-        if (entry && typeof entry.pin === 'string') {
-          roomPinStore.set(roomId, {
-            pin: entry.pin,
-            updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
-            setBy: entry.setBy,
-            setByUserId: entry.setByUserId,
-            setByUserName: entry.setByUserName,
-          });
-        }
-      });
-    }
-    if (parsed.owners) {
-      Object.entries(parsed.owners).forEach(([roomId, entry]) => {
-        if (entry && typeof entry.ownerId === 'string') {
-          roomOwnerStore.set(roomId, {
-            ownerId: entry.ownerId,
-            ownerName: entry.ownerName,
-            updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
-            setBy: entry.setBy,
-          });
-        }
-      });
-    }
-    if (parsed.viewerTokens) {
-      const now = Date.now();
-      Object.entries(parsed.viewerTokens).forEach(([roomId, entries]) => {
-        if (!Array.isArray(entries)) return;
-        const map = new Map<string, ViewerTokenEntry>();
-        entries.forEach((entry) => {
-          if (!entry || typeof entry.tokenId !== 'string') return;
-          if (entry.expiresAt <= now) return;
-          map.set(entry.tokenId, entry);
-        });
-        if (map.size) {
-          roomViewerTokenStore.set(roomId, map);
-        }
-      });
-    }
-    // Load tombstones and prune expired; apply active tombstones to remove deleted rooms
-    if (parsed.tombstones) {
-      const now = Date.now();
-      Object.entries(parsed.tombstones).forEach(([roomId, entry]) => {
-        if (entry && entry.expiresAt > now) {
-          roomTombstoneStore.set(roomId, entry);
-          // Remove room data for any tombstoned room
-          roomStateStore.delete(roomId);
-          roomTimersStore.delete(roomId);
-          roomCuesStore.delete(roomId);
-        }
-      });
-      if (roomTombstoneStore.size > 0) {
-        console.log(`[cache] Applied ${roomTombstoneStore.size} tombstones, pruned deleted rooms`);
-      }
-    }
-    lastWriteTs = parsed.lastWrite ?? Date.now();
-    console.log(`[cache] Loaded ${roomStateStore.size} rooms from cache`);
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
-      console.log('[cache] No existing cache, starting fresh');
-      return;
-    }
-    console.error('[cache] Failed to load cache, attempting backup', error);
-    await backupCorruptedCache(cachePath);
-  }
-}
-
-async function backupCorruptedCache(cachePath: string) {
-  try {
-    const cacheDir = path.dirname(cachePath);
-    await fs.mkdir(cacheDir, { recursive: true });
-    const timestamp = Date.now();
-    const backupPath = path.join(cacheDir, `rooms.json.backup.${timestamp}`);
-    await fs.copyFile(cachePath, backupPath);
-    console.warn(`[cache] Backed up corrupted cache to ${backupPath}`);
-    await trimBackups(cacheDir);
-  } catch (err) {
-    console.error('[cache] Failed to backup corrupted cache', err);
-  }
-}
-
-async function trimBackups(cacheDir: string) {
-  try {
-    const files = await fs.readdir(cacheDir);
-    const backups = files
-      .filter((f) => f.startsWith('rooms.json.backup.'))
-      .map((f) => ({ file: f, ts: parseInt(f.split('.').pop() || '0', 10) }))
-      .sort((a, b) => b.ts - a.ts);
-    if (backups.length <= 3) return;
-    const toDelete = backups.slice(3);
-    await Promise.all(
-      toDelete.map(({ file }) => fs.unlink(path.join(cacheDir, file)).catch((err) => console.warn('[cache] Failed to delete old backup', err)))
-    );
-  } catch (err) {
-    console.warn('[cache] Failed to trim backups', err);
-  }
-}
-
-function scheduleRoomCacheWrite() {
-  if (cacheWriteTimer) {
-    clearTimeout(cacheWriteTimer);
-  }
-  cacheWriteTimer = setTimeout(() => {
-    cacheWriteTimer = null;
-    void writeRoomCache();
-  }, CACHE_WRITE_DEBOUNCE_MS);
-}
-
-async function flushRoomCache() {
-  if (cacheWriteTimer) {
-    clearTimeout(cacheWriteTimer);
-    cacheWriteTimer = null;
-    await writeRoomCache();
-  }
-}
-
-async function writeRoomCache() {
-  try {
-    const cachePath = getCachePath();
-    const cacheDir = path.dirname(cachePath);
-    await fs.mkdir(cacheDir, { recursive: true });
-    const payload = {
-      version: CACHE_VERSION,
-      lastWrite: Date.now(),
-      rooms: Object.fromEntries(roomStateStore.entries()),
-      timers: Object.fromEntries(
-        [...roomTimersStore.entries()].map(([roomId, timerMap]) => [
-          roomId,
-          [...timerMap.values()].sort((a, b) => a.order - b.order),
-        ])
-      ),
-      cues: Object.fromEntries(
-        [...roomCuesStore.entries()].map(([roomId, cueMap]) => [
-          roomId,
-          [...cueMap.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-        ])
-      ),
-      controlAudit: Object.fromEntries(roomControlAuditStore.entries()),
-      pins: Object.fromEntries(roomPinStore.entries()),
-      owners: Object.fromEntries(roomOwnerStore.entries()),
-      tombstones: Object.fromEntries(roomTombstoneStore.entries()),
-      viewerTokens: Object.fromEntries(
-        [...roomViewerTokenStore.entries()].map(([roomId, tokenMap]) => [
-          roomId,
-          [...tokenMap.values()],
-        ])
-      ),
-    };
-    await fs.writeFile(cachePath, JSON.stringify(payload, null, 2), 'utf8');
-    lastWriteTs = payload.lastWrite;
-    console.log(`[cache] Wrote cache with ${roomStateStore.size} rooms`);
-  } catch (error) {
-    console.error('[cache] Failed to write cache', error);
-  }
 }
