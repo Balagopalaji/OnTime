@@ -8,7 +8,7 @@ base_sha: 29cd211fec1e2de05c6ed8335c960ad5e68f4cb8
 issue: "#100 (unaddressed review feedback)"
 spec: inline (orchestrated brief) — root cause verified on main, approach oracle-confirmed
 phase: implement
-current_task: T4 commit/push/PR
+current_task: DONE (loop complete; PR open, NOT merged)
 review_cycles: 0
 authorization: git_scope=branch+pr (commit/push/open PR, NO merge); doc_edits=true (own notes only)
 oracle: up; degraded_ok=false
@@ -56,8 +56,8 @@ disagree"). Algebraically jump-free for existing clients:
 | T1 | red test | companion/src/main.livecue-elapsed.test.ts (new) | S1,S2,S3,S4 | done | 2fail/2pass red, right reason |
 | T2 | fix | companion/src/main.ts (~L692-701) | — | done | 112 pass/0 fail; review CLEAN |
 | T3 | validate+review | — | npm test 112/0, guardrails:static PASS, boundaries env-blocked, inline review CLEAN | done | see validation log |
-| T4 | git | branch push + PR | — | pending | — |
-| T5 | closeout | conformance matrix + this doc | — | pending | — |
+| T4 | git | branch push + PR #105 (commits 212aaac, 74c22c1) | — | done | https://github.com/Balagopalaji/OnTime/pull/105 — NOT merged (orchestrator owns merge) |
+| T5 | closeout | docs/spec/fix-100-livecue-elapsed.{spec,conformance}.md + this doc | — | done | matrix: audited=[S1-S4 + 4 surface + 5 constraints], unreconciled=[] |
 
 ## Scenarios
 
@@ -115,3 +115,48 @@ disagree"). Algebraically jump-free for existing clients:
 ## Context exception log
 
 (none yet)
+
+## Closeout summary (FIX-100)
+
+- **Fix**: `companion/src/main.ts` `updateRoomActiveLiveCueId` re-anchors a running
+  timer's `currentTime` via `resolveCompanionElapsedForState(state, now)` BEFORE the
+  `lastUpdate` bump, and carries `currentTime`+`lastUpdate` in the `ROOM_STATE_DELTA`
+  (wire == store). +1 net line; split-count 7589 = god-file baseline.
+- **Scenarios covered**: S1, S2, S3, S4 — all Conformed (see conformance matrix).
+- **Test names** (`companion/src/main.livecue-elapsed.test.ts`):
+  - `S1 running: activeLiveCueId change re-anchors currentTime + lastUpdate (no backward jump)`
+  - `S2 paused: activeLiveCueId change leaves currentTime unchanged, bumps lastUpdate`
+  - `S3 no-op: unchanged activeLiveCueId triggers no state mutation and no delta`
+  - `S4 hardening: bad lastUpdate/currentTime on a running timer stays finite after re-anchor`
+- **Test-quality self-check** (global rule): each test names a plausible defect
+  (S1 backward-jump, S2 paused-fold regression, S3 no-op-guard removal, S4 NaN
+  persistence); asserts EXACT observable values (8000/5000/ANCHOR/finite + deepEqual
+  delta), no not-nil/field-presence-only; lowest faithful layer (direct store + delta
+  emit, no server/frontend); S4 consolidates 3 hardening branches in one loop. PASS.
+- **Validation**: `cd companion && npm test` = 112 pass / 0 fail (build green, drift-guard
+  green). `npm run guardrails`: `guardrails:static` PASS; `boundaries` ENV-BLOCKED
+  (node 23.5.0; identical failure on base; PR adds no imports/deps). `git diff --check` clean.
+- **main.ts line count**: wc -l 7588 → split-count 7589 (= baseline, <=7589).
+- **PR**: https://github.com/Balagopalaji/OnTime/pull/105 (commits 212aaac fix + tests;
+  74c22c1 spec + conformance matrix). Title/body per brief; baton `needs-claude-review`.
+- **Amendments**: none requested, none applied.
+- **Divergence/blockers**: `boundaries` sub-gate env-blocked (node version; documented,
+  not a code regression). RepoPrompt MCP transport unreliable mid-run (ask_oracle/apply_edits
+  hung 1800s); edits applied via Bash/Python, review + conformance done inline (context
+  exception logged). No other divergence.
+- **NOT done (by design)**: merge (orchestrator owns); `rebuild-progress.md` ledger
+  status change (orchestrator owns).
+
+## Context exception log
+
+1. **RepoPrompt MCP transport hung** (`apply_edits` then `ask_oracle` review: 1800s
+   no-response; connection closed). Insufficient for: in-process edit + oracle review.
+   Follow-up: applied edits via `python3` exact-string replace with `assert count==1`
+   (verifiable, idempotent); ran native `code-review` skill methodology INLINE (diff is
+   4 effective lines — angles A-E + reuse/simplification/altitude/conventions/sweep run
+   by orchestrator against diff + 3 callers + resolver + frontend consumer). Gate
+   decision enabled: T2 review = CLEAN, proceed to commit. One earlier oracle GO +
+   Option-B endorsement did succeed (chat new-chat-F5D4E4) before the transport degraded.
+2. **`boundaries` guardrail env-blocked** (node 23.5.0 unsupported by dependency-cruiser).
+   Verified identical failure on base commit. PR adds zero imports/deps -> no boundary
+   risk. Not weakened; recorded as env-blocked.
