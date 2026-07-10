@@ -1,10 +1,12 @@
 // rebuild-target: app-internal (apps/local-companion)
 import type { ControlRequestClearReason } from '@ontime/interface-contracts';
+import type { ControllerLock } from '@ontime/shared-types';
 
 // Re-exported for backwards compatibility: callers (and main.ts) historically
-// imported ControlRequestClearReason from this module. The canonical wire
-// definition now lives in @ontime/interface-contracts (U1 slice 6).
-export type { ControlRequestClearReason };
+// imported these from this module. The canonical wire definitions now live in
+// @ontime/interface-contracts (ControlRequestClearReason, U1 slice 6) and
+// @ontime/shared-types (ControllerLock, DoD #4 single wire-shape).
+export type { ControlRequestClearReason, ControllerLock };
 
 export const CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -48,15 +50,6 @@ export function normalizeRoomPin(input?: string | null): string | null {
   return digits;
 }
 
-export type ControllerLock = {
-  clientId: string;
-  deviceName?: string;
-  userId?: string;
-  userName?: string;
-  lockedAt: number;
-  lastHeartbeat: number;
-  roomId: string;
-};
 
 export function buildControllerLock(roomId: string, entry: {
   clientId: string;
