@@ -20,7 +20,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
-import { ARBITRATION_FLAGS, arbitrate, resolveSnapshotTimestamp } from '../lib/arbitration'
+import {
+  ARBITRATION_FLAGS,
+  arbitrate,
+  getConfidenceWindowMs,
+  isSnapshotStale,
+  normalizeRoomAuthoritySource,
+  resolveReconciledTimerTargetId,
+  resolveRoomSource,
+  resolveSnapshotTimestamp,
+  shouldBootstrapCachedSubscriptions,
+} from '../lib/arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -60,6 +70,17 @@ export {
   shouldResetQueuedLockReplayOnSocketChange,
   shouldExpirePendingControlRequest,
 } from './control-lock-reducers'
+
+// Re-exported for backward compatibility with existing importers
+// (UnifiedDataContext.test.ts, __tests__/snapshotStale.test.ts). Sourced from
+// @ontime/local-sync-arbitration via ../lib/arbitration (Stage 1b U4 carve).
+export {
+  getConfidenceWindowMs,
+  isSnapshotStale,
+  resolveReconciledTimerTargetId,
+  resolveRoomSource,
+  shouldBootstrapCachedSubscriptions,
+}
 
 type RoomAuthority = {
   source: 'cloud' | 'companion' | 'pending'
@@ -122,25 +143,6 @@ type CueCreatedPayload = CueCreated
 type CueUpdatedPayload = CueUpdated
 type CueDeletedPayload = CueDeleted
 type CuesReorderedPayload = CuesReordered
-
-export const resolveReconciledTimerTargetId = ({
-  requestedTimerId,
-  activeTimerId,
-  timers,
-}: {
-  requestedTimerId?: string | null
-  activeTimerId?: string | null
-  timers: Timer[]
-}): string | null => {
-  if (timers.length === 0) {
-    return requestedTimerId ?? activeTimerId ?? null
-  }
-
-  const timerIds = new Set(timers.map((timer) => timer.id))
-  if (requestedTimerId && timerIds.has(requestedTimerId)) return requestedTimerId
-  if (activeTimerId && timerIds.has(activeTimerId)) return activeTimerId
-  return timers[0]?.id ?? null
-}
 
 
 type ControllerLockStatePayload = {
@@ -636,83 +638,9 @@ const MAX_QUEUE = 100
 const MAX_CUE_QUEUE = 150
 const QUEUE_WARNING_THRESHOLD = 0.8
 const PREVIEW_CACHE_TTL_MS = 10_000
-const BASE_CONFIDENCE_WINDOW_MS = 2000
-const CHURN_CONFIDENCE_WINDOW_MS = 4000
 export const JOIN_PENDING_WATCHDOG_MS = 2_500
 
-export const shouldBootstrapCachedSubscriptions = ({
-  hasBootstrapped,
-  hasSocket,
-  hasToken,
-  cachedSubscriptions,
-}: {
-  hasBootstrapped: boolean
-  hasSocket: boolean
-  hasToken: boolean
-  cachedSubscriptions: Record<string, CompanionSubscription>
-}): boolean => {
-  if (hasBootstrapped) return false
-  if (!hasSocket || !hasToken) return false
-  return Object.keys(cachedSubscriptions).length > 0
-}
 
-export const getConfidenceWindowMs = (hasReconnectChurn: boolean) =>
-  hasReconnectChurn ? CHURN_CONFIDENCE_WINDOW_MS : BASE_CONFIDENCE_WINDOW_MS
-
-const normalizeRoomAuthoritySource = (
-  source: RoomAuthority['source'],
-): 'cloud' | 'companion' | undefined => {
-  if (source === 'pending') return undefined
-  return source
-}
-
-export const resolveRoomSource = ({
-  roomId,
-  isCompanionLive,
-  viewerSyncGuard,
-  firebaseTs,
-  companionTs,
-  authoritySource,
-  mode,
-  effectiveMode,
-  confidenceWindowMs,
-  controllerTieBreaker,
-  cloudOnline,
-  holdActive,
-  preferSource,
-}: {
-  roomId: string
-  isCompanionLive: boolean
-  viewerSyncGuard: boolean
-  firebaseTs: number
-  companionTs: number
-  authoritySource: RoomAuthority['source']
-  mode: 'auto' | 'cloud' | 'local'
-  effectiveMode: 'cloud' | 'local'
-  confidenceWindowMs: number
-  controllerTieBreaker?: 'cloud' | 'companion'
-  cloudOnline: boolean
-  holdActive?: boolean
-  preferSource?: 'cloud' | 'companion'
-}): 'cloud' | 'companion' => {
-  const decision = arbitrate({
-    roomId,
-    domain: 'room',
-    cloudTs: firebaseTs,
-    companionTs,
-    authoritySource: normalizeRoomAuthoritySource(authoritySource),
-    mode,
-    effectiveMode,
-    isCompanionLive,
-    cloudOnline,
-    confidenceWindowMs,
-    controllerTieBreaker,
-    viewerSyncGuard,
-    holdActive,
-    preferSource,
-  })
-  return decision.acceptSource
-}
 
 const translateCompanionStateToFirebase = (
   companion: CompanionRoomState,
@@ -734,37 +662,6 @@ const translateCompanionStateToFirebase = (
     message,
     activeLiveCueId: companion.activeLiveCueId ?? base.activeLiveCueId,
   }
-}
-
-export const isSnapshotStale = (
-  state: Room['state'],
-  snapshotTimestamp: number,
-  now: number = Date.now(),
-  timer?: Timer,
-): boolean => {
-  const age = now - snapshotTimestamp
-  // Do not clamp; bonus time can make elapsed negative.
-  const baseElapsed = (state.elapsedOffset ?? state.currentTime ?? 0) as number
-  const hasProgress =
-    baseElapsed !== 0 || Object.values(state.progress ?? {}).some((val) => (val ?? 0) !== 0)
-  const adjustments = timer?.adjustmentLog?.filter(
-    (entry) => entry.timestamp > snapshotTimestamp && entry.timestamp < now,
-  ) ?? []
-  const totalAdjustments = adjustments.reduce((sum, entry) => sum + entry.delta, 0)
-  const adjustedElapsed = baseElapsed + age + totalAdjustments
-
-  if (state.isRunning) {
-    if (timer?.duration) {
-      return adjustedElapsed > timer.duration * 1000 * 3
-    }
-    return age > 30_000
-  }
-
-  if (hasProgress) {
-    return age > 24 * 60 * 60 * 1000
-  }
-
-  return false
 }
 
 export const buildRoomFromCompanion = (

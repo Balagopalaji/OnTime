@@ -239,6 +239,31 @@ describe('resolveRoomSource', () => {
       }),
     ).toBe('companion')
   })
+
+  it('remembers the last accepted source across calls when both sides go offline (cache wired through)', () => {
+    // Unique room so the shared module-level lastAccepted cache (lib/arbitration.ts) is uncontaminated.
+    const cacheArgs = { ...baseArgs, roomId: 'room-rs-cache' }
+    // Online: companion materially newer, outside the window -> decides + caches 'companion'.
+    expect(
+      resolveRoomSource({
+        ...cacheArgs,
+        firebaseTs: 1_000,
+        companionTs: 10_000,
+        confidenceWindowMs: 10,
+      }),
+    ).toBe('companion')
+
+    // Both sides now offline: must return the cached 'companion', NOT the authority/mode fallback
+    // ('cloud'). Pins that resolveRoomSource still delegates to the app's wrapped arbitrate
+    // (lastAccepted cache) — a cache-less core arbitrate would fall back to 'cloud' here.
+    expect(
+      resolveRoomSource({
+        ...cacheArgs,
+        isCompanionLive: false,
+        cloudOnline: false,
+      }),
+    ).toBe('companion')
+  })
 })
 
 describe('mergeCueQueueEvents', () => {
@@ -354,6 +379,26 @@ describe('BUG-CTRL-SELECTED-002 unified timer target reconciliation', () => {
     })
 
     expect(target).toBe('timer-1')
+  })
+
+  it('returns the requested id when it is still present in the rundown', () => {
+    const target = resolveReconciledTimerTargetId({
+      requestedTimerId: 'timer-1',
+      activeTimerId: 'timer-2',
+      timers: [{ id: 'timer-1' }, { id: 'timer-2' }] as Parameters<
+        typeof resolveReconciledTimerTargetId
+      >[0]['timers'],
+    })
+
+    expect(target).toBe('timer-1')
+  })
+
+  it('falls back through requested/active/null when the rundown is empty', () => {
+    const timers = [] as Parameters<typeof resolveReconciledTimerTargetId>[0]['timers']
+
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: 'r', activeTimerId: 'a', timers })).toBe('r')
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: null, activeTimerId: 'a', timers })).toBe('a')
+    expect(resolveReconciledTimerTargetId({ requestedTimerId: null, activeTimerId: null, timers })).toBe(null)
   })
 })
 
@@ -1774,6 +1819,24 @@ describe('offline companion room bootstrap helpers', () => {
       hasSocket: true,
       hasToken: true,
       cachedSubscriptions: {},
+    })).toBe(false)
+  })
+
+  it('does not bootstrap when the socket is missing', () => {
+    expect(shouldBootstrapCachedSubscriptions({
+      hasBootstrapped: false,
+      hasSocket: false,
+      hasToken: true,
+      cachedSubscriptions: { 'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' } },
+    })).toBe(false)
+  })
+
+  it('does not bootstrap when the token is missing', () => {
+    expect(shouldBootstrapCachedSubscriptions({
+      hasBootstrapped: false,
+      hasSocket: true,
+      hasToken: false,
+      cachedSubscriptions: { 'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' } },
     })).toBe(false)
   })
 
