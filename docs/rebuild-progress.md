@@ -2,7 +2,7 @@
 Type: Tasklist
 Status: current
 Owner: KDB
-Last updated: 2026-07-08
+Last updated: 2026-07-10
 Scope: Rebuild state ledger, updated at the end of each rebuild PR.
 ---
 
@@ -67,6 +67,8 @@ against `rebuild-arbitration-decisions.md` confirmed every current-behavior prin
 (GAP-1) fixed in #101: the skew guard now falls back to room authority/mode instead of hardcoding cloud,
 so a materially-newer companion no longer loses to stale cloud in local mode (skew policy recorded in the
 decisions doc §1). The `updateRoomActiveLiveCueId` lastUpdate-bump landed in #100.
+
+**Batch #102–#111 (2026-07-08→10; Bala-orchestrated, Claude-reviewed where behavior-touching).** Ledger was synced through #101 in #102. CI hardening: #103 re-runs `Guardrail checks` on `fast-lane` label add/remove (FIX-095) and #104 tightened the `main.ts` ratchet baseline to its true count (FIX-088R). Correctness fixes: #105 re-anchors elapsed on a live-cue `lastUpdate` bump (FIX-100), #106 treats the `0` sentinel as missing in the skew guard (FIX-097), #107 stops dropping rooms on partial/invalid seed state (FIX-088S), and #109 made the FIX-100 re-anchor line-neutral (held the `main.ts` ratchet, fixed a red main). Then the first behaviour-sensitive **carve batch** landed, all byte-faithful and independently reviewed: **U8a (#108)** dedups the companion `ControllerLock` to `@ontime/shared-types` (DoD #4, single wire-shape); **U4 (#110)** carves five reconciliation/arbitration helpers (`resolveRoomSource`, `isSnapshotStale`, `getConfidenceWindowMs`, `shouldBootstrapCachedSubscriptions`, `resolveReconciledTimerTargetId`) + helper/consts out of `UnifiedDataContext.tsx` into `local-sync-arbitration` behind an app-side DI shim that preserves the last-accepted-cache path (`6624→6521`); **U7 (#111)** extracts the disk room-cache persistence lifecycle (load/debounced-write/flush/backup/trim) out of `main.ts` into a fs-injected `room-cache.ts` adapter (`7588→7386`, byte-identical debounce/flush). **God-file status now: `UnifiedDataContext.tsx` 6,520 / `main.ts` 7,386 (from 6,922 / 8,064 at the #35 ratchet — ~8% of the D5 line-emptying done); packages 6/10 populated.**
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -216,6 +218,16 @@ one-per-payload.
 - PR #99 docs(rebuild): sync ledger through #98 — 7th audit GO, MINOR-1 fixed, N2 resolved
 - PR #100 fix(companion): bump room lastUpdate when activeLiveCueId changes
 - PR #101 fix(arbitration): large-skew fallback to room authority/mode instead of hardcoded cloud (GAP-1)
+- PR #102 docs(rebuild): sync ledger through #101 — conformance check + GAP-1
+- PR #103 ci(guardrails): re-run on fast-lane label change (FIX-095)
+- PR #104 ci(guardrails): tighten main.ts ratchet baseline to true count (FIX-088R)
+- PR #105 fix(companion): re-anchor elapsed on live-cue lastUpdate bump (FIX-100)
+- PR #106 fix(arbitration): treat 0 sentinel as missing in skew guard (FIX-097)
+- PR #107 fix(seed): don't drop rooms on partial/invalid seed state (FIX-088S)
+- PR #108 refactor(companion): dedup ControllerLock to @ontime/shared-types (U8a, DoD #4)
+- PR #109 fix(companion): make FIX-100 re-anchor line-neutral (hold main.ts ratchet, fix red main)
+- PR #110 rebuild(U4): carve reconciliation helpers into local-sync-arbitration (UnifiedDataContext 6624→6521)
+- PR #111 refactor(companion): extract disk room-cache persistence adapter (U7; main.ts 7588→7386)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
@@ -240,10 +252,9 @@ For frontend-touching builder prompts, include `npm run lint --workspace fronten
 
 **Next units (canonical — single source of truth; `rebuild-companion-coupling.md` and the handoff block below defer here):** Organized by god-file lane so PRs stay serial on each god-file mutex while lanes may interleave.
 
-- **Lane A — `UnifiedDataContext.tsx` (priority; biggest god-file value):** **U4/U5** — expand `local-sync-arbitration` (carve the timer/sync/lock merge + arbitration out of the frontend god-file). The M5 fresh-wins `mergeProgress` contract is the extraction source of truth.
-- **Lane B — `companion/src/main.ts`:** **U7** disk room-cache adapter (include cache round-trip tests — sixth-audit Obs-3) → **then** the **LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter; required for D5; decision-gated on `instanceId` and sequenced AFTER Lane A's timer-side work).
-- **Fast-lane (low-risk, anytime, no god-file mutex contention):** **U8** wire/mark the zero-caller predicates; companion-side `ControllerLock` dedup (sixth-audit Obs-2 / DoD #4).
-  - **Companion `ControllerLock` dedup:** `companion/src/control-lock-utils.ts` still defines a field-identical local `ControllerLock` next to the canonical one in `@ontime/shared-types` (#76). Drop the local copy and import from shared-types — required for DoD #4 (single wire-shape).
+- **Lane A — `UnifiedDataContext.tsx` (priority; biggest god-file value):** ~~**U4** first arbitration/reconciliation carve~~ **DONE (#110)** — five helpers + consts now in `local-sync-arbitration` behind the DI shim. **NEXT: U5** — continue carving the timer/sync/lock merge + remaining arbitration out of the frontend god-file. The M5 fresh-wins `mergeProgress` contract is the extraction source of truth.
+- **Lane B — `companion/src/main.ts`:** ~~**U7** disk room-cache adapter~~ **DONE (#111)** — `room-cache.ts` fs-injected adapter, byte-identical lifecycle. **NEXT (now the priority Lane-B unit): the LiveCue/presentation cluster carve** (B1 type dedup + envelopes→interface-contracts + logic→presentation-core + probe I/O→companion adapter; required for D5; decision-gated on `instanceId`). Lane A's timer-side work is far enough along that this is unblocked.
+- **Fast-lane (low-risk, anytime, no god-file mutex contention):** **U8** wire/mark the zero-caller predicates. ~~companion-side `ControllerLock` dedup (U8a)~~ **DONE (#108)** — local copy dropped, imports from `@ontime/shared-types` (DoD #4, single wire-shape).
 - **Deferred seed follow-ups:** `SEED_COMPANION_CACHE` auth gate stays deferred until LAN-mode scope. ~~N2 milestone-gate watch (snapshot arbitration tolerating a `0` anchor)~~ **RESOLVED (#97)** — `resolveSnapshotTimestamp` anchors a live snapshot on the envelope `timestamp` when `lastUpdate` is the `0` sentinel; the gap is fixed + tested.
 
 ## Claude offline-session summary (for Codex — 2026-06-11, while you were out of tokens)
