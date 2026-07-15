@@ -7,6 +7,7 @@ import type {
   QueuedEvent,
 } from './index'
 import {
+  buildDefaultCompanionState,
   buildRoomFromCompanion,
   getConfidenceWindowMs,
   isSnapshotStale,
@@ -710,6 +711,35 @@ describe('mergeQueuedEvents', () => {
     ])
   })
 
+  it('CREATE + UPDATE at equal timestamp uses the update clientId (>= is inclusive)', () => {
+    const create: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 5,
+      roomId: 'room-1',
+      timer: timer('t1', { name: 'orig' }),
+      clientId: 'creator',
+    }
+    const update: QueuedEvent = {
+      type: 'UPDATE_TIMER',
+      timestamp: 5,
+      roomId: 'room-1',
+      timerId: 't1',
+      changes: { name: 'renamed' } as never,
+      clientId: 'updater',
+    }
+
+    const merged = mergeQueuedEvents([create, update])
+    expect(merged).toEqual([
+      {
+        type: 'CREATE_TIMER',
+        timestamp: 5,
+        roomId: 'room-1',
+        timer: timer('t1', { name: 'renamed' }),
+        clientId: 'updater',
+      },
+    ])
+  })
+
   it('CREATE only in a group is returned as the create', () => {
     const create: QueuedEvent = {
       type: 'CREATE_TIMER',
@@ -1134,6 +1164,34 @@ describe('mergeControllerClients', () => {
     expect(result.map((c) => c.clientId).sort()).toEqual(['edge', 'fresh', 'nohb'])
   })
 
+  it('applies the companion/default TTL to companion-source and unknown-source clients', () => {
+    const result = mergeControllerClients(
+      [
+        client({ clientId: 'companion-stale', source: 'companion', lastHeartbeat: NOW - MAX_AGE_MS - 1 }),
+        client({ clientId: 'companion-edge', source: 'companion', lastHeartbeat: NOW - MAX_AGE_MS }),
+        client({ clientId: 'default-stale', lastHeartbeat: NOW - MAX_AGE_MS - 1 }),
+        client({ clientId: 'default-edge', lastHeartbeat: NOW - MAX_AGE_MS }),
+      ],
+      [],
+    )
+    // Stale companion/default clients drop; edge (=== boundary) clients stay.
+    expect(result.map((c) => c.clientId).sort()).toEqual(['companion-edge', 'default-edge'])
+  })
+
+  it('lets an incoming client with an equal lastHeartbeat win the merge (>= is inclusive)', () => {
+    const result = mergeControllerClients(
+      [client({ clientId: 'a', source: 'cloud', deviceName: 'old', lastHeartbeat: NOW })],
+      [client({ clientId: 'a', source: 'cloud', deviceName: 'new', lastHeartbeat: NOW })],
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      clientId: 'a',
+      source: 'cloud',
+      deviceName: 'new',
+      lastHeartbeat: NOW,
+    })
+  })
+
   it('returns an empty array when both inputs are empty', () => {
     expect(mergeControllerClients([], [])).toEqual([])
   })
@@ -1186,6 +1244,48 @@ describe('buildRoomFromCompanion', () => {
     )
 
     expect(room.ownerId).toBe('user-123')
+  })
+
+  it('adopts companionState title/timezone over the base room values', () => {
+    const baseRoom = {
+      id: 'room-adopt',
+      ownerId: 'owner-1',
+      title: 'Base Title',
+      timezone: 'UTC',
+      createdAt: 1,
+      order: 0,
+      config: { warningSec: 120, criticalSec: 30 },
+      state: {
+        activeTimerId: null,
+        isRunning: false,
+        startedAt: null,
+        elapsedOffset: 0,
+        progress: {},
+        showClock: false,
+        message: { text: '', visible: false, color: 'green' },
+        currentTime: 0,
+        lastUpdate: 0,
+      },
+      tier: 'basic',
+      features: { localMode: true, showControl: false, powerpoint: true, externalVideo: false },
+      _version: 1,
+    } as unknown as Parameters<typeof buildRoomFromCompanion>[2]
+
+    const room = buildRoomFromCompanion(
+      'room-adopt',
+      {
+        activeTimerId: null,
+        isRunning: false,
+        currentTime: 0,
+        lastUpdate: 1234,
+        title: 'Companion Title',
+        timezone: 'America/Chicago',
+      } as Parameters<typeof buildRoomFromCompanion>[1],
+      baseRoom,
+    )
+
+    expect(room.title).toBe('Companion Title')
+    expect(room.timezone).toBe('America/Chicago')
   })
 })
 
@@ -1282,6 +1382,11 @@ describe('toCompanionRoomState (cloud -> companion adapter)', () => {
     expect(hasClockMode).toBe(false as never)
   })
 
+  it('projects a paused room as isRunning=false (does not force true)', () => {
+    const out = toCompanionRoomState(makeRoom({ isRunning: false, startedAt: null }), 0)
+    expect(out.isRunning).toBe(false)
+  })
+
   it('defaults optional cloud fields (null activeTimerId, missing lastUpdate)', () => {
     const out = toCompanionRoomState(
       makeRoom({ activeTimerId: null, lastUpdate: undefined }),
@@ -1291,5 +1396,19 @@ describe('toCompanionRoomState (cloud -> companion adapter)', () => {
     // lastUpdate falls back to Date.now() when cloud omits it.
     expect(typeof out.lastUpdate).toBe('number')
     expect(out.lastUpdate).toBeGreaterThan(0)
+  })
+})
+
+// Pins the seed shape used when bootstrapping a companion room with no prior
+// state. lastUpdate is Date.now() so it is asserted as a number, not a value.
+describe('buildDefaultCompanionState', () => {
+  it('returns the default companion projection shape', () => {
+    const state = buildDefaultCompanionState()
+    expect(state.activeTimerId).toBeNull()
+    expect(state.isRunning).toBe(false)
+    expect(state.currentTime).toBe(0)
+    expect(state.showClock).toBe(false)
+    expect(state.message).toEqual({ text: '', visible: false, color: 'green' })
+    expect(typeof state.lastUpdate).toBe('number')
   })
 })
