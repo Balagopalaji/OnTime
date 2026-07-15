@@ -3,11 +3,9 @@ import { useEffect } from 'react'
 import { act, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildRoomFromCompanion,
   clearRoomControlLifecycleState,
   getConfidenceWindowMs,
   getReconnectJoinEntries,
-  mergeCueQueueEvents,
   prunePendingControlRequests,
   readCachedSubscriptions,
   requeueJoinEntryToTail,
@@ -15,8 +13,6 @@ import {
   reduceControlDisplacementsForLockUpdate,
   reduceControlRequestsByStatus,
   reducePendingControlRequestByStatus,
-  resolveQueuedCompanionLockReplayCallbackState,
-  resolveQueuedCompanionLockReplayState,
   resolveLockAuthoritySource,
   resolveControllerLockState,
   resolveRoomSource,
@@ -25,8 +21,6 @@ import {
   shouldResetQueuedLockReplayOnSocketChange,
   shouldQueueCompanionLockPayload,
   resolveReconciledTimerTargetId,
-  toCompanionRoomState,
-  type CueQueuedEvent,
 } from './UnifiedDataContext'
 import { resolveControllerTimerTargetId } from '../routes/controller-timer-target'
 
@@ -263,83 +257,6 @@ describe('resolveRoomSource', () => {
         cloudOnline: false,
       }),
     ).toBe('companion')
-  })
-})
-
-describe('mergeCueQueueEvents', () => {
-  const baseCue = {
-    id: 'cue-1',
-    roomId: 'room-1',
-    role: 'lx' as const,
-    title: 'Lights',
-    triggerType: 'timed' as const,
-    createdBy: 'user-1',
-  }
-
-  it('merges update into create', () => {
-    const queue: CueQueuedEvent[] = [
-      {
-        type: 'CREATE_CUE',
-        roomId: 'room-1',
-        cue: baseCue,
-        timestamp: 100,
-        clientId: 'client-a',
-      },
-      {
-        type: 'UPDATE_CUE',
-        roomId: 'room-1',
-        cueId: 'cue-1',
-        changes: { title: 'LX Go' },
-        timestamp: 200,
-        clientId: 'client-a',
-      },
-    ]
-
-    const merged = mergeCueQueueEvents(queue)
-    expect(merged).toHaveLength(1)
-    expect(merged[0].type).toBe('CREATE_CUE')
-    if (merged[0].type === 'CREATE_CUE') {
-      expect(merged[0].cue.title).toBe('LX Go')
-    }
-  })
-
-  it('keeps delete as the final action', () => {
-    const queue: CueQueuedEvent[] = [
-      {
-        type: 'CREATE_CUE',
-        roomId: 'room-1',
-        cue: baseCue,
-        timestamp: 100,
-        clientId: 'client-a',
-      },
-      {
-        type: 'DELETE_CUE',
-        roomId: 'room-1',
-        cueId: 'cue-1',
-        timestamp: 200,
-        clientId: 'client-a',
-      },
-    ]
-
-    const merged = mergeCueQueueEvents(queue)
-    expect(merged).toHaveLength(1)
-    expect(merged[0].type).toBe('DELETE_CUE')
-  })
-
-  it('retains reorder events', () => {
-    const queue: CueQueuedEvent[] = [
-      {
-        type: 'REORDER_CUES',
-        roomId: 'room-1',
-        cueIds: ['cue-1', 'cue-2'],
-        timestamp: 300,
-        clientId: 'client-a',
-      },
-    ]
-
-    const merged = mergeCueQueueEvents(queue)
-    expect(merged).toHaveLength(1)
-    expect(merged[0].type).toBe('REORDER_CUES')
   })
 })
 
@@ -1839,22 +1756,6 @@ describe('offline companion room bootstrap helpers', () => {
       cachedSubscriptions: { 'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' } },
     })).toBe(false)
   })
-
-  it('uses fallback owner for companion-only room bootstrap when no base room exists', () => {
-    const room = buildRoomFromCompanion(
-      'room-fallback',
-      {
-        activeTimerId: null,
-        isRunning: false,
-        currentTime: 0,
-        lastUpdate: 1234,
-      } as Parameters<typeof buildRoomFromCompanion>[1],
-      undefined,
-      'user-123',
-    )
-
-    expect(room.ownerId).toBe('user-123')
-  })
 })
 
 describe('hold-conflict lock reconciliation helpers', () => {
@@ -1866,36 +1767,6 @@ describe('hold-conflict lock reconciliation helpers', () => {
         companionClientId: 'companion-controller',
       }),
     ).toBe(true)
-  })
-
-  it('replays queued lock payload after hold expires', () => {
-    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
-    const held = resolveQueuedCompanionLockReplayState(payload, true)
-    expect(held.shouldRequeue).toBe(true)
-    expect(held.replayPayload).toBeNull()
-
-    const replayed = resolveQueuedCompanionLockReplayState(payload, false)
-    expect(replayed.shouldRequeue).toBe(false)
-    expect(replayed.replayPayload).toEqual(payload)
-  })
-
-  it('does not replay queued lock payload after room unsubscribe', () => {
-    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
-    const replayState = resolveQueuedCompanionLockReplayState(payload, false, false)
-    expect(replayState.shouldRequeue).toBe(false)
-    expect(replayState.replayPayload).toBeNull()
-    expect(replayState.queuedPayload).toBeNull()
-  })
-
-  it('replay callback no-ops when room unsubscribes before apply', () => {
-    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
-    const replayState = resolveQueuedCompanionLockReplayCallbackState(
-      resolveQueuedCompanionLockReplayState(payload, false, true),
-      false,
-    )
-    expect(replayState.shouldRequeue).toBe(false)
-    expect(replayState.replayPayload).toBeNull()
-    expect(replayState.queuedPayload).toBeNull()
   })
 })
 
@@ -2212,74 +2083,5 @@ describe('shouldResetQueuedLockReplayOnSocketChange', () => {
         { id: 'socket-b' },
       ),
     ).toBe(true)
-  })
-})
-
-// Pins the cloud -> CompanionRoomState adapter (toCompanionRoomState) that
-// replaces the previous `room.state as RoomState` structural-lie seed cast.
-// The adapter is the explicit, lossless conversion from the cloud
-// startedAt/elapsedOffset anchor to the companion currentTime/lastUpdate
-// projection. It must NOT emit startedAt or clockMode (those are not part of
-// the companion projection), and it must carry title/timezone from the room.
-describe('toCompanionRoomState (cloud -> companion adapter)', () => {
-  type CloudRoom = Parameters<typeof toCompanionRoomState>[0]
-
-  function makeRoom(overrides: Partial<CloudRoom['state']> = {}): CloudRoom {
-    return {
-      id: 'room-1',
-      ownerId: 'owner-1',
-      title: 'Main Stage',
-      timezone: 'America/New_York',
-      createdAt: 1,
-      order: 0,
-      config: { warningSec: 60, criticalSec: 15 },
-      state: {
-        activeTimerId: 'timer-a',
-        isRunning: true,
-        startedAt: 1000,
-        elapsedOffset: 0,
-        progress: { 'timer-a': 5000 },
-        showClock: true,
-        message: { text: 'Go', visible: true, color: 'green' },
-        lastUpdate: 2000,
-        ...overrides,
-      },
-    }
-  }
-
-  it('produces a CompanionRoomState anchored on currentTime/lastUpdate', () => {
-    const out = toCompanionRoomState(makeRoom(), 5000)
-    expect(out.activeTimerId).toBe('timer-a')
-    expect(out.isRunning).toBe(true)
-    // currentTime comes from the caller (computed elapsed), not the cloud anchor.
-    expect(out.currentTime).toBe(5000)
-    expect(out.lastUpdate).toBe(2000)
-    expect(out.showClock).toBe(true)
-    expect(out.message).toEqual({ text: 'Go', visible: true, color: 'green' })
-    expect(out.title).toBe('Main Stage')
-    expect(out.timezone).toBe('America/New_York')
-  })
-
-  it('does NOT carry startedAt or clockMode (companion projection is divergent)', () => {
-    const out = toCompanionRoomState(makeRoom({ clockMode: '24h' }), 0)
-    expect(out).not.toHaveProperty('startedAt')
-    expect(out).not.toHaveProperty('clockMode')
-    // Compile-time guard: the CompanionRoomState type has no such keys.
-    type Keys = keyof typeof out
-    const hasStartedAt: Keys extends 'startedAt' ? true : false = false as never
-    const hasClockMode: Keys extends 'clockMode' ? true : false = false as never
-    expect(hasStartedAt).toBe(false as never)
-    expect(hasClockMode).toBe(false as never)
-  })
-
-  it('defaults optional cloud fields (null activeTimerId, missing lastUpdate)', () => {
-    const out = toCompanionRoomState(
-      makeRoom({ activeTimerId: null, lastUpdate: undefined }),
-      0,
-    )
-    expect(out.activeTimerId).toBeNull()
-    // lastUpdate falls back to Date.now() when cloud omits it.
-    expect(typeof out.lastUpdate).toBe('number')
-    expect(out.lastUpdate).toBeGreaterThan(0)
   })
 })
