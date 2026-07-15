@@ -7,6 +7,8 @@ export { mergeCueQueueEvents } from './queue-merge'
 export type { CueQueuedEvent } from './queue-merge'
 export { mergeControllerClients } from './controller-client-merge'
 export { resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState } from './lock-replay-arbitration'
+export { buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase } from './companion-room-state'
+export { DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE } from './companion-room-state'
 
 export type ArbitrationDomain = 'room' | 'lock' | 'pin' | 'timer' | 'cue' | 'liveCue'
 
