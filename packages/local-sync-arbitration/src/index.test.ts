@@ -3,11 +3,13 @@ import type {
   ArbitrationDecision,
   ArbitrationInput,
   ArbitrationLastAcceptedCache,
+  CueQueuedEvent,
   QueuedEvent,
 } from './index'
 import {
   getConfidenceWindowMs,
   isSnapshotStale,
+  mergeCueQueueEvents,
   mergeQueuedEvents,
   normalizeRoomAuthoritySource,
   resolveReconciledTimerTargetId,
@@ -15,7 +17,7 @@ import {
   resolveSnapshotTimestamp,
   shouldBootstrapCachedSubscriptions,
 } from './index'
-import type { Room, Timer } from '@ontime/shared-types'
+import type { Cue, Room, Timer } from '@ontime/shared-types'
 
 const baseInput = () => ({
   roomId: 'room-1',
@@ -798,5 +800,247 @@ describe('mergeQueuedEvents', () => {
 
   it('returns an empty array for an empty queue', () => {
     expect(mergeQueuedEvents([])).toEqual([])
+  })
+})
+
+describe('mergeCueQueueEvents', () => {
+  const cue = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, roomId: 'room-1', role: 'lx', title: 'Lights', triggerType: 'timed', createdBy: 'user-1', ...extra }) as unknown as Cue
+
+  it('keys CUE_CRUD per cue id (CREATE/UPDATE/DELETE share a group)', () => {
+    const cA: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 1,
+      roomId: 'room-1',
+      cue: cue('cue-1'),
+      clientId: 'c1',
+    }
+    const cB: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 2,
+      roomId: 'room-1',
+      cue: cue('cue-2'),
+      clientId: 'c1',
+    }
+    // Different cue ids stay in separate groups and are both kept.
+    expect(mergeCueQueueEvents([cA, cB])).toEqual([cA, cB])
+  })
+
+  it('DELETE present in a cue group wins (last delete wins)', () => {
+    const create: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 1,
+      roomId: 'room-1',
+      cue: cue('cue-1'),
+      clientId: 'c1',
+    }
+    const update: CueQueuedEvent = {
+      type: 'UPDATE_CUE',
+      timestamp: 2,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      changes: { title: 'x' },
+      clientId: 'c1',
+    }
+    const del1: CueQueuedEvent = {
+      type: 'DELETE_CUE',
+      timestamp: 3,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      clientId: 'c1',
+    }
+    const del2: CueQueuedEvent = {
+      type: 'DELETE_CUE',
+      timestamp: 5,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      clientId: 'c2',
+    }
+
+    expect(mergeCueQueueEvents([create, update, del1, del2])).toEqual([del2])
+  })
+
+  it('merges CREATE + UPDATE into one CREATE with merged cue (update newer -> update clientId, max timestamp)', () => {
+    const create: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 1,
+      roomId: 'room-1',
+      cue: cue('cue-1', { title: 'orig', notes: 'keep' }),
+      clientId: 'creator',
+    }
+    const update: CueQueuedEvent = {
+      type: 'UPDATE_CUE',
+      timestamp: 4,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      changes: { title: 'renamed' },
+      clientId: 'updater',
+    }
+
+    const merged = mergeCueQueueEvents([create, update])
+    expect(merged).toEqual([
+      {
+        type: 'CREATE_CUE',
+        timestamp: 4,
+        roomId: 'room-1',
+        cue: cue('cue-1', { title: 'renamed', notes: 'keep' }),
+        clientId: 'updater',
+      },
+    ])
+  })
+
+  it('CREATE + UPDATE with update NOT newer keeps create clientId but still uses max timestamp', () => {
+    const create: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 10,
+      roomId: 'room-1',
+      cue: cue('cue-1', { title: 'orig' }),
+      clientId: 'creator',
+    }
+    const update: CueQueuedEvent = {
+      type: 'UPDATE_CUE',
+      timestamp: 4,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      changes: { title: 'renamed' },
+      clientId: 'updater',
+    }
+
+    const merged = mergeCueQueueEvents([create, update])
+    expect(merged).toEqual([
+      {
+        type: 'CREATE_CUE',
+        timestamp: 10,
+        roomId: 'room-1',
+        cue: cue('cue-1', { title: 'renamed' }),
+        clientId: 'creator',
+      },
+    ])
+  })
+
+  it('CREATE + UPDATE at equal timestamp uses the update clientId (>= is inclusive)', () => {
+    const create: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 5,
+      roomId: 'room-1',
+      cue: cue('cue-1'),
+      clientId: 'creator',
+    }
+    const update: CueQueuedEvent = {
+      type: 'UPDATE_CUE',
+      timestamp: 5,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      changes: { title: 'renamed' },
+      clientId: 'updater',
+    }
+
+    const merged = mergeCueQueueEvents([create, update])
+    expect(merged).toEqual([
+      {
+        type: 'CREATE_CUE',
+        timestamp: 5,
+        roomId: 'room-1',
+        cue: cue('cue-1', { title: 'renamed' }),
+        clientId: 'updater',
+      },
+    ])
+  })
+
+  it('CREATE only in a group is returned as the create', () => {
+    const create: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 7,
+      roomId: 'room-1',
+      cue: cue('cue-1'),
+      clientId: 'c1',
+    }
+    expect(mergeCueQueueEvents([create])).toEqual([create])
+  })
+
+  it('fallthrough (updates only, no create/delete) collapses to the latest', () => {
+    const u1: CueQueuedEvent = {
+      type: 'UPDATE_CUE',
+      timestamp: 2,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      changes: { title: 'a' },
+      clientId: 'c1',
+    }
+    const u2: CueQueuedEvent = {
+      type: 'UPDATE_CUE',
+      timestamp: 8,
+      roomId: 'room-1',
+      cueId: 'cue-1',
+      changes: { title: 'b' },
+      clientId: 'c1',
+    }
+    expect(mergeCueQueueEvents([u1, u2])).toEqual([u2])
+  })
+
+  it('keys REORDER_CUES per roomId and keeps the latest reorder', () => {
+    const r1: CueQueuedEvent = {
+      type: 'REORDER_CUES',
+      timestamp: 3,
+      roomId: 'room-1',
+      cueIds: ['a', 'b'],
+      clientId: 'c1',
+    }
+    const r2: CueQueuedEvent = {
+      type: 'REORDER_CUES',
+      timestamp: 9,
+      roomId: 'room-1',
+      cueIds: ['b', 'a'],
+      clientId: 'c1',
+    }
+    expect(mergeCueQueueEvents([r1, r2])).toEqual([r2])
+  })
+
+  it('keys REORDER_CUES per roomId so different rooms are kept separate', () => {
+    const rA: CueQueuedEvent = {
+      type: 'REORDER_CUES',
+      timestamp: 3,
+      roomId: 'room-1',
+      cueIds: ['a'],
+      clientId: 'c1',
+    }
+    const rB: CueQueuedEvent = {
+      type: 'REORDER_CUES',
+      timestamp: 4,
+      roomId: 'room-2',
+      cueIds: ['b'],
+      clientId: 'c1',
+    }
+    expect(mergeCueQueueEvents([rA, rB])).toEqual([rA, rB])
+  })
+
+  it('final output is sorted ascending by timestamp across groups', () => {
+    const reorder: CueQueuedEvent = {
+      type: 'REORDER_CUES',
+      timestamp: 100,
+      roomId: 'room-1',
+      cueIds: ['a'],
+      clientId: 'c1',
+    }
+    const create: CueQueuedEvent = {
+      type: 'CREATE_CUE',
+      timestamp: 5,
+      roomId: 'room-1',
+      cue: cue('cue-1'),
+      clientId: 'c1',
+    }
+    const del: CueQueuedEvent = {
+      type: 'DELETE_CUE',
+      timestamp: 50,
+      roomId: 'room-1',
+      cueId: 'cue-2',
+      clientId: 'c1',
+    }
+    const merged = mergeCueQueueEvents([reorder, create, del])
+    expect(merged.map((event) => event.timestamp)).toEqual([5, 50, 100])
+  })
+
+  it('returns an empty array for an empty queue', () => {
+    expect(mergeCueQueueEvents([])).toEqual([])
   })
 })

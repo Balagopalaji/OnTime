@@ -31,7 +31,7 @@ import {
   resolveSnapshotTimestamp,
   shouldBootstrapCachedSubscriptions,
 } from '../lib/arbitration'
-import { mergeQueuedEvents as mergeQueuedEventsPure, type QueuedEvent } from '@ontime/local-sync-arbitration'
+import { mergeCueQueueEvents, mergeQueuedEvents as mergeQueuedEventsPure, type CueQueuedEvent, type QueuedEvent } from '@ontime/local-sync-arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -287,102 +287,10 @@ export type { QueuedEvent } from '@ontime/local-sync-arbitration'
 // always carry both for ordering/replay, so this is the narrowed required form.
 type RoomStatePatchQueuedEvent = Extract<QueuedEvent, { type: 'ROOM_STATE_PATCH' }>
 
-export type CueQueuedEvent =
-  | {
-    type: 'CREATE_CUE'
-    timestamp: number
-    roomId: string
-    cue: Cue
-    clientId: string
-  }
-  | {
-    type: 'UPDATE_CUE'
-    timestamp: number
-    roomId: string
-    cueId: string
-    changes: Partial<Cue>
-    clientId: string
-  }
-  | {
-    type: 'DELETE_CUE'
-    timestamp: number
-    roomId: string
-    cueId: string
-    clientId: string
-  }
-  | {
-    type: 'REORDER_CUES'
-    timestamp: number
-    roomId: string
-    cueIds: string[]
-    clientId: string
-  }
-
-export const mergeCueQueueEvents = (queue: CueQueuedEvent[]): CueQueuedEvent[] => {
-  const grouped = new Map<string, CueQueuedEvent[]>()
-  const keyFor = (event: CueQueuedEvent) => {
-    switch (event.type) {
-      case 'CREATE_CUE':
-      case 'UPDATE_CUE':
-      case 'DELETE_CUE':
-        return `CUE:${event.type === 'CREATE_CUE' ? event.cue.id : event.cueId}`
-      case 'REORDER_CUES':
-        return `CUE_REORDER:${event.roomId}`
-      default:
-        return 'UNKNOWN'
-    }
-  }
-
-  queue.forEach((event) => {
-    const key = keyFor(event)
-    const list = grouped.get(key) ?? []
-    list.push(event)
-    grouped.set(key, list)
-  })
-
-  const merged: CueQueuedEvent[] = []
-  grouped.forEach((events) => {
-    const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp)
-    const latest = sorted[sorted.length - 1]
-
-    const deletes = sorted.filter((event) => event.type === 'DELETE_CUE') as Array<
-      Extract<CueQueuedEvent, { type: 'DELETE_CUE' }>
-    >
-    if (deletes.length) {
-      merged.push(deletes[deletes.length - 1])
-      return
-    }
-
-    const creates = sorted.filter((event) => event.type === 'CREATE_CUE') as Array<
-      Extract<CueQueuedEvent, { type: 'CREATE_CUE' }>
-    >
-    const updates = sorted.filter((event) => event.type === 'UPDATE_CUE') as Array<
-      Extract<CueQueuedEvent, { type: 'UPDATE_CUE' }>
-    >
-
-    if (creates.length) {
-      const create = creates[creates.length - 1]
-      const update = updates[updates.length - 1]
-      if (update) {
-        const mergedCue = { ...create.cue, ...(update.changes as Partial<Cue>) }
-        const useUpdate = update.timestamp >= create.timestamp
-        merged.push({
-          ...create,
-          cue: mergedCue,
-          timestamp: Math.max(create.timestamp, update.timestamp),
-          clientId: useUpdate ? update.clientId : create.clientId,
-        })
-        return
-      }
-      merged.push(create)
-      return
-    }
-
-    merged.push(latest)
-  })
-
-  return merged.sort((a, b) => a.timestamp - b.timestamp)
-}
+// CueQueuedEvent (offline cue-queue coalescing type) + mergeCueQueueEvents carved
+// to @ontime/local-sync-arbitration (Stage 1b U5); the type is re-exported so
+// existing importers still resolve it from this module.
+export type { CueQueuedEvent } from '@ontime/local-sync-arbitration'
 
 const DEFAULT_ROOM_CONFIG = {
   warningSec: 120,
