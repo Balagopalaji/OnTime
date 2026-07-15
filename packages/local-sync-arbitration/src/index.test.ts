@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ArbitrationDecision,
   ArbitrationInput,
@@ -9,6 +9,7 @@ import type {
 import {
   getConfidenceWindowMs,
   isSnapshotStale,
+  mergeControllerClients,
   mergeCueQueueEvents,
   mergeQueuedEvents,
   normalizeRoomAuthoritySource,
@@ -17,7 +18,7 @@ import {
   resolveSnapshotTimestamp,
   shouldBootstrapCachedSubscriptions,
 } from './index'
-import type { Cue, Room, Timer } from '@ontime/shared-types'
+import type { ControllerClient, Cue, Room, Timer } from '@ontime/shared-types'
 
 const baseInput = () => ({
   roomId: 'room-1',
@@ -1042,5 +1043,93 @@ describe('mergeCueQueueEvents', () => {
 
   it('returns an empty array for an empty queue', () => {
     expect(mergeCueQueueEvents([])).toEqual([])
+  })
+})
+
+describe('mergeControllerClients', () => {
+  const NOW = 1_700_000_000_000
+  const MAX_AGE_MS = 900_000
+
+  const client = (overrides: Partial<ControllerClient> & { clientId: string }): ControllerClient => ({
+    clientType: 'controller',
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keys distinct sources for the same clientId separately', () => {
+    const result = mergeControllerClients(
+      [client({ clientId: 'a', source: 'cloud', lastHeartbeat: NOW })],
+      [client({ clientId: 'a', source: 'companion', lastHeartbeat: NOW })],
+    )
+    expect(result).toHaveLength(2)
+    expect(new Set(result.map((c) => c.source))).toEqual(new Set(['cloud', 'companion']))
+  })
+
+  it('merges an incoming sourced client into an existing unknown-source entry and dedupes the fallback key', () => {
+    const result = mergeControllerClients(
+      [client({ clientId: 'a', deviceName: 'old', lastHeartbeat: NOW - 1000 })],
+      [client({ clientId: 'a', source: 'cloud', deviceName: 'new', lastHeartbeat: NOW })],
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      clientId: 'a',
+      source: 'cloud',
+      deviceName: 'new',
+      lastHeartbeat: NOW,
+    })
+  })
+
+  it('lets a newer lastHeartbeat win while preserving prior-only fields (spread order)', () => {
+    const result = mergeControllerClients(
+      [client({ clientId: 'a', source: 'cloud', deviceName: 'old', userId: 'u1', clientType: 'controller', lastHeartbeat: NOW - 5000 })],
+      [client({ clientId: 'a', source: 'cloud', deviceName: 'new', clientType: 'viewer', lastHeartbeat: NOW })],
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      source: 'cloud',
+      deviceName: 'new',
+      clientType: 'viewer',
+      userId: 'u1',
+      lastHeartbeat: NOW,
+    })
+  })
+
+  it('backfills source from an older incoming client without overwriting the newer previous heartbeat', () => {
+    const result = mergeControllerClients(
+      [client({ clientId: 'a', deviceName: 'keep', lastHeartbeat: NOW })],
+      [client({ clientId: 'a', source: 'companion', deviceName: 'stale', lastHeartbeat: NOW - 5000 })],
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      clientId: 'a',
+      source: 'companion',
+      deviceName: 'keep',
+      lastHeartbeat: NOW,
+    })
+  })
+
+  it('drops clients with a numeric lastHeartbeat older than the TTL and keeps edge/non-number/fresh entries', () => {
+    const result = mergeControllerClients(
+      [
+        client({ clientId: 'stale', source: 'cloud', lastHeartbeat: NOW - MAX_AGE_MS - 1 }),
+        client({ clientId: 'edge', source: 'cloud', lastHeartbeat: NOW - MAX_AGE_MS }),
+        client({ clientId: 'nohb', source: 'cloud' }),
+        client({ clientId: 'fresh', source: 'companion', lastHeartbeat: NOW }),
+      ],
+      [],
+    )
+    expect(result.map((c) => c.clientId).sort()).toEqual(['edge', 'fresh', 'nohb'])
+  })
+
+  it('returns an empty array when both inputs are empty', () => {
+    expect(mergeControllerClients([], [])).toEqual([])
   })
 })
