@@ -13,6 +13,8 @@ import {
   mergeCueQueueEvents,
   mergeQueuedEvents,
   normalizeRoomAuthoritySource,
+  resolveQueuedCompanionLockReplayCallbackState,
+  resolveQueuedCompanionLockReplayState,
   resolveReconciledTimerTargetId,
   resolveRoomSource,
   resolveSnapshotTimestamp,
@@ -1131,5 +1133,37 @@ describe('mergeControllerClients', () => {
 
   it('returns an empty array when both inputs are empty', () => {
     expect(mergeControllerClients([], [])).toEqual([])
+  })
+})
+
+describe('queued companion lock replay arbitration', () => {
+  it('replays queued lock payload after hold expires', () => {
+    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
+    const held = resolveQueuedCompanionLockReplayState(payload, true)
+    expect(held.shouldRequeue).toBe(true)
+    expect(held.replayPayload).toBeNull()
+
+    const replayed = resolveQueuedCompanionLockReplayState(payload, false)
+    expect(replayed.shouldRequeue).toBe(false)
+    expect(replayed.replayPayload).toEqual(payload)
+  })
+
+  it('does not replay queued lock payload after room unsubscribe', () => {
+    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
+    const replayState = resolveQueuedCompanionLockReplayState(payload, false, false)
+    expect(replayState.shouldRequeue).toBe(false)
+    expect(replayState.replayPayload).toBeNull()
+    expect(replayState.queuedPayload).toBeNull()
+  })
+
+  it('replay callback no-ops when room unsubscribes before apply', () => {
+    const payload = { roomId: 'room-1', type: 'CONTROLLER_LOCK_STATE' } as const
+    const replayState = resolveQueuedCompanionLockReplayCallbackState(
+      resolveQueuedCompanionLockReplayState(payload, false, true),
+      false,
+    )
+    expect(replayState.shouldRequeue).toBe(false)
+    expect(replayState.replayPayload).toBeNull()
+    expect(replayState.queuedPayload).toBeNull()
   })
 })

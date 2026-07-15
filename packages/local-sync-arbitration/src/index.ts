@@ -6,6 +6,7 @@ export type { QueuedEvent } from './queue-merge'
 export { mergeCueQueueEvents } from './queue-merge'
 export type { CueQueuedEvent } from './queue-merge'
 export { mergeControllerClients } from './controller-client-merge'
+export { resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState } from './lock-replay-arbitration'
 
 export type ArbitrationDomain = 'room' | 'lock' | 'pin' | 'timer' | 'cue' | 'liveCue'
 
