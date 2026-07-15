@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "dependencies": {
+    "@ontime/interface-contracts": "0.0.0",
     "@ontime/shared-types": "0.0.0"
   },
   "exports": {

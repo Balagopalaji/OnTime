@@ -1,6 +1,9 @@
 // rebuild-target: packages/local-sync-arbitration
 import type { Room, Timer } from '@ontime/shared-types'
 
+export { mergeQueuedEvents } from './queue-merge'
+export type { QueuedEvent } from './queue-merge'
+
 export type ArbitrationDomain = 'room' | 'lock' | 'pin' | 'timer' | 'cue' | 'liveCue'
 
 export type ArbitrationInput = {

@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ArbitrationDecision, ArbitrationInput, ArbitrationLastAcceptedCache } from './index'
+import type {
+  ArbitrationDecision,
+  ArbitrationInput,
+  ArbitrationLastAcceptedCache,
+  QueuedEvent,
+} from './index'
 import {
   getConfidenceWindowMs,
   isSnapshotStale,
+  mergeQueuedEvents,
   normalizeRoomAuthoritySource,
   resolveReconciledTimerTargetId,
   resolveRoomSource,
@@ -526,5 +532,271 @@ describe('resolveRoomSource', () => {
       effectiveMode: 'cloud',
       confidenceWindowMs: 2000,
     })
+  })
+})
+
+describe('mergeQueuedEvents', () => {
+  const timer = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, roomId: 'room-1', ...extra }) as unknown as import('@ontime/shared-types').Timer
+
+  it('groups TIMER_ACTION per timerId, keeping the latest per timer', () => {
+    const a1: QueuedEvent = {
+      type: 'TIMER_ACTION',
+      action: 'START',
+      timestamp: 10,
+      roomId: 'room-1',
+      timerId: 't1',
+      clientId: 'c1',
+    }
+    const a2: QueuedEvent = {
+      type: 'TIMER_ACTION',
+      action: 'PAUSE',
+      timestamp: 20,
+      roomId: 'room-1',
+      timerId: 't1',
+      clientId: 'c1',
+    }
+    const b1: QueuedEvent = {
+      type: 'TIMER_ACTION',
+      action: 'START',
+      timestamp: 15,
+      roomId: 'room-1',
+      timerId: 't2',
+      clientId: 'c1',
+    }
+
+    const merged = mergeQueuedEvents([a1, a2, b1])
+    // t1 collapses to its latest (PAUSE@20); t2 kept independently.
+    expect(merged).toEqual([b1, a2])
+  })
+
+  it('collapses ROOM_STATE_PATCH per roomId to the latest (latest wins)', () => {
+    const p1: QueuedEvent = {
+      type: 'ROOM_STATE_PATCH',
+      timestamp: 5,
+      roomId: 'room-1',
+      changes: { isRunning: false },
+      clientId: 'c1',
+    }
+    const p2: QueuedEvent = {
+      type: 'ROOM_STATE_PATCH',
+      timestamp: 30,
+      roomId: 'room-1',
+      changes: { isRunning: true },
+      clientId: 'c2',
+    }
+
+    expect(mergeQueuedEvents([p1, p2])).toEqual([p2])
+    // Order-insensitive: still latest by timestamp.
+    expect(mergeQueuedEvents([p2, p1])).toEqual([p2])
+  })
+
+  it('keys ROOM_STATE_PATCH per roomId so different rooms are kept separate', () => {
+    const pA: QueuedEvent = {
+      type: 'ROOM_STATE_PATCH',
+      timestamp: 5,
+      roomId: 'room-1',
+      changes: { title: 'a' },
+      clientId: 'c1',
+    }
+    const pB: QueuedEvent = {
+      type: 'ROOM_STATE_PATCH',
+      timestamp: 6,
+      roomId: 'room-2',
+      changes: { title: 'b' },
+      clientId: 'c1',
+    }
+
+    expect(mergeQueuedEvents([pA, pB])).toEqual([pA, pB])
+  })
+
+  it('DELETE present in a TIMER_CRUD group wins (last delete wins)', () => {
+    const create: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 1,
+      roomId: 'room-1',
+      timer: timer('t1'),
+      clientId: 'c1',
+    }
+    const update: QueuedEvent = {
+      type: 'UPDATE_TIMER',
+      timestamp: 2,
+      roomId: 'room-1',
+      timerId: 't1',
+      changes: { name: 'x' } as never,
+      clientId: 'c1',
+    }
+    const del1: QueuedEvent = {
+      type: 'DELETE_TIMER',
+      timestamp: 3,
+      roomId: 'room-1',
+      timerId: 't1',
+      clientId: 'c1',
+    }
+    const del2: QueuedEvent = {
+      type: 'DELETE_TIMER',
+      timestamp: 5,
+      roomId: 'room-1',
+      timerId: 't1',
+      clientId: 'c2',
+    }
+
+    expect(mergeQueuedEvents([create, update, del1, del2])).toEqual([del2])
+  })
+
+  it('merges CREATE + UPDATE into one CREATE with merged timer (update newer -> update clientId, max timestamp)', () => {
+    const create: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 1,
+      roomId: 'room-1',
+      timer: timer('t1', { name: 'orig', duration: 60 }),
+      clientId: 'creator',
+    }
+    const update: QueuedEvent = {
+      type: 'UPDATE_TIMER',
+      timestamp: 4,
+      roomId: 'room-1',
+      timerId: 't1',
+      changes: { name: 'renamed' } as never,
+      clientId: 'updater',
+    }
+
+    const merged = mergeQueuedEvents([create, update])
+    expect(merged).toEqual([
+      {
+        type: 'CREATE_TIMER',
+        timestamp: 4,
+        roomId: 'room-1',
+        timer: timer('t1', { name: 'renamed', duration: 60 }),
+        clientId: 'updater',
+      },
+    ])
+  })
+
+  it('CREATE + UPDATE with update NOT newer keeps create clientId but still uses max timestamp', () => {
+    const create: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 10,
+      roomId: 'room-1',
+      timer: timer('t1', { name: 'orig' }),
+      clientId: 'creator',
+    }
+    const update: QueuedEvent = {
+      type: 'UPDATE_TIMER',
+      timestamp: 4,
+      roomId: 'room-1',
+      timerId: 't1',
+      changes: { name: 'renamed' } as never,
+      clientId: 'updater',
+    }
+
+    const merged = mergeQueuedEvents([create, update])
+    expect(merged).toEqual([
+      {
+        type: 'CREATE_TIMER',
+        timestamp: 10,
+        roomId: 'room-1',
+        timer: timer('t1', { name: 'renamed' }),
+        clientId: 'creator',
+      },
+    ])
+  })
+
+  it('CREATE only in a group is returned as the create', () => {
+    const create: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 7,
+      roomId: 'room-1',
+      timer: timer('t1'),
+      clientId: 'c1',
+    }
+    expect(mergeQueuedEvents([create])).toEqual([create])
+  })
+
+  it('fallthrough (updates only, no create/delete) collapses to the latest', () => {
+    const u1: QueuedEvent = {
+      type: 'UPDATE_TIMER',
+      timestamp: 2,
+      roomId: 'room-1',
+      timerId: 't1',
+      changes: { name: 'a' } as never,
+      clientId: 'c1',
+    }
+    const u2: QueuedEvent = {
+      type: 'UPDATE_TIMER',
+      timestamp: 8,
+      roomId: 'room-1',
+      timerId: 't1',
+      changes: { name: 'b' } as never,
+      clientId: 'c1',
+    }
+    expect(mergeQueuedEvents([u1, u2])).toEqual([u2])
+  })
+
+  it('keys REORDER_TIMERS per roomId and keeps the latest reorder', () => {
+    const r1: QueuedEvent = {
+      type: 'REORDER_TIMERS',
+      timestamp: 3,
+      roomId: 'room-1',
+      timerIds: ['a', 'b'],
+      clientId: 'c1',
+    }
+    const r2: QueuedEvent = {
+      type: 'REORDER_TIMERS',
+      timestamp: 9,
+      roomId: 'room-1',
+      timerIds: ['b', 'a'],
+      clientId: 'c1',
+    }
+    expect(mergeQueuedEvents([r1, r2])).toEqual([r2])
+  })
+
+  it('keys TIMER_CRUD per timer id so different timers stay separate', () => {
+    const cA: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 1,
+      roomId: 'room-1',
+      timer: timer('t1'),
+      clientId: 'c1',
+    }
+    const cB: QueuedEvent = {
+      type: 'CREATE_TIMER',
+      timestamp: 2,
+      roomId: 'room-1',
+      timer: timer('t2'),
+      clientId: 'c1',
+    }
+    expect(mergeQueuedEvents([cA, cB])).toEqual([cA, cB])
+  })
+
+  it('final output is sorted ascending by timestamp across groups', () => {
+    const reorder: QueuedEvent = {
+      type: 'REORDER_TIMERS',
+      timestamp: 100,
+      roomId: 'room-1',
+      timerIds: ['a'],
+      clientId: 'c1',
+    }
+    const action: QueuedEvent = {
+      type: 'TIMER_ACTION',
+      action: 'START',
+      timestamp: 5,
+      roomId: 'room-1',
+      timerId: 't1',
+      clientId: 'c1',
+    }
+    const patch: QueuedEvent = {
+      type: 'ROOM_STATE_PATCH',
+      timestamp: 50,
+      roomId: 'room-1',
+      changes: { isRunning: true },
+      clientId: 'c1',
+    }
+    const merged = mergeQueuedEvents([reorder, action, patch])
+    expect(merged.map((event) => event.timestamp)).toEqual([5, 50, 100])
+  })
+
+  it('returns an empty array for an empty queue', () => {
+    expect(mergeQueuedEvents([])).toEqual([])
   })
 })
