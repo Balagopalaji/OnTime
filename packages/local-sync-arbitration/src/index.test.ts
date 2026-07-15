@@ -21,6 +21,7 @@ import {
   resolveSnapshotTimestamp,
   shouldBootstrapCachedSubscriptions,
   toCompanionRoomState,
+  translateCompanionStateToFirebase,
 } from './index'
 import type { ControllerClient, Cue, Room, Timer } from '@ontime/shared-types'
 
@@ -1185,6 +1186,42 @@ describe('buildRoomFromCompanion', () => {
     )
 
     expect(room.ownerId).toBe('user-123')
+  })
+})
+
+// Pins the companion -> cloud Room['state'] projection (translateCompanionStateToFirebase),
+// the timer-elapsed mapping used by buildRoomFromCompanion and the ROOM_STATE_SNAPSHOT
+// handler: companion currentTime is the elapsed anchor (elapsedOffset === currentTime),
+// and a running timer anchors startedAt on lastUpdate (null when paused).
+describe('translateCompanionStateToFirebase (companion -> cloud state projection)', () => {
+  it('maps a running companion projection: elapsedOffset/currentTime = companion currentTime, startedAt = lastUpdate', () => {
+    const state = translateCompanionStateToFirebase({
+      activeTimerId: 't1',
+      isRunning: true,
+      currentTime: 4200,
+      lastUpdate: 9000,
+    } as Parameters<typeof translateCompanionStateToFirebase>[0])
+
+    expect(state.isRunning).toBe(true)
+    expect(state.activeTimerId).toBe('t1')
+    expect(state.elapsedOffset).toBe(4200)
+    expect(state.currentTime).toBe(4200)
+    expect(state.lastUpdate).toBe(9000)
+    expect(state.startedAt).toBe(9000)
+  })
+
+  it('leaves startedAt null when paused but still carries elapsedOffset = currentTime (bonus time preserved)', () => {
+    const state = translateCompanionStateToFirebase({
+      activeTimerId: 't1',
+      isRunning: false,
+      currentTime: -2000,
+      lastUpdate: 9000,
+    } as Parameters<typeof translateCompanionStateToFirebase>[0])
+
+    expect(state.isRunning).toBe(false)
+    expect(state.startedAt).toBeNull()
+    expect(state.elapsedOffset).toBe(-2000)
+    expect(state.currentTime).toBe(-2000)
   })
 })
 
