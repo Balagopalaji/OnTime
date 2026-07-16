@@ -1,35 +1,7 @@
 // rebuild-target: packages/local-sync-arbitration
 import type { Room } from '@ontime/shared-types'
+import { DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE } from '@ontime/shared-types'
 import type { CompanionRoomState } from '@ontime/interface-contracts'
-
-export const DEFAULT_ROOM_CONFIG = {
-  warningSec: 120,
-  criticalSec: 30,
-}
-
-export const DEFAULT_FEATURES = {
-  localMode: true,
-  showControl: false,
-  powerpoint: true,
-  externalVideo: false,
-}
-
-export const DEFAULT_ROOM_STATE: Room['state'] = {
-  activeTimerId: null,
-  isRunning: false,
-  startedAt: null,
-  elapsedOffset: 0,
-  progress: {},
-  showClock: false,
-  clockMode: '24h',
-  message: {
-    text: '',
-    visible: false,
-    color: 'green',
-  },
-  currentTime: 0,
-  lastUpdate: 0,
-}
 
 export const translateCompanionStateToFirebase = (
   companion: CompanionRoomState,
