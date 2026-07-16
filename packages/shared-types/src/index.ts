@@ -220,6 +220,40 @@ export type Room = RoomLegacy & {
   _version?: number
 }
 
+// Domain default constants.
+// shared-types owns not only the room-domain types above but also their canonical
+// default values. These are product DOMAIN defaults (single source of truth), not
+// sync/arbitration policy — hence they live here rather than in
+// @ontime/local-sync-arbitration. Consumers must not fork or re-declare these.
+export const DEFAULT_ROOM_CONFIG = {
+  warningSec: 120,
+  criticalSec: 30,
+}
+
+export const DEFAULT_FEATURES = {
+  localMode: true,
+  showControl: false,
+  powerpoint: true,
+  externalVideo: false,
+}
+
+export const DEFAULT_ROOM_STATE: Room['state'] = {
+  activeTimerId: null,
+  isRunning: false,
+  startedAt: null,
+  elapsedOffset: 0,
+  progress: {},
+  showClock: false,
+  clockMode: '24h',
+  message: {
+    text: '',
+    visible: false,
+    color: 'green',
+  },
+  currentTime: 0,
+  lastUpdate: 0,
+}
+
 export type ConnectionStatus = 'online' | 'offline' | 'reconnecting'
 
 export type ControllerLock = {

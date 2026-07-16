@@ -8,7 +8,9 @@ export type { CueQueuedEvent } from './queue-merge'
 export { mergeControllerClients } from './controller-client-merge'
 export { resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState } from './lock-replay-arbitration'
 export { buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase } from './companion-room-state'
-export { DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE } from './companion-room-state'
+// Domain default constants now live in @ontime/shared-types (single source of truth);
+// re-exported here as a pass-through so existing @ontime/local-sync-arbitration importers keep resolving.
+export { DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE } from '@ontime/shared-types'
 
 export type ArbitrationDomain = 'room' | 'lock' | 'pin' | 'timer' | 'cue' | 'liveCue'
 

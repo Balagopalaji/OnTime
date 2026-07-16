@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import type { MessageColor, Room, Timer, LiveCue, LiveCueRecord, Cue, Section, Segment, ControllerClient } from '../types'
+import { DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES } from '@ontime/shared-types'
 import { DataProviderBoundary, type DataContextValue, type RoomPinMeta } from './DataContext'
 import { computeProgress as computeProgressUtil, type FirebaseTimerState } from '../utils/timer-utils'
 import { MockDataProvider } from './MockDataContext'
@@ -31,18 +32,6 @@ import {
   buildMigrationTimerTuple,
   buildResetTimerProgressStateUpdates,
 } from './firebase-timer-state-utils'
-
-const DEFAULT_CONFIG = {
-  warningSec: 120,
-  criticalSec: 30,
-}
-
-const DEFAULT_FEATURES = {
-  localMode: true,
-  showControl: false,
-  powerpoint: true,
-  externalVideo: false,
-}
 
 const MIGRATION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -122,8 +111,8 @@ const mapRoom = (id: string, data: RoomDoc): Room => {
     createdAt: createdAtMs,
     order: data.order ?? createdAtMs,
     config: {
-      warningSec: data.config?.warningSec ?? DEFAULT_CONFIG.warningSec,
-      criticalSec: data.config?.criticalSec ?? DEFAULT_CONFIG.criticalSec,
+      warningSec: data.config?.warningSec ?? DEFAULT_ROOM_CONFIG.warningSec,
+      criticalSec: data.config?.criticalSec ?? DEFAULT_ROOM_CONFIG.criticalSec,
     },
     _version: data._version ?? 1,
     tier,
@@ -745,7 +734,7 @@ export const FirebaseDataProvider = ({
       timezone,
       createdAt: Date.now(),
       order: nextOrder,
-      config: DEFAULT_CONFIG,
+      config: DEFAULT_ROOM_CONFIG,
       _version: 2,
       tier: 'basic',
       features: DEFAULT_FEATURES,
