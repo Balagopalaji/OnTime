@@ -8,6 +8,9 @@ import type {
   CuesReordered,
   HandshakeAck,
   HandshakeError,
+  LiveCueEventPayload,
+  PresentationClearPayload,
+  PresentationEventPayload,
   RoomStateDelta,
   RoomStateSnapshot,
   SyncRoomStatePayload,
@@ -19,7 +22,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import type { Room, Timer, LiveCue, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
+import type { Room, Timer, LiveCueRecord, Cue, ControllerLock, ControllerLockState, ControllerClient } from '../types'
 import {
   ARBITRATION_FLAGS,
   arbitrate,
@@ -115,26 +118,10 @@ setActiveRoomIntents: (roomIds: string[]) => void
   removeActiveRoomIntent: (roomId: string) => void
 }
 
-type LiveCueEventPayload = {
-  type: 'LIVE_CUE_CREATED' | 'LIVE_CUE_UPDATED' | 'LIVE_CUE_ENDED'
-  roomId: string
-  cue: LiveCue
-  timestamp?: number
-}
-
-type PresentationEventPayload = {
-  type: 'PRESENTATION_LOADED' | 'PRESENTATION_UPDATE'
-  roomId: string
-  cue: LiveCue
-  timestamp?: number
-}
-
-type PresentationClearPayload = {
-  type: 'PRESENTATION_CLEAR'
-  roomId: string
-  cueId?: string
-  timestamp?: number
-}
+// LiveCueEventPayload / PresentationEventPayload / PresentationClearPayload
+// are adopted from @ontime/interface-contracts (Stage 1b Lane B slice B-1).
+// The Companion emits them with a REQUIRED `timestamp` (server clock); the
+// loose `timestamp?: number` dups that lived here are deleted.
 
 type TimerCreatedPayload = TimerCreated
 type TimerUpdatedPayload = TimerUpdated

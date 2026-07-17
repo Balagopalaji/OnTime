@@ -203,6 +203,10 @@ export type LiveCue = {
     videoElapsed?: number
     videoRemaining?: number
     videoTimingUnavailable?: boolean
+    // Companion writes this (PowerPoint presentation instance id); no reader
+    // yet. Ratified decision B1 (Stage 1b Lane B slice B-1) — keeps the wire
+    // type honest with what the companion actually emits.
+    instanceId?: number
   }
 }
 

@@ -349,10 +349,10 @@ export type ControllerLockStatePayload = {
 // ControllerLockStatePayload header above). Kept in a sibling module so this
 // barrel stays under the 400-line production-file ceiling; re-exported here so
 // the package surface (`@ontime/interface-contracts`) is unchanged.
-// `RoomState`/`SyncRoomStatePayload`/`LiveCue`/presentation envelopes are
-// INTENTIONALLY EXCLUDED: RoomState is a divergent projection (decision 4,
-// Session sync 2026-07-06), and the LiveCue/presentation cluster is sequenced
-// after the timer-side work.
+// `RoomState`/`SyncRoomStatePayload` are INTENTIONALLY EXCLUDED here:
+// RoomState is a divergent projection (decision 4, Session sync 2026-07-06) —
+// see `./room-state-envelopes.ts`. The LiveCue/presentation envelopes were
+// adopted later in `./live-cue-envelopes.ts` (Stage 1b Lane B slice B-1).
 // ---------------------------------------------------------------------------
 export * from './timer-cue-envelopes';
 
@@ -367,3 +367,14 @@ export * from './timer-cue-envelopes';
 // here so the `@ontime/interface-contracts` surface is unchanged.
 // ---------------------------------------------------------------------------
 export * from './room-state-envelopes';
+
+// ---------------------------------------------------------------------------
+// LiveCue/presentation wire envelopes (Stage 1b Lane B slice B-1). The
+// Companion is the emitter, so its strict `timestamp: number` shapes are the
+// source of truth (the frontend's loose `timestamp?: number` dups are
+// deleted). `cue` references the canonical `LiveCue` from
+// `@ontime/shared-types`. Split into a sibling module so this barrel stays
+// under the 400-line production-file ceiling; re-exported here so the
+// `@ontime/interface-contracts` surface is unchanged.
+// ---------------------------------------------------------------------------
+export * from './live-cue-envelopes';
