@@ -65,6 +65,9 @@ import type {
   HandshakeAck,
   JoinRoomPayload,
   HeartbeatPayload,
+  LiveCueEventPayload,
+  PresentationClearPayload,
+  PresentationEventPayload,
   ReorderCuesPayload,
   ReorderTimersPayload,
   RequestControlPayload,
@@ -89,6 +92,7 @@ import type {
   Cue,
   CueAckState,
   CueTriggerType,
+  LiveCue,
   MessageColor,
   OperatorRole,
   Timer,
@@ -310,11 +314,6 @@ async function writePptScript(script: string): Promise<void> {
 // (decision 4, Session sync 2026-07-06).
 type RoomState = CompanionRoomState;
 
-type LiveCueConfig = {
-  warningSec?: number;
-  criticalSec?: number;
-};
-
 type VideoTiming = {
   id?: number;
   name?: string;
@@ -324,54 +323,11 @@ type VideoTiming = {
   playing?: boolean;
 };
 
-type LiveCueMetadata = {
-  slideNumber?: number;
-  totalSlides?: number;
-  slideNotes?: string;
-  filename?: string;
-  player?: string;
-  parentTimerId?: string;
-  autoAdvanceNext?: boolean;
-  videoPlaying?: boolean;
-  videoDuration?: number;
-  videoElapsed?: number;
-  videoRemaining?: number;
-  videos?: VideoTiming[];
-  videoTimingUnavailable?: boolean;
-  instanceId?: number;
-};
-
-type LiveCue = {
-  id: string;
-  source: 'powerpoint' | 'external_video' | 'pdf';
-  title: string;
-  duration?: number;
-  startedAt?: number;
-  status?: 'playing' | 'paused' | 'ended';
-  config?: LiveCueConfig;
-  metadata?: LiveCueMetadata;
-};
-
-type LiveCueEventPayload = {
-  type: 'LIVE_CUE_CREATED' | 'LIVE_CUE_UPDATED' | 'LIVE_CUE_ENDED';
-  roomId: string;
-  cue: LiveCue;
-  timestamp: number;
-};
-
-type PresentationEventPayload = {
-  type: 'PRESENTATION_LOADED' | 'PRESENTATION_UPDATE';
-  roomId: string;
-  cue: LiveCue;
-  timestamp: number;
-};
-
-type PresentationClearPayload = {
-  type: 'PRESENTATION_CLEAR';
-  roomId: string;
-  cueId?: string;
-  timestamp: number;
-};
+// LiveCue (+ its config/metadata) is adopted into `@ontime/shared-types`, and
+// the LiveCueEventPayload/Presentation* wire envelopes into
+// `@ontime/interface-contracts` (Stage 1b Lane B slice B-1). Kept as a local
+// alias so `buildPowerPointCue`'s metadata literal stays typed without churn.
+type LiveCueMetadata = NonNullable<LiveCue['metadata']>;
 
 type PowerPointPollState = 'foreground' | 'background' | 'none';
 
