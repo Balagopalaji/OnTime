@@ -3738,7 +3738,7 @@ function getPresentationRoomIds(): string[] {
   return Array.from(rooms);
 }
 
-function snapshotsIdentityEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
+export function snapshotsIdentityEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
@@ -3750,7 +3750,7 @@ function snapshotsIdentityEqual(a: PresentationSnapshot | null, b: PresentationS
   );
 }
 
-function snapshotsTimingEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
+export function snapshotsTimingEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
@@ -3763,7 +3763,7 @@ function snapshotsTimingEqual(a: PresentationSnapshot | null, b: PresentationSna
   );
 }
 
-function videoListsEqual(a?: VideoTiming[], b?: VideoTiming[]): boolean {
+export function videoListsEqual(a?: VideoTiming[], b?: VideoTiming[]): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   if (a.length !== b.length) return false;
@@ -3784,7 +3784,7 @@ function videoListsEqual(a?: VideoTiming[], b?: VideoTiming[]): boolean {
   return true;
 }
 
-function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
+export function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
   const derivedRemaining =
     snapshot.videoDuration !== undefined && snapshot.videoElapsed !== undefined
       ? snapshot.videoDuration - snapshot.videoElapsed
@@ -3817,7 +3817,7 @@ function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): 
   };
 }
 
-function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
+export function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
   const roomIds = getPresentationRoomIds();
   if (!snapshot) {
     if (!pptAnnouncedSnapshot) return;
@@ -3860,7 +3860,7 @@ function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
   pptAnnouncedSnapshot = snapshot;
 }
 
-function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
+export function updatePresentationCandidate(snapshot: PresentationSnapshot | null) {
   const now = Date.now();
   if (pptAnnouncedSnapshot && snapshotsIdentityEqual(snapshot, pptAnnouncedSnapshot)) {
     if (!snapshotsTimingEqual(snapshot, pptAnnouncedSnapshot)) {
