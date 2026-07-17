@@ -32,7 +32,6 @@ import {
   shouldBootstrapCachedSubscriptions,
 } from '../lib/arbitration'
 import { mergeControllerClients, mergeCueQueueEvents, mergeQueuedEvents as mergeQueuedEventsPure, resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState, buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase, DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE, type CueQueuedEvent, type QueuedEvent } from '@ontime/local-sync-arbitration'
-export { resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState } from '@ontime/local-sync-arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -227,20 +226,10 @@ export const shouldApplyControlRequestTimeoutError = (
   clientId: string,
 ): boolean => payload.reason === 'timeout' && payload.requesterId === clientId
 
-// QueuedEvent (offline-queue coalescing types) carved to
-// @ontime/local-sync-arbitration (Stage 1b U5); re-exported so existing
-// importers still resolve it from this module.
-export type { QueuedEvent } from '@ontime/local-sync-arbitration'
-
 // The ROOM_STATE_PATCH member of QueuedEvent. Distinct from the wire
 // RoomStatePatchPayload (which has optional timestamp/clientId): queued events
 // always carry both for ordering/replay, so this is the narrowed required form.
 type RoomStatePatchQueuedEvent = Extract<QueuedEvent, { type: 'ROOM_STATE_PATCH' }>
-
-// CueQueuedEvent (offline cue-queue coalescing type) + mergeCueQueueEvents carved
-// to @ontime/local-sync-arbitration (Stage 1b U5); the type is re-exported so
-// existing importers still resolve it from this module.
-export type { CueQueuedEvent } from '@ontime/local-sync-arbitration'
 
 const DEFAULT_AUTHORITY: RoomAuthority = {
   source: 'cloud',
