@@ -2,13 +2,13 @@
 Type: Tasklist
 Status: current
 Owner: KDB
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 Scope: Rebuild state ledger, updated at the end of each rebuild PR.
 ---
 
 # OnTime Rebuild Progress
 
-_Updated: 2026-07-15._
+_Updated: 2026-07-16._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -71,6 +71,36 @@ decisions doc §1). The `updateRoomActiveLiveCueId` lastUpdate-bump landed in #1
 **Batch #102–#111 (2026-07-08→10; Bala-orchestrated, Claude-reviewed where behavior-touching).** Ledger was synced through #101 in #102. CI hardening: #103 re-runs `Guardrail checks` on `fast-lane` label add/remove (FIX-095) and #104 tightened the `main.ts` ratchet baseline to its true count (FIX-088R). Correctness fixes: #105 re-anchors elapsed on a live-cue `lastUpdate` bump (FIX-100), #106 treats the `0` sentinel as missing in the skew guard (FIX-097), #107 stops dropping rooms on partial/invalid seed state (FIX-088S), and #109 made the FIX-100 re-anchor line-neutral (held the `main.ts` ratchet, fixed a red main). Then the first behaviour-sensitive **carve batch** landed, all byte-faithful and independently reviewed: **U8a (#108)** dedups the companion `ControllerLock` to `@ontime/shared-types` (DoD #4, single wire-shape); **U4 (#110)** carves five reconciliation/arbitration helpers (`resolveRoomSource`, `isSnapshotStale`, `getConfidenceWindowMs`, `shouldBootstrapCachedSubscriptions`, `resolveReconciledTimerTargetId`) + helper/consts out of `UnifiedDataContext.tsx` into `local-sync-arbitration` behind an app-side DI shim that preserves the last-accepted-cache path (`6624→6521`); **U7 (#111)** extracts the disk room-cache persistence lifecycle (load/debounced-write/flush/backup/trim) out of `main.ts` into a fs-injected `room-cache.ts` adapter (`7588→7386`, byte-identical debounce/flush). **U5 five-carve batch (#113, Claude solo-orchestrated + reviewed, Bala-merged):** five byte-faithful Lane-A carves out of `UnifiedDataContext.tsx` into `local-sync-arbitration` — offline timer- and cue-queue coalescing (`mergeQueuedEvents`/`QueuedEvent`, `mergeCueQueueEvents`/`CueQueuedEvent`) → `queue-merge.ts`; controller-client presence/TTL merge (`mergeControllerClients` + `ROOM_CLIENT_MAX_AGE_MS`/`getRoomClientMaxAgeMs`) → `controller-client-merge.ts`; generic companion lock-replay resolvers (`resolveQueuedCompanionLockReplayState`/`…CallbackState`) → `lock-replay-arbitration.ts`; and the plan-§84 companion↔domain translation cluster (`buildRoomFromCompanion`, `translateCompanionStateToFirebase`, `toCompanionRoomState`, `buildDefaultCompanionState` + `DEFAULT_ROOM_CONFIG`/`FEATURES`/`ROOM_STATE`) → `companion-room-state.ts`. Ratchet `6521→6091`; package suite 32→68 tests (all characterization migrated verbatim, no coverage lost); every commit gated (frontend lint/typecheck + full suite, package typecheck/tests, guardrails, dependency-cruiser). **Flags for the next Fable audit:** `translateCompanionStateToFirebase` is exported (it has a live god-file caller in the `ROOM_STATE_SNAPSHOT` handler, not only `buildRoomFromCompanion`); and the `DEFAULT_*` room-domain consts now live in `local-sync-arbitration` (re-imported by ~5 staying callers) — home is arguable vs `shared-types`. **God-file status now: `UnifiedDataContext.tsx` 6,091 / `main.ts` 7,386 (from 6,922 / 8,064 at the #35 ratchet); packages 6/10 populated.**
 
 **8th milestone audit — U5 carve batch (2026-07-15, GO).** Fresh-context adversarial mutation audit (`model:"fable"`) over `git diff 435fb87..72adb26`. Byte-faithfulness of all five carves CONFIRMED both directions (character-identical after normalizing the `useCallback` dedent / `export` keyword); all six gates PASS (guardrails, dep-cruiser, frontend lint/typecheck/suite 223, package suite); 26 mutations run — **19 killed, 1 provably-equivalent** (the redundant ROOM_STATE_PATCH early-return), **6 surviving = pre-existing coverage gaps, NOT lost coverage** (the affected functions had zero direct tests pre-carve; coverage strictly increased). The one earlier self-audit hole — `translateCompanionStateToFirebase`'s `elapsedOffset = companion.currentTime` mapping — was fixed in **#115** and independently confirmed as its sole killer. The other 6 gaps (`toCompanionRoomState`/`buildDefaultCompanionState` run-flag, timer-queue `>=` inclusivity, companion/default TTL + equal-heartbeat merge, `buildRoomFromCompanion` title/timezone) were closed + mutation-verified in **#116** (package suite 68→70→76). Boundaries clean; the new `local-sync-arbitration → interface-contracts` edge is `import type` only and legitimate. **Flag rulings:** (a) `translateCompanionStateToFirebase` export — **SOUND, keep** (live state-level caller in the `ROOM_STATE_SNAPSHOT` handler; §1b names it a `local-sync-arbitration` target). (b) `DEFAULT_ROOM_CONFIG`/`FEATURES`/`ROOM_STATE` — **RE-HOME to `shared-types`** recommended (fast-lane): they are product domain defaults, `FirebaseDataContext.tsx:36` already duplicates `DEFAULT_CONFIG` on the cloud path, and Stage-2 `cloud-adapter-firestore` is forbidden from importing `local-sync-arbitration`, so leaving them here forces triple-duplication or a Stage-2 move (update the shared-types charter wording "types" → "types + domain default constants" when doing it). **Open follow-ups (non-blocking):** the DEFAULT_* re-home; a fast-lane cleanup of now-dead god-file re-exports (`UnifiedDataContext.tsx` lock-replay + `QueuedEvent`/`CueQueuedEvent` type re-exports have no remaining importers).
+
+## Handover — 2026-07-16 (Claude-only orchestration → next Claude orchestrator)
+
+Written for a fresh-context Claude session picking this up cold. **Start by reading this ledger, `AGENTS.md`, `docs/rebuild-extraction-rules.md`, and `docs/rebuild-plan.md` — do NOT rely on chat history.**
+
+**Roles: Claude-only. No Codex, no GLM (unavailable — do not wait on them).** One Claude session is coordinator **and** independent reviewer. It spawns **fresh-context builder sub-agents** for carves and a **fresh-context `model:"fable"` (or fresh Opus) sub-agent** for milestone audits. This whole U5 batch + audit was done solo this way.
+
+**State on `main` (HEAD = #119):**
+- God-files: `frontend/src/context/UnifiedDataContext.tsx` **6,079** / `companion/src/main.ts` **7,386**. Stage-1b exit targets `≤5,200` / `≤6,600` (both still above). D5 finish line = both deleted down to ≤500-line pure-wiring shims.
+- Packages 6/10 populated. `local-sync-arbitration` now owns the U5 carves (`queue-merge.ts`, `controller-client-merge.ts`, `lock-replay-arbitration.ts`, `companion-room-state.ts`); `DEFAULT_*` room consts live in `shared-types` (#118).
+- U5 Lane A (#113), the 8th milestone audit (**GO**), and every audit follow-up (#115–#119) are merged. `main` is clean and fully audited; **no open PRs, no baton waiting.**
+
+**Process rules that worked (keep doing):**
+- Every god-file carve is **Claude-baton**: byte-faithful *verbatim* move + re-export/delegating shim + lower the ratchet in the SAME change. **Characterize FIRST** (extraction-rules §8). The reviewer independently **mutation-tests** each new characterization (mutate the moved fn → confirm a test dies → revert) — this is what caught the pre-existing gaps in #115/#116. Watch indentation when scripting mutations (object-literal props are 2-space).
+- Builder sub-agents: node_modules is already installed — **do NOT run `npm ci`** (electron postinstall 403s). Builders report; the **orchestrator runs the authoritative gates + commits** (never let the builder commit).
+- Gates: `npm run guardrails` (ratchet + dependency-cruiser); `npm run lint|typecheck|test --workspace frontend`; package `typecheck` + `node node_modules/vitest/vitest.mjs run --root packages/<pkg> src/index.test.ts`. Ratchet baseline = `split('\n')` = `wc -l` + 1.
+- **Single designated branch** `claude/work-without-codex-glm-rj4zcg` for all carve/code work → one PR at a time. After it merges, restart it from `origin/main` (`git checkout -B claude/work-without-codex-glm-rj4zcg origin/main`); the remote branch then carries only already-merged history, so **`git push --force-with-lease`** is correct.
+- **Ledger syncs are SEPARATE `docs/*`-branch PRs** — carve/slice PRs must NOT touch `rebuild-progress.md`.
+- Milestone audit after each 3–6-PR batch: fresh-context, mutation-based, over `git diff <last-audit-base>..main`. Record it in this ledger (see the 8th audit entry under Current Stage).
+- **Squash-merge** PRs (repo convention: every `main` commit ends `(#NN)`). Merge only on green GitHub `Guardrail checks` (don't merge on local gates alone).
+
+**Flags already ruled (do not re-litigate):** `translateCompanionStateToFirebase` export = sound/keep; `DEFAULT_*` re-home = DONE (#118); dead re-exports = removed (#119).
+
+**Next tranche (recommended order):**
+1. **Lane B — LiveCue/presentation carve out of `companion/main.ts`** — the *other* god-file, barely touched (still 7,386). Highest remaining value. Homes ratified: domain types → `shared-types`; wire envelopes → `interface-contracts`; presentation merge/snapshot logic → `presentation-core`; PPT-probe I/O → companion app-internal adapter. Decision-gated on B1 `instanceId` (ratified: extend `LiveCue.metadata` with `instanceId?`). **Higher-risk → keep under direct Claude review, characterize-first.**
+2. **Lane A — localStorage persistence cluster** (`readRoomCache`/`persistRoomCache`, tombstones, subscriptions in `UnifiedDataContext.tsx`) — NOT a verbatim move; needs an **injected fs/storage-adapter** pattern (mirror U7's companion `room-cache.ts`). Lower-risk once the adapter shape is fixed — good candidate for the orchestrator-sub-agent experiment below.
+3. **Lane A — stateful arbitration blocks** (`mergeProgressFromCache`, the `ARBITRATION_FLAGS.room` decision paths) — characterize-first; the M5 fresh-wins `mergeProgress` contract is the extraction source of truth.
+4. **Fast-lane U8** — wire/mark the zero-caller predicates.
+
+**Owner's coordinator/orchestrator experiment (worth trying):** delegate the *mechanical* loop (spawn builder → gate → commit → push → PR → poll CI → merge) for a batch of homogeneous, low-risk carves to an **orchestrator sub-agent**, while the coordinator keeps strategy + final review. Reviewing is irreducibly context-heavy (you must load the diff), so **don't delegate review** — delegate mechanics. Lane A localStorage adapters (item 2) are the natural first trial; Lane B LiveCue is too risky for it.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
@@ -235,6 +265,9 @@ one-per-payload.
 - PR #114 docs(rebuild): sync ledger through #113 — U5 five-carve Lane A batch
 - PR #115 test(local-sync-arbitration): pin translateCompanionStateToFirebase elapsed mapping (U5 audit LOW)
 - PR #116 test(local-sync-arbitration): close U5 milestone-audit mutation gaps (package suite 70→76)
+- PR #117 docs(rebuild): record 8th milestone audit (U5 carve batch, GO)
+- PR #118 refactor(shared-types): re-home DEFAULT_* room-domain constants (single source; killed FirebaseDataContext dup)
+- PR #119 refactor(unified): drop dead god-file re-exports of carved U5 symbols (UnifiedDataContext 6091→6080)
 
 ## Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)
 
