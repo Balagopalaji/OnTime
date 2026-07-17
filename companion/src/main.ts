@@ -31,6 +31,8 @@ import {
   type ControlAuditEntry,
 } from './control-audit-utils';
 import { createRoomCacheAdapter } from './room-cache';
+import { buildPowerPointCue, snapshotsIdentityEqual, snapshotsTimingEqual, videoListsEqual } from './presentation-snapshot';
+import type { PowerPointPollResult, PresentationSnapshot, VideoTiming } from './presentation-snapshot';
 import {
   schedulePendingControlRequestTimeout,
   type SchedulePendingControlRequestTimeoutDeps,
@@ -109,6 +111,7 @@ export type {
   ControlRequestClearReason,
   PendingControlRequestEntry,
 } from './control-lock-utils';
+export { buildPowerPointCue, snapshotsIdentityEqual, snapshotsTimingEqual, videoListsEqual } from './presentation-snapshot';
 
 let tray: Tray | null = null;
 let trayContextMenu: Menu | null = null;
@@ -313,55 +316,6 @@ async function writePptScript(script: string): Promise<void> {
 // adds clockMode); the two types are structurally divergent by design
 // (decision 4, Session sync 2026-07-06).
 type RoomState = CompanionRoomState;
-
-type VideoTiming = {
-  id?: number;
-  name?: string;
-  duration?: number;
-  elapsed?: number;
-  remaining?: number;
-  playing?: boolean;
-};
-
-// LiveCue (+ its config/metadata) is adopted into `@ontime/shared-types`, and
-// the LiveCueEventPayload/Presentation* wire envelopes into
-// `@ontime/interface-contracts` (Stage 1b Lane B slice B-1). Kept as a local
-// alias so `buildPowerPointCue`'s metadata literal stays typed without churn.
-type LiveCueMetadata = NonNullable<LiveCue['metadata']>;
-
-type PowerPointPollState = 'foreground' | 'background' | 'none';
-
-type PowerPointPollResult = {
-  state: PowerPointPollState;
-  inSlideshow?: boolean;
-  instanceId?: number;
-  slideNumber?: number;
-  totalSlides?: number;
-  title?: string;
-  filename?: string;
-  editSlideVideos?: VideoTiming[];
-  videoDetected?: boolean;
-  videoPlaying?: boolean;
-  videoDuration?: number;
-  videoElapsed?: number;
-  videoRemaining?: number;
-  videos?: VideoTiming[];
-  videoTimingUnavailable?: boolean;
-};
-
-type PresentationSnapshot = {
-  instanceId: number;
-  slideNumber?: number;
-  totalSlides?: number;
-  title: string;
-  filename?: string;
-  videoPlaying?: boolean;
-  videoDuration?: number;
-  videoElapsed?: number;
-  videoRemaining?: number;
-  videos?: VideoTiming[];
-  videoTimingUnavailable?: boolean;
-};
 
 export type TimerActionClientTimestampIssue =
   | 'missing'
@@ -3736,85 +3690,6 @@ function getPresentationRoomIds(): string[] {
   roomClientStore.forEach((_clients, roomId) => rooms.add(roomId));
   roomStateStore.forEach((_state, roomId) => rooms.add(roomId));
   return Array.from(rooms);
-}
-
-export function snapshotsIdentityEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.instanceId === b.instanceId &&
-    a.slideNumber === b.slideNumber &&
-    a.totalSlides === b.totalSlides &&
-    a.title === b.title &&
-    a.filename === b.filename
-  );
-}
-
-export function snapshotsTimingEqual(a: PresentationSnapshot | null, b: PresentationSnapshot | null): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.videoPlaying === b.videoPlaying &&
-    a.videoDuration === b.videoDuration &&
-    a.videoElapsed === b.videoElapsed &&
-    a.videoRemaining === b.videoRemaining &&
-    a.videoTimingUnavailable === b.videoTimingUnavailable &&
-    videoListsEqual(a.videos, b.videos)
-  );
-}
-
-export function videoListsEqual(a?: VideoTiming[], b?: VideoTiming[]): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    const left = a[i];
-    const right = b[i];
-    if (
-      left?.id !== right?.id ||
-      left?.name !== right?.name ||
-      left?.duration !== right?.duration ||
-      left?.elapsed !== right?.elapsed ||
-      left?.remaining !== right?.remaining ||
-      left?.playing !== right?.playing
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-export function buildPowerPointCue(snapshot: PresentationSnapshot, startedAt: number): LiveCue {
-  const derivedRemaining =
-    snapshot.videoDuration !== undefined && snapshot.videoElapsed !== undefined
-      ? snapshot.videoDuration - snapshot.videoElapsed
-      : undefined;
-  const metadata: LiveCueMetadata = {
-    slideNumber: snapshot.slideNumber,
-    totalSlides: snapshot.totalSlides,
-    filename: snapshot.filename,
-    player: 'powerpoint',
-    instanceId: snapshot.instanceId,
-    videoPlaying: snapshot.videoPlaying,
-    videoDuration: snapshot.videoDuration,
-    videoElapsed: snapshot.videoElapsed,
-    videoRemaining: snapshot.videoRemaining ?? derivedRemaining,
-    videos: snapshot.videos,
-    videoTimingUnavailable: snapshot.videoTimingUnavailable,
-  };
-
-  if (process.platform === 'darwin') {
-    metadata.videoTimingUnavailable = true;
-  }
-
-  return {
-    id: `powerpoint:${snapshot.instanceId}`,
-    source: 'powerpoint',
-    title: snapshot.title,
-    startedAt,
-    status: 'playing',
-    metadata,
-  };
 }
 
 export function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
