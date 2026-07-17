@@ -4747,7 +4747,7 @@ $payload | ConvertTo-Json -Compress
   });
 }
 
-function handlePowerPointStatus(result: PowerPointPollResult | null) {
+export function handlePowerPointStatus(result: PowerPointPollResult | null) {
   if (!result) {
     logPptVerbose('[ppt] status: null');
     return;
