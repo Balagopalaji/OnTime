@@ -10,16 +10,20 @@ export {
   getConfidenceWindowMs,
   isSnapshotStale,
   normalizeRoomAuthoritySource,
+  resolveControllerTieBreaker,
   resolveReconciledTimerTargetId,
   shouldBootstrapCachedSubscriptions,
 } from '@ontime/local-sync-arbitration'
+export type { RoomStateAcceptanceInput } from '@ontime/local-sync-arbitration'
 import {
   arbitrate as arbitrateCore,
+  decideRoomStateAcceptance as decideRoomStateAcceptanceCore,
   resolveRoomSource as resolveRoomSourceCore,
   type ArbitrationDecision,
   type ArbitrationInput,
   type ArbitrationLastAcceptedCache,
   type ResolveRoomSourceInput,
+  type RoomStateAcceptanceInput,
 } from '@ontime/local-sync-arbitration'
 
 const lastAcceptedSource = new Map<string, ArbitrationDecision['acceptSource']>()
@@ -50,3 +54,12 @@ export const arbitrate = (input: ArbitrationInput): ArbitrationDecision =>
 // and delegated to this wrapped arbitrate. Byte-faithful (Stage 1b U4).
 export const resolveRoomSource = (input: ResolveRoomSourceInput): 'cloud' | 'companion' =>
   resolveRoomSourceCore({ ...input, arbitrateFn: arbitrate })
+
+// decideRoomStateAcceptance is bound to the app's wrapped `arbitrate` (core + last-accepted
+// cache + decision logging), preserving the pre-carve behavior where the acceptance block
+// lived in UnifiedDataContext and delegated to this wrapped arbitrate. Byte-faithful
+// (Stage 1b Lane A slice AR-2, mirroring the resolveRoomSource U4 precedent).
+export const decideRoomStateAcceptance = (
+  input: RoomStateAcceptanceInput,
+): { arbitrationDecision: ArbitrationDecision | null; isStale: boolean } =>
+  decideRoomStateAcceptanceCore({ ...input, arbitrateFn: arbitrate })

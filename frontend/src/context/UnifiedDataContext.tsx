@@ -26,15 +26,17 @@ import type { Room, Timer, LiveCueRecord, Cue, ControllerLock, ControllerLockSta
 import {
   ARBITRATION_FLAGS,
   arbitrate,
+  decideRoomStateAcceptance,
   getConfidenceWindowMs,
   isSnapshotStale,
   normalizeRoomAuthoritySource,
+  resolveControllerTieBreaker,
   resolveReconciledTimerTargetId,
   resolveRoomSource,
   resolveSnapshotTimestamp,
   shouldBootstrapCachedSubscriptions,
 } from '../lib/arbitration'
-import { mergeControllerClients, mergeCueQueueEvents, mergeQueuedEvents as mergeQueuedEventsPure, resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState, buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase, createLocalPersistence, ROOM_CACHE_KEY, TOMBSTONE_TTL_MS, DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE, type CachedRoomSnapshot, type CompanionSubscription, type CueQueuedEvent, type LocalTombstone, type QueuedEvent } from '@ontime/local-sync-arbitration'
+import { mergeControllerClients, mergeCueQueueEvents, mergeQueuedEvents as mergeQueuedEventsPure, resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState, buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase, createLocalPersistence, mergeRoomProgressFromCache, ROOM_CACHE_KEY, TOMBSTONE_TTL_MS, DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE, type CachedRoomSnapshot, type CompanionSubscription, type CueQueuedEvent, type LocalTombstone, type QueuedEvent } from '@ontime/local-sync-arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -3330,30 +3332,24 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
       const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(payload.roomId)
       const lastControllerWrite = lastControllerWriteRef.current[payload.roomId]
-      const controllerTieBreaker =
-        lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
-          ? lastControllerWrite.source
-          : undefined
-      const arbitrationDecision = ARBITRATION_FLAGS.room
-        ? arbitrate({
-            roomId: payload.roomId,
-            domain: 'room',
-            cloudTs: firebaseTs || undefined, // 0 sentinel = never-cached -> missing (FIX-097)
-            companionTs: snapshotTs,
-            authoritySource: normalizeRoomAuthoritySource(authority.source),
-            mode,
-            effectiveMode,
-            isCompanionLive: isCompanionLive(),
-            cloudOnline: firebase.connectionStatus !== 'offline',
-            confidenceWindowMs,
-            controllerTieBreaker,
-            viewerSyncGuard,
-            holdActive: isHoldActive(payload.roomId),
-          })
-        : null
-      const isStale = ARBITRATION_FLAGS.room
-        ? arbitrationDecision?.acceptSource !== 'companion'
-        : snapshotTs + confidenceWindowMs < existingTs || snapshotTs + confidenceWindowMs < firebaseTs
+      const controllerTieBreaker = resolveControllerTieBreaker(lastControllerWrite, Date.now(), confidenceWindowMs)
+      const { arbitrationDecision, isStale } = decideRoomStateAcceptance({
+        roomId: payload.roomId,
+        cloudTs: firebaseTs || undefined, // 0 sentinel = never-cached -> missing (FIX-097)
+        incomingTs: snapshotTs,
+        existingTs,
+        firebaseTs,
+        authoritySource: normalizeRoomAuthoritySource(authority.source),
+        mode,
+        effectiveMode,
+        isCompanionLive: isCompanionLive(),
+        cloudOnline: firebase.connectionStatus !== 'offline',
+        confidenceWindowMs,
+        controllerTieBreaker,
+        viewerSyncGuard,
+        holdActive: isHoldActive(payload.roomId),
+        flagEnabled: ARBITRATION_FLAGS.room,
+      })
       if (debugCompanion) {
         console.info('[companion] ROOM_STATE_SNAPSHOT activeLiveCueId', {
           roomId: payload.roomId,
@@ -3492,30 +3488,24 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
       const authority = roomAuthority[payload.roomId] ?? DEFAULT_AUTHORITY
       const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(payload.roomId)
       const lastControllerWrite = lastControllerWriteRef.current[payload.roomId]
-      const controllerTieBreaker =
-        lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
-          ? lastControllerWrite.source
-          : undefined
-      const arbitrationDecision = ARBITRATION_FLAGS.room
-        ? arbitrate({
-            roomId: payload.roomId,
-            domain: 'room',
-            cloudTs: firebaseTs,
-            companionTs: incomingTs,
-            authoritySource: normalizeRoomAuthoritySource(authority.source),
-            mode,
-            effectiveMode,
-            isCompanionLive: isCompanionLive(),
-            cloudOnline: firebase.connectionStatus !== 'offline',
-            confidenceWindowMs,
-            controllerTieBreaker,
-            viewerSyncGuard,
-            holdActive: isHoldActive(payload.roomId),
-          })
-        : null
-      const isStale = ARBITRATION_FLAGS.room
-        ? arbitrationDecision?.acceptSource !== 'companion'
-        : incomingTs + confidenceWindowMs < existingTs || incomingTs + confidenceWindowMs < firebaseTs
+      const controllerTieBreaker = resolveControllerTieBreaker(lastControllerWrite, Date.now(), confidenceWindowMs)
+      const { arbitrationDecision, isStale } = decideRoomStateAcceptance({
+        roomId: payload.roomId,
+        cloudTs: firebaseTs,
+        incomingTs,
+        existingTs,
+        firebaseTs,
+        authoritySource: normalizeRoomAuthoritySource(authority.source),
+        mode,
+        effectiveMode,
+        isCompanionLive: isCompanionLive(),
+        cloudOnline: firebase.connectionStatus !== 'offline',
+        confidenceWindowMs,
+        controllerTieBreaker,
+        viewerSyncGuard,
+        holdActive: isHoldActive(payload.roomId),
+        flagEnabled: ARBITRATION_FLAGS.room,
+      })
       if (import.meta.env.DEV) {
         const activeId =
           payload.changes.activeTimerId ??
@@ -4229,10 +4219,7 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
     (roomId: string, firebaseTs: number, companionTs: number, authority: RoomAuthority) => {
       const viewerSyncGuard = authority.status === 'syncing' && isViewerClient(roomId)
       const lastControllerWrite = lastControllerWriteRef.current[roomId]
-      const controllerTieBreaker =
-        lastControllerWrite && Date.now() - lastControllerWrite.timestamp <= confidenceWindowMs
-          ? lastControllerWrite.source
-          : undefined
+      const controllerTieBreaker = resolveControllerTieBreaker(lastControllerWrite, Date.now(), confidenceWindowMs)
       // When Companion is live and timestamps match (e.g. after SYNC echo),
       // prefer the source matching effectiveMode so the user's mode choice wins ties.
       const companionLive = isCompanionLive()
@@ -4304,20 +4291,8 @@ const setActiveRoomIntents = useCallback((roomIds: string[]) => {
 
       // Helper to merge cached progress into a room as fallback data only.
       // Fresh Firebase/room progress must win when both sources have the same timer key.
-      const mergeProgressFromCache = (room: Room): Room => {
-        const cachedProgress = cachedRoom?.state.progress ?? {}
-        const hasCachedProgress = Object.keys(cachedProgress).length > 0
-        if (!hasCachedProgress) return room
-        // Shared mergeProgress helper: priority (fresh room progress) overrides base (cache).
-        const roomProgress = room.state.progress ?? {}
-        return {
-          ...room,
-          state: {
-            ...room.state,
-            progress: mergeProgress(cachedProgress, roomProgress),
-          },
-        }
-      }
+      const mergeProgressFromCache = (room: Room): Room =>
+        mergeRoomProgressFromCache(room, cachedRoom?.state.progress ?? {})
 
       if (!isCompanionLive()) {
         if (firebaseRoom) return mergeProgressFromCache(firebaseRoom)
