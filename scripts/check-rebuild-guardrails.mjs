@@ -339,7 +339,7 @@ function checkPackagePopulationRatchet() {
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
   'frontend/src/context/UnifiedDataContext.tsx': 6067,
-  'companion/src/main.ts': 6134,
+  'companion/src/main.ts': 5841,
 }
 
 function checkGodFileRatchet() {
