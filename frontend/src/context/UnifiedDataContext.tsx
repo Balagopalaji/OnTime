@@ -34,7 +34,7 @@ import {
   resolveSnapshotTimestamp,
   shouldBootstrapCachedSubscriptions,
 } from '../lib/arbitration'
-import { mergeControllerClients, mergeCueQueueEvents, mergeQueuedEvents as mergeQueuedEventsPure, resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState, buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase, DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE, type CueQueuedEvent, type QueuedEvent } from '@ontime/local-sync-arbitration'
+import { mergeControllerClients, mergeCueQueueEvents, mergeQueuedEvents as mergeQueuedEventsPure, resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState, buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase, createLocalPersistence, ROOM_CACHE_KEY, TOMBSTONE_TTL_MS, DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE, type CachedRoomSnapshot, type CompanionSubscription, type CueQueuedEvent, type LocalTombstone, type QueuedEvent } from '@ontime/local-sync-arbitration'
 import { toMillis } from '../lib/firestore-utils'
 import { db, functions } from '../lib/firebase'
 import { DataProviderBoundary, useDataContext, type DataContextValue } from './DataContext'
@@ -224,30 +224,33 @@ const DEFAULT_AUTHORITY: RoomAuthority = {
   lastSyncAt: 0,
 }
 
-const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
-const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
-const TOMBSTONE_CACHE_KEY = 'ontime:deletedRoomTombstones'
 const SEED_GUARD_KEY = 'ontime:companionSeedAt'
 const CONTROL_CHANNEL_NAME = 'ontime:control:channel'
-const CACHE_LIMIT = 20
 const HEARTBEAT_INTERVAL_MS = 30_000
-const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 const SEED_GUARD_WINDOW_MS = 60_000
 
-type CachedRoomSnapshot = {
-  roomId: string
-  room: Room
-  timers: Timer[]
-  dataTs: number
-  cachedAt: number
-  source: 'companion' | 'cloud'
-}
+// localStorage persistence cluster (keys, cache limits, CachedRoomSnapshot/
+// CompanionSubscription/LocalTombstone types, read/persist helpers) is carved
+// to @ontime/local-sync-arbitration (local-persistence.ts, Stage 1b Lane A
+// slice LS-2) behind an injected storage adapter; the singleton below wires
+// browser localStorage/Date.now/navigator.onLine and re-exports the helpers
+// for existing importers.
+const localPersistence = createLocalPersistence({
+  getStorage: () => (typeof localStorage === 'undefined' ? undefined : localStorage),
+  now: () => Date.now(),
+  isOnline: () => (typeof navigator === 'undefined' ? true : navigator.onLine),
+})
 
-export type CompanionSubscription = {
-  clientType: 'controller' | 'viewer'
-  token: string
-  tokenSource: 'controller' | 'viewer'
-}
+export const {
+  readCachedSubscriptions,
+  persistSubscriptions,
+  readRoomCache,
+  persistRoomCache,
+  readLocalTombstones,
+  persistLocalTombstones,
+} = localPersistence
+
+export type { CompanionSubscription }
 
 export type JoinQueueEntry = {
   roomId: string
@@ -275,133 +278,10 @@ export const requeueJoinEntryToTail = (queue: JoinQueueEntry[], entry: JoinQueue
   entry,
 ]
 
-export const readCachedSubscriptions = (): Record<string, CompanionSubscription> => {
-  if (typeof localStorage === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem(SUBS_CACHE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as Record<string, CompanionSubscription>
-    return Object.entries(parsed ?? {}).reduce<Record<string, CompanionSubscription>>((acc, [roomId, entry]) => {
-      if (!entry) return acc
-      acc[roomId] = {
-        clientType: entry.clientType === 'controller' ? 'controller' : 'viewer',
-        token: entry.token,
-        tokenSource: entry.tokenSource === 'viewer' ? 'viewer' : 'controller',
-      }
-      return acc
-    }, {})
-  } catch {
-    return {}
-  }
-}
-
-export const persistSubscriptions = (subs: Record<string, CompanionSubscription>) => {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(SUBS_CACHE_KEY, JSON.stringify(subs))
-  } catch {
-    // ignore
-  }
-}
-
-export const readRoomCache = (): Record<string, CachedRoomSnapshot> => {
-  if (typeof localStorage === 'undefined') return {}
-  try {
-    const now = Date.now()
-    const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
-    const raw = localStorage.getItem(ROOM_CACHE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as Record<
-      string,
-      CachedRoomSnapshot & { updatedAt?: number; cachedAt?: number; dataTs?: number }
-    >
-    return Object.entries(parsed ?? {}).reduce<Record<string, CachedRoomSnapshot>>((acc, [roomId, entry]) => {
-      if (!entry || typeof entry !== 'object') return acc
-      const legacyUpdatedAt = (entry as { updatedAt?: number }).updatedAt
-      const cachedAt =
-        typeof entry.cachedAt === 'number'
-          ? entry.cachedAt
-          : typeof legacyUpdatedAt === 'number'
-            ? legacyUpdatedAt
-            : Date.now()
-      const dataTs =
-        typeof entry.dataTs === 'number'
-          ? entry.dataTs
-          : entry.room?.state?.lastUpdate ?? (typeof legacyUpdatedAt === 'number' ? legacyUpdatedAt : 0)
-      if (isOnline && now - cachedAt > PREVIEW_CACHE_TTL_MS) {
-        return acc
-      }
-      acc[roomId] = {
-        roomId: entry.roomId ?? roomId,
-        room: entry.room,
-        timers: entry.timers ?? [],
-        dataTs,
-        cachedAt,
-        source: entry.source === 'companion' ? 'companion' : 'cloud',
-      }
-      return acc
-    }, {})
-  } catch {
-    return {}
-  }
-}
-
-export const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
-  if (typeof localStorage === 'undefined') return
-  try {
-    const ordered = Object.values(entries)
-      .sort((a, b) => b.cachedAt - a.cachedAt)
-      .slice(0, CACHE_LIMIT)
-    const trimmed = ordered.reduce<Record<string, CachedRoomSnapshot>>((acc, entry) => {
-      acc[entry.roomId] = entry
-      return acc
-    }, {})
-    localStorage.setItem(ROOM_CACHE_KEY, JSON.stringify(trimmed))
-  } catch {
-    // ignore
-  }
-}
-
-type LocalTombstone = {
-  roomId: string
-  deletedAt: number
-  expiresAt: number
-}
-
-export const readLocalTombstones = (): Record<string, LocalTombstone> => {
-  if (typeof localStorage === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem(TOMBSTONE_CACHE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as Record<string, LocalTombstone>
-    const now = Date.now()
-    // Prune expired local tombstones on read
-    const active: Record<string, LocalTombstone> = {}
-    Object.entries(parsed).forEach(([roomId, entry]) => {
-      if (entry && entry.expiresAt > now) {
-        active[roomId] = entry
-      }
-    })
-    return active
-  } catch {
-    return {}
-  }
-}
-
-export const persistLocalTombstones = (tombstones: Record<string, LocalTombstone>) => {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(TOMBSTONE_CACHE_KEY, JSON.stringify(tombstones))
-  } catch {
-    // ignore
-  }
-}
-
 const SESSION_CLIENT_ID_KEY = 'ontime:companionClientId'
 const MAX_QUEUE = 100
 const MAX_CUE_QUEUE = 150
 const QUEUE_WARNING_THRESHOLD = 0.8
-const PREVIEW_CACHE_TTL_MS = 10_000
 export const JOIN_PENDING_WATCHDOG_MS = 2_500
 
 
