@@ -7,7 +7,11 @@ import {
   getConfidenceWindowMs,
   getReconnectJoinEntries,
   prunePendingControlRequests,
+  persistLocalTombstones,
+  persistRoomCache,
+  persistSubscriptions,
   readCachedSubscriptions,
+  readLocalTombstones,
   requeueJoinEntryToTail,
   readRoomCache,
   reduceControlDisplacementsForLockUpdate,
@@ -2083,5 +2087,148 @@ describe('shouldResetQueuedLockReplayOnSocketChange', () => {
         { id: 'socket-b' },
       ),
     ).toBe(true)
+  })
+})
+
+describe('localStorage persistence cluster (LS characterization)', () => {
+  const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
+  const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
+  const TOMBSTONE_CACHE_KEY = 'ontime:deletedRoomTombstones'
+
+  afterEach(() => {
+    localStorage.removeItem(ROOM_CACHE_KEY)
+    localStorage.removeItem(SUBS_CACHE_KEY)
+    localStorage.removeItem(TOMBSTONE_CACHE_KEY)
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  const buildSnapshot = (roomId: string, cachedAt: number) => ({
+    roomId,
+    room: { id: roomId, state: { lastUpdate: cachedAt } } as never,
+    timers: [],
+    dataTs: cachedAt,
+    cachedAt,
+    source: 'cloud' as const,
+  })
+
+  it('persistRoomCache trims to the 20 newest entries by cachedAt and rekeys by entry.roomId', () => {
+    const entries: Record<string, ReturnType<typeof buildSnapshot>> = {}
+    for (let i = 0; i <= 20; i++) {
+      entries[`key-${i}`] = buildSnapshot(`room-${i}`, 1_000 + i)
+    }
+    persistRoomCache(entries)
+    const stored = JSON.parse(localStorage.getItem(ROOM_CACHE_KEY) ?? '{}') as Record<string, { cachedAt: number }>
+    expect(Object.keys(stored)).toHaveLength(20)
+    expect(stored['room-0']).toBeUndefined()
+    expect(stored['room-1']?.cachedAt).toBe(1_001)
+    expect(stored['room-20']?.cachedAt).toBe(1_020)
+    expect(stored['key-5']).toBeUndefined()
+    expect(stored['room-5']).toBeDefined()
+  })
+
+  it('persistRoomCache swallows storage write failures', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    expect(() => persistRoomCache({ a: buildSnapshot('a', 1) })).not.toThrow()
+  })
+
+  it('persistSubscriptions round-trips through localStorage and swallows write failures', () => {
+    persistSubscriptions({
+      'room-a': { clientType: 'viewer', token: 'tok', tokenSource: 'viewer' },
+    })
+    expect(JSON.parse(localStorage.getItem(SUBS_CACHE_KEY) ?? '{}')).toEqual({
+      'room-a': { clientType: 'viewer', token: 'tok', tokenSource: 'viewer' },
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    expect(() => persistSubscriptions({})).not.toThrow()
+  })
+
+  it('readCachedSubscriptions skips falsy entries and returns {} on malformed JSON', () => {
+    localStorage.setItem(
+      SUBS_CACHE_KEY,
+      JSON.stringify({
+        good: { clientType: 'controller', token: 't1', tokenSource: 'controller' },
+        bad: null,
+      }),
+    )
+    expect(Object.keys(readCachedSubscriptions())).toEqual(['good'])
+
+    localStorage.setItem(SUBS_CACHE_KEY, '{not-json')
+    expect(readCachedSubscriptions()).toEqual({})
+  })
+
+  it('readRoomCache defaults missing fields per entry: fresh cachedAt, key-derived roomId, [] timers, cloud source', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(500_000)
+    localStorage.setItem(
+      ROOM_CACHE_KEY,
+      JSON.stringify({
+        bare: { room: { id: 'bare', state: { lastUpdate: 7 } }, source: 'weird' },
+        loaded: {
+          roomId: 'loaded',
+          room: { id: 'loaded', state: { lastUpdate: 9 } },
+          timers: [{ id: 't1' }],
+          dataTs: 9,
+          cachedAt: 499_000,
+          source: 'companion',
+        },
+        junk: 'not-an-object',
+        empty: null,
+      }),
+    )
+    const cache = readRoomCache()
+    expect(Object.keys(cache).sort()).toEqual(['bare', 'loaded'])
+    expect(cache.loaded?.timers).toEqual([{ id: 't1' }])
+    expect(cache.loaded?.source).toBe('companion')
+    expect(cache.bare).toEqual({
+      roomId: 'bare',
+      room: { id: 'bare', state: { lastUpdate: 7 } },
+      timers: [],
+      dataTs: 7,
+      cachedAt: 500_000,
+      source: 'cloud',
+    })
+  })
+
+  it('readRoomCache returns {} on malformed JSON', () => {
+    localStorage.setItem(ROOM_CACHE_KEY, '{broken')
+    expect(readRoomCache()).toEqual({})
+  })
+
+  it('readLocalTombstones prunes entries whose expiresAt is not in the future and skips falsy entries', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(2_000_000)
+    localStorage.setItem(
+      TOMBSTONE_CACHE_KEY,
+      JSON.stringify({
+        live: { roomId: 'live', deletedAt: 1_000_000, expiresAt: 2_000_001 },
+        boundary: { roomId: 'boundary', deletedAt: 1_000_000, expiresAt: 2_000_000 },
+        expired: { roomId: 'expired', deletedAt: 1, expiresAt: 1_999_999 },
+        nullish: null,
+      }),
+    )
+    expect(readLocalTombstones()).toEqual({
+      live: { roomId: 'live', deletedAt: 1_000_000, expiresAt: 2_000_001 },
+    })
+
+    localStorage.setItem(TOMBSTONE_CACHE_KEY, '{broken')
+    expect(readLocalTombstones()).toEqual({})
+  })
+
+  it('persistLocalTombstones round-trips through localStorage and swallows write failures', () => {
+    persistLocalTombstones({
+      gone: { roomId: 'gone', deletedAt: 5, expiresAt: 10 },
+    })
+    expect(JSON.parse(localStorage.getItem(TOMBSTONE_CACHE_KEY) ?? '{}')).toEqual({
+      gone: { roomId: 'gone', deletedAt: 5, expiresAt: 10 },
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    expect(() => persistLocalTombstones({})).not.toThrow()
   })
 })
