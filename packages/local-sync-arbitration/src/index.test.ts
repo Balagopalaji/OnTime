@@ -5,15 +5,19 @@ import type {
   ArbitrationLastAcceptedCache,
   CueQueuedEvent,
   QueuedEvent,
+  RoomStateAcceptanceInput,
   StorageLike,
 } from './index'
 import {
   buildDefaultCompanionState,
   createLocalPersistence,
   buildRoomFromCompanion,
+  decideRoomStateAcceptance,
   getConfidenceWindowMs,
   isSnapshotStale,
   mergeControllerClients,
+  mergeRoomProgressFromCache,
+  resolveControllerTieBreaker,
   mergeCueQueueEvents,
   mergeQueuedEvents,
   normalizeRoomAuthoritySource,
@@ -1641,5 +1645,206 @@ describe('local persistence (LS-2)', () => {
 
     const cache = readRoomCache()
     expect(cache.stale?.roomId).toBe('stale')
+  })
+})
+
+// Package-layer oracles for the AR-2 carve (room-state-acceptance.ts), ported from the
+// AR-1 characterization tests in frontend/src/context/UnifiedDataContext.test.ts. The
+// frontend tests pin the shim path end-to-end; these pin the carved functions directly.
+describe('room-state-acceptance', () => {
+  describe('resolveControllerTieBreaker', () => {
+    it('returns the write source while the write age is within the confidence window', () => {
+      // Defect caught: dropping the recency condition (always undefined) or inverting it.
+      expect(
+        resolveControllerTieBreaker({ source: 'companion', timestamp: 1_000 }, 2_500, 2_000),
+      ).toBe('companion')
+    })
+
+    it('returns the write source at the exact window boundary (age === window)', () => {
+      // Defect caught: tightening `<=` to `<` (boundary write would lose its tie-breaker vote).
+      expect(
+        resolveControllerTieBreaker({ source: 'cloud', timestamp: 1_000 }, 3_000, 2_000),
+      ).toBe('cloud')
+    })
+
+    it('returns undefined once the write age exceeds the window by 1ms', () => {
+      // Defect caught: loosening `<=` to `<=` off-by-one (`< window + 1` style) or removing expiry.
+      expect(
+        resolveControllerTieBreaker({ source: 'companion', timestamp: 1_000 }, 3_001, 2_000),
+      ).toBeUndefined()
+    })
+
+    it('returns undefined when there is no recorded controller write', () => {
+      // Defect caught: unguarded property access / defaulting to a source with no write history.
+      expect(resolveControllerTieBreaker(undefined, 3_000, 2_000)).toBeUndefined()
+    })
+  })
+
+  describe('decideRoomStateAcceptance', () => {
+    const acceptanceInput = (
+      overrides: Partial<RoomStateAcceptanceInput> = {},
+    ): RoomStateAcceptanceInput => ({
+      roomId: 'room-1',
+      cloudTs: 1_000,
+      incomingTs: 900,
+      existingTs: 0,
+      firebaseTs: 1_000,
+      authoritySource: undefined,
+      mode: 'auto',
+      effectiveMode: 'local',
+      isCompanionLive: true,
+      cloudOnline: true,
+      confidenceWindowMs: 2_000,
+      viewerSyncGuard: false,
+      holdActive: false,
+      flagEnabled: true,
+      ...overrides,
+    })
+
+    it('accepts a companion update newer than cloud outside the window (isStale false)', () => {
+      // Defect caught: inverting the isStale mapping (accepting only when NOT companion).
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({ cloudTs: 1_000, firebaseTs: 1_000, incomingTs: 10_000 }),
+      )
+      expect(result.arbitrationDecision).toEqual({
+        acceptSource: 'companion',
+        reason: 'companion newer',
+      })
+      expect(result.isStale).toBe(false)
+    })
+
+    it('rejects a companion update older than cloud outside the window (isStale true, cloud wins)', () => {
+      // Defect caught: dropping the isStale gate so stale companion data overwrites newer cloud.
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({ cloudTs: 20_000, firebaseTs: 20_000, incomingTs: 1_000 }),
+      )
+      expect(result.arbitrationDecision).toEqual({
+        acceptSource: 'cloud',
+        reason: 'cloud newer',
+      })
+      expect(result.isStale).toBe(true)
+    })
+
+    it('accepts on equal timestamps when the controller tie-breaker says companion', () => {
+      // Defect caught: losing the controllerTieBreaker passthrough into arbitrate.
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({
+          cloudTs: 5_000,
+          firebaseTs: 5_000,
+          incomingTs: 5_000,
+          controllerTieBreaker: 'companion',
+        }),
+      )
+      expect(result.arbitrationDecision).toEqual({
+        acceptSource: 'companion',
+        reason: 'within window - tie breaker',
+      })
+      expect(result.isStale).toBe(false)
+    })
+
+    it('honors an injected arbitrateFn and derives isStale from ITS acceptSource', () => {
+      // Defect caught: ignoring the injected arbitrateFn (calling core arbitrate directly),
+      // which would break the app shim's wrapped arbitrate (cache + logging) injection.
+      const stubDecision: ArbitrationDecision = { acceptSource: 'cloud', reason: 'mode bias' }
+      const arbitrateFn = vi.fn(() => stubDecision)
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({ cloudTs: 1_000, firebaseTs: 1_000, incomingTs: 10_000, arbitrateFn }),
+      )
+      expect(arbitrateFn).toHaveBeenCalledTimes(1)
+      expect(arbitrateFn).toHaveBeenCalledWith(
+        expect.objectContaining({ roomId: 'room-1', domain: 'room', companionTs: 10_000 }),
+      )
+      expect(result.arbitrationDecision).toBe(stubDecision)
+      expect(result.isStale).toBe(true)
+    })
+
+    it('flag OFF: stale when incomingTs + window is older than the existing companion timestamp', () => {
+      // Defect caught: dropping the legacy existingTs comparison (flag-off rollback path).
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({
+          flagEnabled: false,
+          incomingTs: 1_000,
+          confidenceWindowMs: 2_000,
+          existingTs: 4_000,
+          firebaseTs: 0,
+        }),
+      )
+      expect(result.arbitrationDecision).toBeNull()
+      expect(result.isStale).toBe(true)
+    })
+
+    it('flag OFF: not stale when incomingTs + window reaches both existing and firebase timestamps', () => {
+      // Defect caught: comparing against the wrong bound (window subtracted instead of added).
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({
+          flagEnabled: false,
+          incomingTs: 1_000,
+          confidenceWindowMs: 2_000,
+          existingTs: 2_500,
+          firebaseTs: 2_900,
+        }),
+      )
+      expect(result.arbitrationDecision).toBeNull()
+      expect(result.isStale).toBe(false)
+    })
+
+    it('flag OFF: exact boundary (incomingTs + window === existingTs === firebaseTs) is NOT stale (strict <)', () => {
+      // Defect caught: loosening the legacy strict `<` to `<=` (boundary updates would be dropped).
+      const result = decideRoomStateAcceptance(
+        acceptanceInput({
+          flagEnabled: false,
+          incomingTs: 1_000,
+          confidenceWindowMs: 2_000,
+          existingTs: 3_000,
+          firebaseTs: 3_000,
+        }),
+      )
+      expect(result.arbitrationDecision).toBeNull()
+      expect(result.isStale).toBe(false)
+    })
+  })
+
+  describe('mergeRoomProgressFromCache', () => {
+    const makeMergeRoom = (progress?: Record<string, number>): Room =>
+      ({
+        id: 'room-m',
+        ownerId: 'owner-1',
+        title: 'Merge Room',
+        timezone: 'UTC',
+        createdAt: 1,
+        config: { warningSec: 60, criticalSec: 15 },
+        state: {
+          activeTimerId: null,
+          isRunning: false,
+          startedAt: null,
+          elapsedOffset: 0,
+          progress,
+          showClock: false,
+          message: { text: '', visible: false, color: 'green' },
+          currentTime: 0,
+          lastUpdate: 0,
+        },
+      }) as unknown as Room
+
+    it('fresh room progress wins per key while cache fills the gaps', () => {
+      // Defect caught: swapping base/priority in mergeProgress (cache would clobber fresh data).
+      const room = makeMergeRoom({ t1: 0.8 })
+      const merged = mergeRoomProgressFromCache(room, { t1: 0.2, t2: 0.5 })
+      expect(merged.state.progress).toEqual({ t1: 0.8, t2: 0.5 })
+    })
+
+    it('returns the same room object identity when the cache has no progress', () => {
+      // Defect caught: losing the hasCachedProgress early return (needless re-render churn
+      // from a new object identity on every getRoom call).
+      const room = makeMergeRoom({ t1: 0.8 })
+      expect(mergeRoomProgressFromCache(room, {})).toBe(room)
+    })
+
+    it('uses cached progress wholesale when the room has no progress map', () => {
+      // Defect caught: dropping the `room.state.progress ?? {}` fallback (spread of undefined).
+      const room = makeMergeRoom(undefined)
+      const merged = mergeRoomProgressFromCache(room, { t1: 0.2, t2: 0.5 })
+      expect(merged.state.progress).toEqual({ t1: 0.2, t2: 0.5 })
+    })
   })
 })

@@ -5,7 +5,8 @@
   "type": "module",
   "dependencies": {
     "@ontime/interface-contracts": "0.0.0",
-    "@ontime/shared-types": "0.0.0"
+    "@ontime/shared-types": "0.0.0",
+    "@ontime/timer-core": "0.0.0"
   },
   "exports": {
     ".": "./src/index.ts"
