@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useEffect } from 'react'
 import { act, render } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearRoomControlLifecycleState,
   getConfidenceWindowMs,
@@ -2230,5 +2230,663 @@ describe('localStorage persistence cluster (LS characterization)', () => {
       throw new Error('quota exceeded')
     })
     expect(() => persistLocalTombstones({})).not.toThrow()
+  })
+})
+
+class ArbFakeSocket {
+  connected = true
+  active = true
+  connect = vi.fn()
+  disconnect = vi.fn()
+  emit = vi.fn()
+  private listeners = new Map<string, Set<(...args: unknown[]) => void>>()
+
+  on(event: string, cb: (...args: unknown[]) => void) {
+    const list = this.listeners.get(event) ?? new Set()
+    list.add(cb)
+    this.listeners.set(event, list)
+  }
+
+  off(event: string, cb: (...args: unknown[]) => void) {
+    this.listeners.get(event)?.delete(cb)
+  }
+
+  trigger(event: string, payload?: unknown) {
+    this.listeners.get(event)?.forEach((cb) => cb(payload))
+  }
+}
+
+const buildArbFirebaseValue = (getRoomImpl: (roomId: string) => unknown) => ({
+  rooms: [],
+  connectionStatus: 'online',
+  setConnectionStatus: vi.fn(),
+  pendingRooms: new Set<string>(),
+  pendingRoomPlaceholders: [],
+  pendingTimers: {},
+  pendingTimerPlaceholders: {},
+  undoRoomDelete: vi.fn(async () => {}),
+  redoRoomDelete: vi.fn(async () => {}),
+  undoTimerDelete: vi.fn(async () => {}),
+  redoTimerDelete: vi.fn(async () => {}),
+  clearUndoStacks: vi.fn(async () => {}),
+  getRoom: vi.fn(getRoomImpl),
+  getTimers: vi.fn(() => []),
+  getCues: vi.fn(() => []),
+  getLiveCues: vi.fn(() => []),
+  getLiveCueRecords: vi.fn(() => []),
+  createRoom: vi.fn(async () => { throw new Error('not used') }),
+  deleteRoom: vi.fn(async () => {}),
+  createTimer: vi.fn(async () => undefined),
+  createCue: vi.fn(async () => undefined),
+  updateTimer: vi.fn(async () => {}),
+  updateCue: vi.fn(async () => {}),
+  updateRoomMeta: vi.fn(async () => {}),
+  restoreTimer: vi.fn(async () => {}),
+  resetTimerProgress: vi.fn(async () => {}),
+  deleteTimer: vi.fn(async () => {}),
+  deleteCue: vi.fn(async () => {}),
+  moveTimer: vi.fn(async () => {}),
+  reorderTimer: vi.fn(async () => {}),
+  reorderCues: vi.fn(async () => {}),
+  getSections: vi.fn(() => []),
+  getSegments: vi.fn(() => []),
+  createSection: vi.fn(async () => undefined),
+  updateSection: vi.fn(async () => {}),
+  deleteSection: vi.fn(async () => {}),
+  reorderSections: vi.fn(async () => {}),
+  createSegment: vi.fn(async () => undefined),
+  updateSegment: vi.fn(async () => {}),
+  deleteSegment: vi.fn(async () => {}),
+  reorderSegments: vi.fn(async () => {}),
+  setActiveTimer: vi.fn(async () => {}),
+  startTimer: vi.fn(async () => {}),
+  pauseTimer: vi.fn(async () => {}),
+  resetTimer: vi.fn(async () => {}),
+  nudgeTimer: vi.fn(async () => {}),
+  setClockMode: vi.fn(async () => {}),
+  setClockFormat: vi.fn(async () => {}),
+  updateMessage: vi.fn(async () => {}),
+  controllerLocks: {},
+  roomPins: {},
+  roomClients: {},
+  controlRequests: {},
+  pendingControlRequests: {},
+  controlDenials: {},
+  controlDisplacements: {},
+  controlErrors: {},
+  getControllerLock: vi.fn(() => null),
+  getControllerLockState: vi.fn(() => 'authoritative'),
+  getRoomPin: vi.fn(() => null),
+  setRoomPin: vi.fn(),
+  requestControl: vi.fn(),
+  forceTakeover: vi.fn(),
+  handOverControl: vi.fn(),
+  denyControl: vi.fn(),
+  enqueueOfflineAction: vi.fn(),
+  clearOfflineQueue: vi.fn(),
+  cloudSync: vi.fn(),
+  cloudSyncEnabled: false,
+  clearLiveCues: vi.fn(),
+  sendHeartbeat: vi.fn(),
+})
+
+const buildArbCloudRoom = (
+  roomId: string,
+  lastUpdate: number,
+  options?: { title?: string; progress?: Record<string, number> },
+) => ({
+  id: roomId,
+  ownerId: 'user-1',
+  title: options?.title ?? 'Cloud Room',
+  timezone: 'UTC',
+  createdAt: 0,
+  order: 0,
+  config: {},
+  features: {},
+  state: {
+    activeTimerId: null,
+    isRunning: false,
+    startedAt: null,
+    elapsedOffset: 0,
+    currentTime: 0,
+    lastUpdate,
+    progress: options?.progress,
+    showClock: false,
+    message: { text: '', visible: false, color: 'green' },
+  },
+})
+
+describe('room-state arbitration decision paths (AR characterization)', () => {
+  const buildCompanionMock = (socket: ArbFakeSocket) => ({
+    socket,
+    isConnected: true,
+    handshakeStatus: 'ack' as const,
+    reconnectState: 'idle' as const,
+    reconnectAttempts: 0,
+    reconnectChurn: false,
+    token: 'cached-token',
+    fetchToken: vi.fn(async () => 'cached-token'),
+    clearToken: vi.fn(),
+    markHandshakePending: vi.fn(),
+    retryConnection: vi.fn(),
+    protocolStatus: { clientVersion: '1.2.0', serverVersion: '1.2.0', compatibility: 'ok' as const },
+    companionMode: 'show_control',
+    capabilities: { powerpoint: false, externalVideo: false, fileOperations: true },
+    capabilitiesRevision: 0,
+    systemInfo: null,
+    discoverCompanion: vi.fn(async () => 'cached-token'),
+  })
+
+  let mountedViews: Array<{ unmount: () => void }> = []
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    mountedViews.forEach((view) => view.unmount())
+    mountedViews = []
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
+    localStorage.clear()
+  })
+
+  const mountProvider = async (
+    companionMock: unknown,
+    firebaseValue: unknown,
+  ) => {
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => companionMock,
+    }))
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'auto', effectiveMode: 'local' }),
+    }))
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    const { UnifiedDataProvider, useUnifiedDataContext } = module
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => {
+        ctxRef = ctx
+      }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    mountedViews.push(view)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(ctxRef).not.toBeNull()
+    return {
+      getCtx: () => {
+        if (!ctxRef) throw new Error('unified context not ready')
+        return ctxRef
+      },
+    }
+  }
+
+  const seedCompanionRoom = async (
+    socket: ArbFakeSocket,
+    getCtx: () => { subscribeToCompanionRoom: (roomId: string, clientType: 'controller' | 'viewer') => void },
+    roomId: string,
+  ) => {
+    await act(async () => {
+      getCtx().subscribeToCompanionRoom(roomId, 'controller')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // No cloud data yet (firebase.getRoom -> undefined) => arbitrate rule 8 accepts companion.
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId,
+        changes: {
+          activeTimerId: 't1',
+          isRunning: false,
+          currentTime: 5000,
+          lastUpdate: 100_000,
+        },
+        timestamp: 100_000,
+      })
+      await Promise.resolve()
+    })
+  }
+
+  it('AR-S1 rejects a stale snapshot (cloud newer outside window) but still flips authority to cloud', async () => {
+    // Defects caught: isStale mapping inverted to `=== 'companion'` combined with AR-S2;
+    // deletion of the stale-path setRoomAuthority (authority would stay 'companion');
+    // cloudTs/companionTs swap in the snapshot arbitrate call (authority would become 'companion').
+    vi.setSystemTime(100_000)
+    const socket = new ArbFakeSocket()
+    const cloudRooms: Record<string, unknown> = {}
+    const firebaseValue = buildArbFirebaseValue((roomId) => cloudRooms[roomId])
+    const { getCtx } = await mountProvider(buildCompanionMock(socket), firebaseValue)
+
+    await seedCompanionRoom(socket, getCtx, 'room-a')
+    expect(getCtx().getRoom('room-a')?.state.lastUpdate).toBe(100_000)
+    expect(getCtx().roomAuthority['room-a']?.source).toBe('companion')
+
+    cloudRooms['room-a'] = buildArbCloudRoom('room-a', 110_000)
+    vi.setSystemTime(110_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_SNAPSHOT', {
+        type: 'ROOM_STATE_SNAPSHOT',
+        roomId: 'room-a',
+        state: {
+          activeTimerId: 't1',
+          isRunning: false,
+          currentTime: 9999,
+          lastUpdate: 105_000,
+          title: 'Companion Snapshot Room',
+        },
+        timestamp: 105_000,
+      })
+      await Promise.resolve()
+    })
+
+    // Cloud is newer by 5000ms (> 2000ms window) => decision 'cloud' => snapshot rejected...
+    const room = getCtx().getRoom('room-a')
+    expect(room?.title).toBe('Cloud Room')
+    expect(room?.state.lastUpdate).toBe(110_000)
+    expect(room?.state.currentTime).toBe(0)
+    // ...but the stale path still records the arbitration winner as room authority.
+    expect(getCtx().roomAuthority['room-a']?.source).toBe('cloud')
+  })
+
+  it('AR-S2 accepts a fresh snapshot (companion newer outside window) and applies its exact state', async () => {
+    // Defects caught: isStale inversion (fresh snapshot would be dropped);
+    // accept-path authority corruption (hardcoding 'cloud' instead of decision ?? 'companion').
+    vi.setSystemTime(100_000)
+    const socket = new ArbFakeSocket()
+    const cloudRooms: Record<string, unknown> = {}
+    const firebaseValue = buildArbFirebaseValue((roomId) => cloudRooms[roomId])
+    const { getCtx } = await mountProvider(buildCompanionMock(socket), firebaseValue)
+
+    await seedCompanionRoom(socket, getCtx, 'room-a')
+
+    cloudRooms['room-a'] = buildArbCloudRoom('room-a', 110_000)
+    vi.setSystemTime(115_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_SNAPSHOT', {
+        type: 'ROOM_STATE_SNAPSHOT',
+        roomId: 'room-a',
+        state: {
+          activeTimerId: 't1',
+          isRunning: false,
+          currentTime: 7000,
+          lastUpdate: 115_000,
+          title: 'Companion Snapshot Room',
+        },
+        timestamp: 115_000,
+      })
+      await Promise.resolve()
+    })
+
+    expect(getCtx().roomAuthority['room-a']?.source).toBe('companion')
+    const room = getCtx().getRoom('room-a')
+    expect(room?.title).toBe('Companion Snapshot Room')
+    expect(room?.state.lastUpdate).toBe(115_000)
+    expect(room?.state.currentTime).toBe(7000)
+  })
+
+  it('AR-D1 rejects a stale delta without merging its changes, then a fresh delta still sees the old companion state', async () => {
+    // Defects caught: stale-path fallthrough into setCompanionRooms (the rejected delta's
+    // currentTime 9999 would leak into companion state); missing stale-path authority flip;
+    // cloudTs/companionTs swap in the delta arbitrate call.
+    vi.setSystemTime(100_000)
+    const socket = new ArbFakeSocket()
+    const cloudRooms: Record<string, unknown> = {}
+    const firebaseValue = buildArbFirebaseValue((roomId) => cloudRooms[roomId])
+    const { getCtx } = await mountProvider(buildCompanionMock(socket), firebaseValue)
+
+    await seedCompanionRoom(socket, getCtx, 'room-a')
+
+    cloudRooms['room-a'] = buildArbCloudRoom('room-a', 110_000)
+    vi.setSystemTime(110_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-a',
+        changes: { lastUpdate: 105_000, currentTime: 9999 },
+        timestamp: 105_000,
+      })
+      await Promise.resolve()
+    })
+
+    // Cloud newer by 5000ms (> window) => rejected: getRoom serves the firebase room.
+    expect(getCtx().roomAuthority['room-a']?.source).toBe('cloud')
+    const roomAfterStale = getCtx().getRoom('room-a')
+    expect(roomAfterStale?.title).toBe('Cloud Room')
+    expect(roomAfterStale?.state.lastUpdate).toBe(110_000)
+    expect(roomAfterStale?.state.currentTime).toBe(0)
+
+    // Positive control: a fresh anchor-only delta wins and merges onto the ORIGINAL
+    // companion state (currentTime 5000 from the seed, not the rejected 9999).
+    vi.setSystemTime(115_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-a',
+        changes: { lastUpdate: 115_000 },
+        timestamp: 115_000,
+      })
+      await Promise.resolve()
+    })
+
+    expect(getCtx().roomAuthority['room-a']?.source).toBe('companion')
+    const roomAfterFresh = getCtx().getRoom('room-a')
+    expect(roomAfterFresh?.state.lastUpdate).toBe(115_000)
+    expect(roomAfterFresh?.state.currentTime).toBe(5000)
+  })
+
+  it('AR-D2 accepts a fresh delta (companion newer outside window) and applies its exact changes', async () => {
+    // Defects caught: isStale inversion on the delta path; accept-path authority corruption.
+    vi.setSystemTime(100_000)
+    const socket = new ArbFakeSocket()
+    const cloudRooms: Record<string, unknown> = {}
+    const firebaseValue = buildArbFirebaseValue((roomId) => cloudRooms[roomId])
+    const { getCtx } = await mountProvider(buildCompanionMock(socket), firebaseValue)
+
+    await seedCompanionRoom(socket, getCtx, 'room-a')
+
+    cloudRooms['room-a'] = buildArbCloudRoom('room-a', 110_000)
+    vi.setSystemTime(115_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-a',
+        changes: { lastUpdate: 115_000, currentTime: 7000, isRunning: false },
+        timestamp: 115_000,
+      })
+      await Promise.resolve()
+    })
+
+    expect(getCtx().roomAuthority['room-a']?.source).toBe('companion')
+    const room = getCtx().getRoom('room-a')
+    expect(room?.state.lastUpdate).toBe(115_000)
+    expect(room?.state.currentTime).toBe(7000)
+  })
+
+  const setupTieBreakerRoom = async () => {
+    // Cloud room exists at lastUpdate 200_000; authority is settled to 'cloud' via a
+    // losing companion delta (subscribe alone leaves authority 'pending', which arbitrate
+    // normalizes to undefined and would fall through to mode bias instead of rule 11).
+    vi.setSystemTime(200_000)
+    const socket = new ArbFakeSocket()
+    const cloudRooms: Record<string, unknown> = {
+      'room-tb': buildArbCloudRoom('room-tb', 200_000),
+    }
+    const firebaseValue = buildArbFirebaseValue((roomId) => cloudRooms[roomId])
+    const { getCtx } = await mountProvider(buildCompanionMock(socket), firebaseValue)
+
+    await act(async () => {
+      getCtx().subscribeToCompanionRoom('room-tb', 'controller')
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-tb',
+        changes: { lastUpdate: 150_000, currentTime: 1111 },
+        timestamp: 150_000,
+      })
+      await Promise.resolve()
+    })
+    expect(getCtx().roomAuthority['room-tb']?.source).toBe('cloud')
+
+    // Companion-path controller action at T=200_000: emitOrQueue marks
+    // lastControllerWrite = { source: 'companion', timestamp: 200_000 }.
+    await act(async () => {
+      await getCtx().setActiveTimer('room-tb', 't1')
+      await Promise.resolve()
+    })
+    const patchCalls = socket.emit.mock.calls.filter(
+      ([event, payload]) =>
+        event === 'ROOM_STATE_PATCH' && (payload as { roomId: string }).roomId === 'room-tb',
+    )
+    expect(patchCalls).toHaveLength(1)
+    expect((patchCalls[0]?.[1] as { changes: { activeTimerId?: string } }).changes.activeTimerId).toBe('t1')
+
+    return { socket, getCtx }
+  }
+
+  it('AR-T1 controller tie-breaker accepts an equal-timestamp delta at the exact window boundary (age 2000 <= 2000)', async () => {
+    // Defects caught: `<=` narrowed to `<` in the tie-breaker window (age exactly 2000
+    // would expire the tie-breaker and rule 11 authority 'cloud' would reject the delta);
+    // deletion of the controllerTieBreaker wiring entirely.
+    const { socket, getCtx } = await setupTieBreakerRoom()
+
+    vi.setSystemTime(202_000)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-tb',
+        changes: { lastUpdate: 200_000, currentTime: 4321 },
+        timestamp: 200_000,
+      })
+      await Promise.resolve()
+    })
+
+    // Equal timestamps (200_000 vs 200_000) + live tie-breaker 'companion' => accepted.
+    expect(getCtx().roomAuthority['room-tb']?.source).toBe('companion')
+    const room = getCtx().getRoom('room-tb')
+    expect(room?.state.activeTimerId).toBe('t1')
+    expect(room?.state.lastUpdate).toBe(200_000)
+    expect(room?.state.currentTime).toBe(4321)
+  })
+
+  it('AR-T2 expired tie-breaker (age 2001) rejects the equal-timestamp delta via within-window authority cloud', async () => {
+    // Defects caught: tie-breaker window widened past confidenceWindowMs or the
+    // Date.now() age check dropped (an ever-fresh tie-breaker would accept this delta).
+    const { socket, getCtx } = await setupTieBreakerRoom()
+
+    vi.setSystemTime(202_001)
+    await act(async () => {
+      socket.trigger('ROOM_STATE_DELTA', {
+        type: 'ROOM_STATE_DELTA',
+        roomId: 'room-tb',
+        changes: { lastUpdate: 200_000, currentTime: 4321 },
+        timestamp: 200_000,
+      })
+      await Promise.resolve()
+    })
+
+    // Tie-breaker aged out => rule 11 within-window authority 'cloud' wins => rejected.
+    expect(getCtx().roomAuthority['room-tb']?.source).toBe('cloud')
+    // Companion state still carries the setActiveTimer values, not the rejected delta's.
+    const room = getCtx().getRoom('room-tb')
+    expect(room?.state.lastUpdate).toBe(200_000)
+    expect(room?.state.currentTime).toBe(0)
+  })
+})
+
+describe('getRoom cached-progress merge (AR characterization)', () => {
+  const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
+
+  const offlineCompanionMock = {
+    socket: null,
+    isConnected: false,
+    handshakeStatus: 'idle' as const,
+    reconnectState: 'idle' as const,
+    reconnectAttempts: 0,
+    reconnectChurn: false,
+    token: null,
+    fetchToken: vi.fn(async () => null),
+    clearToken: vi.fn(),
+    markHandshakePending: vi.fn(),
+    retryConnection: vi.fn(),
+    protocolStatus: null,
+    companionMode: null,
+    capabilities: null,
+    capabilitiesRevision: 0,
+    systemInfo: null,
+    discoverCompanion: vi.fn(async () => null),
+  }
+
+  let mountedViews: Array<{ unmount: () => void }> = []
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+    vi.setSystemTime(500_000)
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    mountedViews.forEach((view) => view.unmount())
+    mountedViews = []
+    vi.useRealTimers()
+    vi.resetModules()
+    vi.doUnmock('./CompanionConnectionContext')
+    vi.doUnmock('./AuthContext')
+    vi.doUnmock('./AppModeContext')
+    vi.doUnmock('./FirebaseDataContext')
+    localStorage.clear()
+  })
+
+  const seedRoomCache = (
+    roomId: string,
+    options: { title: string; progress: Record<string, number> },
+  ) => {
+    const existing = JSON.parse(localStorage.getItem(ROOM_CACHE_KEY) ?? '{}') as Record<string, unknown>
+    existing[roomId] = {
+      roomId,
+      room: {
+        id: roomId,
+        ownerId: 'user-1',
+        title: options.title,
+        timezone: 'UTC',
+        createdAt: 0,
+        order: 0,
+        config: {},
+        features: {},
+        state: {
+          activeTimerId: null,
+          isRunning: false,
+          startedAt: null,
+          elapsedOffset: 0,
+          currentTime: 0,
+          lastUpdate: 400_000,
+          progress: options.progress,
+          showClock: false,
+          message: { text: '', visible: false, color: 'green' },
+        },
+      },
+      timers: [],
+      dataTs: 400_000,
+      cachedAt: 499_000,
+      source: 'companion',
+    }
+    localStorage.setItem(ROOM_CACHE_KEY, JSON.stringify(existing))
+  }
+
+  const mountProvider = async (firebaseValue: unknown) => {
+    vi.doMock('./CompanionConnectionContext', () => ({
+      INTERFACE_VERSION: '1.2.0',
+      getTokenExpiryMs: () => null,
+      useCompanionConnection: () => offlineCompanionMock,
+    }))
+    vi.doMock('./AuthContext', () => ({
+      useAuth: () => ({ user: { uid: 'user-1', displayName: 'User One' } }),
+    }))
+    vi.doMock('./AppModeContext', () => ({
+      useAppMode: () => ({ mode: 'auto', effectiveMode: 'local' }),
+    }))
+    vi.doMock('./FirebaseDataContext', async () => {
+      const React = await import('react')
+      const { DataProviderBoundary } = await import('./DataContext')
+      return {
+        FirebaseDataProvider: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(DataProviderBoundary, { value: firebaseValue as never }, children),
+      }
+    })
+
+    const module = await import('./UnifiedDataContext')
+    const { UnifiedDataProvider, useUnifiedDataContext } = module
+    let ctxRef: ReturnType<typeof useUnifiedDataContext> | null = null
+    const Probe = () => {
+      const ctx = useUnifiedDataContext()
+      useEffect(() => {
+        ctxRef = ctx
+      }, [ctx])
+      return null
+    }
+
+    const view = render(React.createElement(UnifiedDataProvider, null, React.createElement(Probe)))
+    mountedViews.push(view)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(ctxRef).not.toBeNull()
+    return {
+      getCtx: () => {
+        if (!ctxRef) throw new Error('unified context not ready')
+        return ctxRef
+      },
+    }
+  }
+
+  it('AR-M1 fresh room progress wins per key while cached progress fills missing keys', async () => {
+    // Defects caught: mergeProgress argument-order swap (cache-wins reversal would yield
+    // t1: 0.2); deletion of the merge (t2 would be lost from the result).
+    seedRoomCache('room-m', { title: 'Cached Room', progress: { t1: 0.2, t2: 0.5 } })
+    const cloudRoom = buildArbCloudRoom('room-m', 450_000, {
+      title: 'Cloud Fresh Room',
+      progress: { t1: 0.8 },
+    })
+    const { getCtx } = await mountProvider(buildArbFirebaseValue((roomId) => (roomId === 'room-m' ? cloudRoom : undefined)))
+
+    const room = getCtx().getRoom('room-m')
+    expect(room?.title).toBe('Cloud Fresh Room')
+    expect(room?.state.lastUpdate).toBe(450_000)
+    expect(room?.state.progress).toEqual({ t1: 0.8, t2: 0.5 })
+  })
+
+  it('AR-M2 empty cached progress returns the firebase room unchanged (identity, no merge)', async () => {
+    // Defects caught: unconditional merge/spread corruption — a rebuilt room object would
+    // break the identity check even when its content happens to match.
+    seedRoomCache('room-m2', { title: 'Cached Room 2', progress: {} })
+    const cloudRoom = buildArbCloudRoom('room-m2', 450_000, {
+      title: 'Cloud Room 2',
+      progress: { t1: 0.3 },
+    })
+    const { getCtx } = await mountProvider(buildArbFirebaseValue((roomId) => (roomId === 'room-m2' ? cloudRoom : undefined)))
+
+    const room = getCtx().getRoom('room-m2')
+    expect(room).toBe(cloudRoom)
+    expect(room?.state.progress).toEqual({ t1: 0.3 })
+  })
+
+  it('AR-M3 falls back to the cached room when firebase has no room and companion is not live', async () => {
+    // Defects caught: deletion of the cachedRoom fallback (getRoom would return undefined).
+    seedRoomCache('room-m3', { title: 'Cached Only Room', progress: { t1: 0.9 } })
+    const { getCtx } = await mountProvider(buildArbFirebaseValue(() => undefined))
+
+    const room = getCtx().getRoom('room-m3')
+    expect(room?.title).toBe('Cached Only Room')
+    expect(room?.state.lastUpdate).toBe(400_000)
+    expect(room?.state.progress).toEqual({ t1: 0.9 })
   })
 })
