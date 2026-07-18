@@ -295,7 +295,7 @@ export const readCachedSubscriptions = (): Record<string, CompanionSubscription>
   }
 }
 
-const persistSubscriptions = (subs: Record<string, CompanionSubscription>) => {
+export const persistSubscriptions = (subs: Record<string, CompanionSubscription>) => {
   if (typeof localStorage === 'undefined') return
   try {
     localStorage.setItem(SUBS_CACHE_KEY, JSON.stringify(subs))
@@ -346,7 +346,7 @@ export const readRoomCache = (): Record<string, CachedRoomSnapshot> => {
   }
 }
 
-const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
+export const persistRoomCache = (entries: Record<string, CachedRoomSnapshot>) => {
   if (typeof localStorage === 'undefined') return
   try {
     const ordered = Object.values(entries)
@@ -368,7 +368,7 @@ type LocalTombstone = {
   expiresAt: number
 }
 
-const readLocalTombstones = (): Record<string, LocalTombstone> => {
+export const readLocalTombstones = (): Record<string, LocalTombstone> => {
   if (typeof localStorage === 'undefined') return {}
   try {
     const raw = localStorage.getItem(TOMBSTONE_CACHE_KEY)
@@ -388,7 +388,7 @@ const readLocalTombstones = (): Record<string, LocalTombstone> => {
   }
 }
 
-const persistLocalTombstones = (tombstones: Record<string, LocalTombstone>) => {
+export const persistLocalTombstones = (tombstones: Record<string, LocalTombstone>) => {
   if (typeof localStorage === 'undefined') return
   try {
     localStorage.setItem(TOMBSTONE_CACHE_KEY, JSON.stringify(tombstones))
