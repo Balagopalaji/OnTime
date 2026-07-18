@@ -5,9 +5,11 @@ import type {
   ArbitrationLastAcceptedCache,
   CueQueuedEvent,
   QueuedEvent,
+  StorageLike,
 } from './index'
 import {
   buildDefaultCompanionState,
+  createLocalPersistence,
   buildRoomFromCompanion,
   getConfidenceWindowMs,
   isSnapshotStale,
@@ -1410,5 +1412,234 @@ describe('buildDefaultCompanionState', () => {
     expect(state.showClock).toBe(false)
     expect(state.message).toEqual({ text: '', visible: false, color: 'green' })
     expect(typeof state.lastUpdate).toBe('number')
+  })
+})
+
+// localStorage persistence cluster carved from UnifiedDataContext.tsx (Lane A
+// slice LS-2). Oracles are ported verbatim from the frontend characterization
+// tests (UnifiedDataContext.test.ts: 'localStorage persistence cluster (LS
+// characterization)' + the three persistence tests in 'offline companion room
+// bootstrap helpers'); plumbing swaps happy-dom localStorage/fake timers for
+// an injected in-memory StorageLike, controlled now, and explicit isOnline.
+describe('local persistence (LS-2)', () => {
+  const ROOM_CACHE_KEY = 'ontime:companionRoomCache.v2'
+  const SUBS_CACHE_KEY = 'ontime:companionSubs.v2'
+  const TOMBSTONE_CACHE_KEY = 'ontime:deletedRoomTombstones'
+
+  const createFakeStorage = () => {
+    const map = new Map<string, string>()
+    let throwOnSet = false
+    const storage: StorageLike = {
+      getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
+      setItem: (key, value) => {
+        if (throwOnSet) throw new Error('quota exceeded')
+        map.set(key, value)
+      },
+      removeItem: (key) => {
+        map.delete(key)
+      },
+    }
+    return { storage, setThrowOnSet: (value: boolean) => { throwOnSet = value } }
+  }
+
+  const createPersistence = (opts?: { now?: number; isOnline?: boolean }) => {
+    const { storage, setThrowOnSet } = createFakeStorage()
+    const persistence = createLocalPersistence({
+      getStorage: () => storage,
+      now: () => opts?.now ?? 0,
+      isOnline: () => opts?.isOnline ?? true,
+    })
+    return { storage, setThrowOnSet, ...persistence }
+  }
+
+  const buildSnapshot = (roomId: string, cachedAt: number) => ({
+    roomId,
+    room: { id: roomId, state: { lastUpdate: cachedAt } } as never,
+    timers: [],
+    dataTs: cachedAt,
+    cachedAt,
+    source: 'cloud' as const,
+  })
+
+  it('persistRoomCache trims to the 20 newest entries by cachedAt and rekeys by entry.roomId', () => {
+    const { persistRoomCache, storage } = createPersistence()
+    const entries: Record<string, ReturnType<typeof buildSnapshot>> = {}
+    for (let i = 0; i <= 20; i++) {
+      entries[`key-${i}`] = buildSnapshot(`room-${i}`, 1_000 + i)
+    }
+    persistRoomCache(entries)
+    const stored = JSON.parse(storage.getItem(ROOM_CACHE_KEY) ?? '{}') as Record<string, { cachedAt: number }>
+    expect(Object.keys(stored)).toHaveLength(20)
+    expect(stored['room-0']).toBeUndefined()
+    expect(stored['room-1']?.cachedAt).toBe(1_001)
+    expect(stored['room-20']?.cachedAt).toBe(1_020)
+    expect(stored['key-5']).toBeUndefined()
+    expect(stored['room-5']).toBeDefined()
+  })
+
+  it('persistRoomCache swallows storage write failures', () => {
+    const { persistRoomCache, setThrowOnSet } = createPersistence()
+    setThrowOnSet(true)
+    expect(() => persistRoomCache({ a: buildSnapshot('a', 1) })).not.toThrow()
+  })
+
+  it('persistSubscriptions round-trips through storage and swallows write failures', () => {
+    const { persistSubscriptions, storage, setThrowOnSet } = createPersistence()
+    persistSubscriptions({
+      'room-a': { clientType: 'viewer', token: 'tok', tokenSource: 'viewer' },
+    })
+    expect(JSON.parse(storage.getItem(SUBS_CACHE_KEY) ?? '{}')).toEqual({
+      'room-a': { clientType: 'viewer', token: 'tok', tokenSource: 'viewer' },
+    })
+    setThrowOnSet(true)
+    expect(() => persistSubscriptions({})).not.toThrow()
+  })
+
+  it('readCachedSubscriptions skips falsy entries and returns {} on malformed JSON', () => {
+    const { readCachedSubscriptions, storage } = createPersistence()
+    storage.setItem(
+      SUBS_CACHE_KEY,
+      JSON.stringify({
+        good: { clientType: 'controller', token: 't1', tokenSource: 'controller' },
+        bad: null,
+      }),
+    )
+    expect(Object.keys(readCachedSubscriptions())).toEqual(['good'])
+
+    storage.setItem(SUBS_CACHE_KEY, '{not-json')
+    expect(readCachedSubscriptions()).toEqual({})
+  })
+
+  it('readRoomCache defaults missing fields per entry: fresh cachedAt, key-derived roomId, [] timers, cloud source', () => {
+    const { readRoomCache, storage } = createPersistence({ now: 500_000, isOnline: true })
+    storage.setItem(
+      ROOM_CACHE_KEY,
+      JSON.stringify({
+        bare: { room: { id: 'bare', state: { lastUpdate: 7 } }, source: 'weird' },
+        loaded: {
+          roomId: 'loaded',
+          room: { id: 'loaded', state: { lastUpdate: 9 } },
+          timers: [{ id: 't1' }],
+          dataTs: 9,
+          cachedAt: 499_000,
+          source: 'companion',
+        },
+        junk: 'not-an-object',
+        empty: null,
+      }),
+    )
+    const cache = readRoomCache()
+    expect(Object.keys(cache).sort()).toEqual(['bare', 'loaded'])
+    expect(cache.loaded?.timers).toEqual([{ id: 't1' }])
+    expect(cache.loaded?.source).toBe('companion')
+    expect(cache.bare).toEqual({
+      roomId: 'bare',
+      room: { id: 'bare', state: { lastUpdate: 7 } },
+      timers: [],
+      dataTs: 7,
+      cachedAt: 500_000,
+      source: 'cloud',
+    })
+  })
+
+  it('readRoomCache returns {} on malformed JSON', () => {
+    const { readRoomCache, storage } = createPersistence()
+    storage.setItem(ROOM_CACHE_KEY, '{broken')
+    expect(readRoomCache()).toEqual({})
+  })
+
+  it('readLocalTombstones prunes entries whose expiresAt is not in the future and skips falsy entries', () => {
+    const { readLocalTombstones, storage } = createPersistence({ now: 2_000_000 })
+    storage.setItem(
+      TOMBSTONE_CACHE_KEY,
+      JSON.stringify({
+        live: { roomId: 'live', deletedAt: 1_000_000, expiresAt: 2_000_001 },
+        boundary: { roomId: 'boundary', deletedAt: 1_000_000, expiresAt: 2_000_000 },
+        expired: { roomId: 'expired', deletedAt: 1, expiresAt: 1_999_999 },
+        nullish: null,
+      }),
+    )
+    expect(readLocalTombstones()).toEqual({
+      live: { roomId: 'live', deletedAt: 1_000_000, expiresAt: 2_000_001 },
+    })
+
+    storage.setItem(TOMBSTONE_CACHE_KEY, '{broken')
+    expect(readLocalTombstones()).toEqual({})
+  })
+
+  it('persistLocalTombstones round-trips through storage and swallows write failures', () => {
+    const { persistLocalTombstones, storage, setThrowOnSet } = createPersistence()
+    persistLocalTombstones({
+      gone: { roomId: 'gone', deletedAt: 5, expiresAt: 10 },
+    })
+    expect(JSON.parse(storage.getItem(TOMBSTONE_CACHE_KEY) ?? '{}')).toEqual({
+      gone: { roomId: 'gone', deletedAt: 5, expiresAt: 10 },
+    })
+    setThrowOnSet(true)
+    expect(() => persistLocalTombstones({})).not.toThrow()
+  })
+
+  it('normalizes cached subscriptions from storage', () => {
+    const { readCachedSubscriptions, storage } = createPersistence()
+    storage.setItem(SUBS_CACHE_KEY, JSON.stringify({
+      'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+      'room-b': { clientType: 'something-else', token: 'token-b', tokenSource: 'invalid' },
+    }))
+
+    const subscriptions = readCachedSubscriptions()
+    expect(subscriptions).toEqual({
+      'room-a': { clientType: 'controller', token: 'token-a', tokenSource: 'controller' },
+      'room-b': { clientType: 'viewer', token: 'token-b', tokenSource: 'controller' },
+    })
+  })
+
+  it('reads room cache online with stale-entry filtering and legacy timestamp fallback', () => {
+    const now = 1_000_000
+    const { readRoomCache, storage } = createPersistence({ now, isOnline: true })
+    storage.setItem(ROOM_CACHE_KEY, JSON.stringify({
+      fresh: {
+        roomId: 'fresh',
+        room: { id: 'fresh', state: { lastUpdate: 50 } },
+        timers: [],
+        cachedAt: now - 1000,
+        source: 'companion',
+      },
+      legacy: {
+        roomId: 'legacy',
+        room: { id: 'legacy', state: { lastUpdate: 0 } },
+        timers: [],
+        updatedAt: now - 1000,
+        source: 'cloud',
+      },
+      stale: {
+        roomId: 'stale',
+        room: { id: 'stale', state: { lastUpdate: 90 } },
+        timers: [],
+        cachedAt: now - 20_000,
+        source: 'companion',
+      },
+    }))
+
+    const cache = readRoomCache()
+    expect(Object.keys(cache).sort()).toEqual(['fresh', 'legacy'])
+    expect(cache.legacy?.cachedAt).toBe(now - 1000)
+    expect(cache.legacy?.dataTs).toBe(0)
+  })
+
+  it('keeps stale room cache entries while offline', () => {
+    const now = 1_000_000
+    const { readRoomCache, storage } = createPersistence({ now, isOnline: false })
+    storage.setItem(ROOM_CACHE_KEY, JSON.stringify({
+      stale: {
+        roomId: 'stale',
+        room: { id: 'stale', state: { lastUpdate: 42 } },
+        timers: [],
+        cachedAt: now - 20_000,
+        source: 'companion',
+      },
+    }))
+
+    const cache = readRoomCache()
+    expect(cache.stale?.roomId).toBe('stale')
   })
 })

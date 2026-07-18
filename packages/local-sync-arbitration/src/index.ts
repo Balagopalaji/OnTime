@@ -8,6 +8,8 @@ export type { CueQueuedEvent } from './queue-merge'
 export { mergeControllerClients } from './controller-client-merge'
 export { resolveQueuedCompanionLockReplayState, resolveQueuedCompanionLockReplayCallbackState } from './lock-replay-arbitration'
 export { buildRoomFromCompanion, toCompanionRoomState, buildDefaultCompanionState, translateCompanionStateToFirebase } from './companion-room-state'
+export { createLocalPersistence, ROOM_CACHE_KEY, SUBS_CACHE_KEY, TOMBSTONE_CACHE_KEY, CACHE_LIMIT, TOMBSTONE_TTL_MS, PREVIEW_CACHE_TTL_MS } from './local-persistence'
+export type { StorageLike, LocalPersistenceDeps, CachedRoomSnapshot, CompanionSubscription, LocalTombstone } from './local-persistence'
 // Domain default constants now live in @ontime/shared-types (single source of truth);
 // re-exported here as a pass-through so existing @ontime/local-sync-arbitration importers keep resolving.
 export { DEFAULT_ROOM_CONFIG, DEFAULT_FEATURES, DEFAULT_ROOM_STATE } from '@ontime/shared-types'
