@@ -67,7 +67,6 @@ export function configurePresentationCandidate(deps: PresentationCandidateDeps):
 const PPT_POLL_INTERVAL_MS = 1000;
 const PPT_DEBOUNCE_MS = 600;
 const PPT_VIDEO_CLEAR_POLLS = 2;
-const PPT_BACKGROUND_CLEAR_MS = 10_000;
 let pptNoVideoKey: string | null = null;
 let pptNoVideoCount = 0;
 let pptExplicitNoVideoKey: string | null = null;
@@ -78,7 +77,6 @@ let pptPollInFlight = false;
 let pptAnnouncedSnapshot: PresentationSnapshot | null = null;
 let pptCandidateSnapshot: PresentationSnapshot | null = null;
 let pptCandidateSince = 0;
-let pptBackgroundSince: number | null = null;
 let pptActiveCue: LiveCue | null = null;
 
 export function commitPresentationSnapshot(snapshot: PresentationSnapshot | null) {
@@ -160,15 +158,7 @@ export function handlePowerPointStatus(result: PowerPointPollResult | null) {
 
   logPptVerbose('[ppt] status', result);
 
-  const now = Date.now();
   if (result.state === 'foreground' || result.state === 'background') {
-    if (result.state === 'foreground') {
-      pptBackgroundSince = null;
-    } else {
-      if (pptBackgroundSince === null) {
-        pptBackgroundSince = now;
-      }
-    }
     if (!result.instanceId) {
       return;
     }
@@ -329,7 +319,6 @@ export function handlePowerPointStatus(result: PowerPointPollResult | null) {
     return;
   }
 
-  pptBackgroundSince = null;
   updatePresentationCandidate(null);
 }
 
