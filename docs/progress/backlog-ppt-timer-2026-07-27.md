@@ -164,4 +164,5 @@ worktree_preflight: clean at a5386d8; H2 Windows validation still pending (not a
 
 - H4 core/bridge implementation and tests: local commit `c5b3c52` (`feat: Add persistent PowerPoint bridge session`).
 - H4 Companion/CI/guardrail integration: local commit `caea6e7` (`feat: Adopt PowerPoint session in Companion`).
+- H4 manifest whitespace fix: local commit `244bfa8` (`chore: Normalize Companion manifest line endings`).
 - H4 ledger closeout: this entry records the validation evidence and the Windows-pending boundary.
