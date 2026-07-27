@@ -20,6 +20,15 @@ describe('PptBridgeClient', () => {
     await client.close()
   })
 
+  it('reuses one persistent helper across sequential polls', async () => {
+    const diagnostics: BridgeDiagnosticEvent[] = []
+    const client = createPptBridgeClient({ executableCandidates: [candidate('valid')], diagnostics: (event) => diagnostics.push(event) })
+    await expect(client.poll()).resolves.toMatchObject({ kind: 'observation' })
+    await expect(client.poll()).resolves.toMatchObject({ kind: 'observation' })
+    expect(diagnostics.filter((event) => event.kind === 'helper_start')).toHaveLength(1)
+    await client.close()
+  })
+
   it('shares the exact pending promise for concurrent callers', async () => {
     const client = createPptBridgeClient({ executableCandidates: [candidate('delay', ['--delay', '20'])] })
     const first = client.poll()
@@ -49,8 +58,10 @@ describe('PptBridgeClient', () => {
       diagnostics: (event) => diagnostics.push(event),
     })
     await expect(client.poll()).resolves.toMatchObject({ kind: 'timeout' })
+    await expect(client.poll()).resolves.toMatchObject({ kind: 'timeout' })
     await wait(100)
     await client.close()
+    expect(diagnostics.filter((event) => event.kind === 'helper_start')).toHaveLength(2)
     expect(diagnostics.some((event) => event.kind === 'helper_timeout')).toBe(true)
   })
 

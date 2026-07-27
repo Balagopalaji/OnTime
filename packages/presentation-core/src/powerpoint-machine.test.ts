@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialPowerPointMachineState, reducePowerPointMachine } from './powerpoint-machine'
 import type { PowerPointMachineResult, PowerPointMachineState } from './powerpoint-machine'
-import type { PowerPointPollResult } from './powerpoint-types'
+import type { PowerPointPollResult, PresentationSnapshot } from './powerpoint-types'
 
 /**
  * End-to-end reducer parity for the candidate/commit decision (C7-C16) and the
@@ -411,5 +411,108 @@ describe('operational_failure and reset', () => {
     const reset = reducePowerPointMachine(announced.state, { type: 'reset' })
     noAction(reset)
     expect(reset.state).toEqual(createInitialPowerPointMachineState())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// H4 compatibility events: `candidate` and `synchronize_commit` (additive)
+// ---------------------------------------------------------------------------
+describe('candidate event (H4 compatibility)', () => {
+  it('is equivalent to driving the same snapshot through poll for the candidate/commit decision', () => {
+    const s1: PresentationSnapshot = {
+      instanceId: 1,
+      slideNumber: 1,
+      totalSlides: 5,
+      title: 'Deck',
+    }
+    // Via `poll` (existing path).
+    const viaPoll1 = poll(initial(), fg(1), T0)
+    const viaPoll2 = poll(viaPoll1.state, fg(1), T0 + DEBOUNCE)
+
+    // Via `candidate` directly (new path), starting from the same normalized snapshot.
+    const viaCandidate1 = reducePowerPointMachine(initial(), { type: 'candidate', snapshot: s1, nowMs: T0 })
+    const viaCandidate2 = reducePowerPointMachine(viaCandidate1.state, {
+      type: 'candidate',
+      snapshot: s1,
+      nowMs: T0 + DEBOUNCE,
+    })
+
+    expect(viaCandidate2.action?.kind).toBe('commit_snapshot')
+    expect(viaPoll2.action?.kind).toBe('commit_snapshot')
+    // Candidate/commit bookkeeping decision (identity + debounce timing) agrees
+    // between the two paths; snapshot *content* differs because `poll` also
+    // normalizes (filename fallback etc.), which is covered elsewhere.
+    expect(viaCandidate2.state.activePresentation).toEqual(viaPoll2.state.activePresentation)
+    expect(viaCandidate2.state.announcedSnapshot?.instanceId).toBe(viaPoll2.state.announcedSnapshot?.instanceId)
+  })
+
+  it('debounces identity changes before committing, same as the poll path', () => {
+    const s1: PresentationSnapshot = { instanceId: 1, title: 'Deck' }
+    const r0 = reducePowerPointMachine(initial(), { type: 'candidate', snapshot: s1, nowMs: T0 })
+    noAction(r0)
+    expect(r0.state.candidateSnapshot).toEqual(s1)
+    const r1 = reducePowerPointMachine(r0.state, { type: 'candidate', snapshot: s1, nowMs: T0 + DEBOUNCE })
+    isCreate(r1)
+  })
+
+  it('commits a timing-only change immediately for an already-announced identity', () => {
+    const s1: PresentationSnapshot = { instanceId: 1, title: 'Deck', videoElapsed: 1_000 }
+    const r0 = reducePowerPointMachine(initial(), { type: 'candidate', snapshot: s1, nowMs: T0 })
+    const r1 = reducePowerPointMachine(r0.state, { type: 'candidate', snapshot: s1, nowMs: T0 + DEBOUNCE })
+    const s1Updated: PresentationSnapshot = { ...s1, videoElapsed: 2_000 }
+    const r2 = reducePowerPointMachine(r1.state, { type: 'candidate', snapshot: s1Updated, nowMs: T0 + DEBOUNCE + 10 })
+    expect(r2.action).toEqual({ kind: 'commit_snapshot', classification: 'update', targetSnapshot: s1Updated })
+  })
+
+  it('does not touch sourceState, videoCache, or clear counters', () => {
+    const s1: PresentationSnapshot = { instanceId: 1, title: 'Deck' }
+    const before = initial()
+    const after = reducePowerPointMachine(before, { type: 'candidate', snapshot: s1, nowMs: T0 })
+    expect(after.state.sourceState).toEqual(before.sourceState)
+    expect(after.state.videoCache).toBe(before.videoCache)
+    expect(after.state.noVideoKey).toBe(before.noVideoKey)
+    expect(after.state.noVideoCount).toBe(before.noVideoCount)
+    expect(after.state.explicitNoVideoKey).toBe(before.explicitNoVideoKey)
+    expect(after.state.explicitNoVideoCount).toBe(before.explicitNoVideoCount)
+  })
+})
+
+describe('synchronize_commit event (H4 compatibility)', () => {
+  it('sets announcedSnapshot and activePresentation for a non-null snapshot without emitting an action', () => {
+    const s1: PresentationSnapshot = { instanceId: 7, title: 'Deck' }
+    const r = reducePowerPointMachine(initial(), { type: 'synchronize_commit', snapshot: s1 })
+    noAction(r)
+    expect(r.state.announcedSnapshot).toEqual(s1)
+    expect(r.state.activePresentation).toEqual({ instanceId: 7 })
+  })
+
+  it('clears announcedSnapshot and activePresentation for a null snapshot without emitting an action', () => {
+    const s1: PresentationSnapshot = { instanceId: 7, title: 'Deck' }
+    const announced = reducePowerPointMachine(initial(), { type: 'synchronize_commit', snapshot: s1 })
+    const cleared = reducePowerPointMachine(announced.state, { type: 'synchronize_commit', snapshot: null })
+    noAction(cleared)
+    expect(cleared.state.announcedSnapshot).toBeNull()
+    expect(cleared.state.activePresentation).toBeNull()
+  })
+
+  it('does not modify candidate snapshot/timestamp, video caches/counters, or sourceState', () => {
+    const s1: PresentationSnapshot = { instanceId: 7, title: 'Deck' }
+    const withCandidate = reducePowerPointMachine(initial(), { type: 'candidate', snapshot: s1, nowMs: T0 })
+    const synced = reducePowerPointMachine(withCandidate.state, {
+      type: 'synchronize_commit',
+      snapshot: { instanceId: 9, title: 'Other' },
+    })
+    expect(synced.state.candidateSnapshot).toEqual(withCandidate.state.candidateSnapshot)
+    expect(synced.state.candidateSinceMs).toBe(withCandidate.state.candidateSinceMs)
+    expect(synced.state.videoCache).toBe(withCandidate.state.videoCache)
+    expect(synced.state.sourceState).toEqual(withCandidate.state.sourceState)
+  })
+
+  it('models the bookkeeping effect of an external commitPresentationSnapshot without a duplicate cue emission (action is always null)', () => {
+    const s1: PresentationSnapshot = { instanceId: 1, title: 'Deck' }
+    const r1 = reducePowerPointMachine(initial(), { type: 'synchronize_commit', snapshot: s1 })
+    const r2 = reducePowerPointMachine(r1.state, { type: 'synchronize_commit', snapshot: null })
+    expect(r1.action).toBeNull()
+    expect(r2.action).toBeNull()
   })
 })

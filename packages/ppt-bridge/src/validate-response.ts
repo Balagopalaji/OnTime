@@ -188,6 +188,6 @@ export function validatePowerPointResponse(line: string | Uint8Array): BridgePol
   const base = { warnings, extensions }
   if (pptError || observation.pptActive === false) return { kind: 'com_unavailable', ...base }
   if (state === 'none') return { kind: 'powerpoint_not_running', ...base }
-  if (observation.inSlideshow === false) return { kind: 'no_slideshow', ...base }
+  if (observation.inSlideshow === false) return { kind: 'no_slideshow', observation, ...base }
   return { kind: 'observation', observation, ...base }
 }

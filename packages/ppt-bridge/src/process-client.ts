@@ -132,6 +132,11 @@ export class PptBridgeClientImpl implements PptBridgeClient {
       }
     }
 
+    if (this.child && !this.child.killed && this.child.exitCode === null) {
+      this.sendPoll(pending, this.generation)
+      return
+    }
+
     const candidate = this.candidates.find((item) => {
       try {
         return existsSync(item.executablePath) && statSync(item.executablePath).isFile()
@@ -145,13 +150,16 @@ export class PptBridgeClientImpl implements PptBridgeClient {
       return
     }
 
-    this.startChild(candidate, pending)
+    if (!this.startChild(candidate)) {
+      this.settle(pending, { kind: 'process_exit', generation: this.generation, ...outcomeBase() })
+      return
+    }
+    this.sendPoll(pending, this.generation)
   }
 
-  private startChild(candidate: HelperLaunchCandidate, pending: Pending): void {
+  private startChild(candidate: HelperLaunchCandidate): boolean {
     const generation = ++this.generation
     this.stdoutBuffer = Buffer.alloc(0)
-    pending.generation = generation
     let child: ChildProcess
     try {
       child = this.spawnProcess(candidate.executablePath, candidate.args ?? [], {
@@ -160,8 +168,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
       })
     } catch {
       this.restartAttempt = Math.min(this.restartAttempt + 1, this.restartBackoffMs.length)
-      this.settle(pending, { kind: 'process_exit', generation, ...outcomeBase() })
-      return
+      return false
     }
 
     this.child = child
@@ -182,14 +189,21 @@ export class PptBridgeClientImpl implements PptBridgeClient {
       if (this.child !== child || this.generation !== generation) return
       this.child = null
       this.stdoutBuffer = Buffer.alloc(0)
-      if (!this.closed) {
-        this.restartAttempt = Math.min(this.restartAttempt + 1, this.restartBackoffMs.length)
-      }
+      if (!this.closed) this.restartAttempt = Math.min(this.restartAttempt + 1, this.restartBackoffMs.length)
       if (this.pending?.generation === generation) {
         this.settle(this.pending, { kind: 'process_exit', generation, ...(code === null ? {} : { code }), ...outcomeBase() })
       }
     })
+    return true
+  }
 
+  private sendPoll(pending: Pending, generation: number): void {
+    const child = this.child
+    if (this.closed || !child || this.generation !== generation || child.exitCode !== null) {
+      this.settle(pending, this.closed ? { kind: 'closed', ...outcomeBase() } : { kind: 'process_exit', generation, ...outcomeBase() })
+      return
+    }
+    pending.generation = generation
     pending.timer = setTimeout(() => {
       if (this.pending !== pending || this.generation !== generation) return
       emitDiagnostic(this.diagnostics, { kind: 'helper_timeout', generation, timeoutMs: this.pollTimeoutMs })
@@ -285,10 +299,12 @@ export class PptBridgeClientImpl implements PptBridgeClient {
         done = true
         resolve(value)
       }
-      child.once('exit', () => finish(true))
       const timer = setTimeout(() => finish(false), this.shutdownGraceMs)
+      child.once('exit', () => {
+        clearTimeout(timer)
+        finish(true)
+      })
       try { child.stdin?.write('exit\n') } catch { /* force below */ }
-      timer.unref?.()
     })
     if (await exited) {
       emitDiagnostic(this.diagnostics, { kind: 'helper_close', phase: 'graceful' })

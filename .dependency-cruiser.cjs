@@ -19,7 +19,7 @@ module.exports = {
       severity: 'error',
       comment: 'The PPT bridge source is a Node-only native boundary with no app or package coupling.',
       from: { path: '^packages/ppt-bridge/src' },
-      to: { path: '^(packages/(?!ppt-bridge/)|@ontime/|frontend/|companion/|controller/|functions/|firebase/|apps/)' },
+      to: { path: '^(packages/(?!ppt-bridge/|presentation-core/)|@ontime/(?!presentation-core(?:/|$))|frontend/|companion/|controller/|functions/|firebase/|apps/)' },
     },
     {
       name: 'no-package-runtime-frameworks',

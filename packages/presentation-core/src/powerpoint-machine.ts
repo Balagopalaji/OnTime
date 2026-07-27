@@ -48,11 +48,21 @@ export type PowerPointMachineState = {
   sourceState: PresentationSourceState
 }
 
-/** Closed event union. `poll` with a null result is the inert Companion outcome. */
+/**
+ * Closed event union. `poll` with a null result is the inert Companion outcome.
+ *
+ * `candidate` and `synchronize_commit` are additive H4 compatibility events
+ * (ISSUE-001): they let a host adapter drive the existing candidate/commit
+ * decision and its external-commit bookkeeping through the shared reducer
+ * without reconstructing a raw `poll` event. See `powerpoint-machine.test.ts`
+ * "H4 compatibility events" for the pinned semantics.
+ */
 export type PowerPointMachineEvent =
   | { type: 'poll'; result: PowerPointPollResult | null; nowMs: number }
   | { type: 'operational_failure' }
   | { type: 'reset' }
+  | { type: 'candidate'; snapshot: PresentationSnapshot | null; nowMs: number }
+  | { type: 'synchronize_commit'; snapshot: PresentationSnapshot | null }
 
 /**
  * Decision-only action. Carries an advisory lifecycle classification so the
@@ -193,6 +203,29 @@ export function reducePowerPointMachine(
     // Only the display observation changes; cache/announced/counters stay for
     // canonical recovery. Same-reduction removal of visible numeric timing.
     return { state: { ...state, sourceState: { kind: 'unavailable' } }, action: null }
+  }
+  if (event.type === 'candidate') {
+    // Calls the existing candidate/commit decision directly (verbatim
+    // `applyCandidate`), letting a host's legacy `updatePresentationCandidate`
+    // API use the shared reducer without reconstructing a raw poll.
+    return applyCandidate(state, event.snapshot, event.nowMs)
+  }
+  if (event.type === 'synchronize_commit') {
+    // Bookkeeping-only mirror of an externally forced legacy
+    // `commitPresentationSnapshot()`: updates only `announcedSnapshot` and
+    // `activePresentation`, never emits an action (no duplicate cue
+    // emission), and leaves candidate/cache/counter/sourceState untouched.
+    if (event.snapshot === null) {
+      return { state: { ...state, announcedSnapshot: null, activePresentation: null }, action: null }
+    }
+    return {
+      state: {
+        ...state,
+        announcedSnapshot: event.snapshot,
+        activePresentation: { instanceId: event.snapshot.instanceId },
+      },
+      action: null,
+    }
   }
 
   // event.type === 'poll'

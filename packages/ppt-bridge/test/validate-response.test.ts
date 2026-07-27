@@ -19,6 +19,15 @@ describe('validatePowerPointResponse', () => {
     expect(result.kind).toBe(kind)
   })
 
+  it('retains the sanitized observation on no_slideshow outcomes', () => {
+    const result = validatePowerPointResponse(fixture('no-slideshow.json'))
+    expect(result.kind).toBe('no_slideshow')
+    if (result.kind !== 'no_slideshow') return
+    expect(result.observation.state).toBe('foreground')
+    expect(result.observation.instanceId).toBeDefined()
+    expect(result.observation.inSlideshow).toBe(false)
+  })
+
   it('preserves the helper-selected primary relationship without selecting a video', () => {
     const result = validatePowerPointResponse(fixture('multiple-video.json'))
     expect(result.kind).toBe('observation')

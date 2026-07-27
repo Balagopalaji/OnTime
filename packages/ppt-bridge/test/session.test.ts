@@ -1,0 +1,86 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { PowerPointMachineResult } from '@ontime/presentation-core'
+import { PowerPointSession } from '../src/index.js'
+import type { BridgePollOutcome } from '../src/protocol.js'
+
+const base = () => ({ warnings: [], extensions: { rootUnknownFieldCount: 0, videoUnknownFieldCount: 0, editSlideVideoUnknownFieldCount: 0 } })
+const observation = (extra: Record<string, unknown> = {}): BridgePollOutcome => ({
+  kind: 'observation', observation: { state: 'foreground', instanceId: 1, inSlideshow: true, title: 'Deck', ...extra }, ...base(),
+})
+
+describe('PowerPointSession', () => {
+  it('maps outcomes and dispatches transitions synchronously with state stored first', () => {
+    const transitions: PowerPointMachineResult[] = []
+    const session = new PowerPointSession({ transport: { poll: vi.fn() }, onTransition: (result) => {
+      expect(session.state).toBe(result.state)
+      transitions.push(result)
+    } })
+    expect(session.acceptOutcome(observation()).state.sourceState.kind).toBe('presentation')
+    expect(session.acceptOutcome({ kind: 'powerpoint_not_running', ...base() }).state.sourceState.kind).toBe('powerpoint_not_running')
+    expect(session.acceptOutcome({ kind: 'no_slideshow', observation: { state: 'foreground', instanceId: 1, inSlideshow: false }, ...base() }).state.sourceState.kind).toBe('no_slideshow')
+    expect(session.acceptOutcome({ kind: 'com_unavailable', ...base() }).state.sourceState.kind).toBe('unavailable')
+    expect(transitions).toHaveLength(4)
+  })
+
+  it('maps every operational failure to unavailable and null/closed to inert', () => {
+    const session = new PowerPointSession({ transport: { poll: vi.fn() } })
+    for (const kind of ['helper_missing', 'timeout', 'process_exit', 'invalid_json', 'invalid_payload', 'oversized_response'] as const) {
+      const result = session.acceptOutcome({ kind, ...base() })
+      expect(result.action).toBeNull()
+      expect(result.state.sourceState.kind).toBe('unavailable')
+    }
+    const before = session.state
+    expect(session.acceptOutcome(null).state).toBe(before)
+    expect(session.acceptOutcome({ kind: 'closed', ...base() }).state).toBe(before)
+  })
+
+  it('shares an in-flight transport poll and schedules only after the first interval', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (outcome: BridgePollOutcome) => void
+      const poll = vi.fn(() => new Promise<BridgePollOutcome>((res) => { resolve = res }))
+      const session = new PowerPointSession({ transport: { poll }, pollIntervalMs: 100, now: () => 42 })
+      session.start()
+      expect(poll).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(100)
+      expect(poll).toHaveBeenCalledTimes(1)
+      const first = session.pollNow()
+      expect(session.pollNow()).toBe(first)
+      expect(poll).toHaveBeenCalledTimes(1)
+      resolve(observation())
+      await first
+      vi.advanceTimersByTime(100)
+      expect(poll).toHaveBeenCalledTimes(2)
+      session.stopPolling()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('allows stop/start, but close is terminal and closes transport once', async () => {
+    const close = vi.fn()
+    const poll = vi.fn(() => Promise.resolve<BridgePollOutcome>(observation()))
+    const session = new PowerPointSession({ transport: { poll, close } })
+    session.start()
+    expect(session.isPolling()).toBe(true)
+    session.stopPolling()
+    expect(session.isPolling()).toBe(false)
+    session.start()
+    await session.close()
+    await session.close()
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(session.isPolling()).toBe(false)
+    await expect(session.pollNow()).resolves.toBeUndefined()
+    session.start()
+    expect(session.isPolling()).toBe(false)
+  })
+
+  it('exposes compatibility candidate and synchronize events', () => {
+    const session = new PowerPointSession({ transport: { poll: vi.fn() } })
+    const snapshot = { instanceId: 8, title: 'Deck' }
+    expect(session.acceptCandidate(snapshot, 0).action).toBeNull()
+    expect(session.synchronizeCommittedSnapshot(snapshot).action).toBeNull()
+    expect(session.state.announcedSnapshot).toEqual(snapshot)
+    expect(session.synchronizeCommittedSnapshot(null).state.activePresentation).toBeNull()
+  })
+})

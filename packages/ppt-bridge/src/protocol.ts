@@ -67,9 +67,10 @@ export type ObservationOutcome = OutcomeBase & {
   observation: PowerPointObservation
 }
 
-export type AvailabilityOutcome = OutcomeBase & {
-  kind: 'powerpoint_not_running' | 'no_slideshow' | 'com_unavailable'
-}
+export type AvailabilityOutcome =
+  | (OutcomeBase & { kind: 'powerpoint_not_running' })
+  | (OutcomeBase & { kind: 'no_slideshow'; observation: PowerPointObservation })
+  | (OutcomeBase & { kind: 'com_unavailable' })
 
 export type FailureOutcome = OutcomeBase & {
   kind:
