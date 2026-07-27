@@ -137,11 +137,18 @@ function checkPresentationCoreContract() {
   }
 
   const companionPackage = read('companion/package.json')
-  if (!companionPackage.includes('"prebuild": "npm run build:cjs --workspace @ontime/presentation-core"')) {
-    fail('Companion must prebuild presentation-core CJS before TypeScript compilation')
+  if (!companionPackage.includes('"prebuild": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge"')) {
+    fail('Companion must prebuild presentation-core CJS then ppt-bridge CJS before TypeScript compilation')
   }
   if (!companionPackage.includes('"@ontime/presentation-core": "0.0.0"')) {
     fail('Companion must declare @ontime/presentation-core workspace dependency')
+  }
+  if (!companionPackage.includes('"@ontime/ppt-bridge": "0.0.0"')) {
+    fail('Companion must declare @ontime/ppt-bridge workspace dependency')
+  }
+  const bridgePackage = read('packages/ppt-bridge/package.json')
+  if (!bridgePackage.includes('"@ontime/presentation-core": "0.0.0"')) {
+    fail('ppt-bridge must declare @ontime/presentation-core workspace dependency')
   }
 
   const workflow = read('.github/workflows/rebuild-guardrails.yml')
@@ -151,12 +158,20 @@ function checkPresentationCoreContract() {
     'run: npm run test --workspace @ontime/presentation-core',
     'run: npm run build:cjs --workspace @ontime/presentation-core',
     'run: npm run smoke:cjs --workspace @ontime/presentation-core',
+    'run: npm run typecheck --workspace @ontime/ppt-bridge',
+    'run: npm run test --workspace @ontime/ppt-bridge',
+    'run: npm run build:cjs --workspace @ontime/ppt-bridge',
+    'run: npm run smoke:cjs --workspace @ontime/ppt-bridge',
   ]
   const localCommands = [
     "cmd: 'npm run typecheck --workspace @ontime/presentation-core'",
     "cmd: 'npm run test --workspace @ontime/presentation-core'",
     "cmd: 'npm run build:cjs --workspace @ontime/presentation-core'",
     "cmd: 'npm run smoke:cjs --workspace @ontime/presentation-core'",
+    "cmd: 'npm run typecheck --workspace @ontime/ppt-bridge'",
+    "cmd: 'npm run test --workspace @ontime/ppt-bridge'",
+    "cmd: 'npm run build:cjs --workspace @ontime/ppt-bridge'",
+    "cmd: 'npm run smoke:cjs --workspace @ontime/ppt-bridge'",
   ]
   let cursor = -1
   for (const command of workflowCommands) {
