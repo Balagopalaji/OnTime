@@ -4,11 +4,11 @@ branch: backlog/ISSUE-001-standalone-ppt-timer
 worktree: /tmp/ontime-issue001-ppt-timer
 base_branch: main
 base_sha: fceb200b05c8f3bf7253ac0b3a91d613cc0bd305
-phase: H2 remediation complete; Windows validation pending
-current_task: none; Windows validation handoff pending
+phase: H3 presentation-core in progress
+current_task: H3
 review_cycles: 5
 stable_findings: []
-worktree_preflight: clean at 348dd23; Windows validation pending
+worktree_preflight: clean at 4806798; H2 Windows validation still pending (not an H3 blocker)
 ---
 
 # ISSUE-001 H1 Loop — Standalone PowerPoint Video Timer
@@ -95,6 +95,39 @@ worktree_preflight: clean at 348dd23; Windows validation pending
 - PowerShell parse: unavailable because `pwsh` is not installed. Native build/package/PowerPoint parity are pending because `dotnet`, Windows, and Office are unavailable. Do not claim canonical exe, installer resource, real COM field parity, or no-orphan runtime evidence until Windows execution.
 - Git staging/commit: scoped native-ownership commit `852ecfc` and remediation commit `348dd23` succeeded after sandbox escalation; Git confirmed both native files as 100% renames. No remote action was taken. Final worktree is clean.
 - Resume instruction: run the Windows validation handoff when available: pwsh parse, canonical publish, shim copy/hash, Companion packaged-resource hash, PowerPoint parity matrix, and orphan-process check. Keep H2 closed to Stage 3/4 work.
+
+## H3 Presentation Core Loop
+
+### Metadata
+
+- H3 Oracle plan export: `prompt-exports/oracle-plan-2026-07-27-203307-h3-presentation-core-dbfc.md` (mode: plan, chat `h3-presentation-core-BE0C95`).
+- Scope: Deep Plan Stage 3 only — pure PowerPoint types/normalization/candidate reducer/standalone view projection graduate into `@ontime/presentation-core`; CJS build/export/smoke gate; guardrail + CI/`ci-local` reordering; the only Companion production adoption is `presentation-snapshot.ts` as a compatibility wrapper (types/comparators re-exported, `buildPowerPointCue()` stays local).
+- Hard boundaries (verbatim from task): no change to `presentation-candidate.ts` / `main.ts` production behavior, polling, transport, logging, room/live-cue emission, `activeLiveCueId`, timestamps, `startedAt`, event order, fallbacks, lifecycle; no weakening of existing Companion test expectations/fixtures; no Node/Electron/process/timers/transport/shared-wire-contract/Companion/frontend imports into presentation-core production files; no D6/D10 behavior fix; no H4 session adoption/app/UI/installer/UnifiedDataContext/unrelated cleanup; H2 Windows evidence stays recorded-pending, not a blocker, not completed; no push/PR/issue-close/outer-status change.
+- Readiness: inline gate + independent readiness review (`docs/reviews/standalone-powerpoint-video-timer-readiness-2026-07-27.md`) already verdict `implementable` for the full spec/plan including Stage 3; H3 oracle plan (mode=plan) is the implementation-ready design for this stage. Not re-litigated; proceeding directly to Implement mode per the user's explicit task framing.
+- Base SHA: `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`; branch HEAD at H3 start: `4806798` (worktree clean, verified).
+
+### H3 Task ledger
+
+| Task | Source | Files/surface | Owner | Tests/validation | Status |
+|---|---|---|---|---|---|
+| H3-1 | Stage 3 §3.1-3.2 | `powerpoint-types.ts`, `powerpoint-normalize.ts` + tests | TBD | C1-C3, D1-D12 normalization parity | pending |
+| H3-2 | Stage 3 §3.3 | `powerpoint-machine.ts` + tests | TBD | C7-C16, D1-D12 reducer parity | pending |
+| H3-3 | Stage 3 §3.4 | `powerpoint-view.ts` + tests | TBD | H1 fixtures, S-001..S-017 | pending |
+| H3-4 | Stage 3 §3.5 | `index.ts` barrel, CJS build/export/smoke | TBD | typecheck/test/build:cjs/smoke:cjs | pending |
+| H3-5 | Stage 3 §3.6 | `presentation-snapshot.ts` wrapper, `companion/package.json` prebuild | TBD | `npm run test --workspace companion`; clean-checkout dist-cjs delete + rerun | pending |
+| H3-6 | Stage 3 §3.7 | guardrails script, CI workflow, `ci-local.mjs` | TBD | `npm run guardrails`; `npm run ci-local` | pending |
+| H3-7 | closeout | progress ledger, review | orchestrator | conformance matrix, clean/no-P0/P1 confirmation | pending |
+
+### H3 Review and escape ledger
+
+- No findings recorded yet.
+
+### H3 Validation and resume log
+
+- Narrow H3 checkpoint validation (2026-07-27): `npm run typecheck --workspace @ontime/presentation-core` passed; focused `powerpoint-normalize.test.ts`, `powerpoint-machine.test.ts`, and `powerpoint-view.test.ts` passed: 3 files / 76 tests. No full CI, Companion regression, guardrail, CJS build/smoke, or `ci-local` run at this pause point.
+- Partial implementation is checkpointed as WIP only. Present: normalization/types, reducer/machine, standalone view projection, focused tests, fixture, and the `tsconfig` JSON/include adjustment. Absent: completed view/reducer review fixes (including the no-slideshow candidate guard and expanded ID/name/index/explicit-reference/active-first/first-video/250 ms coverage), barrel exports, presentation-core CJS build/smoke, Companion compatibility wrapper/prebuild, guardrails/CI-local ordering, and final H3 review/ledger closeout.
+- Known gaps/failures: no implementation failure in the narrow checks above; H3 remains incomplete and unvalidated at integration/build/guardrail level. The attempted barrel edit stalled and was terminated without changing files. Existing dirty files are intentionally preserved in the WIP commit.
+- Resume command: `npm run typecheck --workspace @ontime/presentation-core && npx vitest --run --root . packages/presentation-core/src/powerpoint-normalize.test.ts packages/presentation-core/src/powerpoint-machine.test.ts packages/presentation-core/src/powerpoint-view.test.ts`; then complete Stage 3 only, starting with the package barrel/CJS gate and no-slideshow/primary-selection review points.
 
 ## Context exception log
 
