@@ -73,6 +73,12 @@ internal static class Program
     var pptPid = isForeground ? (int)targetPid : pptProcesses[0].Id;
     payload["state"] = isForeground ? "foreground" : "background";
     payload["instanceId"] = pptPid;
+    // Canonical process/COM affinity (ISSUE-001 S-012/S-026). processCount and
+    // selectedPid come straight from the process snapshot already taken above;
+    // they are emitted on every running-PowerPoint outcome. The app consumes
+    // these verbatim and never recomputes them.
+    payload["processCount"] = pptProcesses.Length;
+    payload["selectedPid"] = pptPid;
 
     object? pptObj = null;
     string? pptError = null;
@@ -95,6 +101,35 @@ internal static class Program
       return payload;
     }
     payload["pptActive"] = true;
+
+    // comPid + affinityMismatch require the COM Application's HWND. It is read
+    // via existing late-bound access (TryGetProp) and resolved to a PID with the
+    // existing Win32 GetWindowThreadProcessId import. affinityMismatch is true
+    // when more than one POWERPNT process is running OR the COM-attached process
+    // differs from the selected foreground/first process. If HWND is not
+    // reliably readable we omit comPid/affinityMismatch entirely rather than
+    // guess — never infer from instanceId churn.
+    var appHwndObj = TryGetProp(pptObj, "HWND");
+    if (appHwndObj != null)
+    {
+      try
+      {
+        var hwndValue = Convert.ToInt64(appHwndObj);
+        if (hwndValue != 0)
+        {
+          GetWindowThreadProcessId((IntPtr)hwndValue, out var comPid);
+          if (comPid != 0)
+          {
+            payload["comPid"] = (int)comPid;
+            payload["affinityMismatch"] = pptProcesses.Length > 1 || (int)comPid != pptPid;
+          }
+        }
+      }
+      catch
+      {
+        // HWND not reliably readable via late binding; omit comPid/affinityMismatch.
+      }
+    }
 
     var slideShowWindows = TryGetProp(pptObj, "SlideShowWindows");
     var ssCount = TryGetInt(TryGetProp(slideShowWindows, "Count")) ?? 0;

@@ -1,0 +1,4 @@
+dist/
+dist-cjs/
+.vite/
+*.log

@@ -94,6 +94,47 @@ describe('validatePowerPointResponse', () => {
     expect(result.warnings.length).toBeGreaterThan(0)
   })
 
+  it('preserves canonical affinity metadata on the observation', () => {
+    const result = validatePowerPointResponse(fixture('affinity-mismatch.json'))
+    expect(result.kind).toBe('observation')
+    if (result.kind !== 'observation') return
+    expect(result.observation.processCount).toBe(2)
+    expect(result.observation.selectedPid).toBe(1234)
+    expect(result.observation.comPid).toBe(5678)
+    expect(result.observation.affinityMismatch).toBe(true)
+  })
+
+  it('accepts affinity fields on a no_slideshow outcome and treats absent comPid as undefined', () => {
+    const result = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      inSlideshow: false,
+      instanceId: 1234,
+      processCount: 2,
+      selectedPid: 1234,
+      affinityMismatch: true,
+    }))
+    expect(result.kind).toBe('no_slideshow')
+    if (result.kind !== 'no_slideshow') return
+    expect(result.observation.processCount).toBe(2)
+    expect(result.observation.selectedPid).toBe(1234)
+    expect(result.observation.affinityMismatch).toBe(true)
+    expect(result.observation.comPid).toBeUndefined()
+  })
+
+  it('rejects malformed affinity field types but keeps the observation valid', () => {
+    const result = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      inSlideshow: true,
+      processCount: 'two',
+      affinityMismatch: 'yes',
+    }))
+    expect(result.kind).toBe('observation')
+    if (result.kind !== 'observation') return
+    expect(result.observation.processCount).toBeUndefined()
+    expect(result.observation.affinityMismatch).toBeUndefined()
+    expect(result.warnings.length).toBeGreaterThan(0)
+  })
+
   it('applies COM, not-running, and no-slideshow precedence', () => {
     expect(validatePowerPointResponse(JSON.stringify({ state: 'none', pptActive: false })).kind).toBe('com_unavailable')
     expect(validatePowerPointResponse(JSON.stringify({ state: 'none', pptError: 'x' })).kind).toBe('com_unavailable')

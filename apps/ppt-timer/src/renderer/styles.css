@@ -1,0 +1,118 @@
+/* Compact dark timer chrome (ISSUE-001 H5). Local styles only; no web fonts or
+   remote assets so the renderer stays fully offline (S-033). */
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0f;
+  --panel: #16161d;
+  --fg: #f5f5f7;
+  --muted: #9a9aa6;
+  --accent: #4f8cff;
+  --warn: #ffb020;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px 14px;
+  gap: 10px;
+}
+
+.status {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.badge {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.time {
+  font-size: 44px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.slide,
+.video,
+.message {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.warning {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #23232c;
+  font-size: 12px;
+}
+
+.controls button,
+.controls select {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid #2c2c37;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.controls button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.controls .cta {
+  margin-left: auto;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.always-on-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}

@@ -6,7 +6,8 @@
     "controller",
     "functions",
     "firebase",
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "guardrails": "npm run guardrails:static && npm run boundaries",

@@ -61,10 +61,11 @@ module.exports = {
     {
       name: 'ppt-timer-standalone',
       severity: 'error',
-      comment: 'PPT Timer must remain standalone from room/cloud/sync runtimes.',
+      comment:
+        'apps/ppt-timer may depend only on @ontime/ppt-bridge and @ontime/presentation-core; no rooms/cloud/sync/general-timer/interface contracts.',
       from: { path: '^apps/ppt-timer(/|$)' },
       to: {
-        path: '(firebase|cloud-adapter|local-sync|companion|^frontend/|^functions/|^packages/local-sync-arbitration)',
+        path: '(^@ontime/(?!ppt-bridge(?:/|$)|presentation-core(?:/|$))|firebase|cloud-adapter|local-sync|^companion/|^frontend/|^functions/|socket\\.io|socket\\.io-client|interface-contracts|shared-types|timer-core|lock-view-model)',
       },
     },
   ],

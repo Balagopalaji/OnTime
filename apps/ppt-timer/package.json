@@ -1,0 +1,27 @@
+{
+  "name": "@ontime/ppt-timer",
+  "private": true,
+  "version": "0.0.0",
+  "description": "OnTime standalone PowerPoint video timer (ISSUE-001, Windows-only beta).",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build:cjs-deps": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge",
+    "build:main": "tsc -p tsconfig.build.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:cjs-deps && npm run build:main && npm run build:renderer",
+    "dev": "node electron-dev.js"
+  },
+  "dependencies": {
+    "@ontime/ppt-bridge": "0.0.0",
+    "@ontime/presentation-core": "0.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "electron": "^31.7.4",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.5",
+    "vitest": "4.0.10"
+  }
+}
