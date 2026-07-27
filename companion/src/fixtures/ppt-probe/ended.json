@@ -1,0 +1,26 @@
+{
+  "state": "foreground",
+  "instanceId": 7104,
+  "pptActive": true,
+  "inSlideshow": true,
+  "title": "Deck1",
+  "filename": "C:\\Fixture\\deck.pptx",
+  "totalSlides": 12,
+  "slideNumber": 3,
+  "videoDetected": true,
+  "videos": [
+    {
+      "id": 501,
+      "name": "intro.mp4",
+      "duration": 30000,
+      "elapsed": 30000,
+      "remaining": 0,
+      "status": "ended",
+      "playing": false
+    }
+  ],
+  "videoDuration": 30000,
+  "videoElapsed": 30000,
+  "videoPlaying": false,
+  "videoRemaining": 0
+}

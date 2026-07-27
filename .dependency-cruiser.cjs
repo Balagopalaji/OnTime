@@ -15,6 +15,13 @@ module.exports = {
       to: { path: '^(frontend/src/context|companion/src/main\\.ts)' },
     },
     {
+      name: 'ppt-bridge-node-only',
+      severity: 'error',
+      comment: 'The PPT bridge source is a Node-only native boundary with no app or package coupling.',
+      from: { path: '^packages/ppt-bridge/src' },
+      to: { path: '^(packages/(?!ppt-bridge/)|@ontime/|frontend/|companion/|controller/|functions/|firebase/|apps/)' },
+    },
+    {
       name: 'no-package-runtime-frameworks',
       severity: 'error',
       comment: 'Pure packages must stay free of product runtime frameworks.',

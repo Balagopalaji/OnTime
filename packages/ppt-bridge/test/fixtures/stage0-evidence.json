@@ -1,0 +1,70 @@
+{
+  "baselineSha": "fceb200b05c8f3bf7253ac0b3a91d613cc0bd305",
+  "companionCommand": "npm run test --workspace companion",
+  "companionResult": {
+    "tests": 154,
+    "passed": 154,
+    "failed": 0
+  },
+  "characterizations": {
+    "C": {
+      "source": "companion/src/main.presentation.test.ts",
+      "count": 16,
+      "titles": [
+        "C1 snapshotsIdentityEqual: null handling, per-field identity compare, timing ignored",
+        "C2 snapshotsTimingEqual: per-field timing compare incl. videos, identity ignored",
+        "C3 videoListsEqual: undefined/length handling and per-field compare at each index",
+        "C4 buildPowerPointCue: whole-cue mapping, explicit videoRemaining wins over derived",
+        "C5 buildPowerPointCue: videoRemaining derived from duration-elapsed only when both present",
+        "C6 buildPowerPointCue: darwin forces videoTimingUnavailable=true; win32 passes through",
+        "C7 commit first snapshot: LIVE_CUE_CREATED then PRESENTATION_LOADED per room, startedAt = now",
+        "C8 re-commit same instanceId: LIVE_CUE_UPDATED + PRESENTATION_UPDATE, startedAt preserved from first commit",
+        "C9 different instanceId: ENDED (old cue, all rooms) precedes CREATED+LOADED (new cue), new startedAt",
+        "C10 commit null: ENDED then PRESENTATION_CLEAR per room (interleaved); repeat null emits nothing",
+        "C11 activeLiveCueId side effect: set to powerpoint:<id> on create, undefined after null commit",
+        "C12 debounce boundary: no commit at t0 or t0+599; commit fires exactly at t0+600",
+        "C13 timing change mid-debounce keeps the t0 anchor; commit at t0+600 carries the new timing",
+        "C14 identity change resets the anchor: commit waits 600ms from the identity switch",
+        "C15 announced fast path: same identity + changed timing commits immediately; identical timing emits nothing",
+        "C16 null no-op: repeated updatePresentationCandidate(null) with announced null emits nothing"
+      ]
+    },
+    "D": {
+      "source": "companion/src/main.ppt-status.test.ts",
+      "count": 12,
+      "titles": [
+        "D1 guards: null is inert, foreground without instanceId returns early, none clears via debounce",
+        "D2 inSlideshow=false: silent with nothing announced; debounced ENDED+CLEAR when announced",
+        "D3 title fallback: whitespace title falls to filename, both blank fall to PowerPoint, title wins",
+        "D4 slideNumber undefined falls back to announced slide of the same instance",
+        "D5 video source priority: result.videos wins, then editSlideVideos, then cache",
+        "D6 warm cache + no-payload polls: silent forever, cache retained (no two-poll clear)",
+        "D7 explicitNoVideo: first poll keeps videos (timing dropped), second poll clears them",
+        "D8 slide change with explicitNoVideo clears videos immediately after the identity debounce",
+        "D9 enrichment: delta>200 marks playing (others forced false), exactly 200 does not, name beats index",
+        "D10 timing fallback: undefined duration/playing/remaining keep announced values, elapsed updates",
+        "D11 videoTimingUnavailable: true only with a video payload; false (not undefined) without one",
+        "D12 explicitNoVideo poll with videoTimingUnavailable:true commits videoTimingUnavailable false"
+      ]
+    }
+  },
+  "fixtureProvenance": {
+    "powerpoint-not-running": "source-derived-from-Program.cs",
+    "no-slideshow": "source-derived-from-Program.cs",
+    "playing": "source-derived-from-Program.cs",
+    "paused": "source-derived-from-Program.cs",
+    "ended": "source-derived-from-Program.cs",
+    "multiple-video": "source-derived-from-Program.cs",
+    "malformed": "synthetic-failure",
+    "timeout": "synthetic-failure"
+  },
+  "windowsOfficeCapture": {
+    "status": "pending",
+    "requiredEnvironment": "Windows 11 + Microsoft 365 x64",
+    "reason": "No Windows/Office capture environment was available in H1."
+  },
+  "notes": [
+    "Raw fixtures are sanitized and use C:\\\\Fixture\\\\deck.pptx.",
+    "Primary-video selection and unit normalization remain native-helper responsibilities; fixtures do not reimplement them."
+  ]
+}
