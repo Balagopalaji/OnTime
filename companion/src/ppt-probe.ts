@@ -95,14 +95,20 @@ function mapNativeOutcome(outcome: BridgePollOutcome): NativeProbeAttempt {
   }
 }
 
-export function stopPptProbeHelper(reason: string) {
-  // Windows-only helper shutdown to avoid orphaned processes.
+export function stopPptProbeHelper(reason: string): Promise<void> {
+  // Windows-only helper shutdown to avoid orphaned processes. Returns the
+  // helper close promise so callers that must gate on shutdown (before-quit)
+  // can await it; fire-and-forget callers (mode change) may ignore it.
   const client = pptNativeBridgeClient;
-  if (!client) return;
+  // Return the in-flight close promise (or the resolved sentinel when no helper
+  // ever started) so a quit that follows an earlier mode-change stop awaits the
+  // SAME close rather than a fresh resolved promise — closing the orphan window.
+  if (!client) return pptNativeClosing;
   logPptInfo('[ppt] native helper stopped', { reason });
   pptNativeBridgeClient = null;
   pptNativeHelperLogged = false;
   pptNativeClosing = client.close().catch(() => undefined);
+  return pptNativeClosing;
 }
 
 async function ensurePptProbeHelper(): Promise<PptBridgeClient | null> {

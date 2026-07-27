@@ -166,3 +166,31 @@ worktree_preflight: clean at a5386d8; H2 Windows validation still pending (not a
 - H4 Companion/CI/guardrail integration: local commit `caea6e7` (`feat: Adopt PowerPoint session in Companion`).
 - H4 manifest whitespace fix: local commit `244bfa8` (`chore: Normalize Companion manifest line endings`).
 - H4 ledger closeout: this entry records the validation evidence and the Windows-pending boundary.
+
+## H4 P1 — before-quit shutdown gate (helper orphan fix)
+
+### Scope
+
+- Fix exactly the H4 P1 shutdown regression: `companion/src/main.ts` `before-quit` called `stopPptProbeHelper('app quit')` without awaiting, so the persistent STA bridge helper (`client.close()`) could be orphaned mid-COM-call and outlive Electron.
+- Preserve all pre-H4 behavior and H4 shared-session behavior; do not touch shared bridge/core.
+- Companion-scoped poll-resurrection race is CLOSED this pass (stop the detection timer first). Separately deferred and untouched: the `packages/ppt-bridge` "retiring-generation" P2 — see Residual risk.
+
+### Changes (uncommitted)
+
+- `companion/src/ppt-probe.ts`: `stopPptProbeHelper(reason): Promise<void>` now returns `pptNativeClosing` (the helper close promise, or the resolved sentinel when no helper ever started). When no live client remains it returns the in-flight `pptNativeClosing` — not a fresh resolved promise — so a quit following a mode-change stop still awaits the running close.
+- `companion/src/ppt-quit-gate.ts` (new): `createPptQuitGate({ exitApp, shutdownTimeoutMs?, setTimeout? })` → `intercept(shutdown)` is idempotent (`running` flag), runs `shutdown()` once (sync throw → resolve), `await Promise.race([closePromise.catch(()=>undefined), timeout])`, then `exitApp(0)` exactly once. `runCompanionShutdown(handles, reason)` calls `stopPowerPointDetectionTimer()` FIRST (before any close), then runs the server/helper close sequence (preliminary cleanup isolated in try/catch so a thrown `server.close()` cannot skip the helper close), and returns the helper close promise.
+- `companion/src/main.ts` (net −1 line; 5839 ≤ 5841 ratchet): module-level `pptQuitGate` singleton; `before-quit` does `event.preventDefault()` + `pptQuitGate.intercept(() => runCompanionShutdown({ ..., stopPowerPointDetectionTimer, stopPowerPointHelper, stopPptProbeHelper }, 'app quit'))`. Uses `app.exit(0)` (not `app.quit()`) — safe; no `will-quit`/`quit` handlers exist.
+- Tests (new): `companion/src/ppt-quit-gate.test.ts` (8), `companion/src/ppt-probe.test.ts` (1).
+
+### Validation
+
+- Companion build (tsc) PASS; `npm run test --workspace ontime-companion` PASS 164/164 (155 baseline + 9 from this fix).
+- `npm run guardrails` PASS (static ratchet: main.ts under baseline; boundaries: 215 modules, 0 violations).
+- Behaviors pinned: quit prevented until close settles; idempotent under repeated before-quit; final quit proceeds; rejection/sync-throw/hung cannot hang quit (2s timeout); exitApp exactly once; `runCompanionShutdown` stops polling FIRST (exactly once, before helper close) then closes all servers in order + null-safe; helper close still runs after a cleanup throw; `stopPptProbeHelper` returns the shared in-flight close promise.
+- Independent Oracle review: 3 findings — P1 #1 (quit skips prior in-flight close) FIXED; P2 #3 (cleanup throw bypasses helper close) FIXED; P1 #2 Companion-scoped half (queued/new poll spawns a client during the gated quit window) FIXED by stopping the detection timer first. The deeper `packages/ppt-bridge` retiring-generation P2 (an in-flight poll already past the timer gate) remains deferred and untouched.
+
+### Residual risk
+
+- Companion poll-resurrection race CLOSED: `runCompanionShutdown` calls `stopPowerPointDetectionTimer()` first, so no queued/new poll can enter `ensurePptProbeHelper` and spawn a client during the gated quit window. Remaining (separately deferred, untouched): the `packages/ppt-bridge` retiring-generation P2 — a poll already in flight (past the timer gate) whose continuation could still create a client after `pptNativeClosing` resolves; needs a bridge-level terminal-shutdown flag and was explicitly deferred ("do not touch the separately deferred packages/ppt-bridge retiring-generation P2").
+- Windows/native evidence pending (no Windows/Office environment): real COM close timing, forced-kill path, and orphan-process check are not exercised against a live helper. Non-Windows path returns the resolved sentinel and exits within a microtask.
+- Not committed; no push, PR, or issue-state change.
