@@ -8,7 +8,7 @@ phase: H2 remediation complete; Windows validation pending
 current_task: none; Windows validation handoff pending
 review_cycles: 5
 stable_findings: []
-worktree_preflight: remediation changes present after clean 0fe5aec; ready for local commit
+worktree_preflight: clean at 348dd23; Windows validation pending
 ---
 
 # ISSUE-001 H1 Loop — Standalone PowerPoint Video Timer
@@ -87,14 +87,14 @@ worktree_preflight: remediation changes present after clean 0fe5aec; ready for l
 
 ### H2 Validation and resume log
 
-- Last safe checkpoint: H2 remediation complete in worktree after commit `0fe5aec`; branch base remains `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
+- Last safe checkpoint: H2 remediation committed as `348dd23`; branch base remains `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
 - True moves: `file_actions move` relocated both native files; old paths absent. HEAD/destination hashes and sizes: `Program.cs` 12,526 bytes / `7c198b806a7e53133aa6c238eef8d6fa6fefaf850fb2d0a35e6b25a857608695`; `ppt-probe.csproj` 451 bytes / `cee03bd0f97bdb27c77eccd7f81a92b507b515267e7e07f98354bb4c702c2b52`. Exactly two `Program.cs`/`ppt-probe.csproj` files remain; no tracked binaries or lockfile changes.
 - Changed implementation surfaces: new `packages/ppt-bridge/native/windows-ppt-probe/{Program.cs,ppt-probe.csproj}`, remediated `packages/ppt-bridge/scripts/build-windows.ps1`, new `packages/ppt-bridge/test/native-build-scripts.test.ts`, rewritten `companion/scripts/build-ppt-probe.ps1`, `.gitignore`, and `.github/workflows/companion-build.yml`; `companion/package.json` and `companion/src/ppt-probe.ts` unchanged.
 - Required commands: `npm run typecheck --workspace @ontime/ppt-bridge` PASS; `npm run test --workspace @ontime/ppt-bridge` PASS (23/23); `npm run build:cjs --workspace @ontime/ppt-bridge` PASS; `npm run smoke:cjs --workspace @ontime/ppt-bridge` PASS; `npm run build --workspace companion` PASS; `npm run test --workspace companion` PASS (155/155); `npm run guardrails` PASS; `npm run ci-local` PASS (all 23 checks).
 - Structural checks: exact publish flags, shim delegation/copy/hash validation, Windows-only setup/build/verify ordering, three-way packaged-resource hash logic, runtime/resource contracts, whitespace, source count, and binary hygiene PASS.
 - PowerShell parse: unavailable because `pwsh` is not installed. Native build/package/PowerPoint parity are pending because `dotnet`, Windows, and Office are unavailable. Do not claim canonical exe, installer resource, real COM field parity, or no-orphan runtime evidence until Windows execution.
-- Git staging/commit: scoped local commit `852ecfc` succeeded after the sandbox escalation; Git confirmed both native files as 100% renames. No remote action was taken. Final worktree is clean.
-- Resume instruction: commit the completed H2 remediation locally, then run the Windows validation handoff when available: pwsh parse, canonical publish, shim copy/hash, Companion packaged-resource hash, PowerPoint parity matrix, and orphan-process check. Keep H2 closed to Stage 3/4 work.
+- Git staging/commit: scoped native-ownership commit `852ecfc` and remediation commit `348dd23` succeeded after sandbox escalation; Git confirmed both native files as 100% renames. No remote action was taken. Final worktree is clean.
+- Resume instruction: run the Windows validation handoff when available: pwsh parse, canonical publish, shim copy/hash, Companion packaged-resource hash, PowerPoint parity matrix, and orphan-process check. Keep H2 closed to Stage 3/4 work.
 
 ## Context exception log
 
