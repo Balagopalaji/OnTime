@@ -44,7 +44,7 @@ worktree_preflight: clean-after-documentation-checkpoint
 - Required inputs read: spec, plan, readiness review, backlog progress, ISSUE-001.
 - Independent Oracle: initial blocked ambiguity resolved by supplied H1 contract; final verdict implementable.
 - Base SHA recorded: `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
-- Last safe checkpoint: H1 implementation and validation complete; scoped local commit remains to be created.
+- Last safe checkpoint: H1 implementation and validation complete; scoped commits `4da61ee` and `73567a0` are present.
 - Required validation: `npm run test --workspace companion` PASS (155/155); `npm run typecheck --workspace @ontime/ppt-bridge` PASS; `npm run test --workspace @ontime/ppt-bridge` PASS (21/21); `npm run build:cjs --workspace @ontime/ppt-bridge` PASS; `npm run smoke:cjs --workspace @ontime/ppt-bridge` PASS; `npm run guardrails` PASS (7/10, baseline 7; 183 modules, 439 dependencies); `npm run ci-local` PASS (all 23 checks).
 - Stage 0 evidence: sanitized native-helper fixtures cover not-running, no-slideshow, playing, paused, ended, multiple-video, synthetic malformed/timeout; complete ordered event replay passes. Windows 11 + Microsoft 365 x64 raw capture remains pending because no Windows/Office environment is available; no evidence was fabricated.
 - Protected-file check: no changes to `companion/ppt-probe/Program.cs`, Companion production TypeScript, presentation-core, frontend/controller, or standalone UI/installer.
