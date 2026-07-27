@@ -210,6 +210,12 @@ export function reducePowerPointMachine(
       return { state, action: null }
     }
     if (result.inSlideshow === false) {
+      // Companion only feeds a no-slideshow clear into the candidate machine
+      // when a presentation was already announced; a pending candidate is
+      // intentionally preserved across this transient observation.
+      if (!state.announcedSnapshot) {
+        return { state: { ...state, sourceState: { kind: 'no_slideshow' } }, action: null }
+      }
       return applyCandidate({ ...state, sourceState: { kind: 'no_slideshow' } }, null, nowMs)
     }
     const normalized = normalizePowerPointPoll({

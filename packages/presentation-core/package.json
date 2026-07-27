@@ -4,10 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist-cjs/index.d.ts",
+      "import": "./src/index.ts",
+      "require": "./dist-cjs/index.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest --run src/index.test.ts"
+    "test": "vitest --run src",
+    "build:cjs": "rm -rf dist-cjs && tsc -p tsconfig.cjs.json && printf '{\\\"type\\\":\\\"commonjs\\\"}\\n' > dist-cjs/package.json",
+    "smoke:cjs": "node test/cjs-smoke.cjs"
   }
 }

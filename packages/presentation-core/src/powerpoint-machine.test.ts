@@ -374,6 +374,27 @@ describe('D8 slide-change explicit clear', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Companion no-slideshow candidate guard
+// ---------------------------------------------------------------------------
+describe('no-slideshow candidate guard', () => {
+  it('preserves a pending presentation candidate when no slideshow is observed', () => {
+    const pending = poll(initial(), fg(1, { videoDetected: true, videoDuration: 10_000, videoElapsed: 1_000 }), T0)
+    noAction(pending)
+
+    const noSlideshow = poll(pending.state, fg(1, { inSlideshow: false }), T0 + 100)
+    noAction(noSlideshow)
+    expect(noSlideshow.state.sourceState.kind).toBe('no_slideshow')
+
+    const resumed = poll(
+      noSlideshow.state,
+      fg(1, { videoDetected: true, videoDuration: 10_000, videoElapsed: 1_000 }),
+      T0 + DEBOUNCE + 1,
+    )
+    expect(resumed.action?.kind).toBe('commit_snapshot')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // operational_failure + reset
 // ---------------------------------------------------------------------------
 describe('operational_failure and reset', () => {

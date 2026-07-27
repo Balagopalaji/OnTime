@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict')
+const core = require('../dist-cjs/index.js')
+
+assert.equal(typeof core.normalizePowerPointPoll, 'function')
+assert.equal(typeof core.reducePowerPointMachine, 'function')
+assert.equal(typeof core.projectPowerPointView, 'function')
+assert.equal(typeof core.mergeCueVideos, 'function')
+assert.equal(core.POWERPOINT_DEBOUNCE_MS, 600)
+assert.equal(core.POWERPOINT_VIDEO_CLEAR_POLLS, 2)
+console.log('presentation-core CJS smoke passed')

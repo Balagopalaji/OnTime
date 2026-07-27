@@ -384,11 +384,57 @@ describe('primary-video resolution', () => {
     expect(v.selectedVideoId).toBe(20)
   })
 
+  it('an invalid explicit index falls through to the active video', () => {
+    const v = projectPowerPointView(presentationFrom(baseResult), {
+      ...remaining,
+      primaryVideoIndex: 99,
+    }) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v.selectedVideoId).toBe(20)
+  })
+
   it('an explicit index wins over the active video', () => {
     const v = projectPowerPointView(presentationFrom(baseResult), {
       ...remaining,
       primaryVideoIndex: 0,
     }) as PowerPointViewState & { selectedVideoId?: number }
     expect(v.selectedVideoId).toBe(10)
+  })
+
+  it('selects the first video when no video is active', () => {
+    const src = presentationFrom({
+      ...baseResult,
+      videos: [
+        { id: 30, name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000 },
+        { id: 40, name: 'second', duration: 8_000, elapsed: 2_000, remaining: 6_000 },
+      ],
+    })
+    const v = projectPowerPointView(src, remaining) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v.selectedVideoId).toBe(30)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Exact 250 ms ended threshold
+// ---------------------------------------------------------------------------
+describe('ended threshold boundary', () => {
+  const source = (remainingMs: number) =>
+    presentationFrom({
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId: 1,
+      slideNumber: 1,
+      title: 'Deck',
+      videoDetected: true,
+      videoDuration: 10_000,
+      videoElapsed: 10_000 - remainingMs,
+      videos: [{ id: 1, name: 'clip', duration: 10_000, elapsed: 10_000 - remainingMs, remaining: remainingMs }],
+    })
+
+  it('ends at exactly 250 ms remaining', () => {
+    expect(projectPowerPointView(source(250), remaining).kind).toBe('ended')
+  })
+
+  it('does not infer ended at 251 ms remaining without another end signal', () => {
+    expect(projectPowerPointView(source(251), remaining).kind).toBe('paused')
   })
 })
