@@ -9,3 +9,4 @@ companion/docs/temp/
 .opencode/
 prompt-exports/
 packages/ppt-bridge/dist-cjs/
+packages/ppt-bridge/bin/

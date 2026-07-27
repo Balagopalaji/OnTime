@@ -32,6 +32,17 @@ jobs:
       - name: Install workspace deps
         run: npm ci
 
+      - name: Setup .NET 6
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Build PowerPoint probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./companion/scripts/build-ppt-probe.ps1
+
       # ffprobe URLs can be overridden with repo/environment variables if you host vetted LGPL-only binaries.
       - name: Fetch ffprobe
         # Best-effort: the app degrades gracefully without ffprobe and the public LGPL
@@ -50,6 +61,27 @@ jobs:
           # Disable signing/notarization in CI unless explicitly configured.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --publish never
+
+      - name: Verify packaged PowerPoint probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: companion
+        run: |
+          $canonicalPath = Join-Path $env:GITHUB_WORKSPACE 'packages/ppt-bridge/bin/win-x64/ppt-probe.exe'
+          $compatibilityPath = Join-Path $env:GITHUB_WORKSPACE 'companion/bin/ppt-probe.exe'
+          $packagedPath = Join-Path $PWD 'dist_out/win-unpacked/resources/bin/ppt-probe.exe'
+          $paths = @($canonicalPath, $compatibilityPath, $packagedPath)
+          foreach ($path in $paths) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Expected PowerPoint probe artifact not found: $path"
+            }
+          }
+          $canonicalHash = (Get-FileHash -LiteralPath $canonicalPath -Algorithm SHA256).Hash
+          $compatibilityHash = (Get-FileHash -LiteralPath $compatibilityPath -Algorithm SHA256).Hash
+          $packagedHash = (Get-FileHash -LiteralPath $packagedPath -Algorithm SHA256).Hash
+          if ($canonicalHash -ne $compatibilityHash -or $compatibilityHash -ne $packagedHash) {
+            throw "PowerPoint probe hashes differ across canonical, Companion, and packaged resources"
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

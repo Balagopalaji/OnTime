@@ -4,11 +4,11 @@ branch: backlog/ISSUE-001-standalone-ppt-timer
 worktree: /tmp/ontime-issue001-ppt-timer
 base_branch: main
 base_sha: fceb200b05c8f3bf7253ac0b3a91d613cc0bd305
-phase: H2 in progress
-current_task: H2-0 identity preflight / H2-1 atomic native ownership move
-review_cycles: 0
+phase: H2 implementation complete; Windows validation pending
+current_task: none; Windows validation handoff pending
+review_cycles: 3
 stable_findings: []
-worktree_preflight: clean at 8ca58ff; H2 documentation checkpoint pending
+worktree_preflight: implementation changes present after clean 8ca58ff; local Git index staging unavailable
 ---
 
 # ISSUE-001 H1 Loop — Standalone PowerPoint Video Timer
@@ -66,25 +66,31 @@ worktree_preflight: clean at 8ca58ff; H2 documentation checkpoint pending
 | Task | Source | Files/surface | Owner | Tests/validation | Status |
 |---|---|---|---|---|---|
 | H2-0 | Stage 2 identity preflight | old native source/project | orchestrator | SHA-256, byte size, tracked source count | complete |
-| H2-1 | Stage 2 atomic native ownership | new package native source/project; old paths removed | orchestrator/engineer | post-move hashes, rename identity, source count | in progress |
-| H2-2 | Stage 2 canonical build + compatibility shim | two PowerShell scripts, ignore rule | orchestrator/engineer | script parse if pwsh available; structural assertions | pending |
-| H2-3 | Stage 2 Windows packaging integration | companion-build workflow; unchanged extraResources contract | orchestrator/engineer | workflow parse/structural assertions; Windows package pending | pending |
-| H2-4 | Stage 2 regression/closeout | required package, Companion, guardrail, CI lanes | orchestrator | required deterministic command set; Windows gates pending | pending |
+| H2-1 | Stage 2 atomic native ownership | new package native source/project; old paths removed | orchestrator | post-move hashes, true-move evidence, source count | complete |
+| H2-2 | Stage 2 canonical build + compatibility shim | two PowerShell scripts, ignore rule | orchestrator | exact publish flags; shim copy/hash structure; pwsh unavailable | complete (Windows execution pending) |
+| H2-3 | Stage 2 Windows packaging integration | companion-build workflow; unchanged extraResources contract | orchestrator | Windows-only setup/build/packaged-resource hash structure | complete (Windows execution pending) |
+| H2-4 | Stage 2 regression/closeout | required package, Companion, guardrail, CI lanes | orchestrator | all deterministic commands pass; Windows gates pending | complete (Windows gates pending) |
 
 ### H2 Review and escape ledger
 
-- P0/P1 findings: none at H2 start.
-- Stable finding signatures: none.
-- Review-cycle count: 0.
+- Final delegated review: `findings: []`; no P0/P1 remains.
+- Stable finding signatures: none outstanding.
+- Review-cycle count: 3 (initial review, P2 path-literal follow-up, P2 resolution confirmation).
+- Resolved signature: `P2|.github/workflows/companion-build.yml|verify path literals use doubled backslashes|S-028/H2`; fixed with forward-slash literals and confirmation review.
+- Non-blocking review note: `P3|companion/ppt-probe/|empty residual directory after true move|S-028/H2`; directory is untracked/cosmetic, both old files are absent, and no source/project remains.
 - Any source-byte difference, duplicate native source/project, missing exact publish setting, changed runtime/fallback path, missing package resource, or orphan helper blocks H2 completion.
-- Windows-only gates are pending and must not be marked fixed/green without Windows evidence.
+- Windows-only gates remain pending and must not be marked fixed/green without Windows evidence.
 
 ### H2 Validation and resume log
 
-- Last safe checkpoint: H1 complete at `8ca58ff`; H2-0 identity preflight complete.
-- Next action: move native files byte-faithfully, add canonical build script and compatibility shim, then update only necessary Windows workflow/ignore rules.
-- Required final commands: bridge typecheck/test/build:cjs/smoke:cjs; Companion build/test; guardrails; ci-local.
-- Resume instruction: continue H2-1 from the clean documentation checkpoint; do not alter native file contents or protected Companion runtime behavior.
+- Last safe checkpoint: H2 implementation complete in worktree after documentation checkpoint `613dc09`; branch base remains `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
+- True moves: `file_actions move` relocated both native files; old paths absent. HEAD/destination hashes and sizes: `Program.cs` 12,526 bytes / `7c198b806a7e53133aa6c238eef8d6fa6fefaf850fb2d0a35e6b25a857608695`; `ppt-probe.csproj` 451 bytes / `cee03bd0f97bdb27c77eccd7f81a92b507b515267e7e07f98354bb4c702c2b52`. Exactly two `Program.cs`/`ppt-probe.csproj` files remain; no tracked binaries or lockfile changes.
+- Changed implementation surfaces: new `packages/ppt-bridge/native/windows-ppt-probe/{Program.cs,ppt-probe.csproj}`, new `packages/ppt-bridge/scripts/build-windows.ps1`, rewritten `companion/scripts/build-ppt-probe.ps1`, `.gitignore`, and `.github/workflows/companion-build.yml`; `companion/package.json` and `companion/src/ppt-probe.ts` unchanged.
+- Required commands: `npm run typecheck --workspace @ontime/ppt-bridge` PASS; `npm run test --workspace @ontime/ppt-bridge` PASS (21/21); `npm run build:cjs --workspace @ontime/ppt-bridge` PASS; `npm run smoke:cjs --workspace @ontime/ppt-bridge` PASS; `npm run build --workspace companion` PASS; `npm run test --workspace companion` PASS (155/155); `npm run guardrails` PASS; `npm run ci-local` PASS (all 23 checks).
+- Structural checks: exact publish flags, shim delegation/copy/hash validation, Windows-only setup/build/verify ordering, three-way packaged-resource hash logic, runtime/resource contracts, whitespace, source count, and binary hygiene PASS.
+- PowerShell parse: unavailable because `pwsh` is not installed. Native build/package/PowerPoint parity are pending because `dotnet`, Windows, and Office are unavailable. Do not claim canonical exe, installer resource, real COM field parity, or no-orphan runtime evidence until Windows execution.
+- Git staging/commit: staging failed because the sandbox cannot create the worktree index lock at `/Users/radhabalagopala/Dev/onTime2/OnTime/.git/worktrees/ontime-issue001-ppt-timer/index.lock`; no force/bypass or remote action was taken. The H2 code changes remain uncommitted in the worktree.
+- Resume instruction: run the Windows validation handoff on this branch; execute canonical build, shim, Companion package, three-way resource hash, required PowerPoint fixture/parity matrix, and orphan-process check. Keep H2 closed to Stage 3/4 work.
 
 ## Context exception log
 
