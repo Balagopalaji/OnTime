@@ -142,3 +142,26 @@ worktree_preflight: clean at a5386d8; H2 Windows validation still pending (not a
 - Oracle review handoff failed twice with `sourceCaptureFailed` after the review selection became stale; a fresh read-only delegated final review `E9DE195F-258B-42A0-A64F-3D47ED0CC88E` completed with no defects. The review evidence and all exact validation commands were independently verified in this worktree.
 - Reopened H2 P1 was independently reviewed by read-only session `C9959F67-B5EC-43AB-9971-630E47D0F815`; final findings were empty, the P1 was resolved by code plus green static tests, and Windows execution remains pending.
 - H3 Oracle review was attempted twice after publishing a narrowed 14-file diff; both provider calls were rejected before analysis for exceeding the 1 MiB input limit. Direct diff inspection and all available targeted/integration validation were used for the final gate; no P0/P1 was found.
+
+## H4 Persistent PowerPoint session and Companion bridge loop
+
+### Scope and ledger
+
+- H4 scope: additive presentation-core `candidate`/`synchronize_commit` events; transport-injected `PowerPointSession`; persistent `PptBridgeClientImpl` generations; sanitized `no_slideshow` context; Companion native-client adapter and session/core compatibility wrappers.
+- Protected surfaces remain unchanged: native C# source/project, PowerShell/AppleScript fallback bodies and order, `companion/src/main.ts`, frontend/Controller, room payloads, D6/D10 behavior, and standalone UI.
+- Dependency order is pinned: presentation-core CJS → ppt-bridge CJS → Companion compile/tests in the workflow, local CI, and Companion `prebuild`.
+- Review: direct final diff review found no P0/P1 findings.
+
+### Validation evidence
+
+- Presentation-core: typecheck PASS; 100 tests PASS; CJS build/smoke PASS.
+- PPT bridge: typecheck PASS; 30 tests PASS; CJS build/smoke PASS.
+- Companion: typecheck/build PASS; characterization and fixture suite PASS (155/155).
+- Guardrails and dependency boundaries PASS (7/10 package population baseline; 212 modules / 506 dependencies).
+- Windows native execution remains pending: no Windows/Office environment was available to verify helper PID reuse, exit/restart recovery, native-to-PowerShell fallback cascade, packaged resource parity, and orphan-process shutdown. Do not claim this evidence as verified until the Windows gate is run.
+
+### Scoped commits
+
+- H4 core/bridge implementation and tests: local commit `c5b3c52` (`feat: Add persistent PowerPoint bridge session`).
+- H4 Companion/CI/guardrail integration: local commit `caea6e7` (`feat: Adopt PowerPoint session in Companion`).
+- H4 ledger closeout: this entry records the validation evidence and the Windows-pending boundary.
