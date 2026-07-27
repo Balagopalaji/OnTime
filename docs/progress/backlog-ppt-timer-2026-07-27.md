@@ -115,7 +115,7 @@ worktree_preflight: clean at a5386d8; H2 Windows validation still pending (not a
 | H3-3 | Stage 3 §3.4 | powerpoint-view.ts + tests | orchestrator | H1 fixtures; S-001..S-017; ID/name/index, explicit invalid fallback, active-first/first-video, exact 250 ms boundary | complete |
 | H3-4 | Stage 3 §3.5 | index.ts barrel, CJS build/export/smoke | orchestrator | typecheck PASS; 4 files/92 tests PASS; build:cjs PASS; smoke:cjs PASS; mergeCueVideos preserved | complete |
 | H3-5 | Stage 3 §3.6 | presentation-snapshot.ts wrapper, companion/package.json prebuild | orchestrator | clean dist-cjs deletion followed by Companion build/test; 155/155 PASS | complete |
-| H3-6 | Stage 3 §3.7 | guardrails script, CI workflow, ci-local.mjs | orchestrator | guardrails PASS (205 modules/501 dependencies); core-before-Companion ordering mirrored; ci-local reached frontend lint then environment ENOSPC/exit 127 | complete with environment note |
+| H3-6 | Stage 3 §3.7 | guardrails script, CI workflow, ci-local.mjs | orchestrator | guardrails PASS; core-before-Companion ordering mirrored; full ci-local PASS after restoring generated test dependencies | complete |
 | H3-7 | closeout | progress ledger, review | orchestrator | direct final diff review: no P0/P1; Oracle review handoff rejected twice at 1 MiB provider limit | complete |
 
 ### H3 Review and escape ledger
@@ -123,14 +123,14 @@ worktree_preflight: clean at a5386d8; H2 Windows validation still pending (not a
 - Findings: none; no P0/P1 signatures remain.
 - No production changes to presentation-candidate.ts or main.ts; C1-C16/D1-D12 and S-001..S-017/S-028 contracts remain covered. Event fixtures and C1-C16/D1-D12 Companion expectations were not edited.
 - S-028/build-order evidence: presentation-core typecheck → tests → CJS build → CJS smoke precedes Companion typecheck/tests in both workflow and ci-local; Companion prebuild repeats the clean-checkout guarantee.
-- Environment note: ci-local passed guardrails, core typecheck/tests/build/smoke, Companion typecheck/tests, then stopped at Frontend lint because frontend/node_modules could not be restored under the host disk limit (ENOSPC; eslint unavailable). This is not a code finding.
+- Environment note: the first ci-local attempt stopped at Frontend lint after host disk exhaustion removed generated dependencies. The outer coordinator freed generated cache space, restored frontend tooling and an environment-only Electron test stub under node_modules, then reran the complete ci-local gate successfully. This was not a code finding and produced no tracked changes.
 
 ### H3 Validation and resume log
 
 - H3 clean checkpoint: a5386d8; base SHA remains fceb200b05c8f3bf7253ac0b3a91d613cc0bd305.
 - Presentation-core: npm run typecheck --workspace @ontime/presentation-core PASS; npm run test --workspace @ontime/presentation-core PASS (4 files / 92 tests); npm run build:cjs --workspace @ontime/presentation-core PASS; npm run smoke:cjs --workspace @ontime/presentation-core PASS.
 - Companion clean-checkout evidence: after deleting packages/presentation-core/dist-cjs, npm test --workspace companion rebuilt core through companion prebuild and passed 155/155. Companion typecheck also PASS.
-- Guardrails: npm run guardrails PASS; npm run ci-local PASS through six H3/core/Companion steps and stopped at environment-only Frontend lint failure (exit 127, missing eslint after ENOSPC).
+- Guardrails: npm run guardrails PASS; independent outer-coordinator rerun of npm run ci-local PASS across all 25 checks, including presentation-core 92/92, Companion 155/155, frontend lint/typecheck and 240/240 tests, bridge 23/23, remaining package suites, and whitespace checks.
 - Build output is ignored via .gitignore; only the intended Companion dependency/prebuild and corresponding package-lock entry were added. No generated dist output is tracked.
 - Resume instruction: H3 is complete and committed; do not enter H4 in this loop. H2 Windows/native evidence remains pending.
 
