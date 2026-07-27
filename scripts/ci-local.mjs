@@ -34,6 +34,10 @@ const base = process.env.CI_LOCAL_BASE ?? 'origin/main'
 // .github/workflows/rebuild-guardrails.yml.
 const STEPS = [
   { name: 'Rebuild boundary and pattern checks', cmd: 'npm run guardrails' },
+  { name: 'Presentation-core typecheck', cmd: 'npm run typecheck --workspace @ontime/presentation-core' },
+  { name: 'Presentation-core tests', cmd: 'npm run test --workspace @ontime/presentation-core' },
+  { name: 'Presentation-core CJS build', cmd: 'npm run build:cjs --workspace @ontime/presentation-core' },
+  { name: 'Presentation-core CJS smoke', cmd: 'npm run smoke:cjs --workspace @ontime/presentation-core' },
   { name: 'Companion typecheck', cmd: 'npx tsc -p tsconfig.json --noEmit', cwd: 'companion' },
   { name: 'Companion tests', cmd: 'npm test', cwd: 'companion' },
   { name: 'Frontend lint', cmd: 'npm run lint --workspace frontend' },
@@ -53,8 +57,6 @@ const STEPS = [
   { name: 'Interface-contracts tests', cmd: 'npm run test --workspace @ontime/interface-contracts' },
   { name: 'Lock-view-model typecheck', cmd: 'npm run typecheck --workspace @ontime/lock-view-model' },
   { name: 'Lock-view-model tests', cmd: 'npm run test --workspace @ontime/lock-view-model' },
-  { name: 'Presentation-core typecheck', cmd: 'npm run typecheck --workspace @ontime/presentation-core' },
-  { name: 'Presentation-core tests', cmd: 'npm run test --workspace @ontime/presentation-core' },
   { name: 'PPT bridge typecheck', cmd: 'npm run typecheck --workspace @ontime/ppt-bridge' },
   { name: 'PPT bridge tests', cmd: 'npm run test --workspace @ontime/ppt-bridge' },
   { name: 'PPT bridge CJS build', cmd: 'npm run build:cjs --workspace @ontime/ppt-bridge' },

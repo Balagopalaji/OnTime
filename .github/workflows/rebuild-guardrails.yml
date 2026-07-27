@@ -41,6 +41,18 @@ jobs:
       - name: Rebuild boundary and pattern checks
         run: npm run guardrails
 
+      - name: Presentation-core typecheck
+        run: npm run typecheck --workspace @ontime/presentation-core
+
+      - name: Presentation-core tests
+        run: npm run test --workspace @ontime/presentation-core
+
+      - name: Presentation-core CJS build
+        run: npm run build:cjs --workspace @ontime/presentation-core
+
+      - name: Presentation-core CJS smoke
+        run: npm run smoke:cjs --workspace @ontime/presentation-core
+
       - name: Companion typecheck
         working-directory: companion
         run: npx tsc -p tsconfig.json --noEmit
@@ -85,12 +97,6 @@ jobs:
 
       - name: Lock-view-model tests
         run: npm run test --workspace @ontime/lock-view-model
-
-      - name: Presentation-core typecheck
-        run: npm run typecheck --workspace @ontime/presentation-core
-
-      - name: Presentation-core tests
-        run: npm run test --workspace @ontime/presentation-core
 
       # Stage 1b safety net: run the FULL frontend suite (including the UnifiedDataContext
       # characterization harness, 51 tests) so any carve-out that changes behavior turns this

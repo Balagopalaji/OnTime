@@ -4,11 +4,11 @@ branch: backlog/ISSUE-001-standalone-ppt-timer
 worktree: /tmp/ontime-issue001-ppt-timer
 base_branch: main
 base_sha: fceb200b05c8f3bf7253ac0b3a91d613cc0bd305
-phase: H3 presentation-core in progress
-current_task: H3
-review_cycles: 5
+phase: H3 presentation-core complete
+current_task: closeout
+review_cycles: 6
 stable_findings: []
-worktree_preflight: clean at 4806798; H2 Windows validation still pending (not an H3 blocker)
+worktree_preflight: clean at a5386d8; H2 Windows validation still pending (not an H3 blocker)
 ---
 
 # ISSUE-001 H1 Loop — Standalone PowerPoint Video Timer
@@ -110,24 +110,29 @@ worktree_preflight: clean at 4806798; H2 Windows validation still pending (not a
 
 | Task | Source | Files/surface | Owner | Tests/validation | Status |
 |---|---|---|---|---|---|
-| H3-1 | Stage 3 §3.1-3.2 | `powerpoint-types.ts`, `powerpoint-normalize.ts` + tests | TBD | C1-C3, D1-D12 normalization parity | pending |
-| H3-2 | Stage 3 §3.3 | `powerpoint-machine.ts` + tests | TBD | C7-C16, D1-D12 reducer parity | pending |
-| H3-3 | Stage 3 §3.4 | `powerpoint-view.ts` + tests | TBD | H1 fixtures, S-001..S-017 | pending |
-| H3-4 | Stage 3 §3.5 | `index.ts` barrel, CJS build/export/smoke | TBD | typecheck/test/build:cjs/smoke:cjs | pending |
-| H3-5 | Stage 3 §3.6 | `presentation-snapshot.ts` wrapper, `companion/package.json` prebuild | TBD | `npm run test --workspace companion`; clean-checkout dist-cjs delete + rerun | pending |
-| H3-6 | Stage 3 §3.7 | guardrails script, CI workflow, `ci-local.mjs` | TBD | `npm run guardrails`; `npm run ci-local` | pending |
-| H3-7 | closeout | progress ledger, review | orchestrator | conformance matrix, clean/no-P0/P1 confirmation | pending |
+| H3-1 | Stage 3 §3.1-3.2 | powerpoint-types.ts, powerpoint-normalize.ts + tests | orchestrator | C1-C3, D1-D12; normalization tests included in 92 core tests | complete |
+| H3-2 | Stage 3 §3.3 | powerpoint-machine.ts + tests | orchestrator | C7-C16, D1-D12; no-slideshow pending-candidate guard added | complete |
+| H3-3 | Stage 3 §3.4 | powerpoint-view.ts + tests | orchestrator | H1 fixtures; S-001..S-017; ID/name/index, explicit invalid fallback, active-first/first-video, exact 250 ms boundary | complete |
+| H3-4 | Stage 3 §3.5 | index.ts barrel, CJS build/export/smoke | orchestrator | typecheck PASS; 4 files/92 tests PASS; build:cjs PASS; smoke:cjs PASS; mergeCueVideos preserved | complete |
+| H3-5 | Stage 3 §3.6 | presentation-snapshot.ts wrapper, companion/package.json prebuild | orchestrator | clean dist-cjs deletion followed by Companion build/test; 155/155 PASS | complete |
+| H3-6 | Stage 3 §3.7 | guardrails script, CI workflow, ci-local.mjs | orchestrator | guardrails PASS (205 modules/501 dependencies); core-before-Companion ordering mirrored; ci-local reached frontend lint then environment ENOSPC/exit 127 | complete with environment note |
+| H3-7 | closeout | progress ledger, review | orchestrator | direct final diff review: no P0/P1; Oracle review handoff rejected twice at 1 MiB provider limit | complete |
 
 ### H3 Review and escape ledger
 
-- No findings recorded yet.
+- Findings: none; no P0/P1 signatures remain.
+- No production changes to presentation-candidate.ts or main.ts; C1-C16/D1-D12 and S-001..S-017/S-028 contracts remain covered. Event fixtures and C1-C16/D1-D12 Companion expectations were not edited.
+- S-028/build-order evidence: presentation-core typecheck → tests → CJS build → CJS smoke precedes Companion typecheck/tests in both workflow and ci-local; Companion prebuild repeats the clean-checkout guarantee.
+- Environment note: ci-local passed guardrails, core typecheck/tests/build/smoke, Companion typecheck/tests, then stopped at Frontend lint because frontend/node_modules could not be restored under the host disk limit (ENOSPC; eslint unavailable). This is not a code finding.
 
 ### H3 Validation and resume log
 
-- Narrow H3 checkpoint validation (2026-07-27): `npm run typecheck --workspace @ontime/presentation-core` passed; focused `powerpoint-normalize.test.ts`, `powerpoint-machine.test.ts`, and `powerpoint-view.test.ts` passed: 3 files / 76 tests. No full CI, Companion regression, guardrail, CJS build/smoke, or `ci-local` run at this pause point.
-- Partial implementation is checkpointed as WIP only. Present: normalization/types, reducer/machine, standalone view projection, focused tests, fixture, and the `tsconfig` JSON/include adjustment. Absent: completed view/reducer review fixes (including the no-slideshow candidate guard and expanded ID/name/index/explicit-reference/active-first/first-video/250 ms coverage), barrel exports, presentation-core CJS build/smoke, Companion compatibility wrapper/prebuild, guardrails/CI-local ordering, and final H3 review/ledger closeout.
-- Known gaps/failures: no implementation failure in the narrow checks above; H3 remains incomplete and unvalidated at integration/build/guardrail level. The attempted barrel edit stalled and was terminated without changing files. Existing dirty files are intentionally preserved in the WIP commit.
-- Resume command: `npm run typecheck --workspace @ontime/presentation-core && npx vitest --run --root . packages/presentation-core/src/powerpoint-normalize.test.ts packages/presentation-core/src/powerpoint-machine.test.ts packages/presentation-core/src/powerpoint-view.test.ts`; then complete Stage 3 only, starting with the package barrel/CJS gate and no-slideshow/primary-selection review points.
+- H3 clean checkpoint: a5386d8; base SHA remains fceb200b05c8f3bf7253ac0b3a91d613cc0bd305.
+- Presentation-core: npm run typecheck --workspace @ontime/presentation-core PASS; npm run test --workspace @ontime/presentation-core PASS (4 files / 92 tests); npm run build:cjs --workspace @ontime/presentation-core PASS; npm run smoke:cjs --workspace @ontime/presentation-core PASS.
+- Companion clean-checkout evidence: after deleting packages/presentation-core/dist-cjs, npm test --workspace companion rebuilt core through companion prebuild and passed 155/155. Companion typecheck also PASS.
+- Guardrails: npm run guardrails PASS; npm run ci-local PASS through six H3/core/Companion steps and stopped at environment-only Frontend lint failure (exit 127, missing eslint after ENOSPC).
+- Build output is ignored via .gitignore; only the intended Companion dependency/prebuild and corresponding package-lock entry were added. No generated dist output is tracked.
+- Resume instruction: H3 is complete and committed; do not enter H4 in this loop. H2 Windows/native evidence remains pending.
 
 ## Context exception log
 
@@ -136,3 +141,4 @@ worktree_preflight: clean at 4806798; H2 Windows validation still pending (not a
 - Stage 0 delegate `87BC2263-E055-4DCF-A6FD-E894478C6767` stalled without edits and was cancelled; Stage 0 was completed directly. Stage 1 delegate `EBA905AF-1C4F-4B87-A837-339324DC78BD` likewise stalled without edits and was cancelled; Stage 1 was completed directly. No external input was required.
 - Oracle review handoff failed twice with `sourceCaptureFailed` after the review selection became stale; a fresh read-only delegated final review `E9DE195F-258B-42A0-A64F-3D47ED0CC88E` completed with no defects. The review evidence and all exact validation commands were independently verified in this worktree.
 - Reopened H2 P1 was independently reviewed by read-only session `C9959F67-B5EC-43AB-9971-630E47D0F815`; final findings were empty, the P1 was resolved by code plus green static tests, and Windows execution remains pending.
+- H3 Oracle review was attempted twice after publishing a narrowed 14-file diff; both provider calls were rejected before analysis for exceeding the 1 MiB input limit. Direct diff inspection and all available targeted/integration validation were used for the final gate; no P0/P1 was found.
