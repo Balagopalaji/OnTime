@@ -4,11 +4,11 @@ branch: backlog/ISSUE-001-standalone-ppt-timer
 worktree: /tmp/ontime-issue001-ppt-timer
 base_branch: main
 base_sha: fceb200b05c8f3bf7253ac0b3a91d613cc0bd305
-phase: H2 implementation complete; Windows validation pending
+phase: H2 remediation complete; Windows validation pending
 current_task: none; Windows validation handoff pending
-review_cycles: 3
+review_cycles: 5
 stable_findings: []
-worktree_preflight: implementation changes present after clean 8ca58ff; local Git index staging unavailable
+worktree_preflight: remediation changes present after clean 0fe5aec; ready for local commit
 ---
 
 # ISSUE-001 H1 Loop — Standalone PowerPoint Video Timer
@@ -70,27 +70,31 @@ worktree_preflight: implementation changes present after clean 8ca58ff; local Gi
 | H2-2 | Stage 2 canonical build + compatibility shim | two PowerShell scripts, ignore rule | orchestrator | exact publish flags; shim copy/hash structure; pwsh unavailable | complete (Windows execution pending) |
 | H2-3 | Stage 2 Windows packaging integration | companion-build workflow; unchanged extraResources contract | orchestrator | Windows-only setup/build/packaged-resource hash structure | complete (Windows execution pending) |
 | H2-4 | Stage 2 regression/closeout | required package, Companion, guardrail, CI lanes | orchestrator | all deterministic commands pass; Windows gates pending | complete (Windows gates pending) |
+| H2-5 | Remediation loop: publish failure semantics | canonical PowerShell script, static regression, compatibility shim review | orchestrator | red static test, green 23/23 bridge suite, final review | complete (Windows execution pending) |
 
 ### H2 Review and escape ledger
 
-- Final delegated review: `findings: []`; no P0/P1 remains.
+- Final delegated remediation review: `findings: []`; no P0/P1 remains.
 - Stable finding signatures: none outstanding.
-- Review-cycle count: 3 (initial review, P2 path-literal follow-up, P2 resolution confirmation).
-- Resolved signature: `P2|.github/workflows/companion-build.yml|verify path literals use doubled backslashes|S-028/H2`; fixed with forward-slash literals and confirmation review.
+- Review-cycle count: 5 (initial H2 review, P2 follow-ups, reopened P1 review, remediation confirmation).
+- Resolved signature: `P1|packages/ppt-bridge/scripts/build-windows.ps1|native publish failure can leave stale executable|S-028/H2`; output is removed/recreated before publish, `$LASTEXITCODE` is captured immediately, nonzero throws before the executable check, and static tests pin the ordering.
+- Static regression evidence: the new test was red before the script fix and green afterward; it also verifies the shim has no independent `dotnet publish`, no catch-based error swallowing, and performs copy/hash validation only after canonical success.
+- Previous resolved signature remains: `P2|.github/workflows/companion-build.yml|verify path literals use doubled backslashes|S-028/H2`; forward-slash literals are confirmed.
 - Non-blocking review note: `P3|companion/ppt-probe/|empty residual directory after true move|S-028/H2`; directory is untracked/cosmetic, both old files are absent, and no source/project remains.
 - Any source-byte difference, duplicate native source/project, missing exact publish setting, changed runtime/fallback path, missing package resource, or orphan helper blocks H2 completion.
+- Compatibility shim re-check: no direct native invocation, bare canonical invocation under `Stop`, no catch, then output/copy/hash checks.
 - Windows-only gates remain pending and must not be marked fixed/green without Windows evidence.
 
 ### H2 Validation and resume log
 
-- Last safe checkpoint: H2 implementation complete in worktree after documentation checkpoint `613dc09`; branch base remains `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
+- Last safe checkpoint: H2 remediation complete in worktree after commit `0fe5aec`; branch base remains `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
 - True moves: `file_actions move` relocated both native files; old paths absent. HEAD/destination hashes and sizes: `Program.cs` 12,526 bytes / `7c198b806a7e53133aa6c238eef8d6fa6fefaf850fb2d0a35e6b25a857608695`; `ppt-probe.csproj` 451 bytes / `cee03bd0f97bdb27c77eccd7f81a92b507b515267e7e07f98354bb4c702c2b52`. Exactly two `Program.cs`/`ppt-probe.csproj` files remain; no tracked binaries or lockfile changes.
-- Changed implementation surfaces: new `packages/ppt-bridge/native/windows-ppt-probe/{Program.cs,ppt-probe.csproj}`, new `packages/ppt-bridge/scripts/build-windows.ps1`, rewritten `companion/scripts/build-ppt-probe.ps1`, `.gitignore`, and `.github/workflows/companion-build.yml`; `companion/package.json` and `companion/src/ppt-probe.ts` unchanged.
-- Required commands: `npm run typecheck --workspace @ontime/ppt-bridge` PASS; `npm run test --workspace @ontime/ppt-bridge` PASS (21/21); `npm run build:cjs --workspace @ontime/ppt-bridge` PASS; `npm run smoke:cjs --workspace @ontime/ppt-bridge` PASS; `npm run build --workspace companion` PASS; `npm run test --workspace companion` PASS (155/155); `npm run guardrails` PASS; `npm run ci-local` PASS (all 23 checks).
+- Changed implementation surfaces: new `packages/ppt-bridge/native/windows-ppt-probe/{Program.cs,ppt-probe.csproj}`, remediated `packages/ppt-bridge/scripts/build-windows.ps1`, new `packages/ppt-bridge/test/native-build-scripts.test.ts`, rewritten `companion/scripts/build-ppt-probe.ps1`, `.gitignore`, and `.github/workflows/companion-build.yml`; `companion/package.json` and `companion/src/ppt-probe.ts` unchanged.
+- Required commands: `npm run typecheck --workspace @ontime/ppt-bridge` PASS; `npm run test --workspace @ontime/ppt-bridge` PASS (23/23); `npm run build:cjs --workspace @ontime/ppt-bridge` PASS; `npm run smoke:cjs --workspace @ontime/ppt-bridge` PASS; `npm run build --workspace companion` PASS; `npm run test --workspace companion` PASS (155/155); `npm run guardrails` PASS; `npm run ci-local` PASS (all 23 checks).
 - Structural checks: exact publish flags, shim delegation/copy/hash validation, Windows-only setup/build/verify ordering, three-way packaged-resource hash logic, runtime/resource contracts, whitespace, source count, and binary hygiene PASS.
 - PowerShell parse: unavailable because `pwsh` is not installed. Native build/package/PowerPoint parity are pending because `dotnet`, Windows, and Office are unavailable. Do not claim canonical exe, installer resource, real COM field parity, or no-orphan runtime evidence until Windows execution.
 - Git staging/commit: scoped local commit `852ecfc` succeeded after the sandbox escalation; Git confirmed both native files as 100% renames. No remote action was taken. Final worktree is clean.
-- Resume instruction: run the Windows validation handoff on this branch; execute canonical build, shim, Companion package, three-way resource hash, required PowerPoint fixture/parity matrix, and orphan-process check. Keep H2 closed to Stage 3/4 work.
+- Resume instruction: commit the completed H2 remediation locally, then run the Windows validation handoff when available: pwsh parse, canonical publish, shim copy/hash, Companion packaged-resource hash, PowerPoint parity matrix, and orphan-process check. Keep H2 closed to Stage 3/4 work.
 
 ## Context exception log
 
@@ -98,3 +102,4 @@ worktree_preflight: implementation changes present after clean 8ca58ff; local Gi
 - Oracle readiness ambiguity was resolved by a focused continuation supplying the explicit user contract; no code was written before the implementable verdict.
 - Stage 0 delegate `87BC2263-E055-4DCF-A6FD-E894478C6767` stalled without edits and was cancelled; Stage 0 was completed directly. Stage 1 delegate `EBA905AF-1C4F-4B87-A837-339324DC78BD` likewise stalled without edits and was cancelled; Stage 1 was completed directly. No external input was required.
 - Oracle review handoff failed twice with `sourceCaptureFailed` after the review selection became stale; a fresh read-only delegated final review `E9DE195F-258B-42A0-A64F-3D47ED0CC88E` completed with no defects. The review evidence and all exact validation commands were independently verified in this worktree.
+- Reopened H2 P1 was independently reviewed by read-only session `C9959F67-B5EC-43AB-9971-630E47D0F815`; final findings were empty, the P1 was resolved by code plus green static tests, and Windows execution remains pending.
