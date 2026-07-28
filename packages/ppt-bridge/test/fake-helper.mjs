@@ -12,7 +12,7 @@ const delay = Number(value('--delay', '0'))
 const payload = () => {
   const encoded = value('--payload', '')
   if (encoded) return Buffer.from(encoded, 'base64').toString('utf8')
-  return JSON.stringify({ state: 'foreground', pptActive: true, inSlideshow: true })
+  return JSON.stringify({ state: 'foreground', instanceId: 7001, pptActive: true, inSlideshow: true })
 }
 let pollCount = 0
 

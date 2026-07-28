@@ -29,9 +29,59 @@ import type { PowerPointPollResult } from './presentation-snapshot';
 let pptHelperProcess: ChildProcessWithoutNullStreams | null = null;
 let pptHelperReadline: readline.Interface | null = null;
 let pptHelperPending: Array<{ resolve: (line: string | null) => void }> = [];
-let pptNativeBridgeClient: PptBridgeClient | null = null;
-let pptNativeClosing: Promise<void> = Promise.resolve();
-let pptNativeHelperLogged = false;
+
+export type PptNativeLifecycle = {
+  ensure(): Promise<PptBridgeClient | null>;
+  stop(reason: string): Promise<void>;
+};
+
+export function createPptNativeLifecycle(options: {
+  resolveProbePath: () => string | null;
+  createClient: (probePath: string) => PptBridgeClient;
+  onMissing?: () => void;
+  onStarted?: (probePath: string) => void;
+  onStopped?: (reason: string) => void;
+}): PptNativeLifecycle {
+  let client: PptBridgeClient | null = null;
+  let closing: Promise<void> = Promise.resolve();
+  let lifecycleEpoch = 0;
+  let helperLogged = false;
+
+  return {
+    stop(reason: string): Promise<void> {
+      // Every stop invalidates ensure work captured before it, even when the
+      // current client has already been detached for an in-flight close.
+      lifecycleEpoch += 1;
+      const current = client;
+      if (!current) return closing;
+      options.onStopped?.(reason);
+      client = null;
+      helperLogged = false;
+      closing = current.close().catch(() => undefined);
+      return closing;
+    },
+    async ensure(): Promise<PptBridgeClient | null> {
+      if (client) return client;
+      const capturedEpoch = lifecycleEpoch;
+      await closing;
+      if (capturedEpoch !== lifecycleEpoch) return null;
+      if (client) return client;
+      const probePath = options.resolveProbePath();
+      if (!probePath) {
+        options.onMissing?.();
+        return null;
+      }
+      if (capturedEpoch !== lifecycleEpoch) return null;
+      const next = options.createClient(probePath);
+      client = next;
+      if (!helperLogged) {
+        options.onStarted?.(probePath);
+        helperLogged = true;
+      }
+      return next;
+    },
+  };
+}
 
 function resolvePptProbePath(): string | null {
   // Windows-only native helper binary; packaged under resources/bin or local dev bin.
@@ -95,42 +145,26 @@ function mapNativeOutcome(outcome: BridgePollOutcome): NativeProbeAttempt {
   }
 }
 
+const pptNativeLifecycle = createPptNativeLifecycle({
+  resolveProbePath: resolvePptProbePath,
+  createClient: (probePath) => createPptBridgeClient({
+    executableCandidates: [{ executablePath: probePath }],
+    diagnostics: logBridgeDiagnostic,
+  }),
+  onMissing: () => logPptInfo('[ppt] native helper missing; falling back to PowerShell'),
+  onStarted: (probePath) => logPptInfo('[ppt] native helper started', { path: probePath }),
+  onStopped: (reason) => logPptInfo('[ppt] native helper stopped', { reason }),
+});
+
 export function stopPptProbeHelper(reason: string): Promise<void> {
-  // Windows-only helper shutdown to avoid orphaned processes. Returns the
-  // helper close promise so callers that must gate on shutdown (before-quit)
-  // can await it; fire-and-forget callers (mode change) may ignore it.
-  const client = pptNativeBridgeClient;
-  // Return the in-flight close promise (or the resolved sentinel when no helper
-  // ever started) so a quit that follows an earlier mode-change stop awaits the
-  // SAME close rather than a fresh resolved promise — closing the orphan window.
-  if (!client) return pptNativeClosing;
-  logPptInfo('[ppt] native helper stopped', { reason });
-  pptNativeBridgeClient = null;
-  pptNativeHelperLogged = false;
-  pptNativeClosing = client.close().catch(() => undefined);
-  return pptNativeClosing;
+  // Returns the shared in-flight close promise so app quit gates on a prior
+  // mode-change stop, while also invalidating any ensure suspended on it.
+  return pptNativeLifecycle.stop(reason);
 }
 
 async function ensurePptProbeHelper(): Promise<PptBridgeClient | null> {
   // Prefer the native STA helper to avoid COM collection issues from short-lived shells.
-  if (pptNativeBridgeClient) return pptNativeBridgeClient;
-  await pptNativeClosing;
-  if (pptNativeBridgeClient) return pptNativeBridgeClient;
-  const probePath = resolvePptProbePath();
-  if (!probePath) {
-    logPptInfo('[ppt] native helper missing; falling back to PowerShell');
-    return null;
-  }
-  const client = createPptBridgeClient({
-    executableCandidates: [{ executablePath: probePath }],
-    diagnostics: logBridgeDiagnostic,
-  });
-  pptNativeBridgeClient = client;
-  if (!pptNativeHelperLogged) {
-    logPptInfo('[ppt] native helper started', { path: probePath });
-    pptNativeHelperLogged = true;
-  }
-  return client;
+  return pptNativeLifecycle.ensure();
 }
 
 async function pollPowerPointViaNativeHelper(): Promise<NativeProbeAttempt> {

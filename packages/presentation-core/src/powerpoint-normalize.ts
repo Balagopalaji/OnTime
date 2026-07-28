@@ -89,9 +89,17 @@ export function videoListsEqual(
   return true
 }
 
+/** Helper-owned primary identity cached with the canonical per-slide video list. */
+export type PowerPointPrimaryCacheEntry = {
+  protocolVersion?: number
+  primaryVideoId?: number
+  primaryVideoIndex?: number
+}
+
 /** Cache + two no-video counter pairs carried through normalization. */
 export type PowerPointNormalizationCache = {
   videoCache: ReadonlyMap<string, PresentationVideo[]>
+  primaryCache: ReadonlyMap<string, PowerPointPrimaryCacheEntry>
   noVideoKey: string | null
   noVideoCount: number
   explicitNoVideoKey: string | null
@@ -129,6 +137,7 @@ export function normalizePowerPointPoll(
   const { result, announced } = input
   // Fresh copy so the caller's cache map is never mutated in place.
   const videoCache = new Map(input.videoCache)
+  const primaryCache = new Map(input.primaryCache)
   let noVideoKey = input.noVideoKey
   let noVideoCount = input.noVideoCount
   let explicitNoVideoKey = input.explicitNoVideoKey
@@ -149,6 +158,8 @@ export function normalizePowerPointPoll(
     result.videoRemaining === undefined &&
     (!result.videos || result.videos.length === 0) &&
     (!result.editSlideVideos || result.editSlideVideos.length === 0)
+  const hasFreshVideoList =
+    (result.videos?.length ?? 0) > 0 || (result.editSlideVideos?.length ?? 0) > 0
   let videos: PresentationVideo[] | undefined =
     result.videos && result.videos.length > 0 ? result.videos : undefined
   if (!videos && result.editSlideVideos && result.editSlideVideos.length > 0) {
@@ -204,6 +215,7 @@ export function normalizePowerPointPoll(
     explicitNoVideo && explicitNoVideoCount >= POWERPOINT_VIDEO_CLEAR_POLLS
   if (shouldClearVideo || shouldClearExplicit) {
     videoCache.delete(slideKey)
+    primaryCache.delete(slideKey)
     videos = undefined
   }
   const priorSnapshot =
@@ -235,10 +247,26 @@ export function normalizePowerPointPoll(
       }
     }
     videoCache.set(slideKey, videos)
+    if (hasFreshVideoList) {
+      primaryCache.set(slideKey, {
+        protocolVersion: result.protocolVersion,
+        primaryVideoId: result.primaryVideoId,
+        primaryVideoIndex: result.primaryVideoIndex,
+      })
+    }
   }
   // Resolved AFTER enrichment so the enriched array is what the snapshot sees.
   const resolvedVideos =
     shouldClearVideo || shouldClearExplicit ? undefined : videos ?? priorSnapshot?.videos
+  const cachedPrimary = resolvedVideos && !hasFreshVideoList
+    ? primaryCache.get(slideKey) ?? (priorSnapshot
+      ? {
+          protocolVersion: priorSnapshot.protocolVersion,
+          primaryVideoId: priorSnapshot.primaryVideoId,
+          primaryVideoIndex: priorSnapshot.primaryVideoIndex,
+        }
+      : undefined)
+    : undefined
   const lastVideoDuration = priorSnapshot?.videoDuration
   const lastVideoElapsed = priorSnapshot?.videoElapsed
   const lastVideoRemaining = priorSnapshot?.videoRemaining
@@ -247,6 +275,9 @@ export function normalizePowerPointPoll(
     instanceId: result.instanceId,
     slideNumber: resolvedSlideNumber,
     totalSlides: result.totalSlides,
+    protocolVersion: result.protocolVersion ?? cachedPrimary?.protocolVersion,
+    primaryVideoId: result.primaryVideoId ?? cachedPrimary?.primaryVideoId,
+    primaryVideoIndex: result.primaryVideoIndex ?? cachedPrimary?.primaryVideoIndex,
     title,
     filename: result.filename,
     videoPlaying: videoDetected ? result.videoPlaying ?? lastVideoPlaying : undefined,
@@ -259,6 +290,7 @@ export function normalizePowerPointPoll(
   return {
     snapshot,
     videoCache,
+    primaryCache,
     noVideoKey,
     noVideoCount,
     explicitNoVideoKey,

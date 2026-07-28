@@ -9,6 +9,15 @@ namespace OnTime.PptProbe;
 
 internal static class Program
 {
+  private const int ProtocolVersion = 1;
+  // `build-windows.ps1` sets this from apps/ppt-timer/package.json, making the
+  // native payload identify the exact beta product build that launched it.
+  private static readonly string ProductVersion =
+    typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ??
+    typeof(Program).Assembly.GetName().Version?.ToString() ??
+    "unknown";
+  private const string SlideshowStateUnavailable = "slideshow_state_unavailable";
+
   // Windows-only STA helper to access PowerPoint COM reliably from a persistent process.
   // Companion spawns this binary and communicates over stdin/stdout using "poll"/"exit".
   [DllImport("user32.dll")]
@@ -40,7 +49,11 @@ internal static class Program
 
   private static Dictionary<string, object?> Poll()
   {
-    var payload = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+    var payload = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+    {
+      ["protocolVersion"] = ProtocolVersion,
+      ["productVersion"] = ProductVersion,
+    };
 
     var hwnd = GetForegroundWindow();
     var targetPid = 0u;
@@ -79,6 +92,9 @@ internal static class Program
     // these verbatim and never recomputes them.
     payload["processCount"] = pptProcesses.Length;
     payload["selectedPid"] = pptPid;
+    // Multiple running PowerPoint processes are already enough to warn. COM
+    // HWND/PID resolution can strengthen the mismatch signal, but is optional.
+    payload["affinityMismatch"] = pptProcesses.Length > 1;
 
     object? pptObj = null;
     string? pptError = null;
@@ -102,13 +118,8 @@ internal static class Program
     }
     payload["pptActive"] = true;
 
-    // comPid + affinityMismatch require the COM Application's HWND. It is read
-    // via existing late-bound access (TryGetProp) and resolved to a PID with the
-    // existing Win32 GetWindowThreadProcessId import. affinityMismatch is true
-    // when more than one POWERPNT process is running OR the COM-attached process
-    // differs from the selected foreground/first process. If HWND is not
-    // reliably readable we omit comPid/affinityMismatch entirely rather than
-    // guess — never infer from instanceId churn.
+    // Resolve the COM-attached PID when HWND is available. The baseline
+    // processCount warning above remains valid when HWND/PID lookup fails.
     var appHwndObj = TryGetProp(pptObj, "HWND");
     if (appHwndObj != null)
     {
@@ -121,13 +132,15 @@ internal static class Program
           if (comPid != 0)
           {
             payload["comPid"] = (int)comPid;
-            payload["affinityMismatch"] = pptProcesses.Length > 1 || (int)comPid != pptPid;
+            payload["affinityMismatch"] =
+              (payload.TryGetValue("affinityMismatch", out var mismatchRaw) && mismatchRaw is bool mismatch && mismatch) ||
+              (int)comPid != pptPid;
           }
         }
       }
       catch
       {
-        // HWND not reliably readable via late binding; omit comPid/affinityMismatch.
+        // HWND is optional; preserve the process-count-derived warning.
       }
     }
 
@@ -142,10 +155,17 @@ internal static class Program
     if (ssCount > 0)
     {
       ssWin = TryInvoke(slideShowWindows, "Item", 1);
-      if (ssWin != null)
+      if (ssWin == null)
       {
-        presentation = TryGetProp(ssWin, "Presentation") ?? presentation;
-        ssView = TryGetProp(ssWin, "View");
+        payload["pptError"] = SlideshowStateUnavailable;
+        return payload;
+      }
+      presentation = TryGetProp(ssWin, "Presentation") ?? presentation;
+      ssView = TryGetProp(ssWin, "View");
+      if (presentation == null || ssView == null)
+      {
+        payload["pptError"] = SlideshowStateUnavailable;
+        return payload;
       }
     }
 
@@ -156,26 +176,29 @@ internal static class Program
     if (!string.IsNullOrWhiteSpace(filename)) payload["filename"] = filename;
     if (totalSlides.HasValue) payload["totalSlides"] = totalSlides.Value;
 
-    if (!inSlideshow || ssView == null)
+    if (!inSlideshow)
     {
       return payload;
     }
 
     var slideIndex = TryGetInt(TryGetProp(ssView, "CurrentShowPosition"));
-    if (slideIndex.HasValue)
+    if (!slideIndex.HasValue || slideIndex.Value <= 0)
     {
-      payload["slideNumber"] = slideIndex.Value;
+      payload["pptError"] = SlideshowStateUnavailable;
+      return payload;
     }
+    payload["slideNumber"] = slideIndex.Value;
 
     var slides = TryGetProp(presentation, "Slides");
-    object? slide = null;
-    if (slides != null && slideIndex.HasValue)
+    if (slides == null)
     {
-      slide = TryInvoke(slides, "Item", slideIndex.Value);
+      payload["pptError"] = SlideshowStateUnavailable;
+      return payload;
     }
-
+    var slide = TryInvoke(slides, "Item", slideIndex.Value);
     if (slide == null)
     {
+      payload["pptError"] = SlideshowStateUnavailable;
       return payload;
     }
 
@@ -211,6 +234,7 @@ internal static class Program
 
     var videos = new List<Dictionary<string, object?>>();
     Dictionary<string, object?>? primaryVideo = null;
+    int? primaryVideoIndex = null;
     var primaryLocked = false;
     foreach (var shape in slideCandidates)
     {
@@ -280,6 +304,7 @@ internal static class Program
       if (!primaryLocked && (primaryVideo == null || isPlaying))
       {
         primaryVideo = entry;
+        primaryVideoIndex = videos.Count - 1;
         if (isPlaying)
         {
           // Prefer currently playing media as the primary timing source.
@@ -295,10 +320,20 @@ internal static class Program
     if (editSlideVideos.Count > 0)
     {
       payload["editSlideVideos"] = editSlideVideos;
+      if (primaryVideo == null)
+      {
+        primaryVideo = editSlideVideos[0];
+        primaryVideoIndex = 0;
+      }
     }
 
-    if (primaryVideo != null)
+    if (primaryVideo != null && primaryVideoIndex.HasValue)
     {
+      payload["primaryVideoIndex"] = primaryVideoIndex.Value;
+      if (primaryVideo.TryGetValue("id", out var idRaw) && idRaw is int idValue)
+      {
+        payload["primaryVideoId"] = idValue;
+      }
       if (primaryVideo.TryGetValue("duration", out var durationRaw) && durationRaw is int durationValue)
       {
         payload["videoDuration"] = durationValue;

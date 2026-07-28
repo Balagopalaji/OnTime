@@ -6,6 +6,7 @@ export type BridgeDiagnosticEvent =
   | { kind: 'helper_timeout'; generation: number; timeoutMs: number }
   | { kind: 'helper_restart'; attempt: number; delayMs: number }
   | { kind: 'helper_close'; phase: 'requested' | 'graceful' | 'forced' }
+  | { kind: 'helper_termination'; generation: number; context: 'generation_failure' | 'close'; result: 'confirmed' | 'unconfirmed'; waitMs: number }
   | { kind: 'helper_stderr'; generation: number; byteCount: number }
   | { kind: 'validation_warning'; code: ValidationWarningCode; path: string }
   | { kind: 'availability'; outcome: 'powerpoint_not_running' | 'no_slideshow' | 'com_unavailable' | 'helper_missing' | 'timeout' | 'process_exit' | 'closed' }

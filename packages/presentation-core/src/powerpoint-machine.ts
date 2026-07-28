@@ -24,6 +24,7 @@ import {
   normalizePowerPointPoll,
   snapshotsIdentityEqual,
   snapshotsTimingEqual,
+  type PowerPointPrimaryCacheEntry,
 } from './powerpoint-normalize'
 
 // Re-exported for the unified public surface so hosts import canonical
@@ -37,6 +38,7 @@ export { POWERPOINT_DEBOUNCE_MS, POWERPOINT_VIDEO_CLEAR_POLLS, POWERPOINT_PLAYIN
  */
 export type PowerPointMachineState = {
   videoCache: ReadonlyMap<string, PresentationVideo[]>
+  primaryCache: ReadonlyMap<string, PowerPointPrimaryCacheEntry>
   noVideoKey: string | null
   noVideoCount: number
   explicitNoVideoKey: string | null
@@ -94,6 +96,7 @@ export type PowerPointMachineResult = {
 export function createInitialPowerPointMachineState(): PowerPointMachineState {
   return {
     videoCache: new Map(),
+    primaryCache: new Map(),
     noVideoKey: null,
     noVideoCount: 0,
     explicitNoVideoKey: null,
@@ -258,6 +261,7 @@ export function reducePowerPointMachine(
       result: result as PowerPointPollResult & { instanceId: number },
       announced: state.announcedSnapshot,
       videoCache: state.videoCache,
+      primaryCache: state.primaryCache,
       noVideoKey: state.noVideoKey,
       noVideoCount: state.noVideoCount,
       explicitNoVideoKey: state.explicitNoVideoKey,
@@ -267,6 +271,7 @@ export function reducePowerPointMachine(
       ...state,
       sourceState: { kind: 'presentation', snapshot: normalized.snapshot },
       videoCache: normalized.videoCache,
+      primaryCache: normalized.primaryCache,
       noVideoKey: normalized.noVideoKey,
       noVideoCount: normalized.noVideoCount,
       explicitNoVideoKey: normalized.explicitNoVideoKey,

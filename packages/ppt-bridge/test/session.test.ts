@@ -22,6 +22,26 @@ describe('PowerPointSession', () => {
     expect(transitions).toHaveLength(4)
   })
 
+  it('P0-03 carries protocol and helper-owned primary identity into the normalized source snapshot', () => {
+    const session = new PowerPointSession({ transport: { poll: vi.fn() } })
+    const result = session.acceptOutcome(observation({
+      protocolVersion: 1,
+      primaryVideoId: 20,
+      primaryVideoIndex: 1,
+      videoDuration: 8_000,
+      videoElapsed: 2_000,
+      videoRemaining: 6_000,
+      videos: [
+        { id: 10, name: 'first', status: 'paused' },
+        { id: 20, name: 'second', status: 'playing', playing: true },
+      ],
+    }))
+    expect(result.state.sourceState).toMatchObject({
+      kind: 'presentation',
+      snapshot: { protocolVersion: 1, primaryVideoId: 20, primaryVideoIndex: 1 },
+    })
+  })
+
   it('maps every operational failure to unavailable and null/closed to inert', () => {
     const session = new PowerPointSession({ transport: { poll: vi.fn() } })
     for (const kind of ['helper_missing', 'timeout', 'process_exit', 'invalid_json', 'invalid_payload', 'oversized_response'] as const) {

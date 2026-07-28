@@ -1,4 +1,5 @@
 import {
+  EXPLICIT_PRIMARY_PROTOCOL_VERSION,
   MAX_RESPONSE_BYTES,
   type BridgePollOutcome,
   type ExtensionSummary,
@@ -13,7 +14,7 @@ const rootFields = new Set([
   'state', 'pptActive', 'pptError', 'inSlideshow', 'videoDetected', 'videoPlaying',
   'videoTimingUnavailable', 'affinityMismatch', 'instanceId', 'slideNumber', 'totalSlides',
   'primaryVideoId', 'primaryVideoIndex', 'processCount', 'selectedPid', 'comPid',
-  'protocolVersion', 'videoDuration', 'videoElapsed', 'videoRemaining', 'title', 'filename',
+  'protocolVersion', 'productVersion', 'videoDuration', 'videoElapsed', 'videoRemaining', 'title', 'filename',
   'videos', 'editSlideVideos',
 ])
 const videoFields = new Set(['id', 'name', 'duration', 'elapsed', 'remaining', 'playing', 'status'])
@@ -25,7 +26,7 @@ const numericFields = new Set(['videoDuration', 'videoElapsed', 'videoRemaining'
 const booleanFields = new Set([
   'pptActive', 'inSlideshow', 'videoDetected', 'videoPlaying', 'videoTimingUnavailable', 'affinityMismatch',
 ])
-const stringFields = new Set(['title', 'filename'])
+const stringFields = new Set(['title', 'filename', 'productVersion'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -46,6 +47,42 @@ function finiteNonNegative(value: unknown): value is number {
 
 function nonNegativeInteger(value: unknown): value is number {
   return finiteNonNegative(value) && Number.isInteger(value)
+}
+
+function positiveInteger(value: unknown): value is number {
+  return nonNegativeInteger(value) && value > 0
+}
+
+function hasScalarVideoSignal(observation: PowerPointObservation): boolean {
+  return observation.videoDuration !== undefined ||
+    observation.videoElapsed !== undefined ||
+    observation.videoRemaining !== undefined ||
+    observation.videoPlaying !== undefined
+}
+
+function hasValidExplicitPrimary(observation: PowerPointObservation): boolean {
+  const videos = observation.videos?.length
+    ? observation.videos
+    : observation.editSlideVideos?.length
+      ? observation.editSlideVideos
+      : []
+  const hasId = observation.primaryVideoId !== undefined
+  const hasIndex = observation.primaryVideoIndex !== undefined
+
+  if (videos.length === 0) {
+    return !hasId && !hasIndex && !hasScalarVideoSignal(observation)
+  }
+  if (!hasId && !hasIndex) return false
+
+  const byIndex = hasIndex && observation.primaryVideoIndex! < videos.length
+    ? videos[observation.primaryVideoIndex!]
+    : undefined
+  const byId = hasId
+    ? videos.find((video) => video.id === observation.primaryVideoId)
+    : undefined
+  if (hasIndex && !byIndex) return false
+  if (hasId && !byId) return false
+  return !(hasId && hasIndex && byIndex !== byId)
 }
 
 function sanitizeVideo(
@@ -186,6 +223,15 @@ export function validatePowerPointResponse(line: string | Uint8Array): BridgePol
   if (extensions.rootUnknownFieldCount > 0) warning(warnings, 'unknown_fields_present', 'root')
 
   const base = { warnings, extensions }
+  if (state !== 'none' && !positiveInteger(observation.instanceId)) {
+    return { kind: 'invalid_payload', ...base }
+  }
+  if (
+    (observation.protocolVersion ?? 0) >= EXPLICIT_PRIMARY_PROTOCOL_VERSION &&
+    !hasValidExplicitPrimary(observation)
+  ) {
+    return { kind: 'invalid_payload', ...base }
+  }
   if (pptError || observation.pptActive === false) return { kind: 'com_unavailable', ...base }
   if (state === 'none') return { kind: 'powerpoint_not_running', ...base }
   if (observation.inSlideshow === false) return { kind: 'no_slideshow', observation, ...base }

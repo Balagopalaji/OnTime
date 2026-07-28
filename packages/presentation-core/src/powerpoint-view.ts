@@ -4,8 +4,9 @@
  * `PowerPointViewState` for rendering. This module is a pure MODEL projection
  * only: it does not render text, format HTML, access displays, import Electron,
  * or take a clock — it always reflects the most recently observed measurement
- * and never extrapolates (S-017). Primary-video selection reuses the canonical
- * helper behavior: active playing video, otherwise first candidate.
+ * and never extrapolates (S-017). Protocol-v1 observations use the helper's
+ * explicit primary identity; legacy protocol-v0 observations retain the
+ * historical active-playing/first-candidate fallback.
  */
 import type { PresentationSourceState, PresentationVideo } from './powerpoint-types'
 
@@ -61,6 +62,16 @@ function basename(filename: string | undefined): string | undefined {
 }
 
 /**
+ * Keep the canonical snapshot title untouched for Companion cue compatibility,
+ * but never expose `FullName` as the standalone display title when Name was
+ * unavailable. Normalization uses filename as its legacy fallback, so equality
+ * identifies precisely that fallback without changing cue payload semantics.
+ */
+function displayTitle(title: string, filename: string | undefined): string {
+  return filename !== undefined && title === filename.trim() ? basename(filename) ?? title : title
+}
+
+/**
  * Deterministic primary-video resolution (§3.4):
  *   1. valid explicit id
  *   2. valid explicit index
@@ -70,7 +81,8 @@ function basename(filename: string | undefined): string | undefined {
  */
 function selectPrimaryVideo(
   videos: readonly PresentationVideo[],
-  options: ProjectPowerPointViewOptions,
+  options: Pick<ProjectPowerPointViewOptions, 'primaryVideoId' | 'primaryVideoIndex'>,
+  allowHeuristicFallback: boolean,
 ): PresentationVideo | undefined {
   if (options.primaryVideoId !== undefined) {
     const byId = videos.find((v) => v.id !== undefined && v.id === options.primaryVideoId)
@@ -83,6 +95,7 @@ function selectPrimaryVideo(
   ) {
     return videos[options.primaryVideoIndex]
   }
+  if (!allowHeuristicFallback) return undefined
   const playing = videos.find((v) => v.status === 'playing' || v.playing === true)
   if (playing) return playing
   return videos.length > 0 ? videos[0] : undefined
@@ -116,7 +129,14 @@ export function projectPowerPointView(
   // sourceState.kind === 'presentation'
   const snap = sourceState.snapshot
   const videos = snap.videos ?? []
-  const selected = selectPrimaryVideo(videos, options)
+  const selected = selectPrimaryVideo(
+    videos,
+    {
+      primaryVideoId: snap.primaryVideoId ?? options.primaryVideoId,
+      primaryVideoIndex: snap.primaryVideoIndex ?? options.primaryVideoIndex,
+    },
+    snap.protocolVersion === undefined || snap.protocolVersion === 0,
+  )
   const videoCount = videos.length
   const multipleVideos = videoCount > 1
 
@@ -143,7 +163,7 @@ export function projectPowerPointView(
   const common = {
     slideNumber: snap.slideNumber,
     totalSlides: snap.totalSlides,
-    title: snap.title,
+    title: displayTitle(snap.title, snap.filename),
     filenameBasename: basename(snap.filename),
     selectedVideoId: selected?.id,
     selectedVideoName: selected?.name,

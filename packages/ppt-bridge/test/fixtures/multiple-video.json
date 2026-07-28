@@ -1,6 +1,7 @@
 {
   "state": "foreground",
   "instanceId": 7105,
+  "protocolVersion": 1,
   "pptActive": true,
   "inSlideshow": true,
   "title": "Deck1",
@@ -8,6 +9,8 @@
   "totalSlides": 12,
   "slideNumber": 5,
   "videoDetected": true,
+  "primaryVideoId": 503,
+  "primaryVideoIndex": 1,
   "videos": [
     {
       "id": 502,

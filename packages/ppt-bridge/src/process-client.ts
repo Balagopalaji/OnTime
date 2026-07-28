@@ -26,6 +26,7 @@ export type PptBridgeClientOptions = {
   executableCandidates: readonly HelperLaunchCandidate[]
   pollTimeoutMs?: number
   shutdownGraceMs?: number
+  forcedTerminationWaitMs?: number
   restartBackoffMs?: readonly number[]
   diagnostics?: BridgeDiagnosticSink
   spawnProcess?: SpawnProcess
@@ -57,6 +58,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
   private readonly candidates: readonly HelperLaunchCandidate[]
   private readonly pollTimeoutMs: number
   private readonly shutdownGraceMs: number
+  private readonly forcedTerminationWaitMs: number
   private readonly restartBackoffMs: readonly number[]
   private readonly diagnostics?: BridgeDiagnosticSink
   private readonly spawnProcess: SpawnProcess
@@ -67,6 +69,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
   private restartAttempt = 0
   private restartTimer: NodeJS.Timeout | null = null
   private restartResolve: (() => void) | null = null
+  private terminationBarrier: Promise<void> | null = null
   private closed = false
   private closePromise: Promise<void> | null = null
 
@@ -74,6 +77,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
     this.candidates = options.executableCandidates
     this.pollTimeoutMs = options.pollTimeoutMs ?? 8_000
     this.shutdownGraceMs = options.shutdownGraceMs ?? 500
+    this.forcedTerminationWaitMs = options.forcedTerminationWaitMs ?? 500
     this.restartBackoffMs = options.restartBackoffMs?.length ? options.restartBackoffMs : [1_000, 2_000, 5_000]
     this.diagnostics = options.diagnostics
     this.spawnProcess = options.spawnProcess ?? ((path, args, spawnOptions) => nodeSpawn(path, [...args], spawnOptions))
@@ -104,8 +108,15 @@ export class PptBridgeClientImpl implements PptBridgeClient {
     this.restartResolve = null
     const pending = this.pending
     if (pending) this.settle(pending, { kind: 'closed', ...outcomeBase() })
-    const child = this.child
-    this.closePromise = child ? this.shutdownChild(child) : Promise.resolve()
+    const activeBarrier = this.terminationBarrier
+    this.closePromise = (async () => {
+      if (activeBarrier) {
+        await activeBarrier
+        if (this.terminationBarrier === activeBarrier) this.terminationBarrier = null
+      }
+      const child = this.child
+      if (child) await this.shutdownChild(child)
+    })()
     return this.closePromise
   }
 
@@ -113,6 +124,16 @@ export class PptBridgeClientImpl implements PptBridgeClient {
     if (this.closed) {
       this.settle(pending, { kind: 'closed', ...outcomeBase() })
       return
+    }
+
+    const activeBarrier = this.terminationBarrier
+    if (activeBarrier) {
+      await activeBarrier
+      if (this.terminationBarrier === activeBarrier) this.terminationBarrier = null
+      if (this.closed) {
+        this.settle(pending, { kind: 'closed', ...outcomeBase() })
+        return
+      }
     }
 
     if (this.restartAttempt > 0) {
@@ -283,35 +304,91 @@ export class PptBridgeClientImpl implements PptBridgeClient {
     this.generation += 1
     this.stdoutBuffer = Buffer.alloc(0)
     if (child) {
-      child.stdout?.removeAllListeners()
-      child.stderr?.removeAllListeners()
-      child.removeAllListeners()
-      try { child.kill('SIGKILL') } catch { /* already exited */ }
+      child.stdout?.removeAllListeners('data')
+      child.stderr?.removeAllListeners('data')
+      const barrier = this.forceTerminateChild(child, generation, 'generation_failure').finally(() => {
+        child.stdout?.removeAllListeners()
+        child.stderr?.removeAllListeners()
+        child.removeAllListeners()
+      })
+      this.terminationBarrier = barrier
     }
     if (!this.closed) this.restartAttempt = Math.min(this.restartAttempt + 1, this.restartBackoffMs.length)
   }
 
-  private async shutdownChild(child: ChildProcess): Promise<void> {
-    const exited = new Promise<boolean>((resolve) => {
-      let done = false
-      const finish = (value: boolean) => {
-        if (done) return
-        done = true
-        resolve(value)
+  private forceTerminateChild(
+    child: ChildProcess,
+    generation: number,
+    context: 'generation_failure' | 'close',
+  ): Promise<void> {
+    const waitMs = this.forcedTerminationWaitMs
+    return new Promise<void>((resolve) => {
+      let settled = false
+      let timer: NodeJS.Timeout | null = null
+      const finish = (result: 'confirmed' | 'unconfirmed') => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        child.off('exit', onTerminated)
+        child.off('close', onTerminated)
+        emitDiagnostic(this.diagnostics, {
+          kind: 'helper_termination',
+          generation,
+          context,
+          result,
+          waitMs,
+        })
+        resolve()
       }
-      const timer = setTimeout(() => finish(false), this.shutdownGraceMs)
-      child.once('exit', () => {
-        clearTimeout(timer)
-        finish(true)
-      })
-      try { child.stdin?.write('exit\n') } catch { /* force below */ }
+      const onTerminated = () => finish('confirmed')
+      child.once('exit', onTerminated)
+      child.once('close', onTerminated)
+      if (child.exitCode !== null || child.signalCode !== null) {
+        finish('confirmed')
+        return
+      }
+      try { child.kill('SIGKILL') } catch { /* confirm or time out below */ }
+      if (settled) return
+      if (child.exitCode !== null || child.signalCode !== null) {
+        finish('confirmed')
+        return
+      }
+      timer = setTimeout(() => finish('unconfirmed'), waitMs)
     })
-    if (await exited) {
+  }
+
+  private waitForChildTermination(child: ChildProcess, waitMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      let timer: NodeJS.Timeout | null = null
+      const finish = (confirmed: boolean) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        child.off('exit', onTerminated)
+        child.off('close', onTerminated)
+        resolve(confirmed)
+      }
+      const onTerminated = () => finish(true)
+      child.once('exit', onTerminated)
+      child.once('close', onTerminated)
+      if (child.exitCode !== null || child.signalCode !== null) {
+        finish(true)
+        return
+      }
+      timer = setTimeout(() => finish(false), waitMs)
+    })
+  }
+
+  private async shutdownChild(child: ChildProcess): Promise<void> {
+    const generation = this.generation
+    const graceful = this.waitForChildTermination(child, this.shutdownGraceMs)
+    try { child.stdin?.write('exit\n') } catch { /* force below */ }
+    if (await graceful) {
       emitDiagnostic(this.diagnostics, { kind: 'helper_close', phase: 'graceful' })
     } else {
       emitDiagnostic(this.diagnostics, { kind: 'helper_close', phase: 'forced' })
-      try { child.kill('SIGKILL') } catch { /* already exited */ }
-      await new Promise<void>((resolve) => setTimeout(resolve, 10))
+      await this.forceTerminateChild(child, generation, 'close')
     }
     child.stdout?.removeAllListeners()
     child.stderr?.removeAllListeners()

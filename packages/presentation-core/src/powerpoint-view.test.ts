@@ -24,6 +24,7 @@ const presentationFrom = (result: PowerPointPollResult): PresentationSourceState
     result: result as PowerPointPollResult & { instanceId: number },
     announced: null,
     videoCache: new Map(),
+    primaryCache: new Map(),
     noVideoKey: null,
     noVideoCount: 0,
     explicitNoVideoKey: null,
@@ -330,6 +331,27 @@ describe('S-016 basename', () => {
     const v = projectPowerPointView(src, remaining) as PowerPointViewState & { filenameBasename?: string }
     expect(v.filenameBasename).toBe('show.pptx')
   })
+
+  it.each([
+    ['C:\\Users\\operator\\Decks\\show.pptx', 'show.pptx'],
+    ['\\\\stage-server\\shows\\opening\\show.pptx', 'show.pptx'],
+  ])('uses only the basename as the standalone title when Name is missing: %s', (filename, expectedTitle) => {
+    // `presentationFrom` exercises the legacy normalizer fallback (title <-
+    // filename). The view must sanitize that fallback without changing the
+    // snapshot title consumed by Companion cue construction.
+    const src = presentationFrom({
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId: 1,
+      filename,
+      videoDetected: true,
+      videoDuration: 10_000,
+      videoElapsed: 1_000,
+    })
+    expect(src).toMatchObject({ kind: 'presentation', snapshot: { title: filename, filename } })
+    const view = projectPowerPointView(src, remaining)
+    expect(view).toMatchObject({ title: expectedTitle, filenameBasename: expectedTitle })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -374,6 +396,35 @@ describe('primary-video resolution', () => {
       primaryVideoId: 10,
     }) as PowerPointViewState & { selectedVideoId?: number }
     expect(v.selectedVideoId).toBe(10)
+  })
+
+  it('P0-03 uses protocol-v1 snapshot primary identity for label, status, and scalar time', () => {
+    const v = projectPowerPointView(presentationFrom({
+      ...baseResult,
+      protocolVersion: 1,
+      primaryVideoId: 10,
+      primaryVideoIndex: 0,
+      videoPlaying: false,
+      videoDuration: 5_000,
+      videoElapsed: 1_000,
+      videoRemaining: 4_000,
+    }), remaining)
+    expect(v).toMatchObject({
+      kind: 'paused',
+      selectedVideoId: 10,
+      selectedVideoName: 'first',
+      timeMs: 4_000,
+      durationMs: 5_000,
+    })
+  })
+
+  it('P0-03 does not heuristically select another video for invalid protocol-v1 metadata', () => {
+    const v = projectPowerPointView(presentationFrom({
+      ...baseResult,
+      protocolVersion: 1,
+      primaryVideoId: 999,
+    }), remaining) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v.selectedVideoId).toBeUndefined()
   })
 
   it('an invalid explicit id falls through to the active video', () => {

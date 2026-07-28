@@ -1,4 +1,6 @@
 export const MAX_RESPONSE_BYTES = 1_048_576
+/** Protocol v1 requires an explicit helper-owned primary for non-empty media lists. */
+export const EXPLICIT_PRIMARY_PROTOCOL_VERSION = 1
 
 export type PowerPointState = 'foreground' | 'background' | 'none'
 export type PowerPointVideoStatus = 'playing' | 'paused' | 'ended'
@@ -30,6 +32,8 @@ export type PowerPointObservation = {
   selectedPid?: number
   comPid?: number
   protocolVersion?: number
+  /** Product version embedded in the native helper assembly at publish time. */
+  productVersion?: string
   videoDuration?: number
   videoElapsed?: number
   videoRemaining?: number

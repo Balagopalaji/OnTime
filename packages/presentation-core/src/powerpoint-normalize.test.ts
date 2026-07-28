@@ -24,6 +24,7 @@ type Video = PresentationVideo
 
 const emptyCache = () => ({
   videoCache: new Map<string, PresentationVideo[]>(),
+  primaryCache: new Map(),
   noVideoKey: null,
   noVideoCount: 0,
   explicitNoVideoKey: null,
@@ -301,6 +302,7 @@ describe('D5 video source priority', () => {
       },
       announced: first.snapshot,
       videoCache: first.videoCache,
+      primaryCache: first.primaryCache,
       noVideoKey: first.noVideoKey,
       noVideoCount: first.noVideoCount,
       explicitNoVideoKey: first.explicitNoVideoKey,
@@ -339,6 +341,7 @@ describe('D5 video source priority', () => {
       },
       announced: first.snapshot,
       videoCache: first.videoCache,
+      primaryCache: first.primaryCache,
       noVideoKey: first.noVideoKey,
       noVideoCount: first.noVideoCount,
       explicitNoVideoKey: first.explicitNoVideoKey,
@@ -376,6 +379,7 @@ describe('D6 warm cache no-payload retention', () => {
       result: { state: 'foreground', inSlideshow: true, instanceId: 1, slideNumber: 1 },
       announced: announce.snapshot,
       videoCache: announce.videoCache,
+      primaryCache: announce.primaryCache,
       noVideoKey: announce.noVideoKey,
       noVideoCount: announce.noVideoCount,
       explicitNoVideoKey: announce.explicitNoVideoKey,
@@ -388,6 +392,44 @@ describe('D6 warm cache no-payload retention', () => {
     // two-poll clear threshold here.
     expect(noPayload.noVideoCount).toBe(0)
     expect(noPayload.videoCache.get('1:1')).toEqual([V])
+  })
+
+  it('P0-03 restores protocol-v1 primary identity with warm-cached videos before announcement', () => {
+    const videos: Video[] = [
+      { id: 10, name: 'primary', duration: 10_000, elapsed: 1_000, remaining: 9_000, status: 'paused', playing: false },
+      { id: 20, name: 'other', duration: 10_000, elapsed: 1_000, remaining: 9_000, status: 'paused', playing: false },
+    ]
+    const first = normalizePowerPointPoll({
+      result: {
+        state: 'foreground',
+        inSlideshow: true,
+        instanceId: 1,
+        slideNumber: 1,
+        protocolVersion: 1,
+        primaryVideoId: 10,
+        primaryVideoIndex: 0,
+        videoDetected: true,
+        videos,
+      },
+      announced: null,
+      ...emptyCache(),
+    })
+    const noPayload = normalizePowerPointPoll({
+      result: { state: 'foreground', inSlideshow: true, instanceId: 1, slideNumber: 1, protocolVersion: 1 },
+      announced: null,
+      videoCache: first.videoCache,
+      primaryCache: first.primaryCache,
+      noVideoKey: first.noVideoKey,
+      noVideoCount: first.noVideoCount,
+      explicitNoVideoKey: first.explicitNoVideoKey,
+      explicitNoVideoCount: first.explicitNoVideoCount,
+    })
+    expect(noPayload.snapshot).toMatchObject({
+      protocolVersion: 1,
+      primaryVideoId: 10,
+      primaryVideoIndex: 0,
+      videos,
+    })
   })
 })
 
@@ -418,6 +460,7 @@ describe('D7 explicitNoVideo two-poll clear', () => {
       result: { state: 'foreground', inSlideshow: true, instanceId: 1, slideNumber: 1, videoDetected: false },
       announced: announce.snapshot,
       videoCache: announce.videoCache,
+      primaryCache: announce.primaryCache,
       noVideoKey: announce.noVideoKey,
       noVideoCount: announce.noVideoCount,
       explicitNoVideoKey: announce.explicitNoVideoKey,
@@ -432,6 +475,7 @@ describe('D7 explicitNoVideo two-poll clear', () => {
       result: { state: 'foreground', inSlideshow: true, instanceId: 1, slideNumber: 1, videoDetected: false },
       announced: explicit1.snapshot,
       videoCache: explicit1.videoCache,
+      primaryCache: explicit1.primaryCache,
       noVideoKey: explicit1.noVideoKey,
       noVideoCount: explicit1.noVideoCount,
       explicitNoVideoKey: explicit1.explicitNoVideoKey,
@@ -468,6 +512,7 @@ describe('D8 slide-change explicit clear is immediate', () => {
       result: { state: 'foreground', inSlideshow: true, instanceId: 1, slideNumber: 4, videoDetected: false },
       announced: announce.snapshot,
       videoCache: announce.videoCache,
+      primaryCache: announce.primaryCache,
       noVideoKey: announce.noVideoKey,
       noVideoCount: announce.noVideoCount,
       explicitNoVideoKey: announce.explicitNoVideoKey,
@@ -625,6 +670,7 @@ describe('D10 scalar timing fallback', () => {
       },
       announced: announce.snapshot,
       videoCache: announce.videoCache,
+      primaryCache: announce.primaryCache,
       noVideoKey: announce.noVideoKey,
       noVideoCount: announce.noVideoCount,
       explicitNoVideoKey: announce.explicitNoVideoKey,

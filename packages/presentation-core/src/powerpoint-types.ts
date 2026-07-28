@@ -32,8 +32,8 @@ export type PowerPointPollState = 'foreground' | 'background' | 'none'
 /**
  * Raw poll result from the canonical PowerPoint helper. Verbatim Companion
  * contract (H1 provenance); `videos`/`editSlideVideos` use PresentationVideo.
- * No affinity/protocol-version/primary-selection fields are added in H3 —
- * future bridge metadata enters the view through the projection options.
+ * Protocol and primary-selection metadata are carried unchanged from the
+ * canonical helper so every host projects the same media identity.
  */
 export type PowerPointPollResult = {
   state: PowerPointPollState
@@ -41,6 +41,9 @@ export type PowerPointPollResult = {
   instanceId?: number
   slideNumber?: number
   totalSlides?: number
+  protocolVersion?: number
+  primaryVideoId?: number
+  primaryVideoIndex?: number
   title?: string
   filename?: string
   editSlideVideos?: PresentationVideo[]
@@ -61,6 +64,9 @@ export type PresentationSnapshot = {
   instanceId: number
   slideNumber?: number
   totalSlides?: number
+  protocolVersion?: number
+  primaryVideoId?: number
+  primaryVideoIndex?: number
   title: string
   filename?: string
   videoPlaying?: boolean

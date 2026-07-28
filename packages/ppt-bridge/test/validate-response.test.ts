@@ -34,6 +34,19 @@ describe('validatePowerPointResponse', () => {
     if (result.kind !== 'observation') return
     expect(result.observation.videoElapsed).toBe(3000)
     expect(result.observation.videos?.map((video) => video.id)).toEqual([502, 503])
+    expect(result.observation.protocolVersion).toBe(1)
+    expect(result.observation.primaryVideoId).toBe(503)
+    expect(result.observation.primaryVideoIndex).toBe(1)
+  })
+
+  it('retains the helper product version alongside its protocol version', () => {
+    const result = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground', instanceId: 1, inSlideshow: false,
+      protocolVersion: 1, productVersion: '0.1.0-beta.1',
+    }))
+    expect(result.kind).toBe('no_slideshow')
+    if (result.kind !== 'no_slideshow') return
+    expect(result.observation).toMatchObject({ protocolVersion: 1, productVersion: '0.1.0-beta.1' })
   })
 
   it('rejects malformed, empty, primitive, null, and missing-state JSON', () => {
@@ -44,7 +57,7 @@ describe('validatePowerPointResponse', () => {
 
   it('enforces the one MiB UTF-8 byte limit, including the exact boundary', () => {
     expect(validatePowerPointResponse('x'.repeat(MAX_RESPONSE_BYTES + 1)).kind).toBe('oversized_response')
-    const prefix = '{"state":"foreground","title":"'
+    const prefix = '{"state":"foreground","instanceId":1,"title":"'
     const suffix = '"}'
     const exact = `${prefix}${'x'.repeat(MAX_RESPONSE_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength(suffix))}${suffix}`
     expect(Buffer.byteLength(exact)).toBe(MAX_RESPONSE_BYTES)
@@ -56,6 +69,7 @@ describe('validatePowerPointResponse', () => {
   it('redacts unknown fields and pptError while retaining bounded warnings', () => {
     const result = validatePowerPointResponse(JSON.stringify({
       state: 'foreground',
+      instanceId: 1,
       pptActive: false,
       pptError: 'C:\\Users\\private\\deck.pptx',
       secret: 'do-not-return',
@@ -71,6 +85,7 @@ describe('validatePowerPointResponse', () => {
   it('summarizes unknown fields separately for each video list', () => {
     const result = validatePowerPointResponse(JSON.stringify({
       state: 'foreground',
+      instanceId: 1,
       videos: [{ id: 1, extra: true }],
       editSlideVideos: [{ id: 2, extra: true }],
     }))
@@ -82,6 +97,7 @@ describe('validatePowerPointResponse', () => {
   it('drops invalid optional fields and invalid video entries', () => {
     const result = validatePowerPointResponse(JSON.stringify({
       state: 'foreground',
+      instanceId: 1,
       slideNumber: -1,
       videoDuration: Infinity,
       videoPlaying: 'yes',
@@ -124,6 +140,7 @@ describe('validatePowerPointResponse', () => {
   it('rejects malformed affinity field types but keeps the observation valid', () => {
     const result = validatePowerPointResponse(JSON.stringify({
       state: 'foreground',
+      instanceId: 1,
       inSlideshow: true,
       processCount: 'two',
       affinityMismatch: 'yes',
@@ -135,10 +152,63 @@ describe('validatePowerPointResponse', () => {
     expect(result.warnings.length).toBeGreaterThan(0)
   })
 
+  it('P0-01 maps a typed critical slideshow COM failure to com_unavailable without returning partial observation data', () => {
+    const result = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      instanceId: 7102,
+      protocolVersion: 1,
+      pptActive: true,
+      inSlideshow: true,
+      pptError: 'slideshow_state_unavailable',
+    }))
+    expect(result.kind).toBe('com_unavailable')
+    expect('observation' in result).toBe(false)
+  })
+
+  it.each([
+    ['foreground', undefined],
+    ['foreground', 0],
+    ['foreground', -1],
+    ['background', 1.5],
+    ['background', '7102'],
+  ])('P0-02 rejects running state %s with non-positive instanceId %j', (state, instanceId) => {
+    expect(validatePowerPointResponse(JSON.stringify({ state, instanceId, inSlideshow: true })).kind).toBe('invalid_payload')
+  })
+
+  it('P0-03 rejects protocol-v1 media whose explicit primary is missing, invalid, or contradictory', () => {
+    const basePayload = {
+      state: 'foreground',
+      instanceId: 7105,
+      protocolVersion: 1,
+      inSlideshow: true,
+      videos: [{ id: 10 }, { id: 20 }],
+    }
+    expect(validatePowerPointResponse(JSON.stringify(basePayload)).kind).toBe('invalid_payload')
+    expect(validatePowerPointResponse(JSON.stringify({ ...basePayload, primaryVideoIndex: 2 })).kind).toBe('invalid_payload')
+    expect(validatePowerPointResponse(JSON.stringify({ ...basePayload, primaryVideoId: 99 })).kind).toBe('invalid_payload')
+    expect(validatePowerPointResponse(JSON.stringify({ ...basePayload, primaryVideoId: 10, primaryVideoIndex: 1 })).kind).toBe('invalid_payload')
+    expect(validatePowerPointResponse(JSON.stringify({ ...basePayload, primaryVideoId: 10, primaryVideoIndex: 0 })).kind).toBe('observation')
+  })
+
+  it('P2-04 preserves the multi-process warning without requiring comPid', () => {
+    const result = validatePowerPointResponse(JSON.stringify({
+      state: 'background',
+      instanceId: 1234,
+      inSlideshow: false,
+      processCount: 2,
+      selectedPid: 1234,
+      affinityMismatch: true,
+    }))
+    expect(result.kind).toBe('no_slideshow')
+    if (result.kind !== 'no_slideshow') return
+    expect(result.observation).toMatchObject({ processCount: 2, selectedPid: 1234, affinityMismatch: true })
+    expect(result.observation.comPid).toBeUndefined()
+  })
+
   it('applies COM, not-running, and no-slideshow precedence', () => {
     expect(validatePowerPointResponse(JSON.stringify({ state: 'none', pptActive: false })).kind).toBe('com_unavailable')
     expect(validatePowerPointResponse(JSON.stringify({ state: 'none', pptError: 'x' })).kind).toBe('com_unavailable')
     expect(validatePowerPointResponse(JSON.stringify({ state: 'none' })).kind).toBe('powerpoint_not_running')
-    expect(validatePowerPointResponse(JSON.stringify({ state: 'foreground', inSlideshow: false })).kind).toBe('no_slideshow')
+    expect(validatePowerPointResponse(JSON.stringify({ state: 'foreground', instanceId: 1, inSlideshow: false })).kind).toBe('no_slideshow')
   })
 })
