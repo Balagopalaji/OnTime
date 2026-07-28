@@ -4,14 +4,15 @@ branch: backlog/ISSUE-001-standalone-ppt-timer
 worktree: /private/tmp/ontime-issue001-ppt-timer
 base_branch: main
 loop_base_sha: fceb200b05c8f3bf7253ac0b3a91d613cc0bd305   # merge-base(HEAD, main)
-working_base_sha: 4fd0827e4d217fa5b29662d1eba5227368496c72  # clean H1-H5 commit; current H1-H6 work remains uncommitted
+working_base_sha: 5193084be79f78c3a334e14e3b0566a2656a7cb0  # current H1-H6 source head; committed but not pushed
 phase: H6 Stage 6 — source implemented and source-accepted; Stage 7 Windows/Office/installer execution pending
 current_task: Stage 7 execution evidence only; do not reopen source remediation without a new finding
 current_task_batch_a: complete — installer/manifest/workflow source accepted
 current_task_batch_b: complete — net10 self-contained helper source accepted
 review_cycles: 3  # audit, remediation re-audit, final source acceptance
 stable_findings: []
-worktree_preflight: dirty H1-H6 remediation worktree on 4fd0827; loop base vs main = fceb200b. No commit/push/PR/issue-state change authorized.
+checkpoint_commits: 0bd69c7 canonical probe/core; 24fa596 standalone runtime/settings; 65f65d7 installer/CI/versioning; 5193084 H6 source-acceptance docs
+worktree_preflight: clean H1-H6 source worktree on 5193084; loop base vs main = fceb200b. Committed but not pushed; no PR or issue-state change has occurred.
 ---
 
 # ISSUE-001 H6 Loop — Stage 6 source acceptance; Stage 7 pending
@@ -55,4 +56,4 @@ Final source acceptance records:
 
 ## Resume instruction
 
-Do **not** add source remediation merely because Windows evidence is absent. Next owner runs and records the Stage 7 gates above, then reconciles runtime outcomes into the conformance matrix. Preserve the existing branch, worktree, base SHA, and dirty worktree; do not commit, push, open a PR, or change issue state without explicit authorization.
+Do **not** add source remediation merely because Windows evidence is absent. Next owner runs and records the Stage 7 gates above, then reconciles runtime outcomes into the conformance matrix. Preserve the existing branch, clean worktree, base SHA, and committed checkpoints; do not push, open a PR, or change issue state without explicit authorization.

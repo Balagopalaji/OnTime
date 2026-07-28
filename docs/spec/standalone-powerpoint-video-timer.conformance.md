@@ -2,8 +2,9 @@
 
 - **Spec:** `docs/spec/standalone-powerpoint-video-timer.spec.md` (scenarios S-001…S-033, Proposed Surface, Constraints, Open Questions OQ-1…OQ-4).
 - **Implementation:** `apps/ppt-timer/**` (standalone Electron app); `packages/ppt-bridge/**` (native boundary + supervised client/session); `packages/presentation-core/**` (pure normalization + view projection); Companion integration in `companion/src/{presentation-candidate,presentation-snapshot,ppt-probe,ppt-quit-gate}.ts` + `companion/src/main.ts`.
-- **Audit basis:** base `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`; current branch head `4fd0827e4d217fa5b29662d1eba5227368496c72` plus the existing uncommitted H1–H6 remediation worktree. Reconciled against the current source and the 2026-07-28 audit, re-audit, and final source-acceptance records.
-- **Audit mode:** documentation reconciliation only. No implementation code, tests, workflows, package files, issue state, commit, push, or PR was changed.
+- **Audit basis:** base `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`; current branch head `5193084be79f78c3a334e14e3b0566a2656a7cb0` with clean, committed H1–H6 source; the branch is not pushed. Reconciled against the current source and the 2026-07-28 audit, re-audit, and final source-acceptance records.
+- **Checkpoint commits:** `0bd69c7` canonical probe/core; `24fa596` standalone runtime/settings; `65f65d7` installer/CI/versioning; `5193084` H6 source-acceptance docs.
+- **Audit mode:** documentation reconciliation only. No implementation code, tests, workflows, package files, issue state, or PR was changed by this matrix; no PR or issue-state change has occurred.
 
 Legend: ✅ Conformed · ✅ **Implemented at source; Windows runtime evidence pending** · ⚠️ Diverged / accepted-with-reason · ❌ Not-built.
 
@@ -137,7 +138,7 @@ The host is macOS; no Windows/Office/.NET publish, Electron packaging, installer
 
 | Command | Result |
 |---|---|
-| Final source-acceptance basis | base `fceb200…`; branch head `4fd0827…` plus the existing dirty H1–H6 remediation worktree (no commit/push/PR claimed) |
+| Final source-acceptance basis | base `fceb200…`; clean branch head `5193084…`, with H1–H6 committed but not pushed (no PR/issue-state change) |
 | `npm run test --workspace @ontime/presentation-core` | ✅ **105 pass** |
 | `npm run test --workspace @ontime/ppt-bridge` | ✅ **56 pass** |
 | `npm run test --workspace apps/ppt-timer` | ✅ **174 pass** |
@@ -159,4 +160,4 @@ Test files were read (not just run) for the load-bearing scenarios — `view.tes
   - **Recorded-pending:** live Windows/native/PowerPoint/user-facing, restart/orphan, and two-consumer coexistence verification per §"Runtime-evidence caveat".
 - **Open Questions (release-gate status):** OQ-1 canonical URL — mechanism built, URL unset, CTA hidden; OQ-2 Office x86 and OQ-3 Windows 10 support wording — Stage 7/release decision; OQ-4 public signing identity — Stage 8. None changes current source conformance.
 
-This matrix is the current source coverage proof: H5 and H6 are source-accepted, while Stage 7 runtime evidence and Stage 8 signing remain open. No commit, push, PR, or issue-state action is represented here.
+This matrix is the current source coverage proof: H5 and H6 are source-accepted, while Stage 7 runtime evidence and Stage 8 signing remain open. The four H1–H6 source checkpoints are committed but not pushed; no PR or issue-state action has occurred.

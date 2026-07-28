@@ -28,8 +28,9 @@ The tests execute the mapper for the current prerelease, build metadata, stable-
 ## Audit basis and method
 
 - Baseline: `fceb200`.
-- Current committed branch head: `4fd0827`, plus the complete current uncommitted worktree.
-- Current diff inspected: 114 changed files versus `fceb200` at audit start, including all current untracked H6/review files.
+- Current branch head: `5193084`, with a clean worktree; H1–H6 source is committed but not pushed.
+- Checkpoint commits: `0bd69c7` canonical probe/core; `24fa596` standalone runtime/settings; `65f65d7` installer/CI/versioning; `5193084` H6 source-acceptance docs.
+- Current diff inspected: 114 changed files versus `fceb200` at audit start, including all H6/review files then present.
 - The two prior reports were read only to enumerate the required finding IDs, summaries, and stable signatures. Every status below was re-established from current source and fresh local checks.
 - Current contract sources: `docs/spec/standalone-powerpoint-video-timer.spec.md`, `docs/plans/standalone-powerpoint-video-timer-2026-07-23.md`, and the non-archived sources of truth named by `AGENTS.md`.
 - `docs/archive/**` was excluded.
