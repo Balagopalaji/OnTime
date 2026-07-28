@@ -72,7 +72,8 @@ jobs:
 
       - name: Verify clean-checkout application and viewer outputs
         working-directory: companion
-        run: node -e "const fs=require('node:fs'); for (const file of ['dist/main.js','../frontend/dist-viewer/index.html','package.json']) { if (!fs.existsSync(file)) throw new Error('Missing clean-checkout build output: ' + file); }"
+        run: >-
+          node -e "const fs=require('node:fs'); for (const file of ['dist/main.js','../frontend/dist-viewer/index.html','package.json']) { if (!fs.existsSync(file)) throw new Error('Missing clean-checkout build output: ' + file); }"
 
       - name: Verify packaged PowerPoint probe
         if: runner.os == 'Windows'
