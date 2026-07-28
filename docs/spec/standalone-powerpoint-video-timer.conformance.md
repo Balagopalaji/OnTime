@@ -2,7 +2,7 @@
 
 - **Spec:** `docs/spec/standalone-powerpoint-video-timer.spec.md` (scenarios S-001…S-033, Proposed Surface, Constraints, Open Questions OQ-1…OQ-4).
 - **Implementation:** `apps/ppt-timer/**` (standalone Electron app); `packages/ppt-bridge/**` (native boundary + supervised client/session); `packages/presentation-core/**` (pure normalization + view projection); Companion integration in `companion/src/{presentation-candidate,presentation-snapshot,ppt-probe,ppt-quit-gate}.ts` + `companion/src/main.ts`.
-- **Audit basis:** base `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`; current branch head `5193084be79f78c3a334e14e3b0566a2656a7cb0` with clean, committed H1–H6 source; the branch is not pushed. Reconciled against the current source and the 2026-07-28 audit, re-audit, and final source-acceptance records.
+- **Audit basis:** base `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`; H1–H6 source-acceptance checkpoint `5193084be79f78c3a334e14e3b0566a2656a7cb0`. Later docs-only metadata commits do not change the audited source; the branch is not pushed. Reconciled against the current source and the 2026-07-28 audit, re-audit, and final source-acceptance records.
 - **Checkpoint commits:** `0bd69c7` canonical probe/core; `24fa596` standalone runtime/settings; `65f65d7` installer/CI/versioning; `5193084` H6 source-acceptance docs.
 - **Audit mode:** documentation reconciliation only. No implementation code, tests, workflows, package files, issue state, or PR was changed by this matrix; no PR or issue-state change has occurred.
 
@@ -138,7 +138,7 @@ The host is macOS; no Windows/Office/.NET publish, Electron packaging, installer
 
 | Command | Result |
 |---|---|
-| Final source-acceptance basis | base `fceb200…`; clean branch head `5193084…`, with H1–H6 committed but not pushed (no PR/issue-state change) |
+| Final source-acceptance basis | base `fceb200…`; H1–H6 source checkpoint `5193084…`, committed but not pushed (later docs-only metadata commits excluded; no PR/issue-state change) |
 | `npm run test --workspace @ontime/presentation-core` | ✅ **105 pass** |
 | `npm run test --workspace @ontime/ppt-bridge` | ✅ **56 pass** |
 | `npm run test --workspace apps/ppt-timer` | ✅ **174 pass** |

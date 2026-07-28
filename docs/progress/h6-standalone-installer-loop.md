@@ -4,7 +4,7 @@ branch: backlog/ISSUE-001-standalone-ppt-timer
 worktree: /private/tmp/ontime-issue001-ppt-timer
 base_branch: main
 loop_base_sha: fceb200b05c8f3bf7253ac0b3a91d613cc0bd305   # merge-base(HEAD, main)
-working_base_sha: 5193084be79f78c3a334e14e3b0566a2656a7cb0  # current H1-H6 source head; committed but not pushed
+working_base_sha: 5193084be79f78c3a334e14e3b0566a2656a7cb0  # H1-H6 source-acceptance checkpoint; later docs-only metadata commits do not change source
 phase: H6 Stage 6 — source implemented and source-accepted; Stage 7 Windows/Office/installer execution pending
 current_task: Stage 7 execution evidence only; do not reopen source remediation without a new finding
 current_task_batch_a: complete — installer/manifest/workflow source accepted
@@ -12,7 +12,7 @@ current_task_batch_b: complete — net10 self-contained helper source accepted
 review_cycles: 3  # audit, remediation re-audit, final source acceptance
 stable_findings: []
 checkpoint_commits: 0bd69c7 canonical probe/core; 24fa596 standalone runtime/settings; 65f65d7 installer/CI/versioning; 5193084 H6 source-acceptance docs
-worktree_preflight: clean H1-H6 source worktree on 5193084; loop base vs main = fceb200b. Committed but not pushed; no PR or issue-state change has occurred.
+worktree_preflight: clean committed worktree; H1-H6 source checkpoint = 5193084 and loop base vs main = fceb200b. Branch not pushed; no PR or issue-state change has occurred.
 ---
 
 # ISSUE-001 H6 Loop — Stage 6 source acceptance; Stage 7 pending
