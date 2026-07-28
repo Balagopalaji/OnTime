@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -67,6 +67,15 @@ jobs:
 
       - name: PPT bridge CJS smoke
         run: npm run smoke:cjs --workspace @ontime/ppt-bridge
+
+      # Stage 6: the standalone app gate runs per-commit alongside the shared
+      # packages it consumes (typecheck + tests run on every OS; the Windows-only
+      # installer/electron-builder lane is in ppt-timer-build.yml).
+      - name: PPT timer typecheck
+        run: npm run typecheck --workspace apps/ppt-timer
+
+      - name: PPT timer tests
+        run: npm run test --workspace apps/ppt-timer
 
       - name: Companion typecheck
         working-directory: companion

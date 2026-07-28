@@ -25,18 +25,20 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: package-lock.json
 
       - name: Install workspace deps
         run: npm ci
 
-      - name: Setup .NET 6
+      # Stage 6: the canonical helper now targets net10.0-windows self-contained,
+      # so both Companion and the standalone build it with the .NET 10 SDK.
+      - name: Setup .NET 10
         if: runner.os == 'Windows'
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 6.0.x
+          dotnet-version: 10.0.x
 
       - name: Build PowerPoint probe
         if: runner.os == 'Windows'
@@ -55,12 +57,22 @@ jobs:
           FFPROBE_URL_LINUX: ${{ vars.FFPROBE_URL_LINUX }}
         run: npm run fetch-ffprobe
 
+      - name: Build Companion viewer, shared packages, and application
+        working-directory: companion
+        run: |
+          npm run build:viewer
+          npm run build
+
       - name: Build installers
         working-directory: companion
         env:
           # Disable signing/notarization in CI unless explicitly configured.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --publish never
+        run: npx --no-install electron-builder --publish never
+
+      - name: Verify clean-checkout application and viewer outputs
+        working-directory: companion
+        run: node -e "const fs=require('node:fs'); for (const file of ['dist/main.js','../frontend/dist-viewer/index.html','package.json']) { if (!fs.existsSync(file)) throw new Error('Missing clean-checkout build output: ' + file); }"
 
       - name: Verify packaged PowerPoint probe
         if: runner.os == 'Windows'

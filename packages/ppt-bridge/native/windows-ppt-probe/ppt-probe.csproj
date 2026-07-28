@@ -1,11 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0-windows</TargetFramework>
+    <!-- Stage 6 retarget: net6.0-windows framework-dependent -> net10.0-windows.
+         Self-contained single-file (untrimmed) is set at publish time in
+         scripts/build-windows.ps1 so the helper needs no machine-wide .NET
+         runtime (S-030). Program.cs, COM calls, media enumeration, unit
+         normalization, protocol fields, and the H5-PRE affinity fields are
+         unchanged; payload parity is verified against frozen fixtures. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>ppt-probe</AssemblyName>
     <RootNamespace>OnTime.PptProbe</RootNamespace>
+    <!-- Keep AssemblyInformationalVersion exact: .NET otherwise appends the
+         SourceRevisionId to the product version discovered by Program.cs. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
