@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createAppControllers, type AppControllersDeps } from './controllers'
 import { DEFAULT_SETTINGS } from './settings-schema'
+import { settingsForResizeEvent } from './window-resize-policy'
 import type { SessionHost } from './session-host'
 import type { PowerPointViewState } from '@ontime/presentation-core'
 
@@ -12,11 +13,12 @@ function makeDeps(overrides: Partial<AppControllersDeps> = {}): AppControllersDe
     getView: vi.fn(() => ({ revision: 3, state: connectingState })),
     setTimingMode: vi.fn(),
     getProtocolVersion: vi.fn(() => null),
+    getHelperVersion: vi.fn(() => null),
     shutdown: vi.fn(async () => undefined),
   }
   return {
     host: fakeHost,
-    settings: { ...DEFAULT_SETTINGS },
+    getSettings: () => ({ ...DEFAULT_SETTINGS }),
     saveSettings: vi.fn(async () => undefined),
     displays: () => [{ id: '1', label: 'Display 1' }],
     upsell: { url: 'https://ontime.app', ctaAvailable: true },
@@ -74,11 +76,35 @@ describe('dispatch routes actions to effects + persistence', () => {
     expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ sizePreset: 'large' }))
   })
 
-  it('moveToDisplay applies the effect, persists the display id, and switches preset to custom', async () => {
-    const deps = makeDeps()
+  it('moveToDisplay applies the effect and persists the display id without changing the preset', async () => {
+    const deps = makeDeps({ getSettings: () => ({ ...DEFAULT_SETTINGS, sizePreset: 'large' }) })
     await createAppControllers(deps).dispatch({ type: 'moveToDisplay', displayId: '2' })
     expect(deps.effects.moveToDisplay).toHaveBeenCalledWith('2')
-    expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ selectedDisplayId: '2', sizePreset: 'custom' }))
+    expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ selectedDisplayId: '2', sizePreset: 'large' }))
+  })
+
+  it('keeps a manual resize custom through another action and a controller restart', async () => {
+    let currentSettings = { ...DEFAULT_SETTINGS }
+    const saveSettings = vi.fn(async (next) => { currentSettings = next })
+    const deps = makeDeps({ getSettings: () => currentSettings, saveSettings })
+    const controllers = createAppControllers(deps)
+
+    // Simulate the main-process resize event, which is the single settings owner.
+    currentSettings = settingsForResizeEvent(currentSettings, {
+      x: 10,
+      y: 20,
+      width: 777,
+      height: 444,
+    }, true)
+    expect(controllers.getView().preset).toBe('custom')
+
+    await controllers.dispatch({ type: 'setAlwaysOnTop', enabled: false })
+    expect(currentSettings).toMatchObject({ sizePreset: 'custom', alwaysOnTop: false })
+
+    // A fresh controller reads the same persisted settings rather than a stale
+    // launch-time copy, so restart preserves the custom size choice.
+    expect(createAppControllers(deps).getView().preset).toBe('custom')
+    expect(saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ sizePreset: 'custom' }))
   })
 
   it('copyDiagnostics writes the report to the clipboard', async () => {

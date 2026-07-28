@@ -10,15 +10,17 @@ import { app, BrowserWindow, clipboard, screen, shell, type Display } from 'elec
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { APP_VERSION, HELPER_VERSION, UPSELL_URL_CONSTANT } from './config.js'
+import { UPSELL_URL_CONSTANT } from './config.js'
 import { createAppControllers, type WindowEffects } from './controllers.js'
 import { DiagnosticsBuffer, type DiagMeta } from './diagnostics.js'
 import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
 import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
-import { MIN_WINDOW_SIZE, withSettingsField, type Settings, type WindowBounds } from './settings-schema.js'
+import { selectLaunchTargets } from './launch-policy.js'
+import { MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
+import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
 import {
   applyPreset as placePreset,
   moveToDisplay as placeMoveToDisplay,
@@ -72,6 +74,7 @@ async function main(): Promise<void> {
 
   const loaded = await store.load()
   let currentSettings: Settings = loaded.settings
+  const resizePolicy = createWindowResizePolicy()
   if (loaded.recovered) diagnostics.push({ kind: 'settings_recovered', quarantinedPath: loaded.quarantinedPath })
 
   // Live window bounds are the authority once a window exists, so a settings
@@ -92,21 +95,33 @@ async function main(): Promise<void> {
   // returned promise never rejects, so controllers' fire-and-forget save is safe.
   const saveFromController = (next: Settings): Promise<void> =>
     writeSettings({ ...next, windowBounds: liveBounds() }).catch(reportWriteError)
-  const persistBounds = (): void => {
+  const persistBounds = (userResize = false): void => {
     const bounds = liveBounds()
-    void writeSettings(withSettingsField(currentSettings, { windowBounds: bounds })).catch(reportWriteError)
+    void writeSettings(settingsForResizeEvent(currentSettings, bounds, userResize)).catch(reportWriteError)
     if (bounds) diagnostics.push({ kind: 'window_bounds', x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height })
+  }
+  const setProgrammaticBounds = (bounds: Rectangle): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const current = mainWindow.getBounds()
+    resizePolicy.beforeProgrammaticBounds(current, bounds)
+    mainWindow.setBounds(bounds)
   }
 
   const upsell = resolveUpsellUrl(UPSELL_URL_CONSTANT)
 
+  const launchTargets = selectLaunchTargets({
+    isPackaged: app.isPackaged,
+    helperOverride: process.env.PPT_PROBE_PATH,
+    rendererOverride: process.env.VITE_DEV_SERVER_URL,
+  })
   const candidates = discoverHelperCandidates({
     resourcesPath: process.resourcesPath,
-    envPath: process.env.PPT_PROBE_PATH,
+    envPath: launchTargets.helperOverride,
   })
 
   const host = createSessionHost({
     candidates,
+    timingMode: currentSettings.timingMode,
     diagnostics,
     onView: () => pushView(),
   })
@@ -120,14 +135,14 @@ async function main(): Promise<void> {
     setAlwaysOnTop: (enabled) => mainWindow?.setAlwaysOnTop(enabled),
     applyPreset: (preset) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
-      mainWindow.setBounds(placePreset(mainWindow.getBounds(), preset, workAreaForWindow()))
+      setProgrammaticBounds(placePreset(mainWindow.getBounds(), preset, workAreaForWindow()))
     },
     moveToDisplay: (displayId) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
       const target = listSnapshots().find((snapshot) => snapshot.id === displayId)
       if (!target) return
       const bounds = mainWindow.getBounds()
-      mainWindow.setBounds(placeMoveToDisplay(target, { width: bounds.width, height: bounds.height }))
+      setProgrammaticBounds(placeMoveToDisplay(target, { width: bounds.width, height: bounds.height }))
       diagnostics.push({
         kind: 'display_change',
         displayId,
@@ -138,8 +153,11 @@ async function main(): Promise<void> {
   }
 
   const diagMeta = (): DiagMeta => ({
-    appVersion: APP_VERSION,
-    helperVersion: HELPER_VERSION,
+    // Electron reads this from the packaged app's package.json version field.
+    appVersion: app.getVersion(),
+    // The native payload reports its publish-time product version; before its
+    // first response, the app version is the only truthful expected value.
+    helperVersion: host.getHelperVersion() ?? app.getVersion(),
     // Validated observation protocol version (S-026, D-2): carried from the
     // latest helper response and cleared on terminal / no-signal transitions.
     protocolVersion: host.getProtocolVersion(),
@@ -149,7 +167,7 @@ async function main(): Promise<void> {
 
   const controllers = createAppControllers({
     host,
-    settings: currentSettings,
+    getSettings: () => currentSettings,
     saveSettings: saveFromController,
     displays: listDisplayInfos,
     upsell,
@@ -174,7 +192,7 @@ async function main(): Promise<void> {
       displays: listSnapshots(),
       primary: primarySnapshot(),
     })
-    if (!boundsEqual(restored, bounds)) mainWindow.setBounds(restored)
+    if (!boundsEqual(restored, bounds)) setProgrammaticBounds(restored)
     pushView() // the display list changed; refresh the renderer's selector
   }
 
@@ -211,15 +229,14 @@ async function main(): Promise<void> {
 
     mainWindow.on('ready-to-show', () => mainWindow?.show())
     mainWindow.on('moved', persistBounds)
-    mainWindow.on('resized', persistBounds)
+    mainWindow.on('resized', () => persistBounds(!resizePolicy.consumeResize()))
     mainWindow.on('closed', () => {
       mainWindow = null
     })
 
     bindPptTimerIpc(mainWindow, controllers)
 
-    const devServerUrl = process.env.VITE_DEV_SERVER_URL
-    if (devServerUrl) void mainWindow.loadURL(devServerUrl)
+    if (launchTargets.rendererUrl) void mainWindow.loadURL(launchTargets.rendererUrl)
     else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 

@@ -34,6 +34,8 @@ export type HostView = { revision: number; state: PowerPointViewState }
 export type SessionHostOptions = {
   candidates: readonly HelperLaunchCandidate[]
   pollIntervalMs?: number
+  /** Persisted setting applied before the first connecting projection or poll. */
+  timingMode?: TimingMode
   diagnostics?: DiagnosticsBuffer
   createClient?: (options: PptBridgeClientOptions) => PptBridgeClient
   onView?: (view: HostView) => void
@@ -45,6 +47,8 @@ export type SessionHost = {
   setTimingMode(mode: TimingMode): void
   /** Validated helper protocol version from the latest observation (S-026, D-2); null until one arrives or after a terminal / no-signal outcome. */
   getProtocolVersion(): number | null
+  /** Helper product version emitted by the native payload; null until observed. */
+  getHelperVersion(): string | null
   shutdown(): Promise<void>
 }
 
@@ -79,16 +83,20 @@ export function deriveMultipleInstanceWarning(outcome: BridgePollOutcome | null)
  */
 export function deriveObservationMeta(outcome: BridgePollOutcome | null): {
   selectedMediaId: number | null
+  selectedMediaIndex: number | null
   protocolVersion: number | null
+  productVersion: string | null
 } {
   if (outcome && (outcome.kind === 'observation' || outcome.kind === 'no_slideshow')) {
     const observation = outcome.observation
     return {
       selectedMediaId: observation.primaryVideoId ?? null,
+      selectedMediaIndex: observation.primaryVideoIndex ?? null,
       protocolVersion: observation.protocolVersion ?? null,
+      productVersion: observation.productVersion ?? null,
     }
   }
-  return { selectedMediaId: null, protocolVersion: null }
+  return { selectedMediaId: null, selectedMediaIndex: null, protocolVersion: null, productVersion: null }
 }
 
 /** Pure projection used by both live transitions and timing-mode reprojection. */
@@ -107,17 +115,18 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   const onView = options.onView
 
   let revision = 0
-  let timingMode: TimingMode = 'remaining'
+  let timingMode: TimingMode = options.timingMode ?? 'remaining'
   let multipleInstanceWarning = false
   let currentView: HostView = { revision, state: projectHostView({ kind: 'connecting' }, timingMode, false) }
   let lastKind: PresentationSourceState['kind'] | null = null
   let lastSlide: number | null | undefined = undefined
   let lastMediaCount: number | undefined = undefined
-  // App-local safe metadata threaded from the canonical observation into
-  // diagnostics (S-026, D-1/D-2). Updated every poll before the session reduces;
-  // both clear on terminal / no-signal outcomes via deriveObservationMeta.
-  let lastSelectedMediaId: number | null = null
+  // Diagnostics selection identity is read from the normalized snapshot so a
+  // warm-cached video list and its helper-owned primary remain one unit.
+  let diagnosticsMediaId: number | null = null
+  let diagnosticsMediaIndex: number | null = null
   let lastProtocolVersion: number | null = null
+  let lastHelperVersion: string | null = null
   let shutdownPromise: Promise<void> | null = null
 
   const client = createClient({
@@ -149,10 +158,25 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const snap = source.snapshot
       const slide = snap.slideNumber ?? null
       const mediaCount = snap.videos?.length ?? 0
-      if (slide !== lastSlide || mediaCount !== lastMediaCount) {
-        diagnostics.push({ kind: 'slide_observed', slideNumber: slide, mediaCount, selectedMediaId: lastSelectedMediaId })
+      const selectedMediaId = snap.primaryVideoId ?? null
+      const selectedMediaIndex = snap.primaryVideoIndex ?? null
+      if (
+        slide !== lastSlide ||
+        mediaCount !== lastMediaCount ||
+        selectedMediaId !== diagnosticsMediaId ||
+        selectedMediaIndex !== diagnosticsMediaIndex
+      ) {
+        diagnostics.push({
+          kind: 'slide_observed',
+          slideNumber: slide,
+          mediaCount,
+          selectedMediaId,
+          selectedMediaIndex,
+        })
         lastSlide = slide
         lastMediaCount = mediaCount
+        diagnosticsMediaId = selectedMediaId
+        diagnosticsMediaIndex = selectedMediaIndex
       }
     }
   }
@@ -162,12 +186,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const outcome = await client.poll()
       const next = deriveMultipleInstanceWarning(outcome)
       if (next !== multipleInstanceWarning) multipleInstanceWarning = next
-      // Thread the canonical helper-emitted media id + protocol version through
-      // app-local safe metadata before the session reduces (D-1/D-2). Both clear
-      // on terminal / no-signal outcomes so diagnostics never carry stale values.
+      // Track the latest validated protocol version for the diagnostics header.
+      // Selection identity is recorded from the normalized snapshot below.
       const meta = deriveObservationMeta(outcome)
-      lastSelectedMediaId = meta.selectedMediaId
       lastProtocolVersion = meta.protocolVersion
+      lastHelperVersion = meta.productVersion
       recordAffinity(outcome)
       return outcome
     },
@@ -199,6 +222,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
   const getProtocolVersion = (): number | null => lastProtocolVersion
 
+  const getHelperVersion = (): string | null => lastHelperVersion
+
   const setTimingMode = (mode: TimingMode): void => {
     if (mode === timingMode) return
     timingMode = mode
@@ -216,5 +241,5 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     return shutdownPromise
   }
 
-  return { start, getView, setTimingMode, getProtocolVersion, shutdown }
+  return { start, getView, setTimingMode, getProtocolVersion, getHelperVersion, shutdown }
 }

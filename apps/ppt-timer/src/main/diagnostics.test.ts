@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { DiagnosticsBuffer, DIAGNOSTICS_CAPACITY, redactPath, type DiagMeta } from './diagnostics'
 
 const meta: DiagMeta = {
-  appVersion: '0.0.0-beta',
-  helperVersion: 'ppt-probe/1',
+  appVersion: '0.1.0-beta.1',
+  helperVersion: '0.1.0-beta.1',
   protocolVersion: 1,
   signingStatus: 'unsigned-beta',
 }
@@ -35,9 +35,11 @@ describe('DiagnosticsBuffer ring (S-026 last 100)', () => {
     const sink = buf.asSink()
     sink({ kind: 'helper_start', generation: 1 })
     sink({ kind: 'helper_stderr', generation: 1, byteCount: 128 })
+    sink({ kind: 'helper_termination', generation: 1, context: 'generation_failure', result: 'unconfirmed', waitMs: 25 })
     const report = buf.buildReport(meta)
     expect(report).toContain('bridge helper_start generation=1')
     expect(report).toContain('bridge helper_stderr generation=1 byteCount=128')
+    expect(report).toContain('bridge helper_termination generation=1 context=generation_failure result=unconfirmed waitMs=25')
   })
 })
 
@@ -45,19 +47,20 @@ describe('buildReport includes the S-026 diagnostic surface', () => {
   it('records versions, signing, affinity, slide/media, display, and bounds', () => {
     const buf = new DiagnosticsBuffer()
     buf.pushBridge({ kind: 'helper_start', generation: 1 })
-    buf.push({ kind: 'slide_observed', slideNumber: 3, mediaCount: 1, selectedMediaId: 502 })
+    buf.push({ kind: 'slide_observed', slideNumber: 3, mediaCount: 1, selectedMediaId: 502, selectedMediaIndex: 0 })
     buf.push({ kind: 'affinity', processCount: 2, selectedPid: 1234, comPid: 5678, mismatch: true })
     buf.push({ kind: 'display_change', displayId: '2', scaleFactor: 1.5, displayCount: 2 })
     buf.push({ kind: 'window_bounds', x: 100, y: 200, width: 360, height: 220 })
     const report = buf.buildReport(meta)
     for (const needle of [
-      'appVersion: 0.0.0-beta',
+      'appVersion: 0.1.0-beta.1',
       'protocolVersion: 1',
       'signingStatus: unsigned-beta',
       'generation=1',
       'slide=3',
       'mediaCount=1',
       'selectedMediaId=502',
+      'selectedMediaIndex=0',
       'processCount=2',
       'selectedPid=1234',
       'comPid=5678',
@@ -91,7 +94,7 @@ describe('redaction guarantees (S-025)', () => {
     // The bridge stderr event stores only a byte count by construction.
     buf.pushBridge({ kind: 'helper_stderr', generation: 1, byteCount: 256 })
     // Slide/media events carry only numeric identifiers.
-    buf.push({ kind: 'slide_observed', slideNumber: 3, mediaCount: 1, selectedMediaId: 502 })
+    buf.push({ kind: 'slide_observed', slideNumber: 3, mediaCount: 1, selectedMediaId: 502, selectedMediaIndex: 0 })
     buf.push({ kind: 'availability_transition', from: 'playing', to: 'unavailable' })
     const report = buf.buildReport(meta)
     expect(report).not.toContain('SECRET')

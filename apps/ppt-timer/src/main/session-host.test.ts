@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BridgePollOutcome, PptBridgeClient, PptBridgeClientOptions } from '@ontime/ppt-bridge'
+import { validatePowerPointResponse, type BridgePollOutcome, type PptBridgeClient, type PptBridgeClientOptions } from '@ontime/ppt-bridge'
 import { createSessionHost, deriveMultipleInstanceWarning, deriveObservationMeta, projectHostView, type SessionHost } from './session-host'
 import { DiagnosticsBuffer, type DiagMeta } from './diagnostics'
+import { DEFAULT_SETTINGS } from './settings-schema'
+import { createSettingsStore, type SettingsFs } from './settings-store'
 
 const ext = { rootUnknownFieldCount: 0, videoUnknownFieldCount: 0, editSlideVideoUnknownFieldCount: 0 }
 
 const meta: DiagMeta = {
-  appVersion: '0.0.0-beta',
-  helperVersion: 'ppt-probe/native',
+  appVersion: '0.1.0-beta.1',
+  helperVersion: '0.1.0-beta.1',
   protocolVersion: null,
   signingStatus: 'unsigned-beta',
 }
@@ -81,12 +83,12 @@ describe('deriveObservationMeta (S-026 D-1/D-2)', () => {
       extensions: ext,
       observation: { ...playingOutcome.observation, primaryVideoId: 501, protocolVersion: 2 },
     }
-    expect(deriveObservationMeta(outcome)).toEqual({ selectedMediaId: 501, protocolVersion: 2 })
+    expect(deriveObservationMeta(outcome)).toEqual({ selectedMediaId: 501, selectedMediaIndex: null, protocolVersion: 2, productVersion: null })
   })
 
   it('does not choose a video itself: no primaryVideoId means null even when video timing is present', () => {
     // playingOutcome carries videoPlaying/duration/elapsed but no primaryVideoId.
-    expect(deriveObservationMeta(playingOutcome)).toEqual({ selectedMediaId: null, protocolVersion: null })
+    expect(deriveObservationMeta(playingOutcome)).toEqual({ selectedMediaId: null, selectedMediaIndex: null, protocolVersion: null, productVersion: null })
   })
 
   it('keeps a reported protocol version through no_slideshow while the media id clears', () => {
@@ -96,15 +98,16 @@ describe('deriveObservationMeta (S-026 D-1/D-2)', () => {
       extensions: ext,
       observation: { state: 'foreground', inSlideshow: false, protocolVersion: 3 },
     }
-    expect(deriveObservationMeta(outcome)).toEqual({ selectedMediaId: null, protocolVersion: 3 })
+    expect(deriveObservationMeta(outcome)).toEqual({ selectedMediaId: null, selectedMediaIndex: null, protocolVersion: 3, productVersion: null })
   })
 
   it('clears both on terminal / no-signal outcomes that carry no observation', () => {
-    expect(deriveObservationMeta(null)).toEqual({ selectedMediaId: null, protocolVersion: null })
-    expect(deriveObservationMeta({ kind: 'powerpoint_not_running', warnings: [], extensions: ext })).toEqual({ selectedMediaId: null, protocolVersion: null })
-    expect(deriveObservationMeta({ kind: 'com_unavailable', warnings: [], extensions: ext })).toEqual({ selectedMediaId: null, protocolVersion: null })
-    expect(deriveObservationMeta(failureOutcome)).toEqual({ selectedMediaId: null, protocolVersion: null })
-    expect(deriveObservationMeta({ kind: 'closed', warnings: [], extensions: ext })).toEqual({ selectedMediaId: null, protocolVersion: null })
+    const cleared = { selectedMediaId: null, selectedMediaIndex: null, protocolVersion: null, productVersion: null }
+    expect(deriveObservationMeta(null)).toEqual(cleared)
+    expect(deriveObservationMeta({ kind: 'powerpoint_not_running', warnings: [], extensions: ext })).toEqual(cleared)
+    expect(deriveObservationMeta({ kind: 'com_unavailable', warnings: [], extensions: ext })).toEqual(cleared)
+    expect(deriveObservationMeta(failureOutcome)).toEqual(cleared)
+    expect(deriveObservationMeta({ kind: 'closed', warnings: [], extensions: ext })).toEqual(cleared)
   })
 })
 
@@ -119,6 +122,33 @@ describe('createSessionHost lifecycle', () => {
     host.start()
     expect(onView).toHaveBeenCalledTimes(1)
     expect(host.getView().state.kind).toBe('connecting')
+  })
+
+  it('P1-07 starts a restarted saved elapsed setting before the first view/poll', async () => {
+    // Actual settings-store save/load (restart boundary) feeds the host option
+    // that main.ts supplies before calling host.start().
+    const files = new Map<string, string>()
+    const fs: SettingsFs = {
+      readFile: async (path) => files.get(path) ?? '',
+      writeFile: async (path, data) => { files.set(path, data) },
+      rename: async (from, to) => { files.set(to, files.get(from) ?? ''); files.delete(from) },
+    }
+    const beforeRestart = createSettingsStore({ filePath: '/settings.json', fs, now: () => 1 })
+    await beforeRestart.save({ ...DEFAULT_SETTINGS, timingMode: 'elapsed' })
+    const restarted = await createSettingsStore({ filePath: '/settings.json', fs, now: () => 2 }).load()
+    expect(restarted.settings.timingMode).toBe('elapsed')
+
+    const fake = makeFakeClient([playingOutcome])
+    const host = createSessionHost({
+      candidates: [],
+      createClient: fake.create,
+      pollIntervalMs: 1_000,
+      timingMode: restarted.settings.timingMode,
+    })
+    host.start()
+    expect(host.getView().state.kind).toBe('connecting')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getView().state).toMatchObject({ kind: 'playing', timeMs: 12_000 })
   })
 
   it('projects a live state after the first poll and clears timing on failure (S-002/S-013)', async () => {
@@ -137,6 +167,109 @@ describe('createSessionHost lifecycle', () => {
     expect('timeMs' in host.getView().state).toBe(false) // numeric timing cleared
   })
 
+  it('P0-01 publishes unavailable with no numeric time in the same poll as a critical partial-COM failure', async () => {
+    const partialCom = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      instanceId: 1234,
+      protocolVersion: 1,
+      pptActive: true,
+      inSlideshow: true,
+      pptError: 'slideshow_state_unavailable',
+    }))
+    expect(partialCom.kind).toBe('com_unavailable')
+    const fake = makeFakeClient([playingOutcome, partialCom])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getView().state).toMatchObject({ kind: 'playing', timeMs: 48_000 })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(host.getView().state.kind).toBe('unavailable')
+    expect('timeMs' in host.getView().state).toBe(false)
+  })
+
+  it('P0-02 invalidates a live view when a running native payload has no positive instanceId', async () => {
+    const missingIdentity = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      pptActive: true,
+      inSlideshow: true,
+      videoElapsed: 99_999,
+    }))
+    expect(missingIdentity.kind).toBe('invalid_payload')
+    const fake = makeFakeClient([playingOutcome, missingIdentity])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getView().state.kind).toBe('playing')
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(host.getView().state.kind).toBe('unavailable')
+    expect('timeMs' in host.getView().state).toBe(false)
+  })
+
+  it('P0-03 keeps helper-selected label, status, scalar time, and diagnostics identity aligned', async () => {
+    const raw = (videoBElapsed: number) => validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      instanceId: 1234,
+      protocolVersion: 1,
+      pptActive: true,
+      inSlideshow: true,
+      slideNumber: 3,
+      title: 'Deck.pptx',
+      videoDetected: true,
+      primaryVideoId: 10,
+      primaryVideoIndex: 0,
+      videoPlaying: false,
+      videoDuration: 10_000,
+      videoElapsed: 1_000,
+      videoRemaining: 9_000,
+      videos: [
+        { id: 10, name: 'helper-primary.mp4', duration: 10_000, elapsed: 1_000, remaining: 9_000, status: 'paused', playing: false },
+        { id: 20, name: 'delta-inferred.mp4', duration: 10_000, elapsed: videoBElapsed, remaining: 10_000 - videoBElapsed, status: 'paused', playing: false },
+      ],
+    }))
+    const baseline = raw(1_000)
+    const noPayload = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      instanceId: 1234,
+      protocolVersion: 1,
+      pptActive: true,
+      inSlideshow: true,
+      slideNumber: 3,
+      title: 'Deck.pptx',
+    }))
+    const delta = raw(1_500)
+    expect(baseline.kind).toBe('observation')
+    expect(noPayload.kind).toBe('observation')
+    expect(delta.kind).toBe('observation')
+
+    const diagnostics = new DiagnosticsBuffer()
+    const fake = makeFakeClient([baseline, noPayload, delta])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000, diagnostics })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(host.getView().state).toMatchObject({
+      kind: 'paused',
+      selectedVideoId: 10,
+      selectedVideoName: 'helper-primary.mp4',
+      timeMs: 9_000,
+    })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(host.getView().state).toMatchObject({
+      kind: 'paused',
+      selectedVideoId: 10,
+      selectedVideoName: 'helper-primary.mp4',
+      timeMs: 9_000,
+      durationMs: 10_000,
+    })
+    const report = diagnostics.buildReport(meta)
+    expect(report).toContain('selectedMediaId=10 selectedMediaIndex=0')
+    expect(report).not.toContain('helper-primary.mp4')
+    expect(report).not.toContain('delta-inferred.mp4')
+  })
+
   it('reprojects on a timing-mode toggle WITHOUT polling (S-014)', async () => {
     const onView = vi.fn()
     const fake = makeFakeClient([playingOutcome])
@@ -152,8 +285,12 @@ describe('createSessionHost lifecycle', () => {
     expect(view.timeMs).toBe(12_000) // elapsed, not remaining
   })
 
-  it('surfaces the canonical affinity signal as the multi-instance warning (S-012)', async () => {
-    const fake = makeFakeClient([mismatchOutcome])
+  it('P2-04 surfaces a processCount warning even when COM HWND/PID is unavailable', async () => {
+    const noComPid: BridgePollOutcome = {
+      ...mismatchOutcome,
+      observation: { ...mismatchOutcome.observation, comPid: undefined },
+    }
+    const fake = makeFakeClient([noComPid])
     const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
@@ -192,6 +329,7 @@ describe('createSessionHost lifecycle', () => {
       observation: {
         ...playingOutcome.observation,
         primaryVideoId: 501,
+        primaryVideoIndex: 0,
         protocolVersion: 2,
         videos: [{ id: 501, name: 'intro.mp4', duration: 60_000, elapsed: 12_000, remaining: 48_000, status: 'playing', playing: true }],
       },
@@ -201,7 +339,7 @@ describe('createSessionHost lifecycle', () => {
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     const report = diagnostics.buildReport(meta)
-    expect(report).toContain('slide=3 mediaCount=1 selectedMediaId=501')
+    expect(report).toContain('slide=3 mediaCount=1 selectedMediaId=501 selectedMediaIndex=0')
     // S-025: the raw video name never reaches diagnostics; only the numeric id.
     expect(report).not.toContain('intro.mp4')
   })
@@ -218,6 +356,21 @@ describe('createSessionHost lifecycle', () => {
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(host.getProtocolVersion()).toBe(2)
+  })
+
+  it('uses the helper-emitted product version for diagnostics metadata', async () => {
+    const observed: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: { ...playingOutcome.observation, protocolVersion: 1, productVersion: '0.1.0-beta.1' },
+    }
+    const fake = makeFakeClient([observed])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getProtocolVersion()).toBe(1)
+    expect(host.getHelperVersion()).toBe('0.1.0-beta.1')
   })
 
   it('clears the protocol version on a terminal/no-signal transition (S-026 D-2)', async () => {
@@ -270,6 +423,6 @@ describe('createSessionHost lifecycle', () => {
     await vi.advanceTimersByTimeAsync(1_000) // next poll -> slide 4 with no video / no primaryVideoId
     const report = diagnostics.buildReport(meta)
     expect(report).toContain('slide=3 mediaCount=1 selectedMediaId=501')
-    expect(report).toContain('slide=4 mediaCount=0 selectedMediaId=--')
+    expect(report).toContain('slide=4 mediaCount=0 selectedMediaId=-- selectedMediaIndex=--')
   })
 })

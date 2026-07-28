@@ -28,7 +28,7 @@ export type AppDiagEvent =
   | { kind: 'app_launch' }
   | { kind: 'app_shutdown' }
   | { kind: 'availability_transition'; from: string; to: string }
-  | { kind: 'slide_observed'; slideNumber: number | null; mediaCount: number; selectedMediaId: number | null }
+  | { kind: 'slide_observed'; slideNumber: number | null; mediaCount: number; selectedMediaId: number | null; selectedMediaIndex: number | null }
   | { kind: 'affinity'; processCount: number | null; selectedPid: number | null; comPid: number | null; mismatch: boolean }
   | { kind: 'display_change'; displayId: string; scaleFactor: number; displayCount: number }
   | { kind: 'window_bounds'; x: number; y: number; width: number; height: number }
@@ -51,6 +51,7 @@ function formatBridge(event: BridgeDiagnosticEvent): string {
     case 'helper_timeout': return `bridge helper_timeout generation=${event.generation} timeoutMs=${event.timeoutMs}`
     case 'helper_restart': return `bridge helper_restart attempt=${event.attempt} delayMs=${event.delayMs}`
     case 'helper_close': return `bridge helper_close phase=${event.phase}`
+    case 'helper_termination': return `bridge helper_termination generation=${event.generation} context=${event.context} result=${event.result} waitMs=${event.waitMs}`
     case 'helper_stderr': return `bridge helper_stderr generation=${event.generation} byteCount=${event.byteCount}`
     case 'validation_warning': return `bridge validation_warning code=${event.code} path=${event.path}`
     case 'availability': return `bridge availability outcome=${event.outcome}`
@@ -64,7 +65,7 @@ function formatApp(event: AppDiagEvent): string {
     case 'app_launch': return 'app app_launch'
     case 'app_shutdown': return 'app app_shutdown'
     case 'availability_transition': return `app availability_transition from=${event.from} to=${event.to}`
-    case 'slide_observed': return `app slide_observed slide=${event.slideNumber ?? '--'} mediaCount=${event.mediaCount} selectedMediaId=${event.selectedMediaId ?? '--'}`
+    case 'slide_observed': return `app slide_observed slide=${event.slideNumber ?? '--'} mediaCount=${event.mediaCount} selectedMediaId=${event.selectedMediaId ?? '--'} selectedMediaIndex=${event.selectedMediaIndex ?? '--'}`
     case 'affinity': return `app affinity processCount=${event.processCount ?? '--'} selectedPid=${event.selectedPid ?? '--'} comPid=${event.comPid ?? '--'} mismatch=${event.mismatch}`
     case 'display_change': return `app display_change displayId=${event.displayId} scaleFactor=${event.scaleFactor} displayCount=${event.displayCount}`
     case 'window_bounds': return `app window_bounds x=${event.x} y=${event.y} width=${event.width} height=${event.height}`

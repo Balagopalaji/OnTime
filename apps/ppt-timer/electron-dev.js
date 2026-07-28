@@ -2,8 +2,18 @@
 // then launches Electron against it. Production runs the built files instead.
 const { spawn } = require('node:child_process')
 const http = require('node:http')
+const { join, resolve } = require('node:path')
 
 const DEV_URL = 'http://localhost:5173'
+
+// Dev helper discovery: resolve the canonical build output
+// (packages/ppt-bridge/bin/win-x64/ppt-probe.exe) so a developer who has built
+// the helper on Windows gets it discovered automatically. An explicit
+// PPT_PROBE_PATH always wins; on macOS the file does not exist and the app
+// truthfully shows the unavailable state. helper-discovery.ts reads this env.
+const repoRoot = resolve(__dirname, '../..')
+const canonicalHelper = join(repoRoot, 'packages/ppt-bridge/bin/win-x64/ppt-probe.exe')
+const pptProbePath = process.env.PPT_PROBE_PATH || canonicalHelper
 
 const canConnect = () =>
   new Promise((resolve) => {
@@ -28,7 +38,7 @@ async function main() {
     const electronPath = require('electron')
     const child = spawn(electronPath, ['.'], {
       stdio: 'inherit',
-      env: { ...process.env, VITE_DEV_SERVER_URL: DEV_URL },
+      env: { ...process.env, VITE_DEV_SERVER_URL: DEV_URL, PPT_PROBE_PATH: pptProbePath },
     })
     child.on('close', (code) => {
       vite.kill()

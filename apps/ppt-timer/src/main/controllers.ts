@@ -23,7 +23,7 @@ export type WindowEffects = {
 
 export type AppControllersDeps = {
   host: SessionHost
-  settings: Settings
+  getSettings: () => Settings
   saveSettings: (settings: Settings) => Promise<void>
   displays: () => DisplayInfo[]
   upsell: UpsellConfig
@@ -39,9 +39,8 @@ export type AppControllers = {
 }
 
 export function createAppControllers(deps: AppControllersDeps): AppControllers {
-  let settings = deps.settings
-
   const getView = (): AppView => {
+    const settings = deps.getSettings()
     const hostView = deps.host.getView()
     return {
       revision: hostView.revision,
@@ -56,11 +55,11 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
   }
 
   const persist = (next: Settings): void => {
-    settings = next
     void deps.saveSettings(next)
   }
 
   const dispatch = async (action: RendererAction): Promise<void> => {
+    const settings = deps.getSettings()
     switch (action.type) {
       case 'setTimingMode': {
         deps.host.setTimingMode(action.mode)
@@ -79,7 +78,8 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       }
       case 'moveToDisplay': {
         deps.effects.moveToDisplay(action.displayId)
-        persist(withSettingsField(settings, { selectedDisplayId: action.displayId, sizePreset: 'custom' }))
+        // Moving a window does not mean the operator chose a custom size.
+        persist(withSettingsField(settings, { selectedDisplayId: action.displayId }))
         return
       }
       case 'copyDiagnostics': {

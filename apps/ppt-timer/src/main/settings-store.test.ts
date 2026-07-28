@@ -128,4 +128,18 @@ describe('save (S-021 atomic, ordered, serialized)', () => {
     await expect(store.save({ ...DEFAULT_SETTINGS, timingMode: 'elapsed' })).resolves.toBeUndefined()
     expect(fs.files.get(PATH)).toContain('"timingMode": "elapsed"')
   })
+
+  it('persists a manual custom resize across a restart', async () => {
+    const fs = new FakeFs()
+    const beforeRestart = createSettingsStore({ filePath: PATH, fs, now: () => 1 })
+    await beforeRestart.save({
+      ...DEFAULT_SETTINGS,
+      sizePreset: 'custom',
+      windowBounds: { x: 100, y: 200, width: 444, height: 333 },
+    })
+    const afterRestart = createSettingsStore({ filePath: PATH, fs, now: () => 2 })
+    await expect(afterRestart.load()).resolves.toMatchObject({
+      settings: { sizePreset: 'custom', windowBounds: { x: 100, y: 200, width: 444, height: 333 } },
+    })
+  })
 })
