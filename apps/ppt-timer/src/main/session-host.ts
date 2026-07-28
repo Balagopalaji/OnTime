@@ -43,6 +43,8 @@ export type SessionHost = {
   start(): void
   getView(): HostView
   setTimingMode(mode: TimingMode): void
+  /** Validated helper protocol version from the latest observation (S-026, D-2); null until one arrives or after a terminal / no-signal outcome. */
+  getProtocolVersion(): number | null
   shutdown(): Promise<void>
 }
 
@@ -58,6 +60,35 @@ export function deriveMultipleInstanceWarning(outcome: BridgePollOutcome | null)
     return outcome.observation.affinityMismatch === true
   }
   return false
+}
+
+/**
+ * Derive app-local safe diagnostics metadata from the latest outcome (S-026,
+ * D-1/D-2). Carries the canonical helper-emitted selected-media identity
+ * (`primaryVideoId`) and protocol version straight through — it never chooses a
+ * video and never recomputes the projection's `selectPrimaryVideo` rules; it
+ * only forwards what the helper already emitted. Both fields are numeric, so the
+ * S-025 redaction guarantee (no raw video names / titles / contents) holds.
+ *
+ * Both clear to null on terminal / no-signal outcomes — anything that does not
+ * carry an observation (not-running, COM-unavailable, failure, closed, null) —
+ * so a stale media id or protocol version from a defunct slideshow can never
+ * reach the diagnostics report. `no_slideshow` still carries an observation, so
+ * a reported protocol version survives it while the media id clears naturally
+ * (no video is active).
+ */
+export function deriveObservationMeta(outcome: BridgePollOutcome | null): {
+  selectedMediaId: number | null
+  protocolVersion: number | null
+} {
+  if (outcome && (outcome.kind === 'observation' || outcome.kind === 'no_slideshow')) {
+    const observation = outcome.observation
+    return {
+      selectedMediaId: observation.primaryVideoId ?? null,
+      protocolVersion: observation.protocolVersion ?? null,
+    }
+  }
+  return { selectedMediaId: null, protocolVersion: null }
 }
 
 /** Pure projection used by both live transitions and timing-mode reprojection. */
@@ -82,6 +113,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   let lastKind: PresentationSourceState['kind'] | null = null
   let lastSlide: number | null | undefined = undefined
   let lastMediaCount: number | undefined = undefined
+  // App-local safe metadata threaded from the canonical observation into
+  // diagnostics (S-026, D-1/D-2). Updated every poll before the session reduces;
+  // both clear on terminal / no-signal outcomes via deriveObservationMeta.
+  let lastSelectedMediaId: number | null = null
+  let lastProtocolVersion: number | null = null
   let shutdownPromise: Promise<void> | null = null
 
   const client = createClient({
@@ -114,7 +150,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const slide = snap.slideNumber ?? null
       const mediaCount = snap.videos?.length ?? 0
       if (slide !== lastSlide || mediaCount !== lastMediaCount) {
-        diagnostics.push({ kind: 'slide_observed', slideNumber: slide, mediaCount, selectedMediaId: null })
+        diagnostics.push({ kind: 'slide_observed', slideNumber: slide, mediaCount, selectedMediaId: lastSelectedMediaId })
         lastSlide = slide
         lastMediaCount = mediaCount
       }
@@ -126,6 +162,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const outcome = await client.poll()
       const next = deriveMultipleInstanceWarning(outcome)
       if (next !== multipleInstanceWarning) multipleInstanceWarning = next
+      // Thread the canonical helper-emitted media id + protocol version through
+      // app-local safe metadata before the session reduces (D-1/D-2). Both clear
+      // on terminal / no-signal outcomes so diagnostics never carry stale values.
+      const meta = deriveObservationMeta(outcome)
+      lastSelectedMediaId = meta.selectedMediaId
+      lastProtocolVersion = meta.protocolVersion
       recordAffinity(outcome)
       return outcome
     },
@@ -155,6 +197,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
   const getView = (): HostView => currentView
 
+  const getProtocolVersion = (): number | null => lastProtocolVersion
+
   const setTimingMode = (mode: TimingMode): void => {
     if (mode === timingMode) return
     timingMode = mode
@@ -172,5 +216,5 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     return shutdownPromise
   }
 
-  return { start, getView, setTimingMode, shutdown }
+  return { start, getView, setTimingMode, getProtocolVersion, shutdown }
 }

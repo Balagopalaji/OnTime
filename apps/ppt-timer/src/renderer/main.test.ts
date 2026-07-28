@@ -121,6 +121,12 @@ describe('upsell CTA visibility (S-033)', () => {
     ;(root.querySelector('#cta') as HTMLButtonElement).click()
     expect(dispatch).toHaveBeenCalledWith({ type: 'openUpsell' })
   })
+
+  it('uses the exact spec CTA copy (S-033 D-3)', () => {
+    const root = document.createElement('div')
+    renderApp(root, { ...baseView, ctaAvailable: true }, vi.fn())
+    expect(root.querySelector('#cta')?.textContent).toBe('Need full show control? Try OnTime')
+  })
 })
 
 describe('mountApp', () => {

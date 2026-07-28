@@ -133,7 +133,7 @@ function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
   // The upsell CTA is omitted entirely when no exact HTTPS URL is configured
   // (S-033): no placeholder, no disabled dead control that resolves nowhere.
   if (view.ctaAvailable) {
-    const cta = element('button', 'cta', 'Get OnTime')
+    const cta = element('button', 'cta', 'Need full show control? Try OnTime')
     cta.type = 'button'
     cta.id = 'cta'
     cta.addEventListener('click', () => dispatch({ type: 'openUpsell' }))

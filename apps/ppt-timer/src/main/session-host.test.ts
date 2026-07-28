@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BridgePollOutcome, PptBridgeClient, PptBridgeClientOptions } from '@ontime/ppt-bridge'
-import { createSessionHost, deriveMultipleInstanceWarning, projectHostView, type SessionHost } from './session-host'
+import { createSessionHost, deriveMultipleInstanceWarning, deriveObservationMeta, projectHostView, type SessionHost } from './session-host'
+import { DiagnosticsBuffer, type DiagMeta } from './diagnostics'
 
 const ext = { rootUnknownFieldCount: 0, videoUnknownFieldCount: 0, editSlideVideoUnknownFieldCount: 0 }
+
+const meta: DiagMeta = {
+  appVersion: '0.0.0-beta',
+  helperVersion: 'ppt-probe/native',
+  protocolVersion: null,
+  signingStatus: 'unsigned-beta',
+}
 
 const playingOutcome: BridgePollOutcome = {
   kind: 'observation',
@@ -62,6 +70,41 @@ describe('pure helpers', () => {
     const view = projectHostView({ kind: 'unavailable' }, 'remaining', false)
     expect(view.kind).toBe('unavailable')
     expect('timeMs' in view).toBe(false)
+  })
+})
+
+describe('deriveObservationMeta (S-026 D-1/D-2)', () => {
+  it('carries the helper-emitted media id and protocol version from an observation', () => {
+    const outcome: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: { ...playingOutcome.observation, primaryVideoId: 501, protocolVersion: 2 },
+    }
+    expect(deriveObservationMeta(outcome)).toEqual({ selectedMediaId: 501, protocolVersion: 2 })
+  })
+
+  it('does not choose a video itself: no primaryVideoId means null even when video timing is present', () => {
+    // playingOutcome carries videoPlaying/duration/elapsed but no primaryVideoId.
+    expect(deriveObservationMeta(playingOutcome)).toEqual({ selectedMediaId: null, protocolVersion: null })
+  })
+
+  it('keeps a reported protocol version through no_slideshow while the media id clears', () => {
+    const outcome: BridgePollOutcome = {
+      kind: 'no_slideshow',
+      warnings: [],
+      extensions: ext,
+      observation: { state: 'foreground', inSlideshow: false, protocolVersion: 3 },
+    }
+    expect(deriveObservationMeta(outcome)).toEqual({ selectedMediaId: null, protocolVersion: 3 })
+  })
+
+  it('clears both on terminal / no-signal outcomes that carry no observation', () => {
+    expect(deriveObservationMeta(null)).toEqual({ selectedMediaId: null, protocolVersion: null })
+    expect(deriveObservationMeta({ kind: 'powerpoint_not_running', warnings: [], extensions: ext })).toEqual({ selectedMediaId: null, protocolVersion: null })
+    expect(deriveObservationMeta({ kind: 'com_unavailable', warnings: [], extensions: ext })).toEqual({ selectedMediaId: null, protocolVersion: null })
+    expect(deriveObservationMeta(failureOutcome)).toEqual({ selectedMediaId: null, protocolVersion: null })
+    expect(deriveObservationMeta({ kind: 'closed', warnings: [], extensions: ext })).toEqual({ selectedMediaId: null, protocolVersion: null })
   })
 })
 
@@ -138,5 +181,95 @@ describe('createSessionHost lifecycle', () => {
     const host: SessionHost = createSessionHost({ candidates, createClient: fake.create, pollIntervalMs: 1_000 })
     host.start()
     expect(fake.received[0]?.executableCandidates).toBe(candidates)
+  })
+
+  it('threads the canonical selected-media id into slide_observed (S-026 D-1)', async () => {
+    const diagnostics = new DiagnosticsBuffer()
+    const observed: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: {
+        ...playingOutcome.observation,
+        primaryVideoId: 501,
+        protocolVersion: 2,
+        videos: [{ id: 501, name: 'intro.mp4', duration: 60_000, elapsed: 12_000, remaining: 48_000, status: 'playing', playing: true }],
+      },
+    }
+    const fake = makeFakeClient([observed])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000, diagnostics })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    const report = diagnostics.buildReport(meta)
+    expect(report).toContain('slide=3 mediaCount=1 selectedMediaId=501')
+    // S-025: the raw video name never reaches diagnostics; only the numeric id.
+    expect(report).not.toContain('intro.mp4')
+  })
+
+  it('surfaces the validated observation protocol version (S-026 D-2)', async () => {
+    const observed: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: { ...playingOutcome.observation, protocolVersion: 2 },
+    }
+    const fake = makeFakeClient([observed])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getProtocolVersion()).toBe(2)
+  })
+
+  it('clears the protocol version on a terminal/no-signal transition (S-026 D-2)', async () => {
+    const observed: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: { ...playingOutcome.observation, protocolVersion: 2 },
+    }
+    const fake = makeFakeClient([observed, failureOutcome])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getProtocolVersion()).toBe(2)
+    await vi.advanceTimersByTimeAsync(1_000) // next poll -> failure outcome (no observation)
+    expect(host.getProtocolVersion()).toBeNull()
+  })
+
+  it('does not leave a stale selected-media id when a later slide emits none (S-026 D-1)', async () => {
+    const diagnostics = new DiagnosticsBuffer()
+    const slide3withId: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: {
+        ...playingOutcome.observation,
+        slideNumber: 3,
+        primaryVideoId: 501,
+        videos: [{ id: 501, name: 'intro.mp4', duration: 60_000, elapsed: 12_000, remaining: 48_000, status: 'playing', playing: true }],
+      },
+    }
+    const slide4noId: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: {
+        ...playingOutcome.observation,
+        slideNumber: 4,
+        videoDetected: false,
+        videoPlaying: undefined,
+        videoDuration: undefined,
+        videoElapsed: undefined,
+        videoRemaining: undefined,
+      },
+    }
+    const fake = makeFakeClient([slide3withId, slide4noId])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000, diagnostics })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000) // next poll -> slide 4 with no video / no primaryVideoId
+    const report = diagnostics.buildReport(meta)
+    expect(report).toContain('slide=3 mediaCount=1 selectedMediaId=501')
+    expect(report).toContain('slide=4 mediaCount=0 selectedMediaId=--')
   })
 })

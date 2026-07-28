@@ -140,7 +140,9 @@ async function main(): Promise<void> {
   const diagMeta = (): DiagMeta => ({
     appVersion: APP_VERSION,
     helperVersion: HELPER_VERSION,
-    protocolVersion: null,
+    // Validated observation protocol version (S-026, D-2): carried from the
+    // latest helper response and cleared on terminal / no-signal transitions.
+    protocolVersion: host.getProtocolVersion(),
     signingStatus: 'unsigned-beta',
     windowsBitness: process.arch,
   })

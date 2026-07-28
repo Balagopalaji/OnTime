@@ -11,6 +11,7 @@ function makeDeps(overrides: Partial<AppControllersDeps> = {}): AppControllersDe
     start: vi.fn(),
     getView: vi.fn(() => ({ revision: 3, state: connectingState })),
     setTimingMode: vi.fn(),
+    getProtocolVersion: vi.fn(() => null),
     shutdown: vi.fn(async () => undefined),
   }
   return {
