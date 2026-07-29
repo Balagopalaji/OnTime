@@ -6,15 +6,24 @@
  * before-quit shutdown gate. All timing math, projection, validation, and
  * geometry live in the imported modules; this file computes nothing on its own.
  */
-import { app, BrowserWindow, clipboard, screen, shell, type Display } from 'electron'
+import { app, BrowserWindow, clipboard, Menu, screen, shell, type Display } from 'electron'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { UPSELL_URL_CONSTANT } from './config.js'
 import { createAppControllers, type WindowEffects } from './controllers.js'
-import { DiagnosticsBuffer, type DiagMeta } from './diagnostics.js'
+import { DiagnosticsBuffer, isOverlayDebug, type AppDiagEvent, type DiagMeta } from './diagnostics.js'
 import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
+import {
+  attachOverlayDebug,
+  classifyPlacementOutcome,
+  displayEventEvent,
+  placementDecisionEvent,
+  programmaticBoundsEvent,
+  type DisplaySnapshot as DebugDisplaySnapshot,
+  type ProgrammaticBoundsReason,
+} from './overlay-debug.js'
 import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
 import { selectLaunchTargets } from './launch-policy.js'
@@ -23,6 +32,7 @@ import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
 import {
   applyPreset as placePreset,
+  isSubstantiallyVisible,
   moveToDisplay as placeMoveToDisplay,
   restoreBounds,
   type DisplaySnapshot,
@@ -61,9 +71,41 @@ async function main(): Promise<void> {
 
   const diagnostics = new DiagnosticsBuffer()
 
+  // Opt-in Windows overlay diagnostics (ISSUE-001 Presenter View faults). When
+  // PPT_TIMER_DEBUG is unset this entire surface is inert: no listeners, no
+  // reads, no console output, so normal behavior is unchanged.
+  const overlayDebug = isOverlayDebug()
+
   const listDisplayInfos = (): DisplayInfo[] => screen.getAllDisplays().map(toDisplayInfo)
   const listSnapshots = (): DisplaySnapshot[] => screen.getAllDisplays().map(toSnapshot)
   const primarySnapshot = (): DisplaySnapshot => toSnapshot(screen.getPrimaryDisplay())
+
+  // ---- Overlay debug readers (passive getters ONLY; never activate the window)
+  // Each reads state Electron already maintains — getBounds/isVisible/isFocused
+  // etc. — and the matched display's work area + scale factor. No reader here
+  // ever calls focus/show/hide/moveTop/setAlwaysOnTop/setBounds: gathering state
+  // to log must not reorder the z-band or steal focus (which would itself change
+  // the fault under observation and can pause PowerPoint media).
+  /** Map an Electron Display to the debug-display shape (passive read). */
+  const toDebugDisplay = (display: Display): DebugDisplaySnapshot => {
+    const wa = display.workArea
+    return { displayId: String(display.id), scaleFactor: display.scaleFactor, wx: wa.x, wy: wa.y, ww: wa.width, wh: wa.height }
+  }
+
+  /** Map an Electron Rectangle to the debug-bounds shape ({bx,by,bw,bh}). */
+  const toDebugBounds = (r: Rectangle): { bx: number; by: number; bw: number; bh: number } => ({
+    bx: r.x,
+    by: r.y,
+    bw: r.width,
+    bh: r.height,
+  })
+
+  /** Push a debug event into the ring + console only when the flag is set. */
+  const logDebug = (event: AppDiagEvent): void => {
+    if (!overlayDebug) return
+    diagnostics.push(event)
+    console.debug('[ppt-timer:overlay-debug]', event)
+  }
 
   const fs: SettingsFs = {
     readFile: (path) => readFile(path, 'utf8'),
@@ -100,11 +142,18 @@ async function main(): Promise<void> {
     void writeSettings(settingsForResizeEvent(currentSettings, bounds, userResize)).catch(reportWriteError)
     if (bounds) diagnostics.push({ kind: 'window_bounds', x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height })
   }
-  const setProgrammaticBounds = (bounds: Rectangle): void => {
+  const setProgrammaticBounds = (bounds: Rectangle, reason?: ProgrammaticBoundsReason): void => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const current = mainWindow.getBounds()
     resizePolicy.beforeProgrammaticBounds(current, bounds)
     mainWindow.setBounds(bounds)
+    // Record before/after for the debug report. The display id is read AFTER the
+    // setBounds from the matched display (passive read); no activation occurs.
+    if (reason && overlayDebug) {
+      const after = mainWindow.getBounds()
+      const displayId = screen.getDisplayMatching(after).id
+      logDebug(programmaticBoundsEvent(reason, toDebugBounds(current), toDebugBounds(after), String(displayId)))
+    }
   }
 
   const upsell = resolveUpsellUrl(UPSELL_URL_CONSTANT)
@@ -135,14 +184,14 @@ async function main(): Promise<void> {
     setAlwaysOnTop: (enabled) => mainWindow?.setAlwaysOnTop(enabled),
     applyPreset: (preset) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
-      setProgrammaticBounds(placePreset(mainWindow.getBounds(), preset, workAreaForWindow()))
+      setProgrammaticBounds(placePreset(mainWindow.getBounds(), preset, workAreaForWindow()), 'preset')
     },
     moveToDisplay: (displayId) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
       const target = listSnapshots().find((snapshot) => snapshot.id === displayId)
       if (!target) return
       const bounds = mainWindow.getBounds()
-      setProgrammaticBounds(placeMoveToDisplay(target, { width: bounds.width, height: bounds.height }))
+      setProgrammaticBounds(placeMoveToDisplay(target, { width: bounds.width, height: bounds.height }), 'moveToDisplay')
       diagnostics.push({
         kind: 'display_change',
         displayId,
@@ -186,13 +235,24 @@ async function main(): Promise<void> {
   const revalidatePlacement = (): void => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const bounds = mainWindow.getBounds()
+    const displays = listSnapshots()
     const restored = restoreBounds({
       saved: boundsToWindow(bounds),
       savedDisplayId: currentSettings.selectedDisplayId,
-      displays: listSnapshots(),
+      displays,
       primary: primarySnapshot(),
     })
-    if (!boundsEqual(restored, bounds)) setProgrammaticBounds(restored)
+    // Overlay debug: classify the decision (kept/clamped/recentered) WITHOUT
+    // changing placement policy — purely by observing saved visibility and the
+    // restored bounds. `visibleOnDisplayId` is the display the pre-restore bounds
+    // were substantially visible on (null ⇒ none ⇒ restore will recenter).
+    if (overlayDebug) {
+      const visibleOn = displays.find((display) => isSubstantiallyVisible(bounds, display.workArea)) ?? null
+      const target = displays.find((display) => isSubstantiallyVisible(restored, display.workArea)) ?? primarySnapshot()
+      const outcome = classifyPlacementOutcome(toDebugBounds(bounds), toDebugBounds(restored), visibleOn?.id ?? null)
+      logDebug(placementDecisionEvent(outcome, visibleOn?.id ?? null, target.id, toDebugBounds(restored)))
+    }
+    if (!boundsEqual(restored, bounds)) setProgrammaticBounds(restored, 'revalidate')
     pushView() // the display list changed; refresh the renderer's selector
   }
 
@@ -234,6 +294,29 @@ async function main(): Promise<void> {
       mainWindow = null
     })
 
+    // Opt-in overlay diagnostics (PPT_TIMER_DEBUG=1). The listener wiring lives
+    // in attachOverlayDebug (pure module); here we inject the Electron window +
+    // screen and a literal-name bind so the per-literal `.on` overloads resolve.
+    // Listeners are registered ONLY when the flag is set, so a normal run
+    // attaches nothing. Each handler reads passive state and pushes a debug
+    // event; none activate the window (see overlay-debug.ts constraints).
+    if (overlayDebug) {
+      const win0 = mainWindow
+      attachOverlayDebug(win0, screen, (event, listener) => {
+        switch (event) {
+          case 'ready-to-show': return win0.on('ready-to-show', listener)
+          case 'show': return win0.on('show', listener)
+          case 'hide': return win0.on('hide', listener)
+          case 'focus': return win0.on('focus', listener)
+          case 'blur': return win0.on('blur', listener)
+          case 'restore': return win0.on('restore', listener)
+          case 'minimize': return win0.on('minimize', listener)
+          case 'moved': return win0.on('moved', listener)
+          case 'resized': return win0.on('resized', listener)
+        }
+      }, logDebug)
+    }
+
     bindPptTimerIpc(mainWindow, controllers)
 
     if (launchTargets.rendererUrl) void mainWindow.loadURL(launchTargets.rendererUrl)
@@ -265,11 +348,27 @@ async function main(): Promise<void> {
 
   await app.whenReady()
 
+  // Remove the generic Windows Electron application menu (File/Edit/View/Window/
+  // Help). A timer overlay has no document/edit surface, and the default menu's
+  // fullscreen/toggle entries are irrelevant; clearing it also removes an
+  // accidental accelerator surface. Uses the supported Menu API (null ⇒ no app
+  // menu; windows keep their system icon/min/max/close controls).
+  Menu.setApplicationMenu(null)
+
   // The `screen` module is only usable after the app is ready; register the
   // placement-revalidation listeners here (S-022 display add/remove/DPI change).
-  screen.on('display-added', revalidatePlacement)
-  screen.on('display-removed', revalidatePlacement)
-  screen.on('display-metrics-changed', revalidatePlacement)
+  screen.on('display-added', (_event, display) => {
+    revalidatePlacement()
+    if (overlayDebug) logDebug(displayEventEvent('display-added', toDebugDisplay(display), screen.getAllDisplays().length))
+  })
+  screen.on('display-removed', (_event, display) => {
+    revalidatePlacement()
+    if (overlayDebug) logDebug(displayEventEvent('display-removed', toDebugDisplay(display), screen.getAllDisplays().length))
+  })
+  screen.on('display-metrics-changed', (_event, display) => {
+    revalidatePlacement()
+    if (overlayDebug) logDebug(displayEventEvent('display-metrics-changed', toDebugDisplay(display), screen.getAllDisplays().length))
+  })
 
   diagnostics.push({ kind: 'app_launch' })
   createWindow()
