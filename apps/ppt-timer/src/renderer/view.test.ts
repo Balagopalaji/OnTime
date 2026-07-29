@@ -68,6 +68,7 @@ describe('describeView — presentation states', () => {
     ...ortho,
     multipleVideos: false,
     videoCount: 1,
+    videos: [],
   }
 
   it('S-005 no_video shows slide/title and the no-video message with no time', () => {
@@ -133,23 +134,24 @@ describe('describeView — indicators and overlays', () => {
       selectedVideoId: 502, selectedVideoName: 'Intro.mp4',
       timeMs: 1000, durationMs: 2000,
       multipleVideos: true, videoCount: 3, multipleInstanceWarning: false,
+      videos: [],
     }))
     expect(multi.videoText).toBe('3 videos')
   })
 
   it('S-012 multiple-instance warning renders the overlay text alongside any state', () => {
-    const m = describeView(state({ kind: 'playing', slideNumber: 1, totalSlides: 1, title: 'D', filenameBasename: 'D', timeMs: 1000, durationMs: 2000, multipleVideos: false, videoCount: 1, multipleInstanceWarning: true }))
+    const m = describeView(state({ kind: 'playing', slideNumber: 1, totalSlides: 1, title: 'D', filenameBasename: 'D', timeMs: 1000, durationMs: 2000, multipleVideos: false, videoCount: 1, multipleInstanceWarning: true, videos: [] }))
     expect(m.multiInstanceWarning).toBe('Multiple PowerPoint instances detected; verify the deck')
     expect(m.badge).toBe('playing')
   })
 
   it('S-015 missing total slide count renders "Slide X of --"', () => {
-    const m = describeView(state({ kind: 'playing', slideNumber: 8, totalSlides: undefined, title: 'D', filenameBasename: 'D', timeMs: 1000, durationMs: 2000, multipleVideos: false, videoCount: 1, multipleInstanceWarning: false }))
+    const m = describeView(state({ kind: 'playing', slideNumber: 8, totalSlides: undefined, title: 'D', filenameBasename: 'D', timeMs: 1000, durationMs: 2000, multipleVideos: false, videoCount: 1, multipleInstanceWarning: false, videos: [] }))
     expect(m.slideText).toBe('Slide 8 of --')
   })
 
   it('S-016 hides the full path, showing title/basename only', () => {
-    const m = describeView(state({ kind: 'no_video', slideNumber: 1, totalSlides: 1, title: 'Secret Deck.pptx', filenameBasename: 'Secret Deck.pptx', timeMs: null, durationMs: null, multipleVideos: false, videoCount: 0, multipleInstanceWarning: false }))
+    const m = describeView(state({ kind: 'no_video', slideNumber: 1, totalSlides: 1, title: 'Secret Deck.pptx', filenameBasename: 'Secret Deck.pptx', timeMs: null, durationMs: null, multipleVideos: false, videoCount: 0, multipleInstanceWarning: false, videos: [] }))
     expect(m.titleText).toBe('Secret Deck.pptx')
     expect(m.titleText).not.toContain('/')
     expect(m.titleText).not.toContain('\\')

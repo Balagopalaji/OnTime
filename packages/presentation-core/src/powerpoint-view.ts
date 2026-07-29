@@ -77,12 +77,12 @@ export type PowerPointViewPresentation = {
   timeMs: number | null
   durationMs: number | null
   /**
-   * Resolved row for every slide video, in shape order (ISSUE-001). The real
-   * projection always populates this; it is optional only so hand-built view
-   * fixtures (e.g. in the renderer tests, which construct partial states) keep
-   * type-checking without naming every presentation field.
+   * Resolved row for every slide video, in shape order (ISSUE-001). Always
+   * populated by the projection for presentation-kind states (empty array when
+   * the slide has no videos); required on the contract so every consumer can
+   * iterate it without a `?? []` guard (P2-3).
    */
-  videos?: PowerPointVideoTile[]
+  videos: PowerPointVideoTile[]
 }
 
 export type PowerPointViewState = PowerPointViewStateBase &
@@ -95,7 +95,30 @@ export type PowerPointViewState = PowerPointViewStateBase &
   )
 
 /** End-inference threshold (spec "one canonical capability" constraint). */
-const POWERPOINT_END_INFER_MS = 250
+export const POWERPOINT_END_INFER_MS = 250
+
+/**
+ * Resolve a video's display status to exactly one of four states (ISSUE-001).
+ * Precedence: ended > playing > paused > ready. An `ended` signal (explicit
+ * status, zero/negative remaining, or duration-elapsed within the 250 ms end
+ * threshold) outranks a contradictory `playing` flag. A video with positive
+ * elapsed that is neither playing nor ended is `paused`; otherwise `ready`.
+ *
+ * This is the ONE canonical resolver for the standalone path: both the view
+ * projection and the host focus tracker (`focus-tracker.ts`) import it so the
+ * end-inference rule and threshold cannot drift between layers (P2-1).
+ */
+export function resolveVideoStatus(v: PresentationVideo): 'ready' | 'playing' | 'paused' | 'ended' {
+  const inferredEnded =
+    v.status === 'ended' ||
+    (v.remaining !== undefined && v.remaining <= 0) ||
+    (v.duration !== undefined && v.elapsed !== undefined && v.duration - v.elapsed <= POWERPOINT_END_INFER_MS)
+  if (inferredEnded) return 'ended'
+  if (v.status === 'playing' || v.playing === true) return 'playing'
+  if (v.status === 'paused') return 'paused'
+  if (v.elapsed !== undefined && v.elapsed > 0) return 'paused'
+  return 'ready'
+}
 
 /** Pure separator-based basename supporting both `/` and `\` (no Node `path`). */
 function basename(filename: string | undefined): string | undefined {
@@ -137,7 +160,7 @@ function selectPrimaryVideo(
   videos: readonly PresentationVideo[],
   options: Pick<ProjectPowerPointViewOptions, 'primaryVideoId' | 'primaryVideoIndex' | 'playOrder'>,
   allowHeuristicFallback: boolean,
-): { video: PresentationVideo | undefined; fromFocus: boolean } {
+): { video: PresentationVideo | undefined; index: number; fromFocus: boolean } {
   // Focus branch (0): only when the host has ranked at least one present video.
   if (options.playOrder !== undefined && options.playOrder.size > 0) {
     let bestPlayingIndex = -1
@@ -149,7 +172,7 @@ function selectPrimaryVideo(
       if (v === undefined || v.id === undefined) continue
       const rank = options.playOrder.get(v.id)
       if (rank === undefined) continue
-      const status = resolveTileStatus(v)
+      const status = resolveVideoStatus(v)
       if (status === 'playing') {
         if (rank > bestPlayingRank) {
           bestPlayingRank = rank
@@ -163,45 +186,26 @@ function selectPrimaryVideo(
       }
     }
     const focusIndex = bestPlayingIndex !== -1 ? bestPlayingIndex : bestRetainedIndex
-    if (focusIndex !== -1) return { video: videos[focusIndex], fromFocus: true }
+    if (focusIndex !== -1) return { video: videos[focusIndex], index: focusIndex, fromFocus: true }
     // No ranked video is playing/paused/ended: fall through to legacy so a
     // ready-only slide still resolves a primary for labels/scalar fallback.
   }
 
   if (options.primaryVideoId !== undefined) {
-    const byId = videos.find((v) => v.id !== undefined && v.id === options.primaryVideoId)
-    if (byId) return { video: byId, fromFocus: false }
+    const byIdIndex = videos.findIndex((v) => v.id !== undefined && v.id === options.primaryVideoId)
+    if (byIdIndex !== -1) return { video: videos[byIdIndex], index: byIdIndex, fromFocus: false }
   }
   if (
     options.primaryVideoIndex !== undefined &&
     options.primaryVideoIndex >= 0 &&
     options.primaryVideoIndex < videos.length
   ) {
-    return { video: videos[options.primaryVideoIndex], fromFocus: false }
+    return { video: videos[options.primaryVideoIndex], index: options.primaryVideoIndex, fromFocus: false }
   }
-  if (!allowHeuristicFallback) return { video: undefined, fromFocus: false }
-  const playing = videos.find((v) => v.status === 'playing' || v.playing === true)
-  if (playing) return { video: playing, fromFocus: false }
-  return { video: videos.length > 0 ? videos[0] : undefined, fromFocus: false }
-}
-
-/**
- * Resolve a video's display status to exactly one of four states (ISSUE-001).
- * Precedence: ended > playing > paused > ready. An `ended` signal (explicit
- * status, zero/negative remaining, or duration-elapsed within the 250 ms end
- * threshold) outranks a contradictory `playing` flag. A video with positive
- * elapsed that is neither playing nor ended is `paused`; otherwise `ready`.
- */
-function resolveTileStatus(v: PresentationVideo): 'ready' | 'playing' | 'paused' | 'ended' {
-  const inferredEnded =
-    v.status === 'ended' ||
-    (v.remaining !== undefined && v.remaining <= 0) ||
-    (v.duration !== undefined && v.elapsed !== undefined && v.duration - v.elapsed <= POWERPOINT_END_INFER_MS)
-  if (inferredEnded) return 'ended'
-  if (v.status === 'playing' || v.playing === true) return 'playing'
-  if (v.status === 'paused') return 'paused'
-  if (v.elapsed !== undefined && v.elapsed > 0) return 'paused'
-  return 'ready'
+  if (!allowHeuristicFallback) return { video: undefined, index: -1, fromFocus: false }
+  const playingIndex = videos.findIndex((v) => v.status === 'playing' || v.playing === true)
+  if (playingIndex !== -1) return { video: videos[playingIndex], index: playingIndex, fromFocus: false }
+  return { video: videos.length > 0 ? videos[0] : undefined, index: videos.length > 0 ? 0 : -1, fromFocus: false }
 }
 
 /**
@@ -209,7 +213,7 @@ function resolveTileStatus(v: PresentationVideo): 'ready' | 'playing' | 'paused'
  * `isFocus` marker is applied by the caller after focus resolution.
  */
 function toTile(v: PresentationVideo, ordinal: number, isFocus: boolean): PowerPointVideoTile {
-  const status = resolveTileStatus(v)
+  const status = resolveVideoStatus(v)
   const durationMs = v.duration ?? null
   const elapsedMs = v.elapsed ?? null
   const remainingMs =
@@ -265,37 +269,48 @@ export function projectPowerPointView(
     snap.protocolVersion === undefined || snap.protocolVersion === 0,
   )
   const selected = selection.video
+  const selectedIndex = selection.index
   const fromFocus = selection.fromFocus
   const videoCount = videos.length
   const multipleVideos = videoCount > 1
 
-  // Resolve one row per slide video, marking the focus. Tiles always carry the
-  // observed truth (no extrapolation); the renderer owns any smoothing tick.
-  const focusId = selected?.id
+  // Resolve one row per slide video, marking the focus by ORDINAL (P1-3). The
+  // focus is the row the selector returned, matched by position rather than id,
+  // so an id-less or duplicate-id focus video is still marked on exactly one
+  // row. Tiles always carry the observed truth (no extrapolation); the renderer
+  // owns any smoothing tick.
   const tiles: PowerPointVideoTile[] = videos.map((v, ordinal) =>
-    toTile(v, ordinal, v.id !== undefined && v.id === focusId),
+    toTile(v, ordinal, ordinal === selectedIndex),
   )
 
   // Aggregate timing for the large-timer scalar.
-  // - Focus-selected (ISSUE-001): the focus row's OWN observed values lead; the
-  //   helper scalar is only a fallback. This prevents the big timer from showing
-  //   another video's time when focus ≠ helper primary.
+  // - Focus-selected (ISSUE-001): the focus row's OWN observed values are used
+  //   ALL OR NOTHING (P1-2). If the focus row has any usable timing field, none
+  //   of its missing fields are borrowed from the helper-primary scalar; the
+  //   derived `duration - elapsed` fills gaps from the same row instead. Only
+  //   when the focus row has NO timing data does the helper scalar fall back in
+  //   (so a focus tile that is timing-only-absent degrades, never mixes).
   // - Legacy/helper-primary: scalar preferred (helper canonical primary,
   //   preserves D10 scalar fallback); selected-video timing is the fallback.
-  const duration = fromFocus
-    ? selected?.duration ?? snap.videoDuration
+  const focusHasTiming =
+    selected !== undefined &&
+    (selected.duration !== undefined || selected.elapsed !== undefined || selected.remaining !== undefined)
+  const useFocus = fromFocus && focusHasTiming
+  const duration = useFocus
+    ? selected!.duration
     : snap.videoDuration ?? selected?.duration
-  const elapsed = fromFocus
-    ? selected?.elapsed ?? snap.videoElapsed
+  const elapsed = useFocus
+    ? selected!.elapsed
     : snap.videoElapsed ?? selected?.elapsed
-  const observedRemaining = fromFocus
-    ? selected?.remaining ?? snap.videoRemaining
+  const observedRemaining = useFocus
+    ? selected!.remaining
     : snap.videoRemaining ?? selected?.remaining
   // Derive remaining only when no observed remaining exists.
   const resolvedRemaining =
     observedRemaining ?? (duration !== undefined && elapsed !== undefined ? duration - elapsed : undefined)
 
   const hasTiming = duration !== undefined || elapsed !== undefined || resolvedRemaining !== undefined
+  const focusStatus = fromFocus && selected !== undefined ? resolveVideoStatus(selected) : undefined
   const selectedStatus = selected?.status
   const hasPlaybackSignal =
     snap.videoPlaying !== undefined || selected?.playing !== undefined || selectedStatus !== undefined
@@ -325,15 +340,26 @@ export function projectPowerPointView(
   if (snap.videoTimingUnavailable === true || (!hasTiming && !hasPlaybackSignal)) {
     return { kind: 'timing_unavailable', ...common, timeMs: null, durationMs: null, multipleVideos, videoCount, ...ortho }
   }
-  // 4. ended: explicit status, remaining zero/below, or duration-elapsed within 250ms
-  const isEnded =
-    selectedStatus === 'ended' ||
-    (resolvedRemaining !== undefined && resolvedRemaining <= 0) ||
-    (duration !== undefined && elapsed !== undefined && duration - elapsed <= POWERPOINT_END_INFER_MS)
-  // 5. playing
-  const isPlaying = selectedStatus === 'playing' || selected?.playing === true || snap.videoPlaying === true
-  // 6. paused: explicit status, or non-playing evidence with positive elapsed below end threshold
-  const isPaused = selectedStatus === 'paused' || (elapsed !== undefined && elapsed > 0 && !isEnded && !isPlaying)
+  // 4-6. Resolve the headline kind/status. When the focus row was selected by
+  // playOrder (P1-1), the headline status comes ONLY from that row's resolved
+  // status — the helper-primary scalar `videoPlaying` and the raw per-video
+  // `status` of OTHER videos cannot override it, and the tile and headline can
+  // never disagree. Otherwise the historical precedence applies.
+  let isEnded: boolean
+  let isPlaying: boolean
+  let isPaused: boolean
+  if (focusStatus !== undefined) {
+    isEnded = focusStatus === 'ended'
+    isPlaying = focusStatus === 'playing'
+    isPaused = focusStatus === 'paused'
+  } else {
+    isEnded =
+      selectedStatus === 'ended' ||
+      (resolvedRemaining !== undefined && resolvedRemaining <= 0) ||
+      (duration !== undefined && elapsed !== undefined && duration - elapsed <= POWERPOINT_END_INFER_MS)
+    isPlaying = selectedStatus === 'playing' || selected?.playing === true || snap.videoPlaying === true
+    isPaused = selectedStatus === 'paused' || (elapsed !== undefined && elapsed > 0 && !isEnded && !isPlaying)
+  }
 
   let kind: PowerPointViewPresentation['kind']
   let timeMs: number | null

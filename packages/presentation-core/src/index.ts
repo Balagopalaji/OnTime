@@ -18,9 +18,10 @@ export type {
   PowerPointMachineState,
   PresentationMachineAction,
 } from './powerpoint-machine'
-export { projectPowerPointView } from './powerpoint-view'
+export { POWERPOINT_END_INFER_MS, projectPowerPointView, resolveVideoStatus } from './powerpoint-view'
 export type {
   PowerPointTimingMode,
+  PowerPointVideoTile,
   PowerPointViewPresentation,
   PowerPointViewState,
   PowerPointViewStateBase,

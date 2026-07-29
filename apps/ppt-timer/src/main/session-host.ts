@@ -28,6 +28,7 @@ import { projectPowerPointView } from '@ontime/presentation-core'
 import type { PresentationSourceState, PowerPointViewState } from '@ontime/presentation-core'
 import type { TimingMode } from '../shared/ipc-contract.js'
 import type { DiagnosticsBuffer } from './diagnostics.js'
+import { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
 
 export type HostView = { revision: number; state: PowerPointViewState }
 
@@ -109,13 +110,10 @@ export function projectHostView(
   return projectPowerPointView(source, { timingMode, multipleInstanceWarning, playOrder })
 }
 
-// Standalone multi-video focus tracker (ISSUE-001). The pure recency rules live
+// Standalone multi-video focus tracker (ISSUE-001): the pure recency rules live
 // in `./focus-tracker` (carved out to stay under the production-file line cap);
-// they are re-exported here so existing callers/tests keep importing from this
-// module, and `createSessionHost` wires the stateful instance below.
-export { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
-export type { FocusTrackerState } from './focus-tracker.js'
-import { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
+// `createSessionHost` owns the stateful instance and feeds each transition
+// through it below.
 
 export function createSessionHost(options: SessionHostOptions): SessionHost {
   const pollIntervalMs = options.pollIntervalMs ?? 1_000
@@ -217,10 +215,16 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     onTransition: (result) => {
       recordTransition(result.state.sourceState)
       const source = result.state.sourceState
-      // Advance the focus tracker only for presentation observations; any other
-      // source kind leaves the history intact (it clears naturally on a scope
-      // change when the next presentation arrives, and the projection ignores
-      // playOrder for non-presentation kinds anyway).
+      // Advance the focus tracker for presentation observations. EVERY other
+      // source kind resets the history (P0-1): the reducer can emit
+      // `unavailable` / `powerpoint_not_running` / `no_slideshow` on the SAME
+      // instance + slide (slideshow stop/restart, a transient COM failure, or a
+      // helper crash/recovery), so the tracker's scope-change check alone would
+      // NOT fire and stale ranks would survive the interruption. Resetting here
+      // means the post-recovery presentation re-enters the cold-start path and
+      // re-applies the lowest-elapsed / shape-order rule. The projection ignores
+      // playOrder for non-presentation kinds anyway, so the reset has no visible
+      // effect until the next presentation arrives.
       if (source.kind === 'presentation') {
         focus = applyFocusTransition(
           focus,
@@ -228,6 +232,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           source.snapshot.slideNumber,
           source.snapshot.videos ?? [],
         )
+      } else {
+        focus = initFocusTracker()
       }
       publish(projectHostView(source, timingMode, multipleInstanceWarning, focus.playOrder))
     },

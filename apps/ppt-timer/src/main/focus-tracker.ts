@@ -25,20 +25,16 @@
  * This module imports no Electron/Node builtins and performs no I/O; it is safe
  * to unit-test in isolation with plain data.
  */
+import { resolveVideoStatus } from '@ontime/presentation-core'
 import type { PresentationVideo } from '@ontime/presentation-core'
 
-/** Resolved per-video status used by the tracker (ended outranks a playing flag). */
-export function resolveFocusStatus(v: PresentationVideo): 'ready' | 'playing' | 'paused' | 'ended' {
-  const inferredEnded =
-    v.status === 'ended' ||
-    (v.remaining !== undefined && v.remaining <= 0) ||
-    (v.duration !== undefined && v.elapsed !== undefined && v.duration - v.elapsed <= 250)
-  if (inferredEnded) return 'ended'
-  if (v.status === 'playing' || v.playing === true) return 'playing'
-  if (v.status === 'paused') return 'paused'
-  if (v.elapsed !== undefined && v.elapsed > 0) return 'paused'
-  return 'ready'
-}
+/**
+ * Resolved per-video status (ended outranks a playing flag). This re-exports
+ * the ONE canonical resolver from presentation-core so the tracker and the
+ * view projection can never disagree on status/end inference (P2-1). Kept as a
+ * local alias purely so existing tests can import the symbol from this module.
+ */
+export { resolveVideoStatus as resolveFocusStatus }
 
 /** Standalone focus-tracker state. Replaced, never mutated, across transitions. */
 export type FocusTrackerState = {
@@ -91,7 +87,7 @@ export function applyFocusTransition(
   // Current playing set, keyed off RESOLVED status (ended outranks a playing flag).
   const playingNow = new Set<number>()
   for (const v of videos) {
-    if (v.id !== undefined && resolveFocusStatus(v) === 'playing') playingNow.add(v.id)
+    if (v.id !== undefined && resolveVideoStatus(v) === 'playing') playingNow.add(v.id)
   }
 
   if (cold) {
@@ -103,7 +99,7 @@ export function applyFocusTransition(
     // treated as +inf so it loses to any video with a known low elapsed.
     const playing = videos
       .map((v, ordinal) => ({ v, ordinal }))
-      .filter((e) => e.v.id !== undefined && resolveFocusStatus(e.v) === 'playing')
+      .filter((e) => e.v.id !== undefined && resolveVideoStatus(e.v) === 'playing')
     if (playing.length > 0) {
       playing.sort((a, b) => {
         const ea = a.v.elapsed ?? Number.POSITIVE_INFINITY

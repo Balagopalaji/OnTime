@@ -17,6 +17,7 @@ const playing: PowerPointViewState = {
   multipleVideos: false,
   videoCount: 1,
   multipleInstanceWarning: false,
+  videos: [],
 }
 
 const baseView: AppView = {

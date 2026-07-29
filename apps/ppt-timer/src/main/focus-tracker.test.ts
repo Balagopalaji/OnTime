@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { resolveVideoStatus } from '@ontime/presentation-core'
 import type { PresentationVideo } from '@ontime/presentation-core'
 import {
   applyFocusTransition,
@@ -61,6 +62,23 @@ describe('resolveFocusStatus', () => {
     expect(resolveFocusStatus({ id: 1, duration: 10_000, elapsed: 1_000 })).toBe('paused')
     expect(resolveFocusStatus({ id: 1, duration: 10_000, elapsed: 0 })).toBe('ready')
     expect(resolveFocusStatus({ id: 1, duration: 10_000 })).toBe('ready')
+  })
+
+  // P2-1: the tracker resolver is the ONE canonical resolver exported from
+  // presentation-core. The local alias must be the same function, so the
+  // tracker and the view projection can never disagree on status/end inference
+  // or the 250 ms threshold.
+  it('P2-1 resolveFocusStatus is the canonical resolveVideoStatus (no duplicate rule)', () => {
+    expect(resolveFocusStatus).toBe(resolveVideoStatus)
+    const samples: PV[] = [
+      { id: 1, duration: 10_000, elapsed: 9_900, remaining: 100 }, // inferred ended
+      { id: 2, status: 'ended', playing: true }, // ended outranks playing
+      { id: 3, elapsed: 2_000, status: 'paused' },
+      { id: 4, duration: 5_000 },
+    ]
+    for (const s of samples) {
+      expect(resolveFocusStatus(s)).toBe(resolveVideoStatus(s))
+    }
   })
 })
 

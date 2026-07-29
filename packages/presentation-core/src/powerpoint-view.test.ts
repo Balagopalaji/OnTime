@@ -697,4 +697,154 @@ describe('ISSUE-001 multi-video focus', () => {
     expect(connecting.videos).toBeUndefined()
     expect(unavailable.videos).toBeUndefined()
   })
+
+  // P1-1: when focus comes from playOrder, the headline kind/status is derived
+  // from the focus row ONLY. The helper-primary scalar `videoPlaying` cannot
+  // override it, so tile.status and headline kind can never disagree.
+  it('P1-1 headline status ignores the helper-primary scalar when focus is from playOrder', () => {
+    const src: PowerPointPollResult = {
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId: 1,
+      slideNumber: 1,
+      title: 'Deck',
+      videoDetected: true,
+      protocolVersion: 1,
+      primaryVideoId: 10,
+      // Helper-primary scalar claims playing, but the focus row (id 20) is paused.
+      videoPlaying: true,
+      videoDuration: 5_000,
+      videoElapsed: 1_000,
+      videoRemaining: 4_000,
+      videos: [
+        { id: 10, name: 'helper', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'ended', playing: true },
+        { id: 20, name: 'focus', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: 'paused', playing: false },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(src), {
+      ...remaining,
+      playOrder: new Map([[20, 1]]),
+    }) as PowerPointViewState & { kind: string; selectedVideoId?: number; videos?: PowerPointVideoTile[] }
+    expect(v.kind).toBe('paused') // focus row status, NOT 'playing' from the helper scalar
+    const focusTile = v.videos?.find((t) => t.isFocus)
+    expect(focusTile?.status).toBe('paused')
+    expect(focusTile?.id).toBe(20)
+  })
+
+  it('P1-1 invariant: whenever a tile isFocus, its status maps to the headline kind', () => {
+    const cases: Array<{ status: 'playing' | 'paused' | 'ended'; playOrder: Map<number, number> }> = [
+      { status: 'playing', playOrder: new Map([[20, 1]]) },
+      { status: 'paused', playOrder: new Map([[20, 1]]) },
+      { status: 'ended', playOrder: new Map([[20, 1]]) },
+    ]
+    for (const c of cases) {
+      const src: PowerPointPollResult = {
+        state: 'foreground',
+        inSlideshow: true,
+        instanceId: 1,
+        slideNumber: 1,
+        title: 'Deck',
+        videoDetected: true,
+        protocolVersion: 1,
+        primaryVideoId: 10,
+        videoPlaying: true, // contradictory; must be ignored under focus
+        videoDuration: 8_000,
+        videoElapsed: 2_000,
+        videoRemaining: 6_000,
+        videos: [
+          { id: 10, name: 'other', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'playing', playing: true },
+          { id: 20, name: 'focus', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: c.status, playing: c.status === 'playing' },
+        ],
+      }
+      const v = projectPowerPointView(presentationFrom(src), { ...remaining, playOrder: c.playOrder }) as PowerPointViewState & {
+        kind: string
+        videos?: PowerPointVideoTile[]
+      }
+      expect(v.kind).toBe(c.status)
+    }
+  })
+
+  // P1-2: focus timing fallback is all-or-nothing at the ROW level. A focus row
+  // with partial timing never borrows the missing fields from another video's
+  // scalar — it degrades (null / derived from its own duration-elapsed) instead.
+  it('P1-2 a focus row with elapsed only does not borrow another video scalar fields', () => {
+    const src: PowerPointPollResult = {
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId: 1,
+      slideNumber: 1,
+      title: 'Deck',
+      videoDetected: true,
+      protocolVersion: 1,
+      primaryVideoId: 10,
+      // Helper-primary scalar is fully populated for id 10 — must NOT leak into id 20.
+      videoDuration: 5_000,
+      videoElapsed: 1_000,
+      videoRemaining: 4_000,
+      videos: [
+        { id: 10, name: 'helper', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'playing', playing: true },
+        { id: 20, name: 'focus', elapsed: 2_000, status: 'paused', playing: false }, // no duration/remaining
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(src), {
+      ...remaining,
+      playOrder: new Map([[20, 1]]),
+    }) as PowerPointViewState & { timeMs: number | null; durationMs: number | null }
+    // No borrowed scalar: durationMs is null (focus row had no duration), and
+    // timeMs is NOT the helper's 4_000.
+    expect(v.durationMs).toBeNull()
+    expect(v.timeMs).not.toBe(4_000)
+  })
+
+  // P1-3: focus is marked by ORDINAL, not id. An id-less or duplicate-id focus
+  // video produces exactly one isFocus row.
+  it('P1-3 marks exactly one focus tile for id-less videos (legacy path)', () => {
+    const src: PowerPointPollResult = {
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId: 1,
+      slideNumber: 1,
+      title: 'Deck',
+      videoDetected: true,
+      videos: [
+        { name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000 }, // no id
+        { name: 'second', duration: 8_000, elapsed: 2_000, remaining: 6_000 },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(src), remaining) as PowerPointViewState & {
+      selectedVideoName?: string
+      videos?: PowerPointVideoTile[]
+    }
+    // Legacy first-video fallback selects the id-less first video.
+    expect(v.selectedVideoName).toBe('first')
+    const focusTiles = v.videos?.filter((t) => t.isFocus) ?? []
+    expect(focusTiles).toHaveLength(1)
+    expect(focusTiles[0]?.name).toBe('first')
+  })
+
+  it('P1-3 marks exactly one focus tile when ids are duplicated (focus branch)', () => {
+    // Two videos share id 99; focus selects the higher-ranked one. Both would
+    // match under an id-based marker — only the selected ORDINAL is marked.
+    const src: PowerPointPollResult = {
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId: 1,
+      slideNumber: 1,
+      title: 'Deck',
+      videoDetected: true,
+      videos: [
+        { id: 99, name: 'first-dup', duration: 8_000, elapsed: 5_000, remaining: 3_000, status: 'playing', playing: true },
+        { id: 99, name: 'second-dup', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: 'playing', playing: true },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(src), {
+      ...remaining,
+      // Rank the second duplicate higher (more recent) so it becomes focus.
+      // playOrder keys by id, so both share rank 2 here; the focus resolver
+      // still picks a single ordinal — the first one encountered at max rank.
+      playOrder: new Map([[99, 2]]),
+    }) as PowerPointViewState & { videos?: PowerPointVideoTile[] }
+    const focusTiles = v.videos?.filter((t) => t.isFocus) ?? []
+    expect(focusTiles).toHaveLength(1)
+  })
 })
