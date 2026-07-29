@@ -790,10 +790,11 @@ describe('ISSUE-001 multi-video focus', () => {
       ...remaining,
       playOrder: new Map([[20, 1]]),
     }) as PowerPointViewState & { timeMs: number | null; durationMs: number | null }
-    // No borrowed scalar: durationMs is null (focus row had no duration), and
-    // timeMs is NOT the helper's 4_000.
+    // No borrowed scalar: the focus row had no duration and no remaining, and
+    // remaining cannot be derived without a duration, so both degrade to null
+    // rather than picking up the helper's 5_000 / 4_000.
     expect(v.durationMs).toBeNull()
-    expect(v.timeMs).not.toBe(4_000)
+    expect(v.timeMs).toBeNull()
   })
 
   // P1-3: focus is marked by ORDINAL, not id. An id-less or duplicate-id focus

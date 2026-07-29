@@ -593,12 +593,22 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
   })
 
   // P0-1: focus history must reset on EVERY non-presentation transition, not
-  // only on an instance/slide scope change. Slideshow stop/restart,
-  // unavailable, and helper crash/recovery all return to the SAME instance +
-  // slide, so the scope-change check alone would not fire and stale ranks would
-  // survive. Each variant below feeds the same observation before and after an
-  // interlude and asserts the post-interlude cold-start re-runs (lowest elapsed
-  // wins) instead of holding the pre-interlude focus.
+  // only on an instance/slide scope change. Slideshow stop/restart, unavailable,
+  // and helper crash/recovery all return to the SAME instance + slide, so the
+  // tracker's own scope-change check never fires and stale ranks would otherwise
+  // survive the interruption.
+  //
+  // The script below is built so it can ONLY pass with the reset in place. Both
+  // videos are already playing when the interlude begins, so both sit in the
+  // tracker's `prevPlayingIds`. Without a reset neither counts as "newly
+  // playing" afterwards, nothing re-ranks, and the pre-interlude focus (id 20)
+  // survives; with the reset the next observation re-enters the cold-start path
+  // and the lowest-elapsed rule picks id 10.
+  //
+  // TRAP (do not "simplify" this): a script whose eventual winner is PAUSED
+  // before the interlude does NOT discriminate — its later playing transition
+  // re-ranks it to the top with or without the reset, so the test passes against
+  // the unfixed host. Both videos must stay playing across the interlude.
   const noSlideshowOutcome = (): BridgePollOutcome => ({
     kind: 'no_slideshow',
     warnings: [],
@@ -606,65 +616,65 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
     observation: { state: 'foreground', inSlideshow: false, instanceId: 1234 },
   })
 
-  it('P0-1 resets focus history on a same-instance/same-slide slideshow stop+restart', async () => {
-    const before = videoOutcome(1234, 3, [
-      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
-      { id: 20, name: 'b', duration: 10_000, elapsed: 0, status: 'paused', playing: false },
+  const focusId = (host: SessionHost): number | undefined =>
+    (host.getView().state as { selectedVideoId?: number }).selectedVideoId
+
+  /**
+   * Drive the shared reset script up to (but not through) the interlude, so each
+   * variant only has to supply the non-presentation outcome under test. Returns
+   * the host with id 20 established as the pre-interlude focus.
+   */
+  const startResetScenario = async (interlude: BridgePollOutcome): Promise<SessionHost> => {
+    const fake = makeFakeClient([
+      // Poll 1 — cold start: only id 10 is playing, so it is ranked and focused.
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 0, status: 'paused', playing: false },
+      ]),
+      // Poll 2 — id 20 starts: newly playing, outranks id 10, becomes focus.
+      // BOTH are now playing, which is what makes the script discriminating.
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+      ]),
+      // Poll 3 — the non-presentation interlude under test.
+      interlude,
+      // Poll 4 — restart on the SAME instance + slide, both still playing, with
+      // id 10 now the lowest-elapsed. Reset => cold start => id 10.
+      // Stale ranks => id 20.
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 200, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 4_000, status: 'playing', playing: true },
+      ]),
     ])
-    // After the restart, BOTH are playing but id 10 now has higher elapsed. A
-    // stale rank from `before` would keep focus on id 10; a correct cold-start
-    // picks the lowest-elapsed -> id 20.
-    const after = videoOutcome(1234, 3, [
-      { id: 10, name: 'a', duration: 10_000, elapsed: 4_000, status: 'playing', playing: true },
-      { id: 20, name: 'b', duration: 10_000, elapsed: 200, status: 'playing', playing: true },
-    ])
-    const fake = makeFakeClient([before, noSlideshowOutcome(), after])
     const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
     host.start()
-    await vi.advanceTimersByTimeAsync(0)
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10) // before
-    await vi.advanceTimersByTimeAsync(1_000) // no_slideshow interlude -> reset
-    await vi.advanceTimersByTimeAsync(1_000) // after -> cold-start re-runs
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+    await vi.advanceTimersByTimeAsync(0) // poll 1
+    expect(focusId(host)).toBe(10)
+    await vi.advanceTimersByTimeAsync(1_000) // poll 2
+    return host
+  }
+
+  /** Assert the interlude reset the history: the cold-start rule re-ran. */
+  const expectFocusResetAfter = async (host: SessionHost): Promise<void> => {
+    expect(focusId(host)).toBe(20) // pre-interlude focus (most recently started)
+    await vi.advanceTimersByTimeAsync(1_000) // poll 3: interlude -> reset
+    await vi.advanceTimersByTimeAsync(1_000) // poll 4: cold start re-runs
+    // id 10 is the lowest-elapsed; a surviving id 20 rank would mean no reset.
+    expect(focusId(host)).toBe(10)
+  }
+
+  it('P0-1 resets focus history on a same-instance/same-slide slideshow stop+restart', async () => {
+    await expectFocusResetAfter(await startResetScenario(noSlideshowOutcome()))
   })
 
   it('P0-1 resets focus history on an unavailable (helper failure) interlude', async () => {
-    const before = videoOutcome(1234, 3, [
-      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
-      { id: 20, name: 'b', duration: 10_000, elapsed: 0, status: 'paused', playing: false },
-    ])
-    const after = videoOutcome(1234, 3, [
-      { id: 10, name: 'a', duration: 10_000, elapsed: 4_000, status: 'playing', playing: true },
-      { id: 20, name: 'b', duration: 10_000, elapsed: 200, status: 'playing', playing: true },
-    ])
-    const fake = makeFakeClient([before, failureOutcome, after])
-    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
-    host.start()
-    await vi.advanceTimersByTimeAsync(0)
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
-    await vi.advanceTimersByTimeAsync(1_000) // failure -> unavailable -> reset
-    await vi.advanceTimersByTimeAsync(1_000) // after -> cold-start re-runs
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+    await expectFocusResetAfter(await startResetScenario(failureOutcome))
   })
 
   it('P0-1 resets focus history on a powerpoint_not_running interlude (helper recovery)', async () => {
-    const before = videoOutcome(1234, 3, [
-      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
-      { id: 20, name: 'b', duration: 10_000, elapsed: 0, status: 'paused', playing: false },
-    ])
-    const after = videoOutcome(1234, 3, [
-      { id: 10, name: 'a', duration: 10_000, elapsed: 4_000, status: 'playing', playing: true },
-      { id: 20, name: 'b', duration: 10_000, elapsed: 200, status: 'playing', playing: true },
-    ])
     const notRunning: BridgePollOutcome = { kind: 'powerpoint_not_running', warnings: [], extensions: ext }
-    const fake = makeFakeClient([before, notRunning, after])
-    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
-    host.start()
-    await vi.advanceTimersByTimeAsync(0)
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
-    await vi.advanceTimersByTimeAsync(1_000) // not running -> reset
-    await vi.advanceTimersByTimeAsync(1_000) // after -> cold-start re-runs
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+    await expectFocusResetAfter(await startResetScenario(notRunning))
   })
 
   // P2-4: pin the intended pause->resume behavior. A genuine pause->resume (the
@@ -678,8 +688,8 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
     ])
-    // id 20 pauses (so id 10, more recent among... ) — at poll1 both seeded; id 20
-    // lowest-elapsed -> focus. Now id 20 pauses and id 10 stays playing.
+    // At poll1 both are seeded by the cold-start rule and id 20 (lowest elapsed)
+    // takes focus. Now id 20 pauses and id 10 stays playing.
     const poll2 = videoOutcome(1234, 3, [
       { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },

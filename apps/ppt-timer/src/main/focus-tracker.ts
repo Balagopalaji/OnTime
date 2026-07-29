@@ -19,6 +19,11 @@
  *    video wins; ties break by shape order. Ranks are seeded so this falls out
  *    of the same "highest rank still playing" rule the projection enforces.
  *  - reset the entire history when the PowerPoint instance or slide changes.
+ *    This scope check is NOT the whole reset contract: it cannot see an
+ *    interruption that returns to the same instance + slide (slideshow
+ *    stop/restart, a transient COM failure, helper crash/recovery). The host
+ *    covers those by discarding the tracker outright on any non-presentation
+ *    transition — see `session-host.ts` `onTransition` (P0-1).
  *  - when nothing is playing, retained paused/ended ranks stay alive so the
  *    projection can keep the most-recently-started paused/ended focus.
  *
@@ -28,13 +33,12 @@
 import { resolveVideoStatus } from '@ontime/presentation-core'
 import type { PresentationVideo } from '@ontime/presentation-core'
 
-/**
- * Resolved per-video status (ended outranks a playing flag). This re-exports
- * the ONE canonical resolver from presentation-core so the tracker and the
- * view projection can never disagree on status/end inference (P2-1). Kept as a
- * local alias purely so existing tests can import the symbol from this module.
- */
-export { resolveVideoStatus as resolveFocusStatus }
+// Status/end inference comes from the ONE canonical resolver in
+// presentation-core (`resolveVideoStatus`, imported above) — the same function
+// the view projection uses for tile status, so the two layers cannot disagree
+// on the rule or its 250 ms threshold (P2-1). Deliberately not re-exported
+// under a tracker-local alias: consumers and tests import it from the package
+// that owns it.
 
 /** Standalone focus-tracker state. Replaced, never mutated, across transitions. */
 export type FocusTrackerState = {
