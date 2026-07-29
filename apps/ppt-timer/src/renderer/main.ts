@@ -146,7 +146,10 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   timing.id = 'timing-mode'
   timing.dataset.mode = view.timingMode
   timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
-  timing.addEventListener('click', () => dispatch({ type: 'setTimingMode', mode: nextMode }))
+  timing.addEventListener('click', () => {
+    const currentMode = timing.dataset.mode === 'elapsed' ? 'elapsed' : 'remaining'
+    dispatch({ type: 'setTimingMode', mode: currentMode === 'remaining' ? 'elapsed' : 'remaining' })
+  })
   section.append(timing)
 
   const alwaysOnTop = element('label', 'always-on-top', 'Always on top')
@@ -289,11 +292,11 @@ export function mountApp(options: {
     settingsOpen = open
     if (controlsNode === null || current === null) return
     const active = document.activeElement
-    const restoreSettingsToggle = active === controlsNode.querySelector('#settings-toggle')
+    const restoreSettingsFocus = active !== null && controlsNode.contains(active)
     const nextControls = renderControls(current, dispatch, controlsOptions())
     controlsNode.replaceWith(nextControls)
     controlsNode = nextControls
-    if (restoreSettingsToggle) nextControls.querySelector<HTMLButtonElement>('#settings-toggle')?.focus()
+    if (restoreSettingsFocus) nextControls.querySelector<HTMLButtonElement>('#settings-toggle')?.focus()
   }
 
   /**

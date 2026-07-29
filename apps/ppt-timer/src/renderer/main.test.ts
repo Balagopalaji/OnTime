@@ -513,8 +513,12 @@ describe('control stability across pushes', () => {
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       expect(root.querySelector('#timing-mode')).toBeNull()
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
+      checkbox.focus()
+      expect(document.activeElement).toBe(checkbox)
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(root.querySelector('#timing-mode')).toBeNull()
+      expect(document.activeElement).toBe(root.querySelector('#settings-toggle'))
       stop()
     } finally {
       root.remove()
@@ -582,12 +586,15 @@ describe('control stability across pushes', () => {
       listener?.(twoVideoView([focusPlaying, secondPaused]))
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
+      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6, timingMode: 'elapsed' })
+      ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
       const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
       checkbox.checked = false
       checkbox.dispatchEvent(new Event('change'))
       ;(root.querySelector('#copy-diagnostics') as HTMLButtonElement).click()
       expect(dispatched).toEqual([
         { type: 'setTimingMode', mode: 'elapsed' },
+        { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
         { type: 'copyDiagnostics' },
       ])
