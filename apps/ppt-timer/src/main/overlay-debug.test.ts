@@ -20,6 +20,7 @@ import {
   type DisplaySnapshot,
   type WindowStateSnapshot,
 } from './overlay-debug'
+import { attachWindowMessageDebugLifecycle } from './overlay-debug-lifecycle'
 
 const win: WindowStateSnapshot = { visible: true, minimized: false, focused: true, alwaysOnTop: true, bx: 10, by: 20, bw: 360, bh: 220 }
 const display: DisplaySnapshot = { displayId: '692542', scaleFactor: 1.5, wx: 0, wy: 0, ww: 1920, wh: 1040 }
@@ -111,6 +112,35 @@ describe('overlay-debug builders (pure, no Electron)', () => {
     dispose()
 
     expect(unhooked).toEqual([])
+  })
+
+  it('unhooks before a real close, re-arms a cancelled close, and safely finalizes on closed', () => {
+    const closeListeners: Array<(event: { defaultPrevented: boolean }) => void> = []
+    let closedListener: (() => void) | undefined
+    const scheduled: Array<() => void> = []
+    const hooked: number[] = []
+    const unhooked: number[] = []
+    let destroyed = false
+    const window = {
+      isDestroyed: () => destroyed,
+      hookWindowMessage: (code: number) => hooked.push(code),
+      unhookWindowMessage: (code: number) => unhooked.push(code),
+      on: (_event: 'close', listener: (event: { defaultPrevented: boolean }) => void) => { closeListeners.push(listener) },
+      off: (_event: 'close', listener: (event: { defaultPrevented: boolean }) => void) => closeListeners.splice(closeListeners.indexOf(listener), 1),
+      once: (_event: 'closed', listener: () => void) => { closedListener = listener },
+    }
+    attachWindowMessageDebugLifecycle(window, () => undefined, (callback) => scheduled.push(callback))
+    const cancelled = { defaultPrevented: false }
+    for (const listener of [...closeListeners]) listener(cancelled)
+    expect(unhooked).toEqual(WINDOW_MESSAGE_SPECS.map(({ code }) => code))
+    cancelled.defaultPrevented = true
+    for (const callback of scheduled) callback()
+    expect(hooked).toEqual([...WINDOW_MESSAGE_SPECS.map(({ code }) => code), ...WINDOW_MESSAGE_SPECS.map(({ code }) => code)])
+
+    destroyed = true
+    closedListener?.()
+    expect(unhooked).toEqual(WINDOW_MESSAGE_SPECS.map(({ code }) => code))
+    expect(closeListeners).toEqual([])
   })
 
   it('does not derive or retain WParam state for position/style messages', () => {
