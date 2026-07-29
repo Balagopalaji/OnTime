@@ -777,6 +777,46 @@ describe('accessible announcements', () => {
     }
   })
 
+  it('treats an explicit announcer: null as disabled, not as auto-detect', () => {
+    vi.useFakeTimers()
+    // A document-level #announcer exists: an explicit null must NOT fall through
+    // to the id lookup and start writing to it.
+    const injected = document.createElement('div')
+    injected.id = 'announcer'
+    document.body.append(injected)
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const root = document.createElement('div')
+      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      expect(injected.textContent).toBe('')
+      stop()
+
+      // Omitting the key auto-detects it, which is how the real bootstrap wires up.
+      const root2 = document.createElement('div')
+      let listener2: ((view: AppView) => void) | undefined
+      const stop2 = mountApp({
+        root: root2,
+        api: { ...api, subscribe: vi.fn((fn) => { listener2 = fn; return () => {} }) },
+        now: () => 0,
+      })
+      listener2?.(twoVideoView([focusPlaying, secondPaused]))
+      expect(injected.textContent).toBe('Playing — 1. A.mp4: Playing, 2. B.mp4: Paused')
+      stop2()
+    } finally {
+      injected.remove()
+      vi.useRealTimers()
+    }
+  })
+
   it('announces the status once and stays silent through interpolation ticks', () => {
     vi.useFakeTimers()
     try {

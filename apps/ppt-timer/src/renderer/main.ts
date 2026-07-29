@@ -196,7 +196,7 @@ function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
  */
 function patchControls(section: HTMLElement, view: AppView): boolean {
   const select = section.querySelector('select')
-  if (view.displays.length > 0 !== (select !== null)) return false
+  if ((view.displays.length > 0) !== (select !== null)) return false
   if (view.ctaAvailable !== (section.querySelector('.cta') !== null)) return false
 
   for (const button of Array.from(section.querySelectorAll<HTMLButtonElement>('button.toggle'))) {
@@ -232,7 +232,11 @@ function patchControls(section: HTMLElement, view: AppView): boolean {
   return true
 }
 
-/** Replace the app root with a fresh render of the immutable view (S-013). */
+/**
+ * Replace the app root with a fresh render of the immutable view (S-013). This
+ * is the first paint `mountApp` performs; every later view is painted
+ * incrementally by its `paint`, which reuses the same two builders.
+ */
 export function renderApp(root: HTMLElement, view: AppView, dispatch: Dispatch, advanceMs = 0): void {
   root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch))
 }
@@ -270,13 +274,22 @@ export function mountApp(options: {
   api: PreloadApi
   /** Injectable local monotonic clock (tests); defaults to `performance.now()`. */
   now?: () => number
-  /** Polite live region for status announcements; looked up by id by default. */
+  /**
+   * Polite live region for status announcements. Omit the key to look up
+   * `#announcer` by id; pass an explicit `null` to disable announcements.
+   */
   announcer?: HTMLElement | null
 }): () => void {
   const { root, api } = options
   const now = options.now ?? defaultNow
+  // An EXPLICIT `announcer: null` means "no live region", so it must not fall
+  // through to the id lookup the way `??` would. Only an absent key auto-detects.
   const announcer =
-    options.announcer ?? (typeof document !== 'undefined' ? document.getElementById('announcer') : null)
+    'announcer' in options
+      ? options.announcer
+      : typeof document !== 'undefined'
+        ? document.getElementById('announcer')
+        : null
   const dispatch: Dispatch = (action) => {
     void api.dispatch(action)
   }
@@ -298,13 +311,15 @@ export function mountApp(options: {
    * Uses the same builders as `renderApp`, so display strings cannot diverge.
    */
   const paint = (view: AppView, advanceMs: number): void => {
-    const nextStatus = renderStatus(view, advanceMs)
     if (statusNode === null || controlsNode === null) {
-      statusNode = nextStatus
-      controlsNode = renderControls(view, dispatch)
-      root.replaceChildren(statusNode, controlsNode)
+      // First paint goes through the same full-render entry point the tests
+      // exercise, then keeps references for the incremental paints that follow.
+      renderApp(root, view, dispatch, advanceMs)
+      statusNode = root.querySelector('.status')
+      controlsNode = root.querySelector('.controls')
       return
     }
+    const nextStatus = renderStatus(view, advanceMs)
     statusNode.replaceWith(nextStatus)
     statusNode = nextStatus
     if (!patchControls(controlsNode, view)) {

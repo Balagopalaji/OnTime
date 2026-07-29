@@ -325,15 +325,36 @@ export function announcementFor(model: RenderModel): string {
  * whose timing normalization re-emitted from the prior snapshot. Re-anchoring on
  * either one snaps the display back to the older value — a visible rewind, the
  * exact artefact the smoothing exists to remove.
+ *
+ * `timeMs` is included even though it is mode-derived, so toggling
+ * remaining/elapsed re-anchors and discards up to one poll of accumulated
+ * advance. That is deliberate and invisible: every displayed number changes at
+ * that instant anyway. It cannot be dropped for rows-bearing views either — a
+ * protocol-v1 projection with no primary hint and no `playOrder` rank marks NO
+ * row as focus, and the headline then falls back to `timeMs` as its only
+ * measurement, so omitting it would miss a genuine scalar-only reading.
+ *
+ * JSON-encoded so a deck title containing a separator character cannot forge a
+ * collision between two different measurements.
  */
 export function timingSignature(state: PowerPointViewState): string {
   if (!isPresentation(state)) return state.kind
-  const rows = state.videos
-    .map((tile) =>
-      [tile.ordinal, tile.id ?? '', tile.status, tile.durationMs ?? '', tile.elapsedMs ?? '', tile.remainingMs ?? '', tile.isFocus ? 1 : 0].join(
-        '|',
-      ),
-    )
-    .join(';')
-  return [state.kind, state.slideNumber ?? '', state.timeMs ?? '', state.durationMs ?? '', rows].join('~')
+  return JSON.stringify([
+    state.kind,
+    state.slideNumber ?? null,
+    // Deck identity keeps the signature total: without it, switching decks onto
+    // the same slide number with identical video timing would retain the anchor.
+    state.title,
+    state.timeMs,
+    state.durationMs,
+    state.videos.map((tile) => [
+      tile.ordinal,
+      tile.id ?? null,
+      tile.status,
+      tile.durationMs,
+      tile.elapsedMs,
+      tile.remainingMs,
+      tile.isFocus,
+    ]),
+  ])
 }

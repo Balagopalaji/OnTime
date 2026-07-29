@@ -533,6 +533,19 @@ describe('timingSignature', () => {
     const slideThree = { ...withVideos('playing', rows), slideNumber: 3 } as typeof slideTwo
     expect(timingSignature(slideThree)).not.toBe(timingSignature(slideTwo))
   })
+
+  it('distinguishes deck changes landing on the same slide with the same timing', () => {
+    const deckOne = withVideos('playing', rows)
+    const deckTwo = { ...withVideos('playing', rows), title: 'Other.pptx' } as typeof deckOne
+    expect(timingSignature(deckTwo)).not.toBe(timingSignature(deckOne))
+  })
+
+  it('cannot be forged by a deck title containing separator characters', () => {
+    const crafted = { ...withVideos('playing', rows), title: 'A~2~999~|;0' } as PowerPointViewState
+    const plain = { ...withVideos('playing', rows), title: 'A' } as PowerPointViewState
+    expect(timingSignature(crafted)).not.toBe(timingSignature(plain))
+    expect(timingSignature(crafted)).toBe(timingSignature({ ...crafted }))
+  })
 })
 
 describe('announcementFor', () => {
