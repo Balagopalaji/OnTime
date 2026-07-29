@@ -157,7 +157,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $asarPath -PathType Leaf)) {
             throw "Packaged app.asar missing at: $asarPath"
           }
-          $entries = node ../../node_modules/@electron/asar/bin/asar.js list $asarPath
+          $entries = (node ../../node_modules/@electron/asar/bin/asar.js list $asarPath) -replace '\\', '/'
           if ($LASTEXITCODE -ne 0) {
             throw "pinned local @electron/asar list failed with exit code $LASTEXITCODE"
           }

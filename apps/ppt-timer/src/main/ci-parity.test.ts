@@ -76,7 +76,7 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
   it('runs the Companion clean-checkout build pipeline before electron-builder', () => {
     const wf = readRel('.github/workflows/companion-build.yml')
     const viewer = wf.indexOf('npm run build:viewer')
-    const app = wf.indexOf('npm run build\n')
+    const app = wf.search(/npm run build\r?\n/)
     const builder = wf.indexOf('electron-builder --publish never')
     expect(viewer).toBeGreaterThanOrEqual(0)
     expect(app).toBeGreaterThan(viewer)

@@ -36,9 +36,10 @@ describe('packaged installer content (security / allowlist)', () => {
     expect(activeConfig).toMatch(/to:\s*bin\b/)
     // Filter guarantees only ppt-probe.exe.
     expect(activeConfig).toMatch(/filter:\s*\n\s*-\s*ppt-probe\.exe\b/)
-    // No second helper reference in the active config (exactly one helper).
-    const probeRefs = activeConfig.match(/ppt-probe\.exe/g) ?? []
-    expect(probeRefs.length).toBe(1)
+    // The workspace runtime dependency must not contribute generated helper
+    // outputs; the canonical extraResource above is the only shipped copy.
+    expect(activeConfig).toContain("!node_modules/@ontime/ppt-bridge/bin/**")
+    expect(activeConfig).toContain("!node_modules/@ontime/ppt-bridge/native/**")
   })
 
   it('ships production app code, explicit node_modules (Controller convention), and package.json', () => {

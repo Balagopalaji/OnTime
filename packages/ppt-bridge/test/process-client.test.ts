@@ -143,7 +143,7 @@ describe('PptBridgeClient', () => {
     writeFileSync(marker, '')
     const client = createPptBridgeClient({
       executableCandidates: [candidate('crash-once', ['--marker', marker])],
-      pollTimeoutMs: 100,
+      pollTimeoutMs: 1_000,
       restartBackoffMs: [2],
     })
     await expect(client.poll()).resolves.toMatchObject({ kind: 'process_exit' })

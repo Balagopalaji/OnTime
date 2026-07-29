@@ -27,6 +27,10 @@ files:
   - dist/**/*
   - '!dist/main/build-manifest.js'
   - node_modules/**/*
+  # The runtime bridge needs dist-cjs only; its helper publish/native build
+  # outputs are packaged separately below as the one canonical resource.
+  - '!node_modules/@ontime/ppt-bridge/bin/**'
+  - '!node_modules/@ontime/ppt-bridge/native/**'
   - package.json
 
 # Exactly one helper, at resources/bin/ppt-probe.exe. Dir+filter mirrors the

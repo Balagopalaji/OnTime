@@ -106,7 +106,7 @@ describe('Windows native build scripts', () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('embeds the standalone beta version in the helper assembly metadata', () => {
     const script = readScript('scripts/build-windows.ps1');

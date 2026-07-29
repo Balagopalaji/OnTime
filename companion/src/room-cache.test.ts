@@ -10,7 +10,7 @@ import { createRoomCacheAdapter, type RoomCacheStores } from './room-cache.js';
 // bootstrap stubbing required.
 // ---------------------------------------------------------------------------
 
-const CACHE_FILE = '/cache/rooms.json';
+const CACHE_FILE = path.join(path.parse(process.cwd()).root, 'cache', 'rooms.json');
 const CACHE_DIR = path.dirname(CACHE_FILE);
 
 class FakeENOENT extends Error {
@@ -322,13 +322,14 @@ test('load: active tombstone deletes room/timer/cue data and is stored', async (
 
 test('load: corrupted cache is backed up and old backups trimmed to 3', async () => {
   const garbage = '{not valid json';
+  const backupPath = (timestamp: number) => path.join(CACHE_DIR, `rooms.json.backup.${timestamp}`);
   const initial = new Map<string, string>([
     [CACHE_FILE, garbage],
     // Four pre-existing backups; after adding the new one (ts 5000) the oldest two are trimmed.
-    [`${CACHE_DIR}/rooms.json.backup.1000`, 'old1'],
-    [`${CACHE_DIR}/rooms.json.backup.2000`, 'old2'],
-    [`${CACHE_DIR}/rooms.json.backup.3000`, 'old3'],
-    [`${CACHE_DIR}/rooms.json.backup.4000`, 'old4'],
+    [backupPath(1_000), 'old1'],
+    [backupPath(2_000), 'old2'],
+    [backupPath(3_000), 'old3'],
+    [backupPath(4_000), 'old4'],
   ]);
   const kit = makeKit(initial, 5_000);
   await kit.adapter.load();
@@ -340,7 +341,7 @@ test('load: corrupted cache is backed up and old backups trimmed to 3', async ()
   assert.ok(backups.some((k) => k.endsWith('.3000')));
   assert.equal(backups.some((k) => k.endsWith('.2000')), false, 'older backup trimmed');
   assert.equal(backups.some((k) => k.endsWith('.1000')), false, 'oldest backup trimmed');
-  assert.equal(kit.fs.files.get(`${CACHE_DIR}/rooms.json.backup.5000`), garbage, 'backup holds the corrupted bytes');
+  assert.equal(kit.fs.files.get(backupPath(5_000)), garbage, 'backup holds the corrupted bytes');
 });
 
 // ---------------------------------------------------------------------------
