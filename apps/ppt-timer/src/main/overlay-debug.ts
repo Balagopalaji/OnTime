@@ -235,9 +235,21 @@ export type DebugWindow = {
   isAlwaysOnTop(): boolean
 }
 
+/** Electron levels used by the timer's deliberately small AOT policy. */
+export type TimerAlwaysOnTopLevel = 'normal' | 'pop-up-menu'
+
+/**
+ * Use the first Electron level above the Windows taskbar when enabled. The
+ * default `floating` level can lose to PowerPoint Presenter View; `normal`
+ * explicitly resets the level when the user disables the setting.
+ */
+export function timerAlwaysOnTopLevel(enabled: boolean): TimerAlwaysOnTopLevel {
+  return enabled ? 'pop-up-menu' : 'normal'
+}
+
 /** Minimal mutable surface for the existing AOT action, isolated for testing. */
 export type AlwaysOnTopWindow = Pick<DebugWindow, 'isAlwaysOnTop'> & {
-  setAlwaysOnTop(enabled: boolean): void
+  setAlwaysOnTop(enabled: boolean, level: TimerAlwaysOnTopLevel): void
 }
 
 /** Mutable marker shared by the app setter wrapper and Electron's event listener. */
@@ -263,7 +275,7 @@ export type OverlayDebugBind = (
 export type OverlayDebugSchedule = (callback: () => void, delayMs: 100 | 500 | 1000) => unknown
 export type OverlayDebugCancel = (handle: unknown) => void
 
-/** Apply the existing AOT action, reading native state only for opt-in debug. */
+/** Apply the timer AOT policy, reading native state only for opt-in debug. */
 export function setAlwaysOnTopWithDebug(
   window: AlwaysOnTopWindow,
   enabled: boolean,
@@ -271,14 +283,15 @@ export function setAlwaysOnTopWithDebug(
   push: (event: AppDiagEvent) => void,
   marker?: AlwaysOnTopSetterMarker,
 ): void {
+  const level = timerAlwaysOnTopLevel(enabled)
   if (!debugEnabled) {
-    window.setAlwaysOnTop(enabled)
+    window.setAlwaysOnTop(enabled, level)
     return
   }
   const nativeBefore = window.isAlwaysOnTop()
   if (marker) marker.insideAppSetter = true
   try {
-    window.setAlwaysOnTop(enabled)
+    window.setAlwaysOnTop(enabled, level)
   } finally {
     if (marker) marker.insideAppSetter = false
   }

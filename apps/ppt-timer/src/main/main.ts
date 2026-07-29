@@ -279,7 +279,10 @@ async function main(): Promise<void> {
       height: bounds.height,
       minWidth: MIN_WINDOW_SIZE.width,
       minHeight: MIN_WINDOW_SIZE.height,
-      alwaysOnTop: currentSettings.alwaysOnTop,
+      // Apply the saved AOT setting synchronously below with the timer's
+      // explicit `pop-up-menu` level. Starting false prevents Electron from
+      // briefly selecting its default `floating` level before that policy runs.
+      alwaysOnTop: false,
       title: 'OnTime PowerPoint Timer',
       backgroundColor: '#0b0b0f',
       show: false,
@@ -288,6 +291,11 @@ async function main(): Promise<void> {
         ...BROWSER_SECURITY,
       },
     })
+
+    // The window is still hidden (`show: false`), so selecting the explicit
+    // Windows AOT level here cannot flash a lower-level overlay on screen.
+    // Use the same central policy as the settings toggle.
+    setAlwaysOnTopWithDebug(mainWindow, currentSettings.alwaysOnTop, overlayDebug, logDebug, alwaysOnTopSetterMarker)
 
     // S-033 hardened navigation: the renderer is local content only. Deny every
     // in-app navigation and every new window; the only external destination is

@@ -15,6 +15,7 @@ import {
   placementDecisionEvent,
   programmaticBoundsEvent,
   setAlwaysOnTopWithDebug,
+  timerAlwaysOnTopLevel,
   windowMessageEvent,
   windowEventEvent,
   type DisplaySnapshot,
@@ -49,10 +50,16 @@ describe('overlay-debug builders (pure, no Electron)', () => {
     const calls: string[] = []
     const window = {
       isAlwaysOnTop: () => { calls.push('read'); return false },
-      setAlwaysOnTop: (enabled: boolean) => calls.push(`write:${enabled}`),
+      setAlwaysOnTop: (enabled: boolean, level: string) => calls.push(`write:${enabled}:${level}`),
     }
     setAlwaysOnTopWithDebug(window, true, false, () => calls.push('push'))
-    expect(calls).toEqual(['write:true'])
+    setAlwaysOnTopWithDebug(window, false, false, () => calls.push('push'))
+    expect(calls).toEqual(['write:true:pop-up-menu', 'write:false:normal'])
+  })
+
+  it('uses pop-up-menu only while the timer AOT setting is enabled', () => {
+    expect(timerAlwaysOnTopLevel(true)).toBe('pop-up-menu')
+    expect(timerAlwaysOnTopLevel(false)).toBe('normal')
   })
 
   it('correlates a synchronous Electron AOT event with the app setter wrapper', () => {
@@ -63,7 +70,7 @@ describe('overlay-debug builders (pure, no Electron)', () => {
     const events: unknown[] = []
     const window = {
       isAlwaysOnTop: () => native,
-      setAlwaysOnTop: (enabled: boolean) => { native = enabled; listener?.({}, enabled) },
+      setAlwaysOnTop: (enabled: boolean, _level: string) => { native = enabled; listener?.({}, enabled) },
       on: (_event: 'always-on-top-changed', next: (_event: unknown, value: boolean) => void) => { listener = next },
       off: () => { offCalls++ },
     }
