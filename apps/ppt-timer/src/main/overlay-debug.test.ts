@@ -9,6 +9,7 @@ import {
   movedResizedEvent,
   placementDecisionEvent,
   programmaticBoundsEvent,
+  setAlwaysOnTopWithDebug,
   windowEventEvent,
   type DisplaySnapshot,
   type WindowStateSnapshot,
@@ -31,6 +32,16 @@ describe('overlay-debug builders (pure, no Electron)', () => {
   it('builds request and delayed snapshot events without a native mutation API', () => {
     expect(alwaysOnTopRequestEvent(false, true, false)).toEqual({ kind: 'debug_always_on_top_request', requested: false, nativeBefore: true, nativeAfter: false })
     expect(delayedWindowSnapshotEvent('focus', 100, win, display)).toMatchObject({ kind: 'debug_delayed_window_snapshot', trigger: 'focus', delayMs: 100, alwaysOnTop: true })
+  })
+
+  it('uses only the native write when debug is disabled', () => {
+    const calls: string[] = []
+    const window = {
+      isAlwaysOnTop: () => { calls.push('read'); return false },
+      setAlwaysOnTop: (enabled: boolean) => calls.push(`write:${enabled}`),
+    }
+    setAlwaysOnTopWithDebug(window, true, false, () => calls.push('push'))
+    expect(calls).toEqual(['write:true'])
   })
 
   it('windowEventEvent pairs the lifecycle label with the matched display + state', () => {
@@ -115,13 +126,47 @@ describe('attachOverlayDebug passive focus/blur follow-ups', () => {
       getAllDisplays: () => [{}],
       getPrimaryDisplay: () => ({ id: '692542' }),
     }
-    attachOverlayDebug(window, screen, (event, listener) => listeners.set(event, listener), (event) => events.push(event), true, (callback, delayMs) => scheduled.push({ callback, delayMs }))
+    const dispose = attachOverlayDebug(window, screen, (event, listener) => listeners.set(event, listener), (event) => events.push(event), true, (callback, delayMs) => scheduled.push({ callback, delayMs }))
 
     listeners.get('focus')?.()
     listeners.get('blur')?.()
     expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([100, 500, 1000, 100, 500, 1000])
     for (const { callback } of scheduled) callback()
     expect(events.filter((event) => (event as { kind: string }).kind === 'debug_delayed_window_snapshot')).toHaveLength(6)
+    dispose()
+  })
+
+  it('cancels pending snapshots so post-dispose callbacks read and push nothing', () => {
+    const listeners = new Map<string, () => void>()
+    const scheduled: Array<{ callback: () => void; handle: number }> = []
+    const cancelled: number[] = []
+    let getterCalls = 0
+    const window = {
+      isDestroyed: () => false,
+      getBounds: () => { getterCalls++; return { x: 10, y: 20, width: 360, height: 220 } },
+      isVisible: () => true,
+      isMinimized: () => false,
+      isFocused: () => false,
+      isAlwaysOnTop: () => true,
+    }
+    const screen = {
+      getDisplayMatching: () => ({ id: '692542', scaleFactor: 1.5, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }),
+      getAllDisplays: () => [{}],
+      getPrimaryDisplay: () => ({ id: '692542' }),
+    }
+    const events: unknown[] = []
+    const dispose = attachOverlayDebug(window, screen, (event, listener) => listeners.set(event, listener), (event) => events.push(event), true, (callback) => {
+      const handle = scheduled.length
+      scheduled.push({ callback, handle })
+      return handle
+    }, (handle) => cancelled.push(handle as number))
+    listeners.get('focus')?.()
+    const callsBeforeDispose = getterCalls
+    dispose()
+    for (const { callback } of scheduled) callback()
+    expect(cancelled).toEqual([0, 1, 2])
+    expect(getterCalls).toBe(callsBeforeDispose)
+    expect(events.filter((event) => (event as { kind: string }).kind === 'debug_delayed_window_snapshot')).toHaveLength(0)
   })
 })
 

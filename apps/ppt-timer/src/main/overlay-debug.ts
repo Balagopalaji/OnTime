@@ -193,6 +193,11 @@ export type DebugWindow = {
   isAlwaysOnTop(): boolean
 }
 
+/** Minimal mutable surface for the existing AOT action, isolated for testing. */
+export type AlwaysOnTopWindow = Pick<DebugWindow, 'isAlwaysOnTop'> & {
+  setAlwaysOnTop(enabled: boolean): void
+}
+
 /** Read-only structural view of the screen APIs the diagnostics read. */
 export type DebugScreen = {
   getDisplayMatching(bounds: Rect): { id: number | string; scaleFactor: number; workArea: Rect }
@@ -207,6 +212,23 @@ export type OverlayDebugBind = (
 ) => void
 
 export type OverlayDebugSchedule = (callback: () => void, delayMs: 100 | 500 | 1000) => unknown
+export type OverlayDebugCancel = (handle: unknown) => void
+
+/** Apply the existing AOT action, reading native state only for opt-in debug. */
+export function setAlwaysOnTopWithDebug(
+  window: AlwaysOnTopWindow,
+  enabled: boolean,
+  debugEnabled: boolean,
+  push: (event: AppDiagEvent) => void,
+): void {
+  if (!debugEnabled) {
+    window.setAlwaysOnTop(enabled)
+    return
+  }
+  const nativeBefore = window.isAlwaysOnTop()
+  window.setAlwaysOnTop(enabled)
+  push(alwaysOnTopRequestEvent(enabled, nativeBefore, window.isAlwaysOnTop()))
+}
 
 /**
  * Register the overlay-debug listeners on a window. Each listener reads passive
@@ -220,7 +242,16 @@ export function attachOverlayDebug(
   push: (event: AppDiagEvent) => void,
   savedAlwaysOnTop: boolean,
   schedule: OverlayDebugSchedule = (callback, delayMs) => setTimeout(callback, delayMs),
-): void {
+  cancel: OverlayDebugCancel = (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+): () => void {
+  let disposed = false
+  const scheduledHandles: unknown[] = []
+  const dispose = (): void => {
+    if (disposed) return
+    disposed = true
+    for (const handle of scheduledHandles) cancel(handle)
+    scheduledHandles.length = 0
+  }
   const readWindow = (): WindowStateSnapshot | null => {
     if (window.isDestroyed()) return null
     const { x, y, width, height } = window.getBounds()
@@ -255,11 +286,13 @@ export function attachOverlayDebug(
     if (snap && display) push(windowEventEvent(label, snap, display))
     if (label === 'focus' || label === 'blur') {
       for (const delayMs of [100, 500, 1000] as const) {
-        schedule(() => {
+        const handle = schedule(() => {
+          if (disposed) return
           const delayedSnap = readWindow()
           const delayedDisplay = readMatched()
           if (delayedSnap && delayedDisplay) push(delayedWindowSnapshotEvent(label, delayMs, delayedSnap, delayedDisplay))
         }, delayMs)
+        scheduledHandles.push(handle)
       }
     }
   }
@@ -271,4 +304,5 @@ export function attachOverlayDebug(
     if (snap && display) push(movedResizedEvent(label, snap, display))
   }
   for (const label of ['moved', 'resized'] as const) bind(label, geometry(label))
+  return dispose
 }

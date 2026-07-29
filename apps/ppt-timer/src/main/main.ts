@@ -17,11 +17,11 @@ import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
 import {
   attachOverlayDebug,
-  alwaysOnTopRequestEvent,
   classifyPlacementOutcome,
   displayEventEvent,
   placementDecisionEvent,
   programmaticBoundsEvent,
+  setAlwaysOnTopWithDebug,
   type DisplaySnapshot as DebugDisplaySnapshot,
   type ProgrammaticBoundsReason,
 } from './overlay-debug.js'
@@ -184,9 +184,7 @@ async function main(): Promise<void> {
   const effects: WindowEffects = {
     setAlwaysOnTop: (enabled) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
-      const nativeBefore = mainWindow.isAlwaysOnTop()
-      mainWindow.setAlwaysOnTop(enabled)
-      if (overlayDebug) logDebug(alwaysOnTopRequestEvent(enabled, nativeBefore, mainWindow.isAlwaysOnTop()))
+      setAlwaysOnTopWithDebug(mainWindow, enabled, overlayDebug, logDebug)
     },
     applyPreset: (preset) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
@@ -308,7 +306,7 @@ async function main(): Promise<void> {
     // event; none activate the window (see overlay-debug.ts constraints).
     if (overlayDebug) {
       const win0 = mainWindow
-      attachOverlayDebug(win0, screen, (event, listener) => {
+      const disposeOverlayDebug = attachOverlayDebug(win0, screen, (event, listener) => {
         switch (event) {
           case 'ready-to-show': return win0.on('ready-to-show', listener)
           case 'show': return win0.on('show', listener)
@@ -321,6 +319,7 @@ async function main(): Promise<void> {
           case 'resized': return win0.on('resized', listener)
         }
       }, logDebug, currentSettings.alwaysOnTop)
+      win0.once('closed', disposeOverlayDebug)
     }
 
     bindPptTimerIpc(mainWindow, controllers)
