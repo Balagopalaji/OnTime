@@ -71,6 +71,7 @@ describe('overlay-debug builders (pure, no Electron)', () => {
     setAlwaysOnTopWithDebug(window, false, true, (event) => events.push(event), marker)
     expect(events[0]).toEqual({ kind: 'debug_always_on_top_changed', eventValue: false, currentValue: false, insideAppSetter: true })
     dispose()
+    dispose()
     expect(offCalls).toBe(1)
   })
 
@@ -79,6 +80,7 @@ describe('overlay-debug builders (pure, no Electron)', () => {
     const unhooked: number[] = []
     const events: unknown[] = []
     const dispose = attachWindowMessageDebug({
+      isDestroyed: () => false,
       hookWindowMessage: (code, callback) => hooks.set(code, callback),
       unhookWindowMessage: (code) => unhooked.push(code),
     }, (event) => events.push(event))
@@ -93,7 +95,22 @@ describe('overlay-debug builders (pure, no Electron)', () => {
       { kind: 'debug_window_message', message: 'WM_WINDOWPOSCHANGING', code: 70 },
     ])
     dispose()
+    dispose()
     expect(unhooked).toEqual(WINDOW_MESSAGE_SPECS.map(({ code }) => code))
+  })
+
+  it('does not unhook native messages when disposal occurs after window destruction', () => {
+    const unhooked: number[] = []
+    const dispose = attachWindowMessageDebug({
+      isDestroyed: () => true,
+      hookWindowMessage: () => undefined,
+      unhookWindowMessage: (code) => unhooked.push(code),
+    }, () => undefined)
+
+    dispose()
+    dispose()
+
+    expect(unhooked).toEqual([])
   })
 
   it('does not derive or retain WParam state for position/style messages', () => {

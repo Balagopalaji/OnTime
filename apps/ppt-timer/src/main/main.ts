@@ -325,7 +325,10 @@ async function main(): Promise<void> {
       }, logDebug, currentSettings.alwaysOnTop)
       const disposeAlwaysOnTopChanged = attachAlwaysOnTopChangedDebug(win0, alwaysOnTopSetterMarker, logDebug)
       const disposeWindowMessages = process.platform === 'win32' ? attachWindowMessageDebug(win0, logDebug) : () => undefined
-      win0.once('closed', () => {
+      // `closed` is emitted after Electron destroys the native window, at which
+      // point unhookWindowMessage throws. `close` is the final cancellable
+      // lifecycle point while native message hooks can still be removed.
+      win0.once('close', () => {
         disposeWindowMessages()
         disposeAlwaysOnTopChanged()
         disposeOverlayDebug()

@@ -285,10 +285,7 @@ export function setAlwaysOnTopWithDebug(
   push(alwaysOnTopRequestEvent(enabled, nativeBefore, window.isAlwaysOnTop()))
 }
 
-export type AlwaysOnTopChangedWindow = Pick<DebugWindow, 'isAlwaysOnTop'> & {
-  on(event: 'always-on-top-changed', listener: (_event: unknown, isAlwaysOnTop: boolean) => void): unknown
-  off(event: 'always-on-top-changed', listener: (_event: unknown, isAlwaysOnTop: boolean) => void): unknown
-}
+export type AlwaysOnTopChangedWindow = Pick<DebugWindow, 'isAlwaysOnTop'> & { on(event: 'always-on-top-changed', listener: (_event: unknown, isAlwaysOnTop: boolean) => void): unknown; off(event: 'always-on-top-changed', listener: (_event: unknown, isAlwaysOnTop: boolean) => void): unknown }
 
 /** Attach the Electron change event that closes the snapshot sampling gap. */
 export function attachAlwaysOnTopChangedDebug(
@@ -296,20 +293,27 @@ export function attachAlwaysOnTopChangedDebug(
   marker: AlwaysOnTopSetterMarker,
   push: (event: AppDiagEvent) => void,
 ): () => void {
+  let disposed = false
   const listener = (_event: unknown, eventValue: boolean): void => push(alwaysOnTopChangedEvent(eventValue, window.isAlwaysOnTop(), marker.insideAppSetter))
   window.on('always-on-top-changed', listener)
-  return () => window.off('always-on-top-changed', listener)
+  return () => {
+    if (disposed) return
+    disposed = true
+    window.off('always-on-top-changed', listener)
+  }
 }
 
-export type WindowMessageDebugWindow = {
-  hookWindowMessage(message: number, callback: (wParam: Buffer, lParam: Buffer) => void): void
-  unhookWindowMessage(message: number): void
-}
+export type WindowMessageDebugWindow = { isDestroyed(): boolean; hookWindowMessage(message: number, callback: (wParam: Buffer, lParam: Buffer) => void): void; unhookWindowMessage(message: number): void }
 
-/** Attach only relevant own-window Windows messages; disposal unhooks every one. */
+/** Attach only relevant own-window Windows messages; disposal unhooks every one while the native window remains live. */
 export function attachWindowMessageDebug(window: WindowMessageDebugWindow, push: (event: AppDiagEvent) => void): () => void {
+  let disposed = false
   for (const spec of WINDOW_MESSAGE_SPECS) window.hookWindowMessage(spec.code, (wParam) => push(windowMessageEvent(spec, wParam)))
   return () => {
+    if (disposed) return
+    disposed = true
+    // `closed` runs after native destruction, so late cleanup must be harmless.
+    if (window.isDestroyed()) return
     for (const spec of WINDOW_MESSAGE_SPECS) window.unhookWindowMessage(spec.code)
   }
 }
