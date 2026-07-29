@@ -20,7 +20,6 @@ import {
   type DisplaySnapshot,
   type WindowStateSnapshot,
 } from './overlay-debug'
-import { attachWindowMessageDebugLifecycle } from './overlay-debug-lifecycle'
 
 const win: WindowStateSnapshot = { visible: true, minimized: false, focused: true, alwaysOnTop: true, bx: 10, by: 20, bw: 360, bh: 220 }
 const display: DisplaySnapshot = { displayId: '692542', scaleFactor: 1.5, wx: 0, wy: 0, ww: 1920, wh: 1040 }
@@ -114,35 +113,6 @@ describe('overlay-debug builders (pure, no Electron)', () => {
     expect(unhooked).toEqual([])
   })
 
-  it('unhooks before a real close, re-arms a cancelled close, and safely finalizes on closed', () => {
-    const closeListeners: Array<(event: { defaultPrevented: boolean }) => void> = []
-    let closedListener: (() => void) | undefined
-    const scheduled: Array<() => void> = []
-    const hooked: number[] = []
-    const unhooked: number[] = []
-    let destroyed = false
-    const window = {
-      isDestroyed: () => destroyed,
-      hookWindowMessage: (code: number) => hooked.push(code),
-      unhookWindowMessage: (code: number) => unhooked.push(code),
-      on: (_event: 'close', listener: (event: { defaultPrevented: boolean }) => void) => { closeListeners.push(listener) },
-      off: (_event: 'close', listener: (event: { defaultPrevented: boolean }) => void) => closeListeners.splice(closeListeners.indexOf(listener), 1),
-      once: (_event: 'closed', listener: () => void) => { closedListener = listener },
-    }
-    attachWindowMessageDebugLifecycle(window, () => undefined, (callback) => scheduled.push(callback))
-    const cancelled = { defaultPrevented: false }
-    for (const listener of [...closeListeners]) listener(cancelled)
-    expect(unhooked).toEqual(WINDOW_MESSAGE_SPECS.map(({ code }) => code))
-    cancelled.defaultPrevented = true
-    for (const callback of scheduled) callback()
-    expect(hooked).toEqual([...WINDOW_MESSAGE_SPECS.map(({ code }) => code), ...WINDOW_MESSAGE_SPECS.map(({ code }) => code)])
-
-    destroyed = true
-    closedListener?.()
-    expect(unhooked).toEqual(WINDOW_MESSAGE_SPECS.map(({ code }) => code))
-    expect(closeListeners).toEqual([])
-  })
-
   it('does not derive or retain WParam state for position/style messages', () => {
     expect(windowMessageEvent(WINDOW_MESSAGE_SPECS[4], Buffer.alloc(8, 0xff))).toEqual({ kind: 'debug_window_message', message: 'WM_WINDOWPOSCHANGED', code: 71 })
     expect(windowMessageEvent(WINDOW_MESSAGE_SPECS[5], Buffer.alloc(8, 0xff))).toEqual({ kind: 'debug_window_message', message: 'WM_STYLECHANGED', code: 125 })
@@ -213,6 +183,31 @@ describe('overlay-debug builders (pure, no Electron)', () => {
 })
 
 describe('attachOverlayDebug passive focus/blur follow-ups', () => {
+  it('performs no native state reads after the window is destroyed', () => {
+    const listeners = new Map<string, () => void>()
+    let nativeReads = 0
+    const window = {
+      isDestroyed: () => true,
+      getBounds: () => { nativeReads++; return { x: 10, y: 20, width: 360, height: 220 } },
+      isVisible: () => { nativeReads++; return true },
+      isMinimized: () => { nativeReads++; return false },
+      isFocused: () => { nativeReads++; return false },
+      isAlwaysOnTop: () => { nativeReads++; return true },
+    }
+    const screen = {
+      getDisplayMatching: () => { nativeReads++; return { id: '692542', scaleFactor: 1.5, workArea: { x: 0, y: 0, width: 1920, height: 1040 } } },
+      getAllDisplays: () => [],
+      getPrimaryDisplay: () => ({ id: '692542' }),
+    }
+    const dispose = attachOverlayDebug(window, screen, (event, listener) => { listeners.set(event, listener); return () => listeners.delete(event) }, () => undefined, true)
+
+    listeners.get('ready-to-show')?.()
+    dispose()
+
+    expect(nativeReads).toBe(0)
+    expect(listeners.size).toBe(0)
+  })
+
   it('schedules 100/500/1000ms snapshots after focus and blur using getters only', () => {
     const listeners = new Map<string, () => void>()
     const scheduled: Array<{ callback: () => void; delayMs: number }> = []

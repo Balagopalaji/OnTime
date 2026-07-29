@@ -18,6 +18,7 @@ import { bindPptTimerIpc } from './ipc.js'
 import {
   attachOverlayDebug,
   attachAlwaysOnTopChangedDebug,
+  attachWindowMessageDebug,
   classifyPlacementOutcome,
   createAlwaysOnTopSetterMarker,
   displayEventEvent,
@@ -27,7 +28,6 @@ import {
   type DisplaySnapshot as DebugDisplaySnapshot,
   type ProgrammaticBoundsReason,
 } from './overlay-debug.js'
-import { attachWindowMessageDebugLifecycle } from './overlay-debug-lifecycle.js'
 import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
 import { selectLaunchTargets } from './launch-policy.js'
@@ -324,9 +324,10 @@ async function main(): Promise<void> {
         }
       }, logDebug, currentSettings.alwaysOnTop)
       const disposeAlwaysOnTopChanged = attachAlwaysOnTopChangedDebug(win0, alwaysOnTopSetterMarker, logDebug)
-      const disposeWindowMessages = process.platform === 'win32' ? attachWindowMessageDebugLifecycle(win0, logDebug) : () => undefined
-      // Native hooks are removed at `close`; JS listeners wait for `closed` so
-      // a cancelled close does not disable diagnostics for the live window.
+      const disposeWindowMessages = process.platform === 'win32' ? attachWindowMessageDebug(win0, logDebug) : () => undefined
+      // `closed` also covers destroy()/app.exit. Native message hooks belong to
+      // the HWND, so their destruction-safe disposer deliberately becomes a
+      // no-op here; JS listeners are still removed deterministically.
       win0.once('closed', () => {
         disposeWindowMessages()
         disposeAlwaysOnTopChanged()
