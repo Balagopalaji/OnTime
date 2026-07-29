@@ -151,9 +151,14 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  justify-content: flex-end;
+  font-size: 12px;
+}
+
+.controls[data-settings-open='true'] {
+  justify-content: flex-start;
   padding-top: 8px;
   border-top: 1px solid #23232c;
-  font-size: 12px;
 }
 
 .controls button,
@@ -172,10 +177,15 @@ body {
   color: var(--accent);
 }
 
-.controls .cta {
+.settings-toggle {
+  min-width: 28px;
+  padding: 3px 6px !important;
+  font-size: 15px !important;
+  line-height: 1;
+}
+
+.controls[data-settings-open='true'] .settings-toggle {
   margin-left: auto;
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .always-on-top {

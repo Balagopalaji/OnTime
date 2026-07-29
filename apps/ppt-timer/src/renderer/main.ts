@@ -33,6 +33,11 @@ declare global {
 
 type Dispatch = (action: RendererAction) => void
 
+type ControlsOptions = {
+  settingsOpen: boolean
+  toggleSettings: () => void
+}
+
 const BADGE_LABEL: Record<Badge, string> = {
   playing: '▶ Playing',
   paused: '⏸ Paused',
@@ -117,18 +122,31 @@ function renderStatus(view: AppView, advanceMs: number): HTMLElement {
   return section
 }
 
-function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
+function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOptions): HTMLElement {
   const section = element('section', 'controls')
+  section.dataset.settingsOpen = String(options.settingsOpen)
 
-  const timing = element('div', 'timing-toggle')
-  for (const mode of ['remaining', 'elapsed'] as const) {
-    const button = element('button', 'toggle', mode === 'remaining' ? 'Remaining' : 'Elapsed')
-    button.type = 'button'
-    button.dataset.mode = mode
-    if (view.timingMode === mode) button.classList.add('active')
-    button.addEventListener('click', () => dispatch({ type: 'setTimingMode', mode }))
-    timing.append(button)
-  }
+  const settings = element('button', 'settings-toggle')
+  settings.type = 'button'
+  settings.id = 'settings-toggle'
+  settings.setAttribute('aria-expanded', String(options.settingsOpen))
+  settings.setAttribute('aria-label', options.settingsOpen ? 'Close settings' : 'Open settings')
+  settings.title = options.settingsOpen ? 'Close settings' : 'Open settings'
+  settings.textContent = '⚙'
+  settings.addEventListener('click', options.toggleSettings)
+  section.append(settings)
+
+  // Timer mode is intentionally presentation-only. Settings are renderer-local
+  // and deliberately not persisted, so a launch always starts uncluttered.
+  if (!options.settingsOpen) return section
+
+  const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
+  const timing = element('button', 'toggle', view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed')
+  timing.type = 'button'
+  timing.id = 'timing-mode'
+  timing.dataset.mode = view.timingMode
+  timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
+  timing.addEventListener('click', () => dispatch({ type: 'setTimingMode', mode: nextMode }))
   section.append(timing)
 
   const alwaysOnTop = element('label', 'always-on-top', 'Always on top')
@@ -140,46 +158,11 @@ function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
   alwaysOnTop.prepend(checkbox)
   section.append(alwaysOnTop)
 
-  const presets = element('div', 'presets')
-  for (const preset of ['compact', 'large'] as const) {
-    const button = element('button', 'preset', preset === 'compact' ? 'Compact' : 'Large')
-    button.type = 'button'
-    button.dataset.preset = preset
-    if (view.preset === preset) button.classList.add('active')
-    button.addEventListener('click', () => dispatch({ type: 'applyPreset', preset }))
-    presets.append(button)
-  }
-  section.append(presets)
-
-  if (view.displays.length > 0) {
-    const select = document.createElement('select')
-    select.id = 'display-select'
-    for (const display of view.displays) {
-      const option = document.createElement('option')
-      option.value = display.id
-      option.textContent = display.label
-      if (display.id === view.selectedDisplayId) option.selected = true
-      select.append(option)
-    }
-    select.addEventListener('change', () => dispatch({ type: 'moveToDisplay', displayId: select.value }))
-    section.append(select)
-  }
-
   const copy = element('button', 'copy', 'Copy diagnostics')
   copy.type = 'button'
   copy.id = 'copy-diagnostics'
   copy.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
   section.append(copy)
-
-  // The upsell CTA is omitted entirely when no exact HTTPS URL is configured
-  // (S-033): no placeholder, no disabled dead control that resolves nowhere.
-  if (view.ctaAvailable) {
-    const cta = element('button', 'cta', 'Need full show control? Try OnTime')
-    cta.type = 'button'
-    cta.id = 'cta'
-    cta.addEventListener('click', () => dispatch({ type: 'openUpsell' }))
-    section.append(cta)
-  }
 
   return section
 }
@@ -194,41 +177,23 @@ function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
  * second: keyboard focus dropped to the body and an open display dropdown
  * closed. Patching in place keeps focus and open popups alive between polls.
  */
-function patchControls(section: HTMLElement, view: AppView): boolean {
-  const select = section.querySelector('select')
-  if ((view.displays.length > 0) !== (select !== null)) return false
-  if (view.ctaAvailable !== (section.querySelector('.cta') !== null)) return false
+function patchControls(section: HTMLElement, view: AppView, options: ControlsOptions): boolean {
+  if (section.dataset.settingsOpen !== String(options.settingsOpen)) return false
+  const settings = section.querySelector<HTMLButtonElement>('#settings-toggle')
+  settings?.setAttribute('aria-expanded', String(options.settingsOpen))
+  settings?.setAttribute('aria-label', options.settingsOpen ? 'Close settings' : 'Open settings')
+  settings?.setAttribute('title', options.settingsOpen ? 'Close settings' : 'Open settings')
+  if (!options.settingsOpen) return true
 
-  for (const button of Array.from(section.querySelectorAll<HTMLButtonElement>('button.toggle'))) {
-    button.classList.toggle('active', button.dataset.mode === view.timingMode)
-  }
-  for (const button of Array.from(section.querySelectorAll<HTMLButtonElement>('button.preset'))) {
-    button.classList.toggle('active', button.dataset.preset === view.preset)
+  const timing = section.querySelector<HTMLButtonElement>('#timing-mode')
+  if (timing !== null) {
+    const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
+    timing.dataset.mode = view.timingMode
+    timing.textContent = view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed'
+    timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
   }
   const checkbox = section.querySelector<HTMLInputElement>('#always-on-top')
   if (checkbox !== null && checkbox.checked !== view.alwaysOnTop) checkbox.checked = view.alwaysOnTop
-
-  if (select !== null) {
-    // Rebuild options only when the display list itself changed; the <select>
-    // node is retained either way, so focus on it survives.
-    const current = Array.from(select.options)
-      .map((option) => `${option.value}:${option.textContent ?? ''}`)
-      .join(',')
-    const next = view.displays.map((display) => `${display.id}:${display.label}`).join(',')
-    if (current !== next) {
-      select.replaceChildren(
-        ...view.displays.map((display) => {
-          const option = document.createElement('option')
-          option.value = display.id
-          option.textContent = display.label
-          return option
-        }),
-      )
-    }
-    if (view.selectedDisplayId !== null && select.value !== view.selectedDisplayId) {
-      select.value = view.selectedDisplayId
-    }
-  }
   return true
 }
 
@@ -237,8 +202,14 @@ function patchControls(section: HTMLElement, view: AppView): boolean {
  * is the first paint `mountApp` performs; every later view is painted
  * incrementally by its `paint`, which reuses the same two builders.
  */
-export function renderApp(root: HTMLElement, view: AppView, dispatch: Dispatch, advanceMs = 0): void {
-  root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch))
+export function renderApp(
+  root: HTMLElement,
+  view: AppView,
+  dispatch: Dispatch,
+  advanceMs = 0,
+  controls: ControlsOptions = { settingsOpen: false, toggleSettings: () => {} },
+): void {
+  root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch, controls))
 }
 
 /**
@@ -304,6 +275,26 @@ export function mountApp(options: {
   let announced: string | null = null
   let statusNode: HTMLElement | null = null
   let controlsNode: HTMLElement | null = null
+  let settingsOpen = false
+
+  const controlsOptions = (): ControlsOptions => ({
+    settingsOpen,
+    toggleSettings: () => setSettingsOpen(!settingsOpen),
+  })
+
+  /** Settings are a temporary local view. Rebuilding this small section is
+   * intentional when it opens/closes; normal PowerPoint polls still patch it. */
+  const setSettingsOpen = (open: boolean): void => {
+    if (settingsOpen === open) return
+    settingsOpen = open
+    if (controlsNode === null || current === null) return
+    const active = document.activeElement
+    const restoreSettingsToggle = active === controlsNode.querySelector('#settings-toggle')
+    const nextControls = renderControls(current, dispatch, controlsOptions())
+    controlsNode.replaceWith(nextControls)
+    controlsNode = nextControls
+    if (restoreSettingsToggle) nextControls.querySelector<HTMLButtonElement>('#settings-toggle')?.focus()
+  }
 
   /**
    * Paint a view incrementally: a fresh status section (no focusable content),
@@ -314,7 +305,7 @@ export function mountApp(options: {
     if (statusNode === null || controlsNode === null) {
       // First paint goes through the same full-render entry point the tests
       // exercise, then keeps references for the incremental paints that follow.
-      renderApp(root, view, dispatch, advanceMs)
+      renderApp(root, view, dispatch, advanceMs, controlsOptions())
       statusNode = root.querySelector('.status')
       controlsNode = root.querySelector('.controls')
       return
@@ -322,8 +313,8 @@ export function mountApp(options: {
     const nextStatus = renderStatus(view, advanceMs)
     statusNode.replaceWith(nextStatus)
     statusNode = nextStatus
-    if (!patchControls(controlsNode, view)) {
-      const nextControls = renderControls(view, dispatch)
+    if (!patchControls(controlsNode, view, controlsOptions())) {
+      const nextControls = renderControls(view, dispatch, controlsOptions())
       controlsNode.replaceWith(nextControls)
       controlsNode = nextControls
     }
@@ -365,10 +356,18 @@ export function mountApp(options: {
 
   const unsubscribe = api.subscribe(render)
   const ticker = setInterval(tick, SMOOTHING_TICK_MS)
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' && settingsOpen) {
+      event.preventDefault()
+      setSettingsOpen(false)
+    }
+  }
+  document.addEventListener('keydown', onKeyDown)
   void api.getView().then(render)
   return () => {
     clearInterval(ticker)
     unsubscribe()
+    document.removeEventListener('keydown', onKeyDown)
   }
 }
 

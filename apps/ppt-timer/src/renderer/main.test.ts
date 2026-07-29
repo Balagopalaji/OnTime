@@ -116,72 +116,15 @@ describe('renderApp status', () => {
   })
 })
 
-describe('renderApp controls dispatch closed-union actions', () => {
-  it('timing toggle dispatches setTimingMode', () => {
-    const root = document.createElement('div')
-    const dispatch = vi.fn()
-    renderApp(root, baseView, dispatch)
-    ;(root.querySelector('button[data-mode="elapsed"]') as HTMLButtonElement).click()
-    expect(dispatch).toHaveBeenCalledWith({ type: 'setTimingMode', mode: 'elapsed' })
-  })
-
-  it('always-on-top checkbox reflects state and dispatches on change', () => {
-    const root = document.createElement('div')
-    const dispatch = vi.fn()
-    renderApp(root, baseView, dispatch)
-    const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
-    expect(checkbox.checked).toBe(true)
-    checkbox.checked = false
-    checkbox.dispatchEvent(new Event('change'))
-    expect(dispatch).toHaveBeenCalledWith({ type: 'setAlwaysOnTop', enabled: false })
-  })
-
-  it('preset button dispatches applyPreset', () => {
-    const root = document.createElement('div')
-    const dispatch = vi.fn()
-    renderApp(root, baseView, dispatch)
-    ;(root.querySelector('button[data-preset="large"]') as HTMLButtonElement).click()
-    expect(dispatch).toHaveBeenCalledWith({ type: 'applyPreset', preset: 'large' })
-  })
-
-  it('display select dispatches moveToDisplay with the chosen id', () => {
-    const root = document.createElement('div')
-    const dispatch = vi.fn()
-    renderApp(root, baseView, dispatch)
-    const select = root.querySelector('#display-select') as HTMLSelectElement
-    select.value = '2'
-    select.dispatchEvent(new Event('change'))
-    expect(dispatch).toHaveBeenCalledWith({ type: 'moveToDisplay', displayId: '2' })
-  })
-
-  it('copy diagnostics dispatches copyDiagnostics', () => {
-    const root = document.createElement('div')
-    const dispatch = vi.fn()
-    renderApp(root, baseView, dispatch)
-    ;(root.querySelector('#copy-diagnostics') as HTMLButtonElement).click()
-    expect(dispatch).toHaveBeenCalledWith({ type: 'copyDiagnostics' })
-  })
-})
-
-describe('upsell CTA visibility (S-033)', () => {
-  it('omits the CTA entirely when no URL is configured', () => {
-    const root = document.createElement('div')
-    renderApp(root, baseView, vi.fn())
-    expect(root.querySelector('#cta')).toBeNull()
-  })
-
-  it('renders the CTA and dispatches openUpsell (no URL) when available', () => {
-    const root = document.createElement('div')
-    const dispatch = vi.fn()
-    renderApp(root, { ...baseView, ctaAvailable: true }, dispatch)
-    ;(root.querySelector('#cta') as HTMLButtonElement).click()
-    expect(dispatch).toHaveBeenCalledWith({ type: 'openUpsell' })
-  })
-
-  it('uses the exact spec CTA copy (S-033 D-3)', () => {
+describe('timer-only controls', () => {
+  it('renders timer mode without configuration controls or removed legacy controls', () => {
     const root = document.createElement('div')
     renderApp(root, { ...baseView, ctaAvailable: true }, vi.fn())
-    expect(root.querySelector('#cta')?.textContent).toBe('Need full show control? Try OnTime')
+    expect(root.querySelector('#settings-toggle')).not.toBeNull()
+    expect(root.querySelector('#timing-mode')).toBeNull()
+    expect(root.querySelector('#always-on-top')).toBeNull()
+    expect(root.querySelector('#copy-diagnostics')).toBeNull()
+    expect(root.querySelector('[data-preset], #display-select, #cta')).toBeNull()
   })
 })
 
@@ -281,9 +224,8 @@ describe('renderApp per-video rows', () => {
 describe('patchTimers', () => {
   it('rewrites only the timer strings, leaving the rest of the DOM in place', () => {
     const root = document.createElement('div')
-    const dispatch = vi.fn()
     const view = twoVideoView([focusPlaying, secondPaused])
-    renderApp(root, view, dispatch)
+    renderApp(root, view, vi.fn())
 
     const timeNode = root.querySelector('#time')
     const statusNode = root.querySelector('.video-row .video-row-status')
@@ -299,8 +241,7 @@ describe('patchTimers', () => {
     expect(root.querySelector('.video-row')).toBe(rowNode)
     expect(statusNode?.textContent).toBe('Playing')
     expect(nameNode?.textContent).toBe('1. A.mp4')
-    ;(root.querySelector('button[data-mode="elapsed"]') as HTMLButtonElement).click()
-    expect(dispatch).toHaveBeenCalledWith({ type: 'setTimingMode', mode: 'elapsed' })
+    expect(root.querySelector('#settings-toggle')).not.toBeNull()
   })
 
   it('advances two concurrent playing rows independently', () => {
@@ -547,7 +488,7 @@ describe('mountApp local interpolation', () => {
 })
 
 describe('control stability across pushes', () => {
-  it('keeps the controls node and keyboard focus across a timing-only push', () => {
+  it('opens settings, closes them with the same toggle and Escape', () => {
     vi.useFakeTimers()
     const root = document.createElement('div')
     document.body.append(root)
@@ -564,23 +505,16 @@ describe('control stability across pushes', () => {
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
 
-      const controls = root.querySelector('.controls')
-      const select = root.querySelector('#display-select') as HTMLSelectElement
-      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
-      select.focus()
-      expect(document.activeElement).toBe(select)
-
-      // The host publishes on every poll (~1 s). A timing-only view must not
-      // detach the controls: that dropped focus and closed an open dropdown
-      // once per second.
-      listener?.({ ...twoVideoView([{ ...focusPlaying, remainingMs: 47_000 }, secondPaused]), revision: 6 })
-
-      expect(root.querySelector('.controls')).toBe(controls)
-      expect(root.querySelector('#display-select')).toBe(select)
-      expect(root.querySelector('#always-on-top')).toBe(checkbox)
-      expect(document.activeElement).toBe(select)
-      // The status section did repaint with the new timing.
-      expect(root.querySelector('#time')?.textContent).toBe('00:47')
+      const toggle = root.querySelector('#settings-toggle') as HTMLButtonElement
+      expect(root.querySelector('#timing-mode')).toBeNull()
+      toggle.click()
+      expect(root.querySelector('#timing-mode')).not.toBeNull()
+      expect(root.querySelector('#settings-toggle')?.getAttribute('aria-expanded')).toBe('true')
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      expect(root.querySelector('#timing-mode')).toBeNull()
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(root.querySelector('#timing-mode')).toBeNull()
       stop()
     } finally {
       root.remove()
@@ -588,7 +522,7 @@ describe('control stability across pushes', () => {
     }
   })
 
-  it('patches control state in place when settings change', () => {
+  it('keeps settings controls and focus across a timing-only view push', () => {
     vi.useFakeTimers()
     try {
       let listener: ((view: AppView) => void) | undefined
@@ -601,38 +535,31 @@ describe('control stability across pushes', () => {
         dispatch: vi.fn(async () => undefined),
       }
       const root = document.createElement('div')
+      document.body.append(root)
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
 
       const controls = root.querySelector('.controls')
       const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
       expect(checkbox.checked).toBe(true)
-      expect(root.querySelector('button[data-mode="remaining"]')?.classList.contains('active')).toBe(true)
+      checkbox.focus()
+      expect(document.activeElement).toBe(checkbox)
 
-      listener?.({
-        ...twoVideoView([focusPlaying, secondPaused]),
-        revision: 6,
-        timingMode: 'elapsed',
-        alwaysOnTop: false,
-        preset: 'large',
-        selectedDisplayId: '2',
-      })
+      listener?.({ ...twoVideoView([{ ...focusPlaying, remainingMs: 47_000 }, secondPaused]), revision: 6 })
 
       expect(root.querySelector('.controls')).toBe(controls)
-      expect(checkbox.checked).toBe(false)
-      expect(root.querySelector('button[data-mode="elapsed"]')?.classList.contains('active')).toBe(true)
-      expect(root.querySelector('button[data-mode="remaining"]')?.classList.contains('active')).toBe(false)
-      expect(root.querySelector('button[data-preset="large"]')?.classList.contains('active')).toBe(true)
-      expect((root.querySelector('#display-select') as HTMLSelectElement).value).toBe('2')
-      // Rows follow the new timing mode.
-      expect(rowTimes(root)).toEqual(['00:12', '00:21'])
+      expect(root.querySelector('#always-on-top')).toBe(checkbox)
+      expect(document.activeElement).toBe(checkbox)
+      expect(root.querySelector('#time')?.textContent).toBe('00:47')
       stop()
+      root.remove()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('rebuilds the controls when the CTA or display selector appears', () => {
+  it('dispatches the timing toggle, always-on-top, and diagnostics from settings', () => {
     vi.useFakeTimers()
     try {
       let listener: ((view: AppView) => void) | undefined
@@ -653,59 +580,23 @@ describe('control stability across pushes', () => {
         now: () => 0,
       })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
-      expect(root.querySelector('#cta')).toBeNull()
-
-      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6, ctaAvailable: true })
-      const cta = root.querySelector('#cta') as HTMLButtonElement
-      expect(cta).not.toBeNull()
-      // Rebuilt controls are still wired to dispatch.
-      cta.click()
-      ;(root.querySelector('button[data-preset="large"]') as HTMLButtonElement).click()
-      expect(dispatched).toEqual([{ type: 'openUpsell' }, { type: 'applyPreset', preset: 'large' }])
-
-      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 7, ctaAvailable: true, displays: [] })
-      expect(root.querySelector('#display-select')).toBeNull()
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
+      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
+      checkbox.checked = false
+      checkbox.dispatchEvent(new Event('change'))
+      ;(root.querySelector('#copy-diagnostics') as HTMLButtonElement).click()
+      expect(dispatched).toEqual([
+        { type: 'setTimingMode', mode: 'elapsed' },
+        { type: 'setAlwaysOnTop', enabled: false },
+        { type: 'copyDiagnostics' },
+      ])
       stop()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('updates the display options when the display list changes, keeping the select', () => {
-    vi.useFakeTimers()
-    try {
-      let listener: ((view: AppView) => void) | undefined
-      const api: PreloadApi = {
-        getView: vi.fn(() => new Promise<AppView>(() => {})),
-        subscribe: vi.fn((fn) => {
-          listener = fn
-          return () => {}
-        }),
-        dispatch: vi.fn(async () => undefined),
-      }
-      const root = document.createElement('div')
-      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
-      listener?.(twoVideoView([focusPlaying, secondPaused]))
-      const select = root.querySelector('#display-select') as HTMLSelectElement
-
-      listener?.({
-        ...twoVideoView([focusPlaying, secondPaused]),
-        revision: 6,
-        displays: [
-          { id: '1', label: 'Display 1' },
-          { id: '3', label: 'Projector' },
-        ],
-        selectedDisplayId: '3',
-      })
-
-      expect(root.querySelector('#display-select')).toBe(select)
-      expect(Array.from(select.options).map((option) => option.value)).toEqual(['1', '3'])
-      expect(select.value).toBe('3')
-      stop()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
 })
 
 describe('accessible announcements', () => {
