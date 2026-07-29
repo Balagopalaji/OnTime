@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  alwaysOnTopRequestEvent,
+  attachOverlayDebug,
   classifyPlacementOutcome,
+  delayedWindowSnapshotEvent,
   displayEventEvent,
   launchSnapshotEvent,
   movedResizedEvent,
@@ -16,12 +19,18 @@ const display: DisplaySnapshot = { displayId: '692542', scaleFactor: 1.5, wx: 0,
 
 describe('overlay-debug builders (pure, no Electron)', () => {
   it('launchSnapshotEvent carries topology + full window state tuple', () => {
-    expect(launchSnapshotEvent(win, 2, '692542')).toEqual({
+    expect(launchSnapshotEvent(win, 2, '692542', true)).toEqual({
       kind: 'debug_launch_snapshot',
       displayCount: 2,
       primaryId: '692542',
+      savedAlwaysOnTop: true,
       ...win,
     })
+  })
+
+  it('builds request and delayed snapshot events without a native mutation API', () => {
+    expect(alwaysOnTopRequestEvent(false, true, false)).toEqual({ kind: 'debug_always_on_top_request', requested: false, nativeBefore: true, nativeAfter: false })
+    expect(delayedWindowSnapshotEvent('focus', 100, win, display)).toMatchObject({ kind: 'debug_delayed_window_snapshot', trigger: 'focus', delayMs: 100, alwaysOnTop: true })
   })
 
   it('windowEventEvent pairs the lifecycle label with the matched display + state', () => {
@@ -85,6 +94,34 @@ describe('overlay-debug builders (pure, no Electron)', () => {
       bw: 360,
       bh: 220,
     })
+  })
+})
+
+describe('attachOverlayDebug passive focus/blur follow-ups', () => {
+  it('schedules 100/500/1000ms snapshots after focus and blur using getters only', () => {
+    const listeners = new Map<string, () => void>()
+    const scheduled: Array<{ callback: () => void; delayMs: number }> = []
+    const events: unknown[] = []
+    const window = {
+      isDestroyed: () => false,
+      getBounds: () => ({ x: 10, y: 20, width: 360, height: 220 }),
+      isVisible: () => true,
+      isMinimized: () => false,
+      isFocused: () => false,
+      isAlwaysOnTop: () => true,
+    }
+    const screen = {
+      getDisplayMatching: () => ({ id: '692542', scaleFactor: 1.5, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }),
+      getAllDisplays: () => [{}],
+      getPrimaryDisplay: () => ({ id: '692542' }),
+    }
+    attachOverlayDebug(window, screen, (event, listener) => listeners.set(event, listener), (event) => events.push(event), true, (callback, delayMs) => scheduled.push({ callback, delayMs }))
+
+    listeners.get('focus')?.()
+    listeners.get('blur')?.()
+    expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([100, 500, 1000, 100, 500, 1000])
+    for (const { callback } of scheduled) callback()
+    expect(events.filter((event) => (event as { kind: string }).kind === 'debug_delayed_window_snapshot')).toHaveLength(6)
   })
 })
 

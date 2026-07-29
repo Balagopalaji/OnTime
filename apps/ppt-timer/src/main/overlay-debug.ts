@@ -84,8 +84,24 @@ export function launchSnapshotEvent(
   window: WindowStateSnapshot,
   displayCount: number,
   primaryId: string,
+  savedAlwaysOnTop: boolean,
 ): AppDiagEvent {
-  return { kind: 'debug_launch_snapshot', displayCount, primaryId, ...window }
+  return { kind: 'debug_launch_snapshot', displayCount, primaryId, savedAlwaysOnTop, ...window }
+}
+
+/** Build a passive before/after record around an existing native AOT request. */
+export function alwaysOnTopRequestEvent(requested: boolean, nativeBefore: boolean, nativeAfter: boolean): AppDiagEvent {
+  return { kind: 'debug_always_on_top_request', requested, nativeBefore, nativeAfter }
+}
+
+/** Build one of the intentionally passive focus/blur follow-up snapshots. */
+export function delayedWindowSnapshotEvent(
+  trigger: 'focus' | 'blur',
+  delayMs: 100 | 500 | 1000,
+  window: WindowStateSnapshot,
+  display: DisplaySnapshot,
+): AppDiagEvent {
+  return { kind: 'debug_delayed_window_snapshot', trigger, delayMs, ...window, displayId: display.displayId, scaleFactor: display.scaleFactor }
 }
 
 /** Build a window lifecycle/activation event from a passive state read. */
@@ -190,6 +206,8 @@ export type OverlayDebugBind = (
   listener: () => void,
 ) => void
 
+export type OverlayDebugSchedule = (callback: () => void, delayMs: 100 | 500 | 1000) => unknown
+
 /**
  * Register the overlay-debug listeners on a window. Each listener reads passive
  * state at fire time and pushes a {@link AppDiagEvent} through `push`; none of
@@ -200,6 +218,8 @@ export function attachOverlayDebug(
   screen: DebugScreen,
   bind: OverlayDebugBind,
   push: (event: AppDiagEvent) => void,
+  savedAlwaysOnTop: boolean,
+  schedule: OverlayDebugSchedule = (callback, delayMs) => setTimeout(callback, delayMs),
 ): void {
   const readWindow = (): WindowStateSnapshot | null => {
     if (window.isDestroyed()) return null
@@ -226,13 +246,22 @@ export function attachOverlayDebug(
   // ready-to-show → show(); this only records the resulting state).
   bind('ready-to-show', () => {
     const snap = readWindow()
-    if (snap) push(launchSnapshotEvent(snap, screen.getAllDisplays().length, String(screen.getPrimaryDisplay().id)))
+    if (snap) push(launchSnapshotEvent(snap, screen.getAllDisplays().length, String(screen.getPrimaryDisplay().id), savedAlwaysOnTop))
   })
   // Lifecycle/activation events: read the state tuple + matched display at fire.
   const lifecycle = (label: WindowDiagEvent): (() => void) => () => {
     const snap = readWindow()
     const display = readMatched()
     if (snap && display) push(windowEventEvent(label, snap, display))
+    if (label === 'focus' || label === 'blur') {
+      for (const delayMs of [100, 500, 1000] as const) {
+        schedule(() => {
+          const delayedSnap = readWindow()
+          const delayedDisplay = readMatched()
+          if (delayedSnap && delayedDisplay) push(delayedWindowSnapshotEvent(label, delayMs, delayedSnap, delayedDisplay))
+        }, delayMs)
+      }
+    }
   }
   for (const label of ['show', 'hide', 'focus', 'blur', 'restore', 'minimize'] as const) bind(label, lifecycle(label))
   // moved/resized: also capture the matched display's work area.

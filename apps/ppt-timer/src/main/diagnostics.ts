@@ -17,6 +17,8 @@
 import type { BridgeDiagnosticEvent, BridgeDiagnosticSink } from '@ontime/ppt-bridge'
 
 export const DIAGNOSTICS_CAPACITY = 100
+/** Polling can produce affinity observations every second; retain only this many. */
+export const AFFINITY_DIAGNOSTICS_CAPACITY = 20
 
 /**
  * Env flag for the Windows overlay-window diagnostics (ISSUE-001 Presenter View
@@ -61,8 +63,10 @@ export type AppDiagEvent =
   // Overlay-window diagnostics (PPT_TIMER_DEBUG=1 only). No PII: only scalar
   // geometry, display IDs/labels, scale factors, and visibility/order state.
   // `bx/by/bw/bh` are window bounds; `wx/wy/ww/wh` are matched work-area bounds.
-  | { kind: 'debug_launch_snapshot'; displayCount: number; primaryId: string; bx: number; by: number; bw: number; bh: number; visible: boolean; minimized: boolean; focused: boolean; alwaysOnTop: boolean }
+  | { kind: 'debug_launch_snapshot'; displayCount: number; primaryId: string; savedAlwaysOnTop: boolean; bx: number; by: number; bw: number; bh: number; visible: boolean; minimized: boolean; focused: boolean; alwaysOnTop: boolean }
   | { kind: 'debug_window_event'; event: 'ready-to-show' | 'show' | 'hide' | 'focus' | 'blur' | 'restore' | 'minimize'; visible: boolean; minimized: boolean; focused: boolean; alwaysOnTop: boolean; bx: number; by: number; bw: number; bh: number; displayId: string; scaleFactor: number }
+  | { kind: 'debug_delayed_window_snapshot'; trigger: 'focus' | 'blur'; delayMs: 100 | 500 | 1000; visible: boolean; minimized: boolean; focused: boolean; alwaysOnTop: boolean; bx: number; by: number; bw: number; bh: number; displayId: string; scaleFactor: number }
+  | { kind: 'debug_always_on_top_request'; requested: boolean; nativeBefore: boolean; nativeAfter: boolean }
   | { kind: 'debug_moved_resized'; event: 'moved' | 'resized'; bx: number; by: number; bw: number; bh: number; displayId: string; scaleFactor: number; wx: number; wy: number; ww: number; wh: number }
   | { kind: 'debug_display_event'; event: 'display-added' | 'display-removed' | 'display-metrics-changed'; displayId: string; displayCount: number; scaleFactor: number; wx: number; wy: number; ww: number; wh: number }
   | { kind: 'debug_programmatic_bounds'; reason: 'preset' | 'moveToDisplay' | 'revalidate'; bxBefore: number; byBefore: number; bwBefore: number; bhBefore: number; bxAfter: number; byAfter: number; bwAfter: number; bhAfter: number; displayId: string }
@@ -110,9 +114,13 @@ function formatApp(event: AppDiagEvent): string {
     case 'window_bounds': return `app window_bounds x=${event.x} y=${event.y} width=${event.width} height=${event.height}`
     case 'settings_recovered': return `app settings_recovered quarantinedPath=${event.quarantinedPath ?? '--'}`
     case 'debug_launch_snapshot':
-      return `app debug_launch_snapshot displayCount=${event.displayCount} primaryId=${event.primaryId} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} visible=${event.visible} minimized=${event.minimized} focused=${event.focused} alwaysOnTop=${event.alwaysOnTop}`
+      return `app debug_launch_snapshot displayCount=${event.displayCount} primaryId=${event.primaryId} savedAlwaysOnTop=${event.savedAlwaysOnTop} actualAlwaysOnTop=${event.alwaysOnTop} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} visible=${event.visible} minimized=${event.minimized} focused=${event.focused}`
     case 'debug_window_event':
       return `app debug_window_event event=${event.event} visible=${event.visible} minimized=${event.minimized} focused=${event.focused} alwaysOnTop=${event.alwaysOnTop} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} displayId=${event.displayId} scaleFactor=${event.scaleFactor}`
+    case 'debug_delayed_window_snapshot':
+      return `app debug_delayed_window_snapshot trigger=${event.trigger} delayMs=${event.delayMs} visible=${event.visible} minimized=${event.minimized} focused=${event.focused} alwaysOnTop=${event.alwaysOnTop} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} displayId=${event.displayId} scaleFactor=${event.scaleFactor}`
+    case 'debug_always_on_top_request':
+      return `app debug_always_on_top_request requested=${event.requested} nativeBefore=${event.nativeBefore} nativeAfter=${event.nativeAfter}`
     case 'debug_moved_resized':
       return `app debug_moved_resized event=${event.event} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} displayId=${event.displayId} scaleFactor=${event.scaleFactor} workArea=${fmtBounds(event.wx, event.wy, event.ww, event.wh)}`
     case 'debug_display_event':
@@ -153,7 +161,25 @@ export class DiagnosticsBuffer {
       event.kind === 'settings_recovered'
         ? { ...event, quarantinedPath: event.quarantinedPath ? redactPath(event.quarantinedPath) : null }
         : event
-    this.append({ source: 'app', at: this.now(), event: sanitized })
+    const entry: DiagEntry = { source: 'app', at: this.now(), event: sanitized }
+    if (sanitized.kind === 'affinity') this.appendAffinity(entry)
+    else this.append(entry)
+  }
+
+  /**
+   * Affinity is a poll-side signal. It is deliberately lossy under pressure so
+   * it cannot evict opt-in overlay evidence from the shared 100-entry report.
+   */
+  private appendAffinity(entry: DiagEntry): void {
+    const oldestAffinity = this.entries.findIndex((candidate) => candidate.source === 'app' && candidate.event.kind === 'affinity')
+    const affinityCount = this.entries.filter((candidate) => candidate.source === 'app' && candidate.event.kind === 'affinity').length
+    if (this.entries.length >= this.capacity) {
+      if (oldestAffinity === -1) return
+      this.entries.splice(oldestAffinity, 1)
+    } else if (affinityCount >= AFFINITY_DIAGNOSTICS_CAPACITY) {
+      this.entries.splice(oldestAffinity, 1)
+    }
+    this.entries.push(entry)
   }
 
   private append(entry: DiagEntry): void {

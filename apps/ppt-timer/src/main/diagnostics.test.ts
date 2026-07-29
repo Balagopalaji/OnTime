@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DiagnosticsBuffer, DIAGNOSTICS_CAPACITY, isOverlayDebug, OVERLAY_DEBUG_ENV, redactPath, type DiagMeta } from './diagnostics'
+import { AFFINITY_DIAGNOSTICS_CAPACITY, DiagnosticsBuffer, DIAGNOSTICS_CAPACITY, isOverlayDebug, OVERLAY_DEBUG_ENV, redactPath, type DiagMeta } from './diagnostics'
 
 const meta: DiagMeta = {
   appVersion: '0.1.0-beta.1',
@@ -40,6 +40,18 @@ describe('DiagnosticsBuffer ring (S-026 last 100)', () => {
     expect(report).toContain('bridge helper_start generation=1')
     expect(report).toContain('bridge helper_stderr generation=1 byteCount=128')
     expect(report).toContain('bridge helper_termination generation=1 context=generation_failure result=unconfirmed waitMs=25')
+  })
+
+  it('bounds affinity polling without evicting overlay debug evidence', () => {
+    const buf = new DiagnosticsBuffer()
+    buf.push({ kind: 'debug_always_on_top_request', requested: true, nativeBefore: false, nativeAfter: true })
+    for (let i = 0; i < 200; i++) {
+      buf.push({ kind: 'affinity', processCount: i, selectedPid: i, comPid: i, mismatch: i % 2 === 0 })
+    }
+    const report = buf.buildReport(meta)
+    expect(buf.count).toBe(AFFINITY_DIAGNOSTICS_CAPACITY + 1)
+    expect(report).toContain('debug_always_on_top_request requested=true nativeBefore=false nativeAfter=true')
+    expect((report.match(/app affinity /g) ?? [])).toHaveLength(AFFINITY_DIAGNOSTICS_CAPACITY)
   })
 })
 
@@ -142,6 +154,7 @@ describe('overlay debug events in the report (PPT_TIMER_DEBUG=1 surface)', () =>
       kind: 'debug_launch_snapshot',
       displayCount: 2,
       primaryId: '692542',
+      savedAlwaysOnTop: true,
       bx: 10,
       by: 20,
       bw: 360,
@@ -152,8 +165,9 @@ describe('overlay debug events in the report (PPT_TIMER_DEBUG=1 surface)', () =>
       alwaysOnTop: true,
     })
     const report = buf.buildReport(meta)
-    expect(report).toContain('debug_launch_snapshot displayCount=2 primaryId=692542 bounds=10,20,360,220')
-    expect(report).toContain('visible=true minimized=false focused=false alwaysOnTop=true')
+    expect(report).toContain('debug_launch_snapshot displayCount=2 primaryId=692542 savedAlwaysOnTop=true actualAlwaysOnTop=true bounds=10,20,360,220')
+    expect(report).toContain('savedAlwaysOnTop=true actualAlwaysOnTop=true')
+    expect(report).toContain('visible=true minimized=false focused=false')
   })
 
   it('formats a window lifecycle event with matched display id and scale factor', () => {
@@ -176,6 +190,16 @@ describe('overlay debug events in the report (PPT_TIMER_DEBUG=1 surface)', () =>
     expect(report).toContain('debug_window_event event=blur')
     expect(report).toContain('bounds=10,20,360,220 displayId=692542 scaleFactor=1.5')
     expect(report).toContain('alwaysOnTop=true')
+  })
+
+  it('formats always-on-top requests and passive delayed focus snapshots', () => {
+    const buf = new DiagnosticsBuffer()
+    buf.push({ kind: 'debug_always_on_top_request', requested: false, nativeBefore: true, nativeAfter: false })
+    buf.push({ kind: 'debug_delayed_window_snapshot', trigger: 'blur', delayMs: 500, visible: true, minimized: false, focused: false, alwaysOnTop: false, bx: 10, by: 20, bw: 360, bh: 220, displayId: '692542', scaleFactor: 1.5 })
+    const report = buf.buildReport(meta)
+    expect(report).toContain('debug_always_on_top_request requested=false nativeBefore=true nativeAfter=false')
+    expect(report).toContain('debug_delayed_window_snapshot trigger=blur delayMs=500')
+    expect(report).toContain('alwaysOnTop=false bounds=10,20,360,220 displayId=692542')
   })
 
   it('formats moved/resized with the matched work area for clamping analysis', () => {
@@ -238,7 +262,7 @@ describe('overlay debug events in the report (PPT_TIMER_DEBUG=1 surface)', () =>
   it('carries no PII: only scalar geometry/state, never titles or process names', () => {
     const buf = new DiagnosticsBuffer()
     buf.push({ kind: 'debug_window_event', event: 'blur', visible: true, minimized: false, focused: false, alwaysOnTop: true, bx: 1, by: 2, bw: 3, bh: 4, displayId: '692542', scaleFactor: 1 })
-    buf.push({ kind: 'debug_launch_snapshot', displayCount: 1, primaryId: '692542', bx: 1, by: 2, bw: 3, bh: 4, visible: true, minimized: false, focused: false, alwaysOnTop: true })
+    buf.push({ kind: 'debug_launch_snapshot', displayCount: 1, primaryId: '692542', savedAlwaysOnTop: true, bx: 1, by: 2, bw: 3, bh: 4, visible: true, minimized: false, focused: false, alwaysOnTop: true })
     const report = buf.buildReport(meta)
     expect(report).not.toContain('POWERPNT')
     expect(report).not.toContain('Presenter')

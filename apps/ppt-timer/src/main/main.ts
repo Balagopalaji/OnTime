@@ -17,6 +17,7 @@ import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
 import {
   attachOverlayDebug,
+  alwaysOnTopRequestEvent,
   classifyPlacementOutcome,
   displayEventEvent,
   placementDecisionEvent,
@@ -181,7 +182,12 @@ async function main(): Promise<void> {
   }
 
   const effects: WindowEffects = {
-    setAlwaysOnTop: (enabled) => mainWindow?.setAlwaysOnTop(enabled),
+    setAlwaysOnTop: (enabled) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      const nativeBefore = mainWindow.isAlwaysOnTop()
+      mainWindow.setAlwaysOnTop(enabled)
+      if (overlayDebug) logDebug(alwaysOnTopRequestEvent(enabled, nativeBefore, mainWindow.isAlwaysOnTop()))
+    },
     applyPreset: (preset) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
       setProgrammaticBounds(placePreset(mainWindow.getBounds(), preset, workAreaForWindow()), 'preset')
@@ -314,7 +320,7 @@ async function main(): Promise<void> {
           case 'moved': return win0.on('moved', listener)
           case 'resized': return win0.on('resized', listener)
         }
-      }, logDebug)
+      }, logDebug, currentSettings.alwaysOnTop)
     }
 
     bindPptTimerIpc(mainWindow, controllers)
