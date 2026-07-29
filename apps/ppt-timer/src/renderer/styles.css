@@ -78,6 +78,74 @@ body {
   color: var(--warn);
 }
 
+/* Per-video rows: one independent timer per slide video, focus row highlighted. */
+.videos {
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.video-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.video-row.focus {
+  border-color: var(--accent);
+  background: var(--panel);
+  color: var(--fg);
+}
+
+.video-row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-row-status {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.video-row-status[data-status='playing'] {
+  color: var(--accent);
+}
+
+.video-row-status[data-status='paused'] {
+  color: var(--warn);
+}
+
+.video-row-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Visually hidden but announced: the polite status live region. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;

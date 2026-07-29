@@ -3,11 +3,17 @@
  * no framework, no remote content: it renders the immutable {@link AppView}
  * pushed from the main process and sends closed-union {@link RendererAction}s
  * back through the sandboxed preload bridge. All display formatting is delegated
- * to `describeView`, which only renders the latest measurement and never
- * advances time locally (S-017). User-derived strings go through `textContent`,
- * never `innerHTML`, so a deck name can never inject markup.
+ * to `describeView`. User-derived strings go through `textContent`, never
+ * `innerHTML`, so a deck name can never inject markup.
+ *
+ * Smoothing lives HERE and nowhere else: the projection stays clock-free
+ * (S-017) and IPC traffic is unchanged. Each accepted view is stamped with a
+ * local monotonic observation time, and a 250 ms tick patches ONLY the timer
+ * strings using a bounded advance ({@link localAdvanceMs}). Every fresh view
+ * re-anchors, so a seek, replay, delayed poll, or corrected COM value snaps
+ * straight to the newest observation instead of blending across it.
  */
-import { describeView, type Badge } from './view.js'
+import { announcementFor, describeView, localAdvanceMs, SMOOTHING_TICK_MS, type Badge } from './view.js'
 import type { AppView, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 
 declare global {
@@ -31,8 +37,8 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
   return node
 }
 
-function renderStatus(state: AppView['state']): HTMLElement {
-  const model = describeView(state)
+function renderStatus(view: AppView, advanceMs: number): HTMLElement {
+  const model = describeView(view.state, { timingMode: view.timingMode, advanceMs })
   const section = element('section', 'status')
   section.dataset.state = model.stateKind
 
@@ -66,6 +72,29 @@ function renderStatus(state: AppView['state']): HTMLElement {
     const message = element('div', 'message', model.messageText)
     message.id = 'message'
     section.append(message)
+  }
+  // Every slide video gets its own row beneath the large focus timer, with an
+  // independent timer. Exactly one row is highlighted: the projection marks a
+  // single `isFocus` tile, and that same tile backs the large timer above.
+  if (model.videoRows.length > 0) {
+    const list = element('ul', 'videos')
+    list.id = 'videos'
+    for (const row of model.videoRows) {
+      const item = element('li', 'video-row')
+      item.dataset.key = row.key
+      item.dataset.ordinal = String(row.ordinal)
+      if (row.isFocus) {
+        item.classList.add('focus')
+        item.dataset.focus = 'true'
+      }
+      item.append(element('span', 'video-row-name', row.label))
+      const status = element('span', 'video-row-status', row.statusText)
+      status.dataset.status = row.statusText.toLowerCase()
+      item.append(status)
+      item.append(element('span', 'video-row-time', row.timeText))
+      list.append(item)
+    }
+    section.append(list)
   }
   if (model.multiInstanceWarning) {
     const warning = element('div', 'warning', model.multiInstanceWarning)
@@ -144,28 +173,92 @@ function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
 }
 
 /** Replace the app root with a fresh render of the immutable view (S-013). */
-export function renderApp(root: HTMLElement, view: AppView, dispatch: Dispatch): void {
-  root.replaceChildren(renderStatus(view.state), renderControls(view, dispatch))
+export function renderApp(root: HTMLElement, view: AppView, dispatch: Dispatch, advanceMs = 0): void {
+  root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch))
 }
 
-/** Wire the preload bridge: subscribe to pushes and render the initial view. */
-export function mountApp(options: { root: HTMLElement; api: PreloadApi }): () => void {
+/**
+ * Patch ONLY the timer strings of an already-rendered view. The interpolation
+ * tick calls this so nothing else in the DOM churns: no node is recreated, no
+ * listener is rebound, and no status/message text (and therefore no live-region
+ * content) changes. Row order matches the render exactly, both coming from the
+ * same model.
+ */
+export function patchTimers(root: HTMLElement, view: AppView, advanceMs: number): void {
+  const model = describeView(view.state, { timingMode: view.timingMode, advanceMs })
+  const time = root.querySelector('#time')
+  if (time && time.textContent !== model.timeText) time.textContent = model.timeText
+  const rowTimes = root.querySelectorAll('.video-row .video-row-time')
+  model.videoRows.forEach((row, index) => {
+    const node = rowTimes[index]
+    if (node && node.textContent !== row.timeText) node.textContent = row.timeText
+  })
+}
+
+/** Monotonic where available; `performance.now()` never jumps with the clock. */
+function defaultNow(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
+}
+
+/**
+ * Wire the preload bridge: subscribe to pushes, render the initial view, and run
+ * the bounded local smoothing tick. The returned function stops the tick and
+ * unsubscribes.
+ */
+export function mountApp(options: {
+  root: HTMLElement
+  api: PreloadApi
+  /** Injectable local monotonic clock (tests); defaults to `performance.now()`. */
+  now?: () => number
+  /** Polite live region for status announcements; looked up by id by default. */
+  announcer?: HTMLElement | null
+}): () => void {
   const { root, api } = options
+  const now = options.now ?? defaultNow
+  const announcer =
+    options.announcer ?? (typeof document !== 'undefined' ? document.getElementById('announcer') : null)
   const dispatch: Dispatch = (action) => {
     void api.dispatch(action)
   }
   // `revision` is monotonic; drop any view older than the last one rendered so a
   // late-resolving getView() cannot overwrite a newer pushed view and restore
-  // stale timing after an `unavailable` transition (S-013).
+  // stale timing after an `unavailable` transition (S-013). A dropped view also
+  // leaves the observation anchor alone, so it cannot rewind newer timing.
   let lastRevision = -1
+  let current: AppView | null = null
+  let observedAt = 0
+  let announced: string | null = null
+
   const render = (view: AppView): void => {
     if (view.revision < lastRevision) return
     lastRevision = view.revision
+    current = view
+    // Re-anchor on every accepted view: the render below shows the observed
+    // measurement verbatim (advance 0), so a discontinuity snaps rather than
+    // blending, and a new non-presentation state drops all timing anchors.
+    observedAt = now()
     renderApp(root, view, dispatch)
+    if (announcer) {
+      const text = announcementFor(describeView(view.state, { timingMode: view.timingMode }))
+      if (text !== announced) {
+        announced = text
+        announcer.textContent = text
+      }
+    }
   }
+
+  const tick = (): void => {
+    if (current === null) return
+    patchTimers(root, current, localAdvanceMs(observedAt, now()))
+  }
+
   const unsubscribe = api.subscribe(render)
+  const ticker = setInterval(tick, SMOOTHING_TICK_MS)
   void api.getView().then(render)
-  return unsubscribe
+  return () => {
+    clearInterval(ticker)
+    unsubscribe()
+  }
 }
 
 if (typeof document !== 'undefined') {

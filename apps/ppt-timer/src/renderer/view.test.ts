@@ -1,10 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import type { PowerPointViewState } from '@ontime/presentation-core'
-import { describeView, formatTime } from './view'
+import type { PowerPointVideoTile, PowerPointViewState } from '@ontime/presentation-core'
+import {
+  announcementFor,
+  describeView,
+  formatTime,
+  localAdvanceMs,
+  SMOOTHING_STALE_MS,
+  tileRemainingMs,
+} from './view'
 
 const ortho = { multipleVideos: false, videoCount: 0, multipleInstanceWarning: false }
 
 const state = (partial: PowerPointViewState): PowerPointViewState => partial
+
+const tile = (partial: Partial<PowerPointVideoTile> & { ordinal: number }): PowerPointVideoTile => ({
+  status: 'ready',
+  playing: false,
+  durationMs: null,
+  elapsedMs: null,
+  remainingMs: null,
+  isFocus: false,
+  ...partial,
+})
 
 describe('formatTime', () => {
   it('renders null and non-finite as --:-- and zero as 00:00', () => {
@@ -14,16 +31,57 @@ describe('formatTime', () => {
     expect(formatTime(0)).toBe('00:00')
   })
 
-  it('renders MM:SS under an hour and H:MM:SS at/above an hour, rounding', () => {
+  it('renders MM:SS under an hour and H:MM:SS at/above an hour', () => {
     expect(formatTime(12_000)).toBe('00:12')
     expect(formatTime(48_000)).toBe('00:48')
     expect(formatTime(60_000)).toBe('01:00')
     expect(formatTime(3_661_000)).toBe('1:01:01')
-    expect(formatTime(1_500)).toBe('00:02') // rounds to nearest second
+  })
+
+  it('floors to whole seconds, matching the Controller (never rounds up)', () => {
+    expect(formatTime(1_500)).toBe('00:01')
+    expect(formatTime(1_999)).toBe('00:01')
+    expect(formatTime(999)).toBe('00:00')
+    expect(formatTime(59_999)).toBe('00:59')
+    expect(formatTime(3_599_999)).toBe('59:59')
+    expect(formatTime(3_600_000)).toBe('1:00:00')
   })
 
   it('never renders a negative number', () => {
     expect(formatTime(-5_000)).toBe('00:00')
+    expect(formatTime(-1)).toBe('00:00')
+  })
+})
+
+describe('tileRemainingMs', () => {
+  it('prefers the observed remaining value', () => {
+    expect(tileRemainingMs(tile({ ordinal: 0, remainingMs: 5_000, durationMs: 60_000, elapsedMs: 10_000 }))).toBe(5_000)
+  })
+
+  it('derives duration minus elapsed only when no remaining was observed', () => {
+    expect(tileRemainingMs(tile({ ordinal: 0, durationMs: 60_000, elapsedMs: 10_000 }))).toBe(50_000)
+    expect(tileRemainingMs(tile({ ordinal: 0, durationMs: 60_000 }))).toBeNull()
+    expect(tileRemainingMs(tile({ ordinal: 0 }))).toBeNull()
+  })
+})
+
+describe('localAdvanceMs', () => {
+  it('is the elapsed local time between observation and now', () => {
+    expect(localAdvanceMs(1_000, 1_750)).toBe(750)
+  })
+
+  it('never advances backwards or on a non-finite clock', () => {
+    expect(localAdvanceMs(1_000, 1_000)).toBe(0)
+    expect(localAdvanceMs(1_000, 900)).toBe(0)
+    expect(localAdvanceMs(Number.NaN, 1_000)).toBe(0)
+    expect(localAdvanceMs(1_000, Number.POSITIVE_INFINITY)).toBe(0)
+  })
+
+  it('caps at the 2 second staleness bound instead of counting indefinitely', () => {
+    expect(SMOOTHING_STALE_MS).toBe(2_000)
+    expect(localAdvanceMs(0, 1_999)).toBe(1_999)
+    expect(localAdvanceMs(0, 2_000)).toBe(2_000)
+    expect(localAdvanceMs(0, 30_000)).toBe(2_000)
   })
 })
 
@@ -161,5 +219,274 @@ describe('describeView — indicators and overlays', () => {
     const m = describeView(state({ kind: 'unavailable', ...ortho }))
     expect(m.timeText).toBe('--:--')
     expect(m.badge).toBe('retry')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multi-video rows and bounded local interpolation.
+// ---------------------------------------------------------------------------
+
+const deck = {
+  slideNumber: 2,
+  totalSlides: 9,
+  title: 'Deck.pptx',
+  filenameBasename: 'Deck.pptx',
+  multipleInstanceWarning: false,
+}
+
+/** A presentation view with the given rows; `timeMs` is deliberately bogus so a
+ * test fails if the large timer falls back to the helper-primary scalar. */
+const withVideos = (
+  kind: 'playing' | 'paused' | 'ended' | 'ready' | 'timing_unavailable',
+  videos: PowerPointVideoTile[],
+): PowerPointViewState =>
+  state({
+    kind,
+    ...deck,
+    timeMs: 999_000,
+    durationMs: 999_000,
+    multipleVideos: videos.length > 1,
+    videoCount: videos.length,
+    videos,
+  })
+
+const rowByOrdinal = (m: ReturnType<typeof describeView>, ordinal: number) =>
+  m.videoRows.find((row) => row.ordinal === ordinal)
+
+describe('describeView — per-video rows', () => {
+  const twoVideos = [
+    tile({ ordinal: 0, id: 11, name: 'Intro.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
+    tile({ ordinal: 1, id: 12, name: ' Outro.mp4 ', status: 'paused', durationMs: 30_000, elapsedMs: 9_000, remainingMs: 21_000 }),
+  ]
+
+  it('renders one row per video with ordinal/name, status text, and an independent timer', () => {
+    const m = describeView(withVideos('playing', twoVideos), { timingMode: 'remaining' })
+    expect(m.videoRows).toHaveLength(2)
+    expect(m.videoRows[0]?.label).toBe('1. Intro.mp4')
+    expect(m.videoRows[0]?.statusText).toBe('Playing')
+    expect(m.videoRows[0]?.timeText).toBe('00:48')
+    expect(m.videoRows[1]?.label).toBe('2. Outro.mp4')
+    expect(m.videoRows[1]?.statusText).toBe('Paused')
+    expect(m.videoRows[1]?.timeText).toBe('00:21')
+  })
+
+  it('falls back to a positional name and renders all four status words', () => {
+    const m = describeView(
+      withVideos('ready', [
+        tile({ ordinal: 0, status: 'ready', durationMs: 5_000, isFocus: true }),
+        tile({ ordinal: 1, name: '   ', status: 'playing', playing: true, remainingMs: 4_000 }),
+        tile({ ordinal: 2, status: 'paused', remainingMs: 3_000 }),
+        tile({ ordinal: 3, status: 'ended', remainingMs: 0 }),
+      ]),
+    )
+    expect(m.videoRows.map((row) => row.label)).toEqual(['1. Video 1', '2. Video 2', '3. Video 3', '4. Video 4'])
+    expect(m.videoRows.map((row) => row.statusText)).toEqual(['Ready', 'Playing', 'Paused', 'Ended'])
+  })
+
+  it('highlights exactly the isFocus row', () => {
+    const m = describeView(withVideos('playing', twoVideos))
+    expect(m.videoRows.filter((row) => row.isFocus)).toHaveLength(1)
+    expect(rowByOrdinal(m, 0)?.isFocus).toBe(true)
+    expect(rowByOrdinal(m, 1)?.isFocus).toBe(false)
+  })
+
+  it('renders no rows for non-presentation states, so no countdown survives them', () => {
+    for (const kind of ['connecting', 'unavailable', 'powerpoint_not_running', 'no_slideshow'] as const) {
+      const m = describeView(state({ kind, ...ortho }))
+      expect(m.videoRows).toEqual([])
+      expect(m.timeText).toBe('--:--')
+    }
+  })
+
+  it('renders --:-- for rows with null/non-finite timing and keeps the state message', () => {
+    const m = describeView(
+      withVideos('timing_unavailable', [
+        tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, isFocus: true }),
+        tile({ ordinal: 1, name: 'B.mp4', status: 'paused', remainingMs: Number.NaN }),
+      ]),
+    )
+    expect(m.videoRows[0]?.timeText).toBe('--:--')
+    expect(m.videoRows[1]?.timeText).toBe('--:--')
+    // timing_unavailable still shows no numeric headline time.
+    expect(m.timeText).toBe('--:--')
+  })
+
+  it('never renders a negative remaining value on a row', () => {
+    const m = describeView(
+      withVideos('playing', [
+        tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 10_000, elapsedMs: 13_000, remainingMs: -3_000, isFocus: true }),
+      ]),
+    )
+    expect(m.videoRows[0]?.timeText).toBe('00:00')
+  })
+})
+
+describe('describeView — large timer follows the focus tile', () => {
+  it('takes the headline number from the focus row, not the helper-primary scalar', () => {
+    const m = describeView(
+      withVideos('playing', [
+        tile({ ordinal: 0, name: 'A.mp4', status: 'paused', durationMs: 60_000, elapsedMs: 5_000, remainingMs: 55_000 }),
+        tile({ ordinal: 1, name: 'B.mp4', status: 'playing', playing: true, durationMs: 40_000, elapsedMs: 10_000, remainingMs: 30_000, isFocus: true }),
+      ]),
+      { timingMode: 'remaining' },
+    )
+    // state.timeMs is 999_000 (16:39); the focus row is authoritative.
+    expect(m.timeText).toBe('00:30')
+    expect(m.timeText).toBe(rowByOrdinal(m, 1)?.timeText)
+  })
+
+  it('keeps the focus row and the large timer aligned in both timing modes and while interpolating', () => {
+    const view = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
+      tile({ ordinal: 1, name: 'B.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 30_000, remainingMs: 30_000 }),
+    ])
+    for (const timingMode of ['remaining', 'elapsed'] as const) {
+      for (const advanceMs of [0, 250, 999, 1_500, 2_000]) {
+        const m = describeView(view, { timingMode, advanceMs })
+        const focus = m.videoRows.find((row) => row.isFocus)
+        expect(focus).toBeDefined()
+        expect(m.timeText).toBe(focus?.timeText)
+      }
+    }
+  })
+
+  it('keeps aligned when the focus row is ended or ready', () => {
+    const ended = describeView(
+      withVideos('ended', [tile({ ordinal: 0, name: 'A.mp4', status: 'ended', durationMs: 60_000, elapsedMs: 60_000, remainingMs: 0, isFocus: true })]),
+      { timingMode: 'remaining' },
+    )
+    expect(ended.timeText).toBe('00:00')
+    expect(ended.timeText).toBe(ended.videoRows[0]?.timeText)
+    expect(ended.messageText).toBe('Ended')
+
+    const ready = describeView(
+      withVideos('ready', [tile({ ordinal: 0, name: 'A.mp4', status: 'ready', durationMs: 90_000, isFocus: true })]),
+    )
+    expect(ready.timeText).toBe('01:30')
+    expect(ready.timeText).toBe(ready.videoRows[0]?.timeText)
+    expect(ready.messageText).toBe('Ready')
+  })
+})
+
+describe('describeView — bounded local interpolation', () => {
+  const playingAndPaused = [
+    tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
+    tile({ ordinal: 1, name: 'B.mp4', status: 'paused', durationMs: 60_000, elapsedMs: 21_000, remainingMs: 39_000 }),
+  ]
+
+  it('advances the playing row and freezes the paused row', () => {
+    const view = withVideos('playing', playingAndPaused)
+    const m = describeView(view, { timingMode: 'remaining', advanceMs: 3_000 })
+    expect(rowByOrdinal(m, 0)?.timeText).toBe('00:45')
+    expect(rowByOrdinal(m, 1)?.timeText).toBe('00:39')
+    const elapsed = describeView(view, { timingMode: 'elapsed', advanceMs: 3_000 })
+    expect(rowByOrdinal(elapsed, 0)?.timeText).toBe('00:15')
+    expect(rowByOrdinal(elapsed, 1)?.timeText).toBe('00:21')
+  })
+
+  it('advances two concurrent playing rows independently from their own values', () => {
+    const view = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 10_000, remainingMs: 50_000, isFocus: true }),
+      tile({ ordinal: 1, name: 'B.mp4', status: 'playing', playing: true, durationMs: 20_000, elapsedMs: 5_000, remainingMs: 15_000 }),
+    ])
+    const m = describeView(view, { timingMode: 'remaining', advanceMs: 1_000 })
+    expect(rowByOrdinal(m, 0)?.timeText).toBe('00:49')
+    expect(rowByOrdinal(m, 1)?.timeText).toBe('00:14')
+    const later = describeView(view, { timingMode: 'remaining', advanceMs: 2_000 })
+    expect(rowByOrdinal(later, 0)?.timeText).toBe('00:48')
+    expect(rowByOrdinal(later, 1)?.timeText).toBe('00:13')
+  })
+
+  it('never advances ready or ended rows', () => {
+    const view = withVideos('ready', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'ready', durationMs: 45_000, isFocus: true }),
+      tile({ ordinal: 1, name: 'B.mp4', status: 'ended', durationMs: 30_000, elapsedMs: 30_000, remainingMs: 0 }),
+    ])
+    for (const advanceMs of [0, 1_000, 2_000]) {
+      const m = describeView(view, { timingMode: 'remaining', advanceMs })
+      expect(rowByOrdinal(m, 0)?.timeText).toBe('00:45')
+      expect(rowByOrdinal(m, 1)?.timeText).toBe('00:00')
+    }
+    const elapsedMode = describeView(view, { timingMode: 'elapsed', advanceMs: 2_000 })
+    expect(rowByOrdinal(elapsedMode, 1)?.timeText).toBe('00:30')
+  })
+
+  it('snaps to the observed truth at zero advance, including a corrected/seek value', () => {
+    const seeked = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 2_000, remainingMs: 58_000, isFocus: true }),
+    ])
+    // A backwards seek arrives; zero advance renders it verbatim with no blend.
+    expect(describeView(seeked, { timingMode: 'remaining', advanceMs: 0 }).timeText).toBe('00:58')
+    expect(describeView(seeked, { timingMode: 'elapsed', advanceMs: 0 }).timeText).toBe('00:02')
+    // A negative advance (clock went backwards) is likewise inert.
+    expect(describeView(seeked, { timingMode: 'remaining', advanceMs: -5_000 }).timeText).toBe('00:58')
+  })
+
+  it('caps remaining at zero and elapsed at duration, keeping the Playing status', () => {
+    const view = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 59_500, remainingMs: 500, isFocus: true }),
+    ])
+    const m = describeView(view, { timingMode: 'remaining', advanceMs: 2_000 })
+    expect(m.videoRows[0]?.timeText).toBe('00:00')
+    // Reaching 00:00 locally must NOT invent Ended before the helper confirms it.
+    expect(m.videoRows[0]?.statusText).toBe('Playing')
+    expect(m.stateKind).toBe('playing')
+    expect(m.messageText).toBeNull()
+    const elapsed = describeView(view, { timingMode: 'elapsed', advanceMs: 2_000 })
+    expect(elapsed.videoRows[0]?.timeText).toBe('01:00')
+  })
+
+  it('derives an interpolated remaining from duration minus elapsed when none was observed', () => {
+    const view = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 10_000, isFocus: true }),
+    ])
+    expect(describeView(view, { timingMode: 'remaining', advanceMs: 0 }).timeText).toBe('00:50')
+    expect(describeView(view, { timingMode: 'remaining', advanceMs: 4_000 }).timeText).toBe('00:46')
+  })
+
+  it('leaves null timing null while interpolating (no invented numbers)', () => {
+    const view = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, isFocus: true }),
+    ])
+    expect(describeView(view, { timingMode: 'remaining', advanceMs: 1_000 }).timeText).toBe('--:--')
+    expect(describeView(view, { timingMode: 'elapsed', advanceMs: 1_000 }).timeText).toBe('--:--')
+  })
+})
+
+describe('announcementFor', () => {
+  it('does not change as timers tick, so the live region stays quiet', () => {
+    const view = withVideos('playing', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 1_000, remainingMs: 59_000, isFocus: true }),
+      tile({ ordinal: 1, name: 'B.mp4', status: 'paused', durationMs: 60_000, elapsedMs: 30_000, remainingMs: 30_000 }),
+    ])
+    const first = announcementFor(describeView(view, { advanceMs: 0 }))
+    const later = announcementFor(describeView(view, { advanceMs: 1_900 }))
+    expect(later).toBe(first)
+    expect(first).toBe('Playing — 1. A.mp4: Playing, 2. B.mp4: Paused')
+    expect(first).not.toMatch(/\d\d:\d\d/)
+  })
+
+  it('changes when a video status changes', () => {
+    const rows = (secondStatus: PowerPointVideoTile['status']) =>
+      announcementFor(
+        describeView(
+          withVideos('playing', [
+            tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, remainingMs: 10_000, isFocus: true }),
+            tile({ ordinal: 1, name: 'B.mp4', status: secondStatus, remainingMs: 10_000 }),
+          ]),
+        ),
+      )
+    expect(rows('ready')).not.toBe(rows('playing'))
+    expect(rows('ended')).toContain('2. B.mp4: Ended')
+  })
+
+  it('announces non-presentation and single-video states without timer values', () => {
+    expect(announcementFor(describeView(state({ kind: 'connecting', ...ortho })))).toBe('Connecting to PowerPoint…')
+    expect(announcementFor(describeView(state({ kind: 'unavailable', ...ortho })))).toBe('PowerPoint timing unavailable')
+    expect(announcementFor(describeView(state({ kind: 'no_slideshow', ...ortho })))).toBe('No slideshow running')
+    const single = describeView(
+      withVideos('paused', [tile({ ordinal: 0, name: 'A.mp4', status: 'paused', remainingMs: 12_000, isFocus: true })]),
+    )
+    expect(announcementFor(single)).toBe('Paused — 1. A.mp4')
   })
 })
