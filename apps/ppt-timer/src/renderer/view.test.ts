@@ -7,6 +7,7 @@ import {
   localAdvanceMs,
   SMOOTHING_STALE_MS,
   tileRemainingMs,
+  timingSignature,
 } from './view'
 
 const ortho = { multipleVideos: false, videoCount: 0, multipleInstanceWarning: false }
@@ -311,6 +312,27 @@ describe('describeView — per-video rows', () => {
     expect(m.timeText).toBe('--:--')
   })
 
+  it('suppresses row timing under timing_unavailable even when tiles carry stale values', () => {
+    // Normalization can carry a cached/prior video list into a state that
+    // declares timing unavailable, so rows must not show (or advance) numbers
+    // the headline is refusing to show.
+    const staleButPlaying = withVideos('timing_unavailable', [
+      tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
+      tile({ ordinal: 1, name: 'B.mp4', status: 'paused', durationMs: 30_000, elapsedMs: 9_000, remainingMs: 21_000 }),
+    ])
+    for (const advanceMs of [0, 250, 2_000]) {
+      for (const timingMode of ['remaining', 'elapsed'] as const) {
+        const m = describeView(staleButPlaying, { timingMode, advanceMs })
+        expect(m.timeText).toBe('--:--')
+        expect(m.videoRows.map((row) => row.timeText)).toEqual(['--:--', '--:--'])
+      }
+    }
+    // Identity and status are still useful, so the rows themselves remain.
+    const m = describeView(staleButPlaying)
+    expect(m.videoRows.map((row) => row.label)).toEqual(['1. A.mp4', '2. B.mp4'])
+    expect(m.videoRows.map((row) => row.statusText)).toEqual(['Playing', 'Paused'])
+  })
+
   it('never renders a negative remaining value on a row', () => {
     const m = describeView(
       withVideos('playing', [
@@ -397,6 +419,28 @@ describe('describeView — bounded local interpolation', () => {
     expect(rowByOrdinal(later, 1)?.timeText).toBe('00:13')
   })
 
+  it('renders a ready row as its duration in BOTH timing modes (pinned decision)', () => {
+    // A ready video's meaningful number is its length, so the row shows the
+    // duration even in elapsed mode. This keeps the pre-existing S-010 headline
+    // contract and the focus-row/large-timer alignment invariant; the cost is
+    // that the row column mixes a duration with elapsed values. Changing this
+    // requires a spec decision on S-010, not just a renderer edit.
+    const view = withVideos('ready', [
+      tile({ ordinal: 0, name: 'Ready.mp4', status: 'ready', durationMs: 90_000, isFocus: true }),
+      tile({ ordinal: 1, name: 'Live.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000 }),
+    ])
+    const remaining = describeView(view, { timingMode: 'remaining' })
+    const elapsed = describeView(view, { timingMode: 'elapsed' })
+    expect(rowByOrdinal(remaining, 0)?.timeText).toBe('01:30')
+    expect(rowByOrdinal(elapsed, 0)?.timeText).toBe('01:30')
+    // The playing row does honour the mode, which is where the units differ.
+    expect(rowByOrdinal(remaining, 1)?.timeText).toBe('00:48')
+    expect(rowByOrdinal(elapsed, 1)?.timeText).toBe('00:12')
+    // The headline stays aligned with the ready focus row in both modes.
+    expect(remaining.timeText).toBe('01:30')
+    expect(elapsed.timeText).toBe('01:30')
+  })
+
   it('never advances ready or ended rows', () => {
     const view = withVideos('ready', [
       tile({ ordinal: 0, name: 'A.mp4', status: 'ready', durationMs: 45_000, isFocus: true }),
@@ -453,6 +497,44 @@ describe('describeView — bounded local interpolation', () => {
   })
 })
 
+describe('timingSignature', () => {
+  const rows = [
+    tile({ ordinal: 0, id: 11, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
+    tile({ ordinal: 1, id: 12, name: 'B.mp4', status: 'paused', durationMs: 60_000, elapsedMs: 21_000, remainingMs: 39_000 }),
+  ]
+
+  it('is stable for a re-delivered identical measurement', () => {
+    expect(timingSignature(withVideos('playing', rows))).toBe(timingSignature(withVideos('playing', rows)))
+    // A fresh array of equal tiles is still the same measurement.
+    expect(timingSignature(withVideos('playing', rows.map((row) => ({ ...row }))))).toBe(
+      timingSignature(withVideos('playing', rows)),
+    )
+  })
+
+  it('changes for any real timing, status, identity, or state change', () => {
+    const baseline = timingSignature(withVideos('playing', rows))
+    const changed = [
+      withVideos('playing', [{ ...rows[0]!, remainingMs: 47_000 }, rows[1]!]),
+      withVideos('playing', [{ ...rows[0]!, elapsedMs: 13_000 }, rows[1]!]),
+      withVideos('playing', [{ ...rows[0]!, durationMs: 61_000 }, rows[1]!]),
+      withVideos('playing', [{ ...rows[0]!, status: 'paused' as const }, rows[1]!]),
+      withVideos('playing', [{ ...rows[0]!, id: 99 }, rows[1]!]),
+      withVideos('playing', [{ ...rows[0]!, isFocus: false }, { ...rows[1]!, isFocus: true }]),
+      withVideos('playing', [rows[1]!, rows[0]!]),
+      withVideos('playing', [rows[0]!]),
+      withVideos('paused', rows),
+      state({ kind: 'unavailable', ...ortho }),
+    ]
+    for (const view of changed) expect(timingSignature(view)).not.toBe(baseline)
+  })
+
+  it('distinguishes slide changes that coincidentally share timing', () => {
+    const slideTwo = withVideos('playing', rows)
+    const slideThree = { ...withVideos('playing', rows), slideNumber: 3 } as typeof slideTwo
+    expect(timingSignature(slideThree)).not.toBe(timingSignature(slideTwo))
+  })
+})
+
 describe('announcementFor', () => {
   it('does not change as timers tick, so the live region stays quiet', () => {
     const view = withVideos('playing', [
@@ -478,6 +560,29 @@ describe('announcementFor', () => {
       )
     expect(rows('ready')).not.toBe(rows('playing'))
     expect(rows('ended')).toContain('2. B.mp4: Ended')
+  })
+
+  it('leads with the multi-instance warning so it is spoken once, not per poll', () => {
+    const warnedView = state({
+      kind: 'playing',
+      ...deck,
+      multipleInstanceWarning: true,
+      timeMs: 1_000,
+      durationMs: 2_000,
+      multipleVideos: false,
+      videoCount: 1,
+      videos: [
+        tile({ ordinal: 0, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
+      ],
+    })
+    expect(announcementFor(describeView(warnedView))).toBe(
+      'Multiple PowerPoint instances detected; verify the deck — Playing — 1. A.mp4',
+    )
+    // Unchanged as timers tick, so the change-gated announcer stays silent
+    // instead of re-announcing the warning on every repaint.
+    expect(announcementFor(describeView(warnedView, { advanceMs: 1_900 }))).toBe(
+      announcementFor(describeView(warnedView, { advanceMs: 0 })),
+    )
   })
 
   it('announces non-presentation and single-video states without timer values', () => {

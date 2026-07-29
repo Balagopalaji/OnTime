@@ -164,7 +164,12 @@ function advanceTile(tile: PowerPointVideoTile, advanceMs: number): PowerPointVi
 /**
  * The one time string for a row, and (via the focus row) for the large timer.
  * Both surfaces call this with the SAME tile, so they can never disagree.
- * - `ready`: the duration, in either timing mode (no elapsed to show yet).
+ * - `ready`: the duration, in BOTH timing modes. Deliberate: this is the
+ *   pre-existing S-010 headline contract, and a ready video's meaningful number
+ *   is its length, not a zero. It does mean the row column can show a duration
+ *   beside an elapsed value in elapsed mode; returning `00:00` instead would
+ *   change S-010 copy and break the focus-row/large-timer alignment invariant,
+ *   so the mixed unit is the accepted trade. Pinned by a two-mode test.
  * - `ended`: `00:00` remaining / the final elapsed, matching the projection.
  * - otherwise: the row's own remaining or elapsed value; null renders `--:--`.
  */
@@ -213,7 +218,14 @@ function videoLabel(state: PowerPointViewState): string | null {
  */
 export function describeView(state: PowerPointViewState, options: DescribeViewOptions = {}): RenderModel {
   const timingMode = options.timingMode ?? 'remaining'
-  const advanceMs = options.advanceMs ?? 0
+  // `timing_unavailable` means the helper could not read media timing for this
+  // slide, yet the per-video array can still carry values from an EARLIER
+  // observation: normalization falls back to the cached/prior video list while
+  // setting `videoTimingUnavailable` independently of it. Numeric row timing is
+  // therefore suppressed (and never advanced) in that state, so the rows agree
+  // with the `--:--` headline instead of counting down from stale data.
+  const timingSuppressed = state.kind === 'timing_unavailable'
+  const advanceMs = timingSuppressed ? 0 : (options.advanceMs ?? 0)
   const tiles: PowerPointVideoTile[] = isPresentation(state)
     ? state.videos.map((tile) => advanceTile(tile, advanceMs))
     : []
@@ -232,7 +244,7 @@ export function describeView(state: PowerPointViewState, options: DescribeViewOp
       ordinal: tile.ordinal,
       label: rowLabel(tile),
       statusText: STATUS_TEXT[tile.status],
-      timeText: tileTimeText(tile, timingMode),
+      timeText: timingSuppressed ? DASHED : tileTimeText(tile, timingMode),
       isFocus: tile.isFocus,
     })),
     multiInstanceWarning: state.multipleInstanceWarning ? MULTI_INSTANCE_WARNING : null,
@@ -281,6 +293,11 @@ export function describeView(state: PowerPointViewState, options: DescribeViewOp
  * names, and messages — never from a timer value — so the polite live region
  * announces meaningful changes (a video starting, pausing, or ending) and stays
  * silent through the 250 ms interpolation ticks.
+ *
+ * The multi-instance warning leads the string when present. It used to announce
+ * itself through a `role="alert"` node, which the full repaint re-inserted on
+ * every poll and so re-announced assertively once per second for the whole
+ * session; routing it here means it is spoken once, when it appears.
  */
 export function announcementFor(model: RenderModel): string {
   const badgeStatus =
@@ -291,5 +308,32 @@ export function announcementFor(model: RenderModel): string {
     rows.length > 1
       ? rows.map((row) => `${row.label}: ${row.statusText}`).join(', ')
       : (rows[0]?.label ?? model.videoText)
-  return [head, detail].filter((part): part is string => part !== null && part !== undefined && part.length > 0).join(' — ')
+  return [model.multiInstanceWarning, head, detail]
+    .filter((part): part is string => part !== null && part !== undefined && part.length > 0)
+    .join(' — ')
+}
+
+/**
+ * Identity of the MEASUREMENT a view carries: state kind, slide, and every
+ * row's identity plus observed timing. Two views with the same signature carry
+ * the same observation, however they were delivered.
+ *
+ * The renderer anchors local interpolation on this rather than on delivery,
+ * because a push is not proof of a fresh reading. Two real paths re-deliver an
+ * unchanged measurement: a display-list change pushes the view WITHOUT
+ * incrementing the revision, and a dropped/partial poll produces a NEW revision
+ * whose timing normalization re-emitted from the prior snapshot. Re-anchoring on
+ * either one snaps the display back to the older value — a visible rewind, the
+ * exact artefact the smoothing exists to remove.
+ */
+export function timingSignature(state: PowerPointViewState): string {
+  if (!isPresentation(state)) return state.kind
+  const rows = state.videos
+    .map((tile) =>
+      [tile.ordinal, tile.id ?? '', tile.status, tile.durationMs ?? '', tile.elapsedMs ?? '', tile.remainingMs ?? '', tile.isFocus ? 1 : 0].join(
+        '|',
+      ),
+    )
+    .join(';')
+  return [state.kind, state.slideNumber ?? '', state.timeMs ?? '', state.durationMs ?? '', rows].join('~')
 }

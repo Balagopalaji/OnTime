@@ -456,6 +456,75 @@ describe('mountApp local interpolation', () => {
     })
   })
 
+  it('does not rewind when the SAME revision is re-delivered (display change)', () => {
+    withFakeTimers(() => {
+      const h = mount(twoVideoView([focusPlaying, secondPaused]))
+      h.setClock(1_000)
+      vi.advanceTimersByTime(250)
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:47')
+
+      // `revalidatePlacement()` pushes the current view on a display change
+      // WITHOUT incrementing the revision. It carries no new reading, so it must
+      // neither snap the display back to 00:48 nor move the anchor. Pushed at the
+      // same instant as the tick, so the repaint value is unambiguous.
+      h.push({
+        ...twoVideoView([focusPlaying, secondPaused]),
+        displays: [
+          { id: '1', label: 'Display 1' },
+          { id: '2', label: 'Display 2' },
+          { id: '3', label: 'Projector' },
+        ],
+      })
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:47')
+
+      h.setClock(1_500)
+      vi.advanceTimersByTime(250)
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
+      h.stop()
+    })
+  })
+
+  it('does not rewind when a NEW revision re-emits an identical measurement', () => {
+    withFakeTimers(() => {
+      const h = mount(twoVideoView([focusPlaying, secondPaused]))
+      h.setClock(1_000)
+      vi.advanceTimersByTime(250)
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:47')
+
+      // A dropped/partial poll: normalization re-emits the prior snapshot's
+      // timing under a fresh revision. Identical values are not a new
+      // observation, so the anchor holds and the countdown keeps going.
+      h.push({ ...twoVideoView([{ ...focusPlaying }, { ...secondPaused }]), revision: 6 })
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:47')
+      h.setClock(1_900)
+      vi.advanceTimersByTime(250)
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
+
+      // A real discontinuity still snaps immediately.
+      h.setClock(2_000)
+      h.push({ ...twoVideoView([{ ...focusPlaying, remainingMs: 58_000, elapsedMs: 2_000 }, secondPaused]), revision: 7 })
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:58')
+      h.stop()
+    })
+  })
+
+  it('freezes at the cap through a run of identical re-emissions', () => {
+    withFakeTimers(() => {
+      const h = mount(twoVideoView([focusPlaying, secondPaused]))
+      // Helper stuck on one value: five identical re-emissions, one per second.
+      for (let index = 1; index <= 5; index += 1) {
+        h.setClock(index * 1_000)
+        h.push({ ...twoVideoView([{ ...focusPlaying }, { ...secondPaused }]), revision: 5 + index })
+        vi.advanceTimersByTime(250)
+      }
+      // Advanced to the 2 s cap and froze there — no per-second sawtooth back
+      // to 00:48, and no invented Paused/Ended.
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
+      expect(h.root.querySelector('.video-row .video-row-status')?.textContent).toBe('Playing')
+      h.stop()
+    })
+  })
+
   it('drops all timing anchors when a non-presentation state arrives', () => {
     withFakeTimers(() => {
       const h = mount(twoVideoView([focusPlaying, secondPaused]))
@@ -477,6 +546,168 @@ describe('mountApp local interpolation', () => {
   })
 })
 
+describe('control stability across pushes', () => {
+  it('keeps the controls node and keyboard focus across a timing-only push', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    document.body.append(root)
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+
+      const controls = root.querySelector('.controls')
+      const select = root.querySelector('#display-select') as HTMLSelectElement
+      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
+      select.focus()
+      expect(document.activeElement).toBe(select)
+
+      // The host publishes on every poll (~1 s). A timing-only view must not
+      // detach the controls: that dropped focus and closed an open dropdown
+      // once per second.
+      listener?.({ ...twoVideoView([{ ...focusPlaying, remainingMs: 47_000 }, secondPaused]), revision: 6 })
+
+      expect(root.querySelector('.controls')).toBe(controls)
+      expect(root.querySelector('#display-select')).toBe(select)
+      expect(root.querySelector('#always-on-top')).toBe(checkbox)
+      expect(document.activeElement).toBe(select)
+      // The status section did repaint with the new timing.
+      expect(root.querySelector('#time')?.textContent).toBe('00:47')
+      stop()
+    } finally {
+      root.remove()
+      vi.useRealTimers()
+    }
+  })
+
+  it('patches control state in place when settings change', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const root = document.createElement('div')
+      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+
+      const controls = root.querySelector('.controls')
+      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
+      expect(checkbox.checked).toBe(true)
+      expect(root.querySelector('button[data-mode="remaining"]')?.classList.contains('active')).toBe(true)
+
+      listener?.({
+        ...twoVideoView([focusPlaying, secondPaused]),
+        revision: 6,
+        timingMode: 'elapsed',
+        alwaysOnTop: false,
+        preset: 'large',
+        selectedDisplayId: '2',
+      })
+
+      expect(root.querySelector('.controls')).toBe(controls)
+      expect(checkbox.checked).toBe(false)
+      expect(root.querySelector('button[data-mode="elapsed"]')?.classList.contains('active')).toBe(true)
+      expect(root.querySelector('button[data-mode="remaining"]')?.classList.contains('active')).toBe(false)
+      expect(root.querySelector('button[data-preset="large"]')?.classList.contains('active')).toBe(true)
+      expect((root.querySelector('#display-select') as HTMLSelectElement).value).toBe('2')
+      // Rows follow the new timing mode.
+      expect(rowTimes(root)).toEqual(['00:12', '00:21'])
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rebuilds the controls when the CTA or display selector appears', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const root = document.createElement('div')
+      const dispatched: unknown[] = []
+      const stop = mountApp({
+        root,
+        api: { ...api, dispatch: vi.fn(async (action) => void dispatched.push(action)) },
+        announcer: null,
+        now: () => 0,
+      })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      expect(root.querySelector('#cta')).toBeNull()
+
+      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6, ctaAvailable: true })
+      const cta = root.querySelector('#cta') as HTMLButtonElement
+      expect(cta).not.toBeNull()
+      // Rebuilt controls are still wired to dispatch.
+      cta.click()
+      ;(root.querySelector('button[data-preset="large"]') as HTMLButtonElement).click()
+      expect(dispatched).toEqual([{ type: 'openUpsell' }, { type: 'applyPreset', preset: 'large' }])
+
+      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 7, ctaAvailable: true, displays: [] })
+      expect(root.querySelector('#display-select')).toBeNull()
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('updates the display options when the display list changes, keeping the select', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const root = document.createElement('div')
+      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      const select = root.querySelector('#display-select') as HTMLSelectElement
+
+      listener?.({
+        ...twoVideoView([focusPlaying, secondPaused]),
+        revision: 6,
+        displays: [
+          { id: '1', label: 'Display 1' },
+          { id: '3', label: 'Projector' },
+        ],
+        selectedDisplayId: '3',
+      })
+
+      expect(root.querySelector('#display-select')).toBe(select)
+      expect(Array.from(select.options).map((option) => option.value)).toEqual(['1', '3'])
+      expect(select.value).toBe('3')
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('accessible announcements', () => {
   it('keeps ticking timers out of the root live region', () => {
     // Resolved from cwd (the app workspace, or the repo root when vitest is run
@@ -490,6 +721,60 @@ describe('accessible announcements', () => {
     expect(html).toContain('<main id="app">')
     expect(html).not.toMatch(/<main[^>]*aria-live/)
     expect(html).toMatch(/id="announcer"[^>]*aria-live="polite"/)
+  })
+
+  it('does not let the multi-instance warning announce itself on every repaint', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const root = document.createElement('div')
+      const writes: string[] = []
+      const announcer = {
+        set textContent(value: string) {
+          writes.push(value)
+        },
+        get textContent(): string | null {
+          return writes.length > 0 ? (writes[writes.length - 1] ?? null) : null
+        },
+      } as unknown as HTMLElement
+      const stop = mountApp({ root, api, announcer, now: () => 0 })
+
+      const warned = (revision: number, remainingMs: number): AppView => {
+        const view = twoVideoView([{ ...focusPlaying, remainingMs }, secondPaused])
+        return { ...view, revision, state: { ...view.state, multipleInstanceWarning: true } }
+      }
+
+      listener?.(warned(5, 48_000))
+      const warning = root.querySelector('#multi-instance')
+      expect(warning?.textContent).toBe('Multiple PowerPoint instances detected; verify the deck')
+      // The visible warning must NOT be its own live region: the status section
+      // is replaced every poll, and re-inserting a role="alert" node re-announces
+      // it assertively each time.
+      expect(warning?.getAttribute('role')).toBeNull()
+      expect(writes).toEqual([
+        'Multiple PowerPoint instances detected; verify the deck — Playing — 1. A.mp4: Playing, 2. B.mp4: Paused',
+      ])
+
+      // Three more polls with the warning still active: announced once, total.
+      listener?.(warned(6, 47_000))
+      listener?.(warned(7, 46_000))
+      listener?.(warned(8, 45_000))
+      expect(root.querySelector('#multi-instance')?.textContent).toBe(
+        'Multiple PowerPoint instances detected; verify the deck',
+      )
+      expect(writes).toHaveLength(1)
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('announces the status once and stays silent through interpolation ticks', () => {

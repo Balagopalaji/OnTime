@@ -7,13 +7,22 @@
  * `innerHTML`, so a deck name can never inject markup.
  *
  * Smoothing lives HERE and nowhere else: the projection stays clock-free
- * (S-017) and IPC traffic is unchanged. Each accepted view is stamped with a
- * local monotonic observation time, and a 250 ms tick patches ONLY the timer
- * strings using a bounded advance ({@link localAdvanceMs}). Every fresh view
- * re-anchors, so a seek, replay, delayed poll, or corrected COM value snaps
- * straight to the newest observation instead of blending across it.
+ * (S-017) and IPC traffic is unchanged. Each new MEASUREMENT (keyed by
+ * {@link timingSignature}, not by delivery) is stamped with a local monotonic
+ * observation time, and a 250 ms tick patches ONLY the timer strings using a
+ * bounded advance ({@link localAdvanceMs}). Every fresh measurement re-anchors,
+ * so a seek, replay, delayed poll, or corrected COM value snaps straight to the
+ * newest observation instead of blending across it; a re-delivered unchanged
+ * measurement does not, so the countdown never runs backwards.
  */
-import { announcementFor, describeView, localAdvanceMs, SMOOTHING_TICK_MS, type Badge } from './view.js'
+import {
+  announcementFor,
+  describeView,
+  localAdvanceMs,
+  SMOOTHING_TICK_MS,
+  timingSignature,
+  type Badge,
+} from './view.js'
 import type { AppView, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 
 declare global {
@@ -97,9 +106,12 @@ function renderStatus(view: AppView, advanceMs: number): HTMLElement {
     section.append(list)
   }
   if (model.multiInstanceWarning) {
+    // Visible only — NOT a live region. The status section is replaced on every
+    // poll, so a `role="alert"` here re-announced itself once per second for as
+    // long as the condition held. The warning is announced once, on change,
+    // through `#announcer` instead (see `announcementFor`).
     const warning = element('div', 'warning', model.multiInstanceWarning)
     warning.id = 'multi-instance'
-    warning.setAttribute('role', 'alert')
     section.append(warning)
   }
   return section
@@ -172,6 +184,54 @@ function renderControls(view: AppView, dispatch: Dispatch): HTMLElement {
   return section
 }
 
+/**
+ * Bring an existing controls section in line with `view` WITHOUT recreating it.
+ * Returns false when the change is structural — the display selector or the CTA
+ * appearing or disappearing — in which case the caller rebuilds.
+ *
+ * This exists because the host publishes a view on every poll (~1 s), so a full
+ * repaint of the controls detached whatever the user was interacting with once a
+ * second: keyboard focus dropped to the body and an open display dropdown
+ * closed. Patching in place keeps focus and open popups alive between polls.
+ */
+function patchControls(section: HTMLElement, view: AppView): boolean {
+  const select = section.querySelector('select')
+  if (view.displays.length > 0 !== (select !== null)) return false
+  if (view.ctaAvailable !== (section.querySelector('.cta') !== null)) return false
+
+  for (const button of Array.from(section.querySelectorAll<HTMLButtonElement>('button.toggle'))) {
+    button.classList.toggle('active', button.dataset.mode === view.timingMode)
+  }
+  for (const button of Array.from(section.querySelectorAll<HTMLButtonElement>('button.preset'))) {
+    button.classList.toggle('active', button.dataset.preset === view.preset)
+  }
+  const checkbox = section.querySelector<HTMLInputElement>('#always-on-top')
+  if (checkbox !== null && checkbox.checked !== view.alwaysOnTop) checkbox.checked = view.alwaysOnTop
+
+  if (select !== null) {
+    // Rebuild options only when the display list itself changed; the <select>
+    // node is retained either way, so focus on it survives.
+    const current = Array.from(select.options)
+      .map((option) => `${option.value}:${option.textContent ?? ''}`)
+      .join(',')
+    const next = view.displays.map((display) => `${display.id}:${display.label}`).join(',')
+    if (current !== next) {
+      select.replaceChildren(
+        ...view.displays.map((display) => {
+          const option = document.createElement('option')
+          option.value = display.id
+          option.textContent = display.label
+          return option
+        }),
+      )
+    }
+    if (view.selectedDisplayId !== null && select.value !== view.selectedDisplayId) {
+      select.value = view.selectedDisplayId
+    }
+  }
+  return true
+}
+
 /** Replace the app root with a fresh render of the immutable view (S-013). */
 export function renderApp(root: HTMLElement, view: AppView, dispatch: Dispatch, advanceMs = 0): void {
   root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch))
@@ -227,17 +287,53 @@ export function mountApp(options: {
   let lastRevision = -1
   let current: AppView | null = null
   let observedAt = 0
+  let anchoredSignature: string | null = null
   let announced: string | null = null
+  let statusNode: HTMLElement | null = null
+  let controlsNode: HTMLElement | null = null
+
+  /**
+   * Paint a view incrementally: a fresh status section (no focusable content),
+   * and the SAME controls node patched in place unless the change is structural.
+   * Uses the same builders as `renderApp`, so display strings cannot diverge.
+   */
+  const paint = (view: AppView, advanceMs: number): void => {
+    const nextStatus = renderStatus(view, advanceMs)
+    if (statusNode === null || controlsNode === null) {
+      statusNode = nextStatus
+      controlsNode = renderControls(view, dispatch)
+      root.replaceChildren(statusNode, controlsNode)
+      return
+    }
+    statusNode.replaceWith(nextStatus)
+    statusNode = nextStatus
+    if (!patchControls(controlsNode, view)) {
+      const nextControls = renderControls(view, dispatch)
+      controlsNode.replaceWith(nextControls)
+      controlsNode = nextControls
+    }
+  }
 
   const render = (view: AppView): void => {
     if (view.revision < lastRevision) return
     lastRevision = view.revision
     current = view
-    // Re-anchor on every accepted view: the render below shows the observed
-    // measurement verbatim (advance 0), so a discontinuity snaps rather than
-    // blending, and a new non-presentation state drops all timing anchors.
-    observedAt = now()
-    renderApp(root, view, dispatch)
+    // Anchor on the MEASUREMENT, not on delivery. A view whose timing signature
+    // matches the anchored one carries no new reading — a same-revision push
+    // after a display change, or a new revision whose timing was re-emitted from
+    // the prior snapshot after a dropped poll — so the anchor is retained and the
+    // paint continues from its current advance. Re-anchoring there would snap the
+    // display back to the older value, i.e. run the countdown backwards.
+    // A genuinely new measurement re-anchors and paints at advance 0, so a seek,
+    // replay, or corrected value snaps instead of blending, and a new
+    // non-presentation state drops every timing anchor.
+    const signature = timingSignature(view.state)
+    const fresh = signature !== anchoredSignature
+    if (fresh) {
+      anchoredSignature = signature
+      observedAt = now()
+    }
+    paint(view, fresh ? 0 : localAdvanceMs(observedAt, now()))
     if (announcer) {
       const text = announcementFor(describeView(view.state, { timingMode: view.timingMode }))
       if (text !== announced) {
