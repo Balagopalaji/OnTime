@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { validatePowerPointResponse, type BridgePollOutcome, type PptBridgeClient, type PptBridgeClientOptions } from '@ontime/ppt-bridge'
-import { createSessionHost, deriveMultipleInstanceWarning, deriveObservationMeta, projectHostView, type SessionHost } from './session-host'
+import {
+  createSessionHost,
+  deriveMultipleInstanceWarning,
+  deriveObservationMeta,
+  projectHostView,
+  type SessionHost,
+} from './session-host'
 import { DiagnosticsBuffer, type DiagMeta } from './diagnostics'
 import { DEFAULT_SETTINGS } from './settings-schema'
 import { createSettingsStore, type SettingsFs } from './settings-store'
@@ -249,6 +255,8 @@ describe('createSessionHost lifecycle', () => {
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(1_000)
+    // Baseline + no-payload polls: nothing is playing yet, so the helper primary
+    // (id 10) is the focus and the legacy label/status/scalar are aligned.
     expect(host.getView().state).toMatchObject({
       kind: 'paused',
       selectedVideoId: 10,
@@ -257,11 +265,17 @@ describe('createSessionHost lifecycle', () => {
     })
     await vi.advanceTimersByTimeAsync(1_000)
 
+    // Delta poll: the delta-inferred video (id 20) is now the only playing video.
+    // ISSUE-001 focus tracking selects the most-recently-started still-playing
+    // video over a stale helper primary, and the large-timer scalar comes from
+    // THAT video's own observed values (not the helper scalar which still names
+    // id 10). Diagnostics identity is unaffected: it forwards the helper primary
+    // verbatim and never the raw video names.
     expect(host.getView().state).toMatchObject({
-      kind: 'paused',
-      selectedVideoId: 10,
-      selectedVideoName: 'helper-primary.mp4',
-      timeMs: 9_000,
+      kind: 'playing',
+      selectedVideoId: 20,
+      selectedVideoName: 'delta-inferred.mp4',
+      timeMs: 8_500, // focus video's own remaining (10_000 - 1_500), not helper scalar 9_000
       durationMs: 10_000,
     })
     const report = diagnostics.buildReport(meta)
@@ -424,5 +438,157 @@ describe('createSessionHost lifecycle', () => {
     const report = diagnostics.buildReport(meta)
     expect(report).toContain('slide=3 mediaCount=1 selectedMediaId=501')
     expect(report).toContain('slide=4 mediaCount=0 selectedMediaId=-- selectedMediaIndex=--')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ISSUE-001 — focus tracking through the live host (integration)
+// ---------------------------------------------------------------------------
+// Pure tracker rules live in focus-tracker.test.ts; this block covers the host
+// wiring (transport poll -> tracker update -> focus-aware projection) and the
+// end-to-end focus behavior across polls.
+describe('createSessionHost multi-video focus (ISSUE-001)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  /** Build a protocol-v1 observation with explicit per-video entries. */
+  const videoOutcome = (
+    instanceId: number,
+    slideNumber: number,
+    videos: Array<{ id: number; name: string; duration: number; elapsed: number; status: 'playing' | 'paused' | 'ended'; playing: boolean }>,
+  ): BridgePollOutcome => ({
+    kind: 'observation',
+    warnings: [],
+    extensions: ext,
+    observation: {
+      state: 'foreground',
+      inSlideshow: true,
+      instanceId,
+      slideNumber,
+      totalSlides: 10,
+      title: 'Deck.pptx',
+      filename: 'Deck.pptx',
+      protocolVersion: 1,
+      videoDetected: true,
+      videos: videos.map((v) => ({ ...v, remaining: v.duration - v.elapsed })),
+    },
+  })
+
+  it('focus follows the most-recently-started still-playing video', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 0, status: 'paused', playing: false },
+    ])
+    const poll2 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+      // b just started -> more recent -> becomes focus
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+    ])
+    const fake = makeFakeClient([poll1, poll2])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+  })
+
+  it('focus advances to the next still-playing video when the focus video ends', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 9_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+    ])
+    const poll2 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 10_000, status: 'ended', playing: false },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+    ])
+    const fake = makeFakeClient([poll1, poll2])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const state = host.getView().state as { selectedVideoId?: number; kind: string; timeMs: number | null }
+    expect(state.kind).toBe('playing')
+    expect(state.selectedVideoId).toBe(20) // 10 ended -> 20 (still playing) takes over
+    expect(state.timeMs).toBe(8_000)
+  })
+
+  it('retains the most-recently-started paused video when nothing is playing', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+    ])
+    // Both paused now; id 10 was the more-recently-started focus, so it is retained.
+    const poll2 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'paused', playing: false },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+    ])
+    const fake = makeFakeClient([poll1, poll2])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const state = host.getView().state as { selectedVideoId?: number; kind: string }
+    expect(state.kind).toBe('paused')
+    expect(state.selectedVideoId).toBe(10)
+  })
+
+  it('resets focus history when the slide changes', async () => {
+    const slide3 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+    ])
+    const slide4 = videoOutcome(1234, 4, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 5_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+    ])
+    const fake = makeFakeClient([slide3, slide4])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    // New slide cold-start: lowest-elapsed wins -> id 20 (elapsed 1_000) over id 10 (5_000).
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+  })
+
+  it('cold start with multiple already-playing videos picks lowest elapsed', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 7_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+    ])
+    const fake = makeFakeClient([poll1])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+  })
+
+  it('keeps the focus stable across a timing-mode toggle without polling', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+    ])
+    const fake = makeFakeClient([poll1])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    const focusBefore = (host.getView().state as { selectedVideoId?: number }).selectedVideoId
+    const pollsBefore = fake.calls.poll
+
+    host.setTimingMode('elapsed')
+    expect(fake.calls.poll).toBe(pollsBefore) // no new poll
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(focusBefore)
+  })
+
+  it('ended outranks a contradictory playing flag for focus selection', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 10_000, status: 'ended', playing: true }, // contradictory
+    ])
+    const fake = makeFakeClient([poll1])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
   })
 })

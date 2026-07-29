@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createInitialPowerPointMachineState, reducePowerPointMachine } from './powerpoint-machine'
 import { normalizePowerPointPoll } from './powerpoint-normalize'
 import { projectPowerPointView } from './powerpoint-view'
-import type { PowerPointViewState } from './powerpoint-view'
+import type { PowerPointVideoTile, PowerPointViewState } from './powerpoint-view'
 import type { PresentationSourceState, PowerPointPollResult } from './powerpoint-types'
 import observations from '../test/fixtures/powerpoint-observations.json'
 
@@ -487,5 +487,214 @@ describe('ended threshold boundary', () => {
 
   it('does not infer ended at 251 ms remaining without another end signal', () => {
     expect(projectPowerPointView(source(251), remaining).kind).toBe('paused')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ISSUE-001 — multi-video focus projection + per-video tiles
+// ---------------------------------------------------------------------------
+//
+// `playOrder` is host-owned recency metadata (video id -> monotonic start
+// rank). These tests pin the pure projection rules: focus follows the highest-
+// ranked still-playing video, the large-timer scalar uses the focus row's own
+// observed values, a resolved `ended` outranks a contradictory `playing` flag,
+// and a resolved row is surfaced for every slide video. When `playOrder` is
+// absent/empty, the legacy helper-primary / first-playing behavior is intact
+// (already covered by S-011 and the `primary-video resolution` block above).
+describe('ISSUE-001 multi-video focus', () => {
+  const twoPlaying: PowerPointPollResult = {
+    state: 'foreground',
+    inSlideshow: true,
+    instanceId: 1,
+    slideNumber: 1,
+    title: 'Deck',
+    videoDetected: true,
+    // Helper still names the FIRST video as its primary (stale) — the focus
+    // projection must NOT honor this when playOrder names a different video.
+    protocolVersion: 1,
+    primaryVideoId: 10,
+    primaryVideoIndex: 0,
+    videoPlaying: true,
+    videoDuration: 5_000,
+    videoElapsed: 1_000,
+    videoRemaining: 4_000,
+    videos: [
+      { id: 10, name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'playing', playing: true },
+      { id: 20, name: 'second', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: 'playing', playing: true },
+    ],
+  }
+
+  it('focuses the highest-ranked (most-recently-started) still-playing video', () => {
+    const v = projectPowerPointView(presentationFrom(twoPlaying), {
+      ...remaining,
+      playOrder: new Map([[10, 1], [20, 2]]), // id 20 started more recently
+    }) as PowerPointViewState & { selectedVideoId?: number; selectedVideoName?: string; timeMs: number | null }
+    expect(v.kind).toBe('playing')
+    expect(v.selectedVideoId).toBe(20)
+    expect(v.selectedVideoName).toBe('second')
+  })
+
+  it('uses the focus row own observed values for the large-timer scalar, not the helper scalar', () => {
+    // Helper scalar (video*) names id 10 (remaining 4_000). Focus is id 20
+    // (remaining 6_000). The projected scalar must be id 20's value.
+    const v = projectPowerPointView(presentationFrom(twoPlaying), {
+      ...remaining,
+      playOrder: new Map([[10, 1], [20, 2]]),
+    }) as PowerPointViewState & { timeMs: number | null; durationMs: number | null }
+    expect(v.timeMs).toBe(6_000)
+    expect(v.durationMs).toBe(8_000)
+  })
+
+  it('elapsed mode reflects the focus row own elapsed, not the helper scalar', () => {
+    const v = projectPowerPointView(presentationFrom(twoPlaying), {
+      ...elapsed,
+      playOrder: new Map([[10, 1], [20, 2]]),
+    }) as PowerPointViewState & { timeMs: number | null }
+    expect(v.timeMs).toBe(2_000) // id 20 elapsed, not helper scalar 1_000
+  })
+
+  it('advances focus to the next still-playing video when the focused one ends', () => {
+    // id 20 (was focus) has now ended; id 10 still playing.
+    const endedFocus: PowerPointPollResult = {
+      ...twoPlaying,
+      videos: [
+        { id: 10, name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'playing', playing: true },
+        { id: 20, name: 'second', duration: 8_000, elapsed: 8_000, remaining: 0, status: 'ended', playing: false },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(endedFocus), {
+      ...remaining,
+      playOrder: new Map([[10, 1], [20, 2]]),
+    }) as PowerPointViewState & { selectedVideoId?: number; timeMs: number | null }
+    expect(v.kind).toBe('playing')
+    expect(v.selectedVideoId).toBe(10) // only remaining playing video
+    expect(v.timeMs).toBe(4_000)
+  })
+
+  it('retains the most-recently-started paused/ended video when nothing is playing', () => {
+    const nonePlaying: PowerPointPollResult = {
+      ...twoPlaying,
+      videoPlaying: false,
+      videos: [
+        { id: 10, name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'paused', playing: false },
+        { id: 20, name: 'second', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: 'paused', playing: false },
+      ],
+    }
+    // id 20 has the higher rank -> retained as focus even though paused.
+    const v = projectPowerPointView(presentationFrom(nonePlaying), {
+      ...remaining,
+      playOrder: new Map([[10, 1], [20, 2]]),
+    }) as PowerPointViewState & { selectedVideoId?: number; kind: string }
+    expect(v.kind).toBe('paused')
+    expect(v.selectedVideoId).toBe(20)
+  })
+
+  it('ended outranks a contradictory playing flag for focus eligibility', () => {
+    // id 20 reports BOTH status:ended AND playing:true (contradictory). It must
+    // NOT be eligible as a playing focus; id 10 wins.
+    const contradictory: PowerPointPollResult = {
+      ...twoPlaying,
+      videos: [
+        { id: 10, name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'playing', playing: true },
+        { id: 20, name: 'second', duration: 8_000, elapsed: 8_000, remaining: 0, status: 'ended', playing: true },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(contradictory), {
+      ...remaining,
+      playOrder: new Map([[10, 1], [20, 2]]),
+    }) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v.selectedVideoId).toBe(10)
+  })
+
+  it('legacy/helper-primary behavior is the fallback when playOrder is unavailable', () => {
+    // No playOrder -> legacy helper primary (id 10) wins despite id 20 also playing.
+    const v = projectPowerPointView(presentationFrom(twoPlaying), remaining) as PowerPointViewState & {
+      selectedVideoId?: number
+      timeMs: number | null
+    }
+    expect(v.selectedVideoId).toBe(10)
+    // Legacy scalar-preferred: helper scalar (4_000), not id 20's own (6_000).
+    expect(v.timeMs).toBe(4_000)
+  })
+
+  it('legacy fallback also applies when playOrder is empty', () => {
+    const v = projectPowerPointView(presentationFrom(twoPlaying), {
+      ...remaining,
+      playOrder: new Map(),
+    }) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v.selectedVideoId).toBe(10)
+  })
+
+  it('an unranked video is never chosen by the focus branch', () => {
+    // id 20 is playing and ranked; id 30 is playing but UNRANKED. Focus must be
+    // the ranked playing video (id 20), never the unranked one.
+    const src: PowerPointPollResult = {
+      ...twoPlaying,
+      videos: [
+        { id: 10, name: 'first', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'paused', playing: false },
+        { id: 20, name: 'second', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: 'playing', playing: true },
+        { id: 30, name: 'third', duration: 9_000, elapsed: 3_000, remaining: 6_000, status: 'playing', playing: true },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(src), {
+      ...remaining,
+      playOrder: new Map([[20, 1]]), // only id 20 ranked
+    }) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v.selectedVideoId).toBe(20)
+  })
+
+  it('surfaces a resolved tile for every slide video with status, timing, and focus marker', () => {
+    const src: PowerPointPollResult = {
+      ...twoPlaying,
+      videos: [
+        { id: 10, name: 'first', duration: 5_000, elapsed: 0, remaining: 5_000 }, // ready
+        { id: 20, name: 'second', duration: 8_000, elapsed: 8_000, remaining: 0, status: 'ended' }, // ended
+        { id: 30, name: 'third', duration: 9_000, elapsed: 3_000, remaining: 6_000, status: 'paused' }, // paused
+        { id: 40, name: 'fourth', duration: 7_000, elapsed: 2_000, remaining: 5_000, status: 'playing', playing: true }, // playing (focus)
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(src), {
+      ...remaining,
+      playOrder: new Map([[40, 1]]),
+    }) as PowerPointViewState & { videos?: PowerPointVideoTile[] }
+    const tiles = v.videos ?? []
+    expect(tiles).toHaveLength(4)
+    // Shape order preserved, statuses resolved to the 4 canonical states.
+    expect(tiles.map((t) => ({ id: t.id, status: t.status }))).toEqual([
+      { id: 10, status: 'ready' },
+      { id: 20, status: 'ended' },
+      { id: 30, status: 'paused' },
+      { id: 40, status: 'playing' },
+    ])
+    // Independent observed timing per row.
+    const byId = new Map(tiles.map((t) => [t.id, t]))
+    expect(byId.get(30)?.remainingMs).toBe(6_000)
+    expect(byId.get(40)?.remainingMs).toBe(5_000)
+    // Only the focus row is marked.
+    expect(tiles.filter((t) => t.isFocus).map((t) => t.id)).toEqual([40])
+    // Ordinal reflects shape order for name/identity fallback.
+    expect(tiles.map((t) => t.ordinal)).toEqual([0, 1, 2, 3])
+  })
+
+  it('derives remainingMs from duration-elapsed when observed remaining is absent', () => {
+    const src: PowerPointPollResult = {
+      ...twoPlaying,
+      videos: [{ id: 10, name: 'first', duration: 5_000, elapsed: 1_200 }], // no remaining field
+    }
+    const v = projectPowerPointView(presentationFrom(src), remaining) as PowerPointViewState & {
+      videos?: PowerPointVideoTile[]
+    }
+    expect(v.videos?.[0]?.remainingMs).toBe(3_800)
+  })
+
+  it('tiles are absent on non-presentation kinds (connecting/unavailable)', () => {
+    const connecting = projectPowerPointView({ kind: 'connecting' }, remaining) as PowerPointViewState & {
+      videos?: PowerPointVideoTile[]
+    }
+    const unavailable = projectPowerPointView({ kind: 'unavailable' }, remaining) as PowerPointViewState & {
+      videos?: PowerPointVideoTile[]
+    }
+    expect(connecting.videos).toBeUndefined()
+    expect(unavailable.videos).toBeUndefined()
   })
 })

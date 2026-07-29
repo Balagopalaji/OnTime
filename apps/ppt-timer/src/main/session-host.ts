@@ -104,9 +104,18 @@ export function projectHostView(
   source: PresentationSourceState,
   timingMode: TimingMode,
   multipleInstanceWarning: boolean,
+  playOrder?: ReadonlyMap<number, number>,
 ): PowerPointViewState {
-  return projectPowerPointView(source, { timingMode, multipleInstanceWarning })
+  return projectPowerPointView(source, { timingMode, multipleInstanceWarning, playOrder })
 }
+
+// Standalone multi-video focus tracker (ISSUE-001). The pure recency rules live
+// in `./focus-tracker` (carved out to stay under the production-file line cap);
+// they are re-exported here so existing callers/tests keep importing from this
+// module, and `createSessionHost` wires the stateful instance below.
+export { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
+export type { FocusTrackerState } from './focus-tracker.js'
+import { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
 
 export function createSessionHost(options: SessionHostOptions): SessionHost {
   const pollIntervalMs = options.pollIntervalMs ?? 1_000
@@ -128,6 +137,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   let lastProtocolVersion: number | null = null
   let lastHelperVersion: string | null = null
   let shutdownPromise: Promise<void> | null = null
+  // Standalone multi-video focus history (ISSUE-001). Updated from the session
+  // transition before projection so the focus-aware projection sees the latest
+  // recency ranking. Reset is driven by the tracker's scope check (instanceId /
+  // slideNumber), independent of diagnostics bookkeeping above.
+  let focus = initFocusTracker()
 
   const client = createClient({
     executableCandidates: options.candidates,
@@ -202,7 +216,20 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     pollIntervalMs,
     onTransition: (result) => {
       recordTransition(result.state.sourceState)
-      publish(projectHostView(result.state.sourceState, timingMode, multipleInstanceWarning))
+      const source = result.state.sourceState
+      // Advance the focus tracker only for presentation observations; any other
+      // source kind leaves the history intact (it clears naturally on a scope
+      // change when the next presentation arrives, and the projection ignores
+      // playOrder for non-presentation kinds anyway).
+      if (source.kind === 'presentation') {
+        focus = applyFocusTransition(
+          focus,
+          source.snapshot.instanceId,
+          source.snapshot.slideNumber,
+          source.snapshot.videos ?? [],
+        )
+      }
+      publish(projectHostView(source, timingMode, multipleInstanceWarning, focus.playOrder))
     },
   })
 
@@ -228,7 +255,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     if (mode === timingMode) return
     timingMode = mode
     // Reproject from the CURRENT session state without requesting a poll (S-014).
-    publish(projectHostView(session.state.sourceState, timingMode, multipleInstanceWarning))
+    // Focus history is reused so the selected video stays stable across a toggle.
+    publish(projectHostView(session.state.sourceState, timingMode, multipleInstanceWarning, focus.playOrder))
   }
 
   const shutdown = (): Promise<void> => {
