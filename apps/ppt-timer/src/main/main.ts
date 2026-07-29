@@ -17,7 +17,10 @@ import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
 import {
   attachOverlayDebug,
+  attachAlwaysOnTopChangedDebug,
+  attachWindowMessageDebug,
   classifyPlacementOutcome,
+  createAlwaysOnTopSetterMarker,
   displayEventEvent,
   placementDecisionEvent,
   programmaticBoundsEvent,
@@ -76,6 +79,7 @@ async function main(): Promise<void> {
   // PPT_TIMER_DEBUG is unset this entire surface is inert: no listeners, no
   // reads, no console output, so normal behavior is unchanged.
   const overlayDebug = isOverlayDebug()
+  const alwaysOnTopSetterMarker = createAlwaysOnTopSetterMarker()
 
   const listDisplayInfos = (): DisplayInfo[] => screen.getAllDisplays().map(toDisplayInfo)
   const listSnapshots = (): DisplaySnapshot[] => screen.getAllDisplays().map(toSnapshot)
@@ -184,7 +188,7 @@ async function main(): Promise<void> {
   const effects: WindowEffects = {
     setAlwaysOnTop: (enabled) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
-      setAlwaysOnTopWithDebug(mainWindow, enabled, overlayDebug, logDebug)
+      setAlwaysOnTopWithDebug(mainWindow, enabled, overlayDebug, logDebug, alwaysOnTopSetterMarker)
     },
     applyPreset: (preset) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
@@ -308,18 +312,24 @@ async function main(): Promise<void> {
       const win0 = mainWindow
       const disposeOverlayDebug = attachOverlayDebug(win0, screen, (event, listener) => {
         switch (event) {
-          case 'ready-to-show': return win0.on('ready-to-show', listener)
-          case 'show': return win0.on('show', listener)
-          case 'hide': return win0.on('hide', listener)
-          case 'focus': return win0.on('focus', listener)
-          case 'blur': return win0.on('blur', listener)
-          case 'restore': return win0.on('restore', listener)
-          case 'minimize': return win0.on('minimize', listener)
-          case 'moved': return win0.on('moved', listener)
-          case 'resized': return win0.on('resized', listener)
+          case 'ready-to-show': win0.on('ready-to-show', listener); return () => win0.off('ready-to-show', listener)
+          case 'show': win0.on('show', listener); return () => win0.off('show', listener)
+          case 'hide': win0.on('hide', listener); return () => win0.off('hide', listener)
+          case 'focus': win0.on('focus', listener); return () => win0.off('focus', listener)
+          case 'blur': win0.on('blur', listener); return () => win0.off('blur', listener)
+          case 'restore': win0.on('restore', listener); return () => win0.off('restore', listener)
+          case 'minimize': win0.on('minimize', listener); return () => win0.off('minimize', listener)
+          case 'moved': win0.on('moved', listener); return () => win0.off('moved', listener)
+          case 'resized': win0.on('resized', listener); return () => win0.off('resized', listener)
         }
       }, logDebug, currentSettings.alwaysOnTop)
-      win0.once('closed', disposeOverlayDebug)
+      const disposeAlwaysOnTopChanged = attachAlwaysOnTopChangedDebug(win0, alwaysOnTopSetterMarker, logDebug)
+      const disposeWindowMessages = process.platform === 'win32' ? attachWindowMessageDebug(win0, logDebug) : () => undefined
+      win0.once('closed', () => {
+        disposeWindowMessages()
+        disposeAlwaysOnTopChanged()
+        disposeOverlayDebug()
+      })
     }
 
     bindPptTimerIpc(mainWindow, controllers)

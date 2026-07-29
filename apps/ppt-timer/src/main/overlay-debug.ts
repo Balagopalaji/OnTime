@@ -13,6 +13,13 @@
  */
 import type { AppDiagEvent } from './diagnostics.js'
 
+/**
+ * Hypothesis: a true→false `isAlwaysOnTop()` observation can be an external
+ * native transition between samples, rather than an app request. Scope: observe
+ * only; do not alter AOT, focus, style, z-order, or query raw HWND styles.
+ */
+export const AOT_DEBUG_HYPOTHESIS = 'An observed true-to-false AOT transition may be an external native change between samples, not an app setter request.'
+
 /** Read-only scalar snapshot of a window's observable state (no HWND, no title). */
 export type WindowStateSnapshot = {
   visible: boolean
@@ -92,6 +99,41 @@ export function launchSnapshotEvent(
 /** Build a passive before/after record around an existing native AOT request. */
 export function alwaysOnTopRequestEvent(requested: boolean, nativeBefore: boolean, nativeAfter: boolean): AppDiagEvent {
   return { kind: 'debug_always_on_top_request', requested, nativeBefore, nativeAfter }
+}
+
+/** Electron payload + current getter lets reports identify a real change gap. */
+export function alwaysOnTopChangedEvent(eventValue: boolean, currentValue: boolean, insideAppSetter: boolean): AppDiagEvent {
+  return { kind: 'debug_always_on_top_changed', eventValue, currentValue, insideAppSetter }
+}
+
+export const WINDOW_MESSAGE_SPECS = [
+  { code: 0x0006, message: 'WM_ACTIVATE' },
+  { code: 0x001c, message: 'WM_ACTIVATEAPP' },
+  { code: 0x0018, message: 'WM_SHOWWINDOW' },
+  { code: 0x0046, message: 'WM_WINDOWPOSCHANGING' },
+  { code: 0x0047, message: 'WM_WINDOWPOSCHANGED' },
+  { code: 0x007d, message: 'WM_STYLECHANGED' },
+] as const
+
+type WindowMessageSpec = typeof WINDOW_MESSAGE_SPECS[number]
+
+/** Read only a scalar low word from Electron's wParam; never retain pointers. */
+function wParamLow32(wParam: Uint8Array): number {
+  if (wParam.length < 4) return 0
+  return (wParam[0] | (wParam[1] << 8) | (wParam[2] << 16) | (wParam[3] << 24)) >>> 0
+}
+
+/** Build a safe compact record; only activation/show derive any wParam state. */
+export function windowMessageEvent(spec: WindowMessageSpec, wParam: Uint8Array): AppDiagEvent {
+  const value = wParamLow32(wParam)
+  if (spec.message === 'WM_ACTIVATE') {
+    const state = value & 0xffff
+    const activation = state === 0 ? 'inactive' : state === 1 ? 'active' : state === 2 ? 'click-active' : 'other'
+    return { kind: 'debug_window_message', ...spec, activation }
+  }
+  if (spec.message === 'WM_ACTIVATEAPP') return { kind: 'debug_window_message', ...spec, appActive: value !== 0 }
+  if (spec.message === 'WM_SHOWWINDOW') return { kind: 'debug_window_message', ...spec, shown: value !== 0 }
+  return { kind: 'debug_window_message', ...spec }
 }
 
 /** Build one of the intentionally passive focus/blur follow-up snapshots. */
@@ -198,6 +240,13 @@ export type AlwaysOnTopWindow = Pick<DebugWindow, 'isAlwaysOnTop'> & {
   setAlwaysOnTop(enabled: boolean): void
 }
 
+/** Mutable marker shared by the app setter wrapper and Electron's event listener. */
+export type AlwaysOnTopSetterMarker = { insideAppSetter: boolean }
+
+export function createAlwaysOnTopSetterMarker(): AlwaysOnTopSetterMarker {
+  return { insideAppSetter: false }
+}
+
 /** Read-only structural view of the screen APIs the diagnostics read. */
 export type DebugScreen = {
   getDisplayMatching(bounds: Rect): { id: number | string; scaleFactor: number; workArea: Rect }
@@ -209,7 +258,7 @@ export type DebugScreen = {
 export type OverlayDebugBind = (
   event: WindowDiagEvent | MovedResizedEvent | 'ready-to-show',
   listener: () => void,
-) => void
+) => () => void
 
 export type OverlayDebugSchedule = (callback: () => void, delayMs: 100 | 500 | 1000) => unknown
 export type OverlayDebugCancel = (handle: unknown) => void
@@ -220,14 +269,49 @@ export function setAlwaysOnTopWithDebug(
   enabled: boolean,
   debugEnabled: boolean,
   push: (event: AppDiagEvent) => void,
+  marker?: AlwaysOnTopSetterMarker,
 ): void {
   if (!debugEnabled) {
     window.setAlwaysOnTop(enabled)
     return
   }
   const nativeBefore = window.isAlwaysOnTop()
-  window.setAlwaysOnTop(enabled)
+  if (marker) marker.insideAppSetter = true
+  try {
+    window.setAlwaysOnTop(enabled)
+  } finally {
+    if (marker) marker.insideAppSetter = false
+  }
   push(alwaysOnTopRequestEvent(enabled, nativeBefore, window.isAlwaysOnTop()))
+}
+
+export type AlwaysOnTopChangedWindow = Pick<DebugWindow, 'isAlwaysOnTop'> & {
+  on(event: 'always-on-top-changed', listener: (_event: unknown, isAlwaysOnTop: boolean) => void): unknown
+  off(event: 'always-on-top-changed', listener: (_event: unknown, isAlwaysOnTop: boolean) => void): unknown
+}
+
+/** Attach the Electron change event that closes the snapshot sampling gap. */
+export function attachAlwaysOnTopChangedDebug(
+  window: AlwaysOnTopChangedWindow,
+  marker: AlwaysOnTopSetterMarker,
+  push: (event: AppDiagEvent) => void,
+): () => void {
+  const listener = (_event: unknown, eventValue: boolean): void => push(alwaysOnTopChangedEvent(eventValue, window.isAlwaysOnTop(), marker.insideAppSetter))
+  window.on('always-on-top-changed', listener)
+  return () => window.off('always-on-top-changed', listener)
+}
+
+export type WindowMessageDebugWindow = {
+  hookWindowMessage(message: number, callback: (wParam: Buffer, lParam: Buffer) => void): void
+  unhookWindowMessage(message: number): void
+}
+
+/** Attach only relevant own-window Windows messages; disposal unhooks every one. */
+export function attachWindowMessageDebug(window: WindowMessageDebugWindow, push: (event: AppDiagEvent) => void): () => void {
+  for (const spec of WINDOW_MESSAGE_SPECS) window.hookWindowMessage(spec.code, (wParam) => push(windowMessageEvent(spec, wParam)))
+  return () => {
+    for (const spec of WINDOW_MESSAGE_SPECS) window.unhookWindowMessage(spec.code)
+  }
 }
 
 /**
@@ -246,11 +330,14 @@ export function attachOverlayDebug(
 ): () => void {
   let disposed = false
   const scheduledHandles: unknown[] = []
+  const unbinds: Array<() => void> = []
   const dispose = (): void => {
     if (disposed) return
     disposed = true
     for (const handle of scheduledHandles) cancel(handle)
     scheduledHandles.length = 0
+    for (const unbind of unbinds) unbind()
+    unbinds.length = 0
   }
   const readWindow = (): WindowStateSnapshot | null => {
     if (window.isDestroyed()) return null
@@ -275,10 +362,10 @@ export function attachOverlayDebug(
 
   // One-shot launch snapshot once the window realizes (caller keeps its own
   // ready-to-show → show(); this only records the resulting state).
-  bind('ready-to-show', () => {
+  unbinds.push(bind('ready-to-show', () => {
     const snap = readWindow()
     if (snap) push(launchSnapshotEvent(snap, screen.getAllDisplays().length, String(screen.getPrimaryDisplay().id), savedAlwaysOnTop))
-  })
+  }))
   // Lifecycle/activation events: read the state tuple + matched display at fire.
   const lifecycle = (label: WindowDiagEvent): (() => void) => () => {
     const snap = readWindow()
@@ -296,13 +383,13 @@ export function attachOverlayDebug(
       }
     }
   }
-  for (const label of ['show', 'hide', 'focus', 'blur', 'restore', 'minimize'] as const) bind(label, lifecycle(label))
+  for (const label of ['show', 'hide', 'focus', 'blur', 'restore', 'minimize'] as const) unbinds.push(bind(label, lifecycle(label)))
   // moved/resized: also capture the matched display's work area.
   const geometry = (label: MovedResizedEvent): (() => void) => () => {
     const snap = readWindow()
     const display = readMatched()
     if (snap && display) push(movedResizedEvent(label, snap, display))
   }
-  for (const label of ['moved', 'resized'] as const) bind(label, geometry(label))
+  for (const label of ['moved', 'resized'] as const) unbinds.push(bind(label, geometry(label)))
   return dispose
 }

@@ -67,6 +67,8 @@ export type AppDiagEvent =
   | { kind: 'debug_window_event'; event: 'ready-to-show' | 'show' | 'hide' | 'focus' | 'blur' | 'restore' | 'minimize'; visible: boolean; minimized: boolean; focused: boolean; alwaysOnTop: boolean; bx: number; by: number; bw: number; bh: number; displayId: string; scaleFactor: number }
   | { kind: 'debug_delayed_window_snapshot'; trigger: 'focus' | 'blur'; delayMs: 100 | 500 | 1000; visible: boolean; minimized: boolean; focused: boolean; alwaysOnTop: boolean; bx: number; by: number; bw: number; bh: number; displayId: string; scaleFactor: number }
   | { kind: 'debug_always_on_top_request'; requested: boolean; nativeBefore: boolean; nativeAfter: boolean }
+  | { kind: 'debug_always_on_top_changed'; eventValue: boolean; currentValue: boolean; insideAppSetter: boolean }
+  | { kind: 'debug_window_message'; message: 'WM_ACTIVATE' | 'WM_ACTIVATEAPP' | 'WM_WINDOWPOSCHANGING' | 'WM_WINDOWPOSCHANGED' | 'WM_STYLECHANGED' | 'WM_SHOWWINDOW'; code: number; activation?: 'inactive' | 'active' | 'click-active' | 'other'; appActive?: boolean; shown?: boolean }
   | { kind: 'debug_moved_resized'; event: 'moved' | 'resized'; bx: number; by: number; bw: number; bh: number; displayId: string; scaleFactor: number; wx: number; wy: number; ww: number; wh: number }
   | { kind: 'debug_display_event'; event: 'display-added' | 'display-removed' | 'display-metrics-changed'; displayId: string; displayCount: number; scaleFactor: number; wx: number; wy: number; ww: number; wh: number }
   | { kind: 'debug_programmatic_bounds'; reason: 'preset' | 'moveToDisplay' | 'revalidate'; bxBefore: number; byBefore: number; bwBefore: number; bhBefore: number; bxAfter: number; byAfter: number; bwAfter: number; bhAfter: number; displayId: string }
@@ -121,6 +123,10 @@ function formatApp(event: AppDiagEvent): string {
       return `app debug_delayed_window_snapshot trigger=${event.trigger} delayMs=${event.delayMs} visible=${event.visible} minimized=${event.minimized} focused=${event.focused} alwaysOnTop=${event.alwaysOnTop} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} displayId=${event.displayId} scaleFactor=${event.scaleFactor}`
     case 'debug_always_on_top_request':
       return `app debug_always_on_top_request requested=${event.requested} nativeBefore=${event.nativeBefore} nativeAfter=${event.nativeAfter}`
+    case 'debug_always_on_top_changed':
+      return `app debug_always_on_top_changed eventValue=${event.eventValue} currentValue=${event.currentValue} insideAppSetter=${event.insideAppSetter}`
+    case 'debug_window_message':
+      return `app debug_window_message message=${event.message} code=${event.code}${event.activation ? ` activation=${event.activation}` : ''}${event.appActive === undefined ? '' : ` appActive=${event.appActive}`}${event.shown === undefined ? '' : ` shown=${event.shown}`}`
     case 'debug_moved_resized':
       return `app debug_moved_resized event=${event.event} bounds=${fmtBounds(event.bx, event.by, event.bw, event.bh)} displayId=${event.displayId} scaleFactor=${event.scaleFactor} workArea=${fmtBounds(event.wx, event.wy, event.ww, event.wh)}`
     case 'debug_display_event':

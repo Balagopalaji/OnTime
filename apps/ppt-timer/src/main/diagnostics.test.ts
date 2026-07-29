@@ -44,13 +44,17 @@ describe('DiagnosticsBuffer ring (S-026 last 100)', () => {
 
   it('bounds affinity polling without evicting overlay debug evidence', () => {
     const buf = new DiagnosticsBuffer()
-    buf.push({ kind: 'debug_always_on_top_request', requested: true, nativeBefore: false, nativeAfter: true })
+    // Hypothesis/minimal scope: preserve event-based AOT/window evidence while
+    // affinity polling is lossy; this does not change window behaviour.
+    buf.push({ kind: 'debug_always_on_top_changed', eventValue: false, currentValue: false, insideAppSetter: false })
+    buf.push({ kind: 'debug_window_message', message: 'WM_STYLECHANGED', code: 125 })
     for (let i = 0; i < 200; i++) {
       buf.push({ kind: 'affinity', processCount: i, selectedPid: i, comPid: i, mismatch: i % 2 === 0 })
     }
     const report = buf.buildReport(meta)
-    expect(buf.count).toBe(AFFINITY_DIAGNOSTICS_CAPACITY + 1)
-    expect(report).toContain('debug_always_on_top_request requested=true nativeBefore=false nativeAfter=true')
+    expect(buf.count).toBe(AFFINITY_DIAGNOSTICS_CAPACITY + 2)
+    expect(report).toContain('debug_always_on_top_changed eventValue=false currentValue=false insideAppSetter=false')
+    expect(report).toContain('debug_window_message message=WM_STYLECHANGED code=125')
     expect((report.match(/app affinity /g) ?? [])).toHaveLength(AFFINITY_DIAGNOSTICS_CAPACITY)
   })
 })
@@ -200,6 +204,17 @@ describe('overlay debug events in the report (PPT_TIMER_DEBUG=1 surface)', () =>
     expect(report).toContain('debug_always_on_top_request requested=false nativeBefore=true nativeAfter=false')
     expect(report).toContain('debug_delayed_window_snapshot trigger=blur delayMs=500')
     expect(report).toContain('alwaysOnTop=false bounds=10,20,360,220 displayId=692542')
+  })
+
+  it('formats AOT change correlation and safe own-window message scalars', () => {
+    const buf = new DiagnosticsBuffer()
+    buf.push({ kind: 'debug_always_on_top_changed', eventValue: false, currentValue: false, insideAppSetter: false })
+    buf.push({ kind: 'debug_window_message', message: 'WM_ACTIVATE', code: 6, activation: 'click-active' })
+    buf.push({ kind: 'debug_window_message', message: 'WM_SHOWWINDOW', code: 24, shown: true })
+    const report = buf.buildReport(meta)
+    expect(report).toContain('debug_always_on_top_changed eventValue=false currentValue=false insideAppSetter=false')
+    expect(report).toContain('debug_window_message message=WM_ACTIVATE code=6 activation=click-active')
+    expect(report).toContain('debug_window_message message=WM_SHOWWINDOW code=24 shown=true')
   })
 
   it('formats moved/resized with the matched work area for clamping analysis', () => {
