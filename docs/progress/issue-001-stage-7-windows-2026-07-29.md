@@ -146,3 +146,60 @@ The installer and process-launch portion of S-030 has passed. At launch no `POWE
 - Re-run `npm run ci-local` after the minimal Windows launcher fix.
 - Run each explicit `ppt-timer-build.yml` gate, build/publish/inspect the helper, package the app, generate checksum and manifest, and inspect helper/ASAR contents.
 - Install the produced NSIS artifact and run the manual PowerPoint, multiple-display/DPI, recovery/diagnostics, installer lifecycle, and Companion coexistence cases. Those cases need Microsoft 365 PowerPoint, suitable video decks, and at least two displays; no outcome has yet been recorded.
+
+## Continuation handoff — 2026-07-30
+
+This section supersedes only the stale “Pending” statements above where it says so. The earlier entries remain the evidence record for the initial Windows execution loop.
+
+### Current checkpoint
+
+- Branch: `backlog/ISSUE-001-standalone-ppt-timer`.
+- Current committed HEAD: `8f85fa7 fix(ppt-timer): Elevate presenter overlay level`.
+- The branch contains follow-on Windows/runtime fixes after the initial Stage 7 checkpoint. Do not reset or recreate the checkout from the old `d1f4d19` entry.
+- Expected ignored local build/runtime folders: `.dotnet-cli/`, `.npm-cache/`, `.tools/`, and `packages/ppt-bridge/native/windows-ppt-probe/bin/` and `obj/`. Preserve them. They contain the local Node 22.12, .NET 10, Electron runtime workaround, caches, and native build output.
+
+### Work completed after the initial record
+
+| Area | Commits | Result |
+| --- | --- | --- |
+| Multi-video state and focus selection | `c74b83d`, `502a800`, `1293b7e` | Standalone projection now exposes every video. The main timer follows the most recently started still-playing video, with deterministic fallback. |
+| Renderer rows and smooth countdown | `7e50910`, `60a0261`, `05d796a` | Large timer and video rows share the same focus tile; local interpolation is anchored to accepted measurements and snaps on corrections. |
+| Timer-only UI | `678a6bd`, `19d672a` | Default view is timer plus video rows and an accessible gear. Settings holds only Remaining/Elapsed, Always on top, and Copy diagnostics. The old Electron menu is removed. |
+| Windows overlay diagnostics | `4fffb78`, `5fc5328`, `43b31a6`, `629b610` | Debug-only diagnostics cover window lifecycle, bounds/display/DPI, Electron AOT state, and selected Windows window messages. `PPT_TIMER_DEBUG=1` is the only opt-in. The final closed-only cleanup prevents the earlier diagnostic-only destroyed-window crash. |
+| Presenter View AOT repair | `8f85fa7` | AOT now uses Electron's Windows `pop-up-menu` level when enabled and `normal` when disabled. It is applied while the window is hidden at startup and by the existing settings toggle. |
+
+### Confirmed Presenter View defect and final repair
+
+User reproduction on this Windows 11 / Microsoft PowerPoint host:
+
+1. With Always on top checked, the timer behaved normally above standard PowerPoint editing windows.
+2. In PowerPoint Presenter View, clicking the timer made it disappear behind Presenter View. It could not be restored by directly Alt-Tabbing to it.
+3. Alt-Tabbing first to another application and then to the timer restored it.
+
+The diagnostic capture was conclusive. At direct Presenter View → timer activation, Windows delivered `WM_WINDOWPOSCHANGING`, activation, and `WM_WINDOWPOSCHANGED`; the focus snapshot then reported `alwaysOnTop=false`. There was **no** renderer/main AOT request, `WM_STYLECHANGED`, or Electron `always-on-top-changed` event. A later ordinary application → timer activation restored `alwaysOnTop=true`.
+
+This rules out PowerPoint media polling and a user settings toggle as the immediate cause. The app had been using Electron's default `floating` AOT level. Electron's Windows implementation can reorder that level beneath `Shell_TrayWnd` on activation; `pop-up-menu` is the lowest Electron level that avoids that behavior. Do not add focus-loop reassertion, `moveTop`, `moveAbove`, PowerPoint window lookup, or COM changes unless a new reproduction disproves this targeted repair.
+
+The user manually retested the final installed build on 2026-07-30 and confirmed: **“ok that works now. Excellent!”** The timer remains interactive/draggable. Intentional trade-off: when AOT is enabled it can draw above the Windows taskbar, particularly if manually positioned there. This is acceptable unless product requirements later say otherwise.
+
+### Diagnostic-hook false starts (do not repeat)
+
+- `f2653eb` and `2e212f2` were intermediate attempts to dispose/re-arm debug message hooks around close/cancelled-close.
+- A real field crash exposed the problem: `TypeError: Object has been destroyed` from `overlay-debug.js` while calling `unhookWindowMessage` after the BrowserWindow had been destroyed.
+- `629b610` supersedes those attempts: cleanup occurs on `closed`; native unhook safely no-ops after destruction and JS listeners/timers are released. A debug launch-and-close smoke check passed afterward.
+
+### Latest artifact and verification
+
+- Latest installer: `apps/ppt-timer/dist_out/OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-setup.exe`.
+- Latest installer SHA-256: `56a0f8114e23322b6418cc9e73b6463cc386813e370573881dcb822a8381fa2b`.
+- It was silently installed successfully to `%LOCALAPPDATA%\\Programs\\OnTime PowerPoint Video Timer` and launched with `PPT_TIMER_DEBUG=1` for the passing Presenter View retest.
+- `8f85fa7` focused verification: `overlay-debug.test.ts` 20/20, focused overlay/controller/settings tests 50/50, PPT timer typecheck PASS. The preceding `19d672a` run had `npm run ci-local` PASS all 27 stages. Do not claim a new full `ci-local` pass specifically for `8f85fa7` without running it.
+- The current package build used the existing verified local Electron distribution (`.tools/electron-v43.2.0-win32-x64-unpacked`) through `electron-builder --config.electronDist=...`. This is a local Windows workaround for electron-builder's reproducible `EPERM` rename of `win-unpacked.tmp`; it is not a committed product configuration change.
+
+### Next owner instructions
+
+1. Read this record plus the current (non-archive) product/spec documents before changing source. Check `git status --short --branch` and preserve the expected ignored folders.
+2. Treat the Presenter View AOT defect as **fixed and user-accepted**. If it regresses, first launch with `PPT_TIMER_DEBUG=1`, reproduce once, and use Copy diagnostics. Do not revert to `floating` or introduce automatic focus/z-order loops.
+3. Continue the still-pending Stage 7 manual acceptance matrix: state transitions/video timing/multiple videos; settings; displays and mixed DPI; recovery/diagnostics; cleanup; installer upgrade/uninstall preservation; and Companion coexistence. Record every command and PASS/FAIL here.
+4. If packaging again, use the local Node 22.12/.NET 10 toolchains and the existing `electronDist` workaround. Close only timer processes before silent install; do not terminate PowerPoint or Companion without an explicit need.
+5. Keep source changes narrow. Before editing for a new issue, capture a reproducible Windows symptom and state the proposed minimal fix.
