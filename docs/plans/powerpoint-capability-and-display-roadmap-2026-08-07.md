@@ -96,8 +96,21 @@ Positive evidence from the same run:
 ### M1 — Frameless charcoal standalone design
 
 - Design compact single-video, multi-video, ready/paused/ended, unavailable/reconnecting, and settings states.
-- Use a frameless Windows window with an explicit drag region, retained resize affordance, hover-revealed close/settings controls, keyboard-accessible alternatives, and a subtle edge/shadow.
-- Keep the timer visually dominant; secondary metadata is quiet; multi-video detail appears only when useful.
+- The collapsed surface is an exact minimalist contract: one status label, one
+  focused countdown, and a centered bottom disclosure caret. Video/deck/slide
+  identity, warnings, secondary videos, window controls, display settings, and
+  diagnostics do not appear until expanded.
+- Use a `260 × 120` frameless compact window and a transient `360 × 520`
+  details window. Expansion grows down when space permits, otherwise grows up
+  while retaining the compact bottom edge; collapse restores the captured
+  compact position. Expanded geometry is never persisted as compact geometry.
+- The details order is focused video context, secondary videos, window
+  controls, display/remote settings, then diagnostics. The future remote toggle
+  remains visibly disabled until M3 exists.
+- Use an explicit drag region, retained resize affordance, accessible in-app
+  minimize/close controls, keyboard-accessible expansion/collapse, and a subtle
+  dark edge. Pre-M1 beta geometry receives one schema migration to the compact
+  surface; subsequent custom sizing is respected.
 - Do not mix renderer-clock changes into the visual implementation.
 
 **Exit:** visual review at compact/large/custom sizes, 100/125/150% scaling, light/dark slide backgrounds, and Presenter View; no regression to always-on-top or focus behavior.

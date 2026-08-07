@@ -510,3 +510,50 @@ The active sequencing and cross-product follow-up now live in
 `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`. Stabilize
 these findings first; implement the frameless charcoal redesign only after the
 M0 exit gate passes.
+
+### M0/M1 corrective checkpoint — 2026-08-07
+
+The next installed build resolved the main stress findings and supplied the
+missing startup evidence. Diagnostics reported `app_ready elapsedMs=85` and
+`window_ready elapsedMs=455`. Repeated launches emitted `second_instance`; a
+packaged process check found one visible Electron window and one `ppt-probe`
+after the second launcher exited. Closing the window removed both app and helper
+processes.
+
+Live media results:
+
+- The 33-second single-video countdown no longer began near 24 seconds or jumped
+  backward. It recognized play quickly and counted smoothly.
+- One first visit to the two-video slide briefly showed `00:00` for each newly
+  played video before correcting; later visits and the five-video slide were
+  normal. Source review identified a precise native sequence: a cached terminal
+  video could change from stopped/not-ready to `Player.State=Playing` while its
+  first fresh `CurrentPosition` still contained the previous terminal value.
+  End inference therefore emitted one false ended sample. The probe now replaces
+  only that exact transition with a zero play anchor; stable terminal and
+  uncached observations keep immediate end behavior. This correction is
+  automated but still requires live replay on slide 6.
+
+The standalone shell is now frameless and single-instance. The first visual
+pass was still too large and exposed name/deck/slide metadata in the collapsed
+surface. The corrected M1 contract is `260 × 120` with only status and focused
+time plus a centered bottom caret. Expanding temporarily uses `360 × 520` for
+focused context, secondary videos, controls, settings, remote placeholder, and
+diagnostics; collapse restores the compact position. A one-time settings schema
+migration shrinks all pre-M1 beta geometry, including legacy custom bounds,
+without remigrating later custom sizes.
+
+| Verification | Result |
+| --- | --- |
+| PPT timer suite | PASS — 381 tests |
+| PPT bridge suite | PASS — 72 tests |
+| Both typechecks | PASS |
+| Production application build | PASS |
+| Static guardrails and dependency boundaries | PASS |
+| `git diff --check` | PASS — line-ending warnings only |
+| Native transient-terminal correction live replay | PENDING |
+| Minimal `260 × 120` shell packaged/live DPI and edge-expansion review | PENDING |
+
+The earlier package was useful for clock and launch acceptance, but the current
+M1 geometry and terminal-position correction must be rebuilt and installed
+before final Stage 7 acceptance.
