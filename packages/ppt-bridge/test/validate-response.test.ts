@@ -39,6 +39,24 @@ describe('validatePowerPointResponse', () => {
     expect(result.observation.primaryVideoIndex).toBe(1)
   })
 
+  it('accepts an immediate playing observation anchored at zero elapsed', () => {
+    const result = validatePowerPointResponse(JSON.stringify({
+      state: 'foreground',
+      instanceId: 1,
+      inSlideshow: true,
+      videoDetected: true,
+      videoPlaying: true,
+      videoDuration: 60_000,
+      videoElapsed: 0,
+      videoRemaining: 60_000,
+      videos: [{ id: 7, duration: 60_000, elapsed: 0, remaining: 60_000, playing: true, status: 'playing' }],
+    }))
+    expect(result.kind).toBe('observation')
+    if (result.kind !== 'observation') return
+    expect(result.observation.videoElapsed).toBe(0)
+    expect(result.observation.videos?.[0]).toMatchObject({ elapsed: 0, remaining: 60_000, playing: true, status: 'playing' })
+  })
+
   it('retains the helper product version alongside its protocol version', () => {
     const result = validatePowerPointResponse(JSON.stringify({
       state: 'foreground', instanceId: 1, inSlideshow: false,

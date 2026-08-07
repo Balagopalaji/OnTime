@@ -135,6 +135,85 @@ describe('Windows native build scripts', () => {
     expect(program).toContain('["protocolVersion"] = ProtocolVersion');
   });
 
+  it('reads PowerPoint Player.State correctly and emits a zero play anchor', () => {
+    const program = readNativeProgram();
+    expect(program).toContain('private const int PpPlayerPlaying = 0;');
+    expect(program).toContain('private const int PpPlayerPaused = 1;');
+    expect(program).toContain('private const int PpPlayerStopped = 2;');
+    expect(program).toContain('private const int PpPlayerNotReady = 3;');
+    expect(program).toContain('ConvertToMs(rawElapsed.Value, allowZero: true)');
+    expect(program).toContain('if (status == "playing" && !hasElapsed)');
+    expect(program).not.toContain('if (stateRaw.Value == 2) status = "playing"');
+    expect(program).not.toContain('stateRaw.HasValue && hasElapsed');
+  });
+
+  it('uses state-first media polling and avoids redundant edit-window media scans', () => {
+    const program = readNativeProgram();
+    const stateRead = program.indexOf('TryGetProp(player, "State")');
+    const positionRead = program.indexOf('TryGetProp(candidate.Player, "CurrentPosition")');
+
+    expect(stateRead).toBeGreaterThanOrEqual(0);
+    expect(positionRead).toBeGreaterThanOrEqual(0);
+    // Candidate construction (cold or warm) completes its Player.State pass
+    // before the shared timing loop conditionally reads CurrentPosition.
+    expect(program).toContain('var rawElapsed = shouldReadPosition');
+    expect(program).toContain('candidate.StateRaw is PpPlayerPlaying or PpPlayerPaused');
+    expect(program).toContain('MediaValuesByShapeId');
+    expect(program).toContain('BeginMediaValueScope');
+    expect(program).toContain('PruneMediaValues(presentShapeIds)');
+    expect(program).toContain('SelectStableStoppedRefresh(candidates)');
+    expect(program).toContain('cached == null ||');
+    expect(program).toContain('stateChanged ||');
+    expect(program).toContain('cached?.Status != null');
+    expect(program).toContain('var hasFreshPosition = freshElapsedMs.HasValue;');
+    expect(program).toContain('!hasFreshPosition && cached?.Status != null');
+    expect(program).toContain('IsKnownPlayerState');
+    expect(program).toContain('if (hasInvalidPlayerState) ResetMediaValueCache();');
+    expect(program).toContain('ResetMediaValueCache();');
+    expect(program).not.toContain('TryGetProp(activeWindow, "View")');
+    expect(program).not.toContain('payload["editSlideVideos"]');
+  });
+
+  it('warms a complete descriptor cache before using fast state sweeps', () => {
+    const program = readNativeProgram();
+    const warmBuild = program.indexOf('TryBuildWarmCandidates(ssView, out var candidates)');
+    const coldShapes = program.indexOf('var mediaCollectionComplete = CollectMediaShapes(TryGetProp(slide, "Shapes"), slideCandidates)');
+
+    expect(warmBuild).toBeGreaterThanOrEqual(0);
+    expect(coldShapes).toBeGreaterThan(warmBuild);
+    expect(program).toContain('private static readonly List<CachedMediaDescriptor> MediaDescriptors');
+    expect(program).toContain('private static bool HasCompleteMediaDescriptorCache');
+    expect(program).toContain('private static void CacheMediaDescriptors');
+    expect(program).toContain('if (!HasCompleteMediaDescriptorCache || ssView == null) return false;');
+    expect(program).toContain('if (!MediaValuesByShapeId.ContainsKey(descriptor.ShapeId))');
+    expect(program).toContain('var player = TryInvoke(ssView, "Player", descriptor.ShapeId);');
+    expect(program).toContain('if (player == null || !stateRaw.HasValue || !IsKnownPlayerState(stateRaw.Value))');
+    expect(program).toContain('out var canWarmCache');
+    expect(program).toContain('if (canWarmCache && !hasInvalidPlayerState)');
+    expect(program).toContain('else DisableWarmDescriptorCache();');
+    expect(program).toContain('private static bool CollectMediaShapes');
+    expect(program).toContain('if (shapesObj == null) return false;');
+    expect(program).toContain('if (!count.HasValue || count.Value < 0) return false;');
+    expect(program).toContain('if (shape == null)');
+    expect(program).toContain('if (!shapeType.HasValue)');
+    expect(program).toContain('if (shapeType == 14)');
+    expect(program).toContain('if (placeholder == null || !containedType.HasValue)');
+    expect(program).toContain('if (!CollectMediaShapes(groupItems, candidates)) complete = false;');
+    expect(program).toContain('CacheMediaDescriptors(candidates, mediaCollectionComplete);');
+    expect(program).toContain('if (!collectionComplete || candidates.Count == 0)');
+    expect(program).toContain('var activeTimingRefreshId = isWarmPoll ? SelectActiveTimingRefresh(candidates) : null;');
+    expect(program).toContain('(isWarmPoll && (candidate.ShapeId == activeTimingRefreshId ||');
+    expect(program).toContain('candidate.ShapeId == stableStoppedRefreshId');
+    expect(program).toContain('AdvanceCachedElapsed(cached, effectiveDurationMs, candidate.StateRaw)');
+    expect(program).toContain('var usedAdvancedWarmElapsed = false;');
+    expect(program).toContain('var usedZeroPlayAnchor = false;');
+    expect(program).toContain('hasFreshPosition || usedAdvancedWarmElapsed || usedZeroPlayAnchor');
+    expect(program).toContain('remaining.Value == 0 || (!isWarmPoll && elapsedValue >= effectiveDurationMs.Value - 250)');
+    expect(program).toContain('MediaDescriptors.Clear();');
+    expect(program).toContain('HasCompleteMediaDescriptorCache = false;');
+    expect(program).toContain('ActiveTimingRefreshCursor = 0;');
+  });
+
   it('publishes win-x64 self-contained single-file UNTRIMMED (Stage 6 retarget)', () => {
     const script = readScript('scripts/build-windows.ps1');
     // Self-contained so a clean machine needs no .NET runtime (S-030).
