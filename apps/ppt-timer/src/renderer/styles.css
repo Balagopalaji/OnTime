@@ -132,8 +132,9 @@ input:focus-visible {
 }
 
 .video {
+  flex: 0 1 160px;
   min-width: 0;
-  max-width: min(52vw, 190px);
+  max-width: min(44vw, 160px);
   overflow: hidden;
   color: #c8cdd1;
   font-size: 11px;
