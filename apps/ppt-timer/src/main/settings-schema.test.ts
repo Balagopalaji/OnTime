@@ -23,7 +23,7 @@ describe('settings schema defaults (S-018/S-019)', () => {
   })
 
   it('exposes the minimalist compact/details sizes as the minimum and presets', () => {
-    expect(COMPACT_WINDOW_SIZE).toEqual({ width: 200, height: 88 })
+    expect(COMPACT_WINDOW_SIZE).toEqual({ width: 190, height: 80 })
     expect(DETAILS_WINDOW_SIZE).toEqual({ width: 360, height: 520 })
     expect(MIN_WINDOW_SIZE).toBe(COMPACT_WINDOW_SIZE)
     expect(PRESET_SIZES.compact).toBe(COMPACT_WINDOW_SIZE)
@@ -95,8 +95,8 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
       expect(validateSettings({ schemaVersion: 1, sizePreset, windowBounds: betaBounds })).toMatchObject({
         sizePreset: 'compact',
         windowBounds: {
-          x: 120,
-          y: 241,
+          x: 125,
+          y: 245,
           ...COMPACT_WINDOW_SIZE,
         },
       })
@@ -117,20 +117,28 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
 
   it('migrates legacy partial settings that omitted the preset', () => {
     expect(validateSettings({ schemaVersion: 1, windowBounds: { x: 5, y: 6, width: 444, height: 333 } }).windowBounds).toEqual({
-      x: 127,
-      y: 129,
+      x: 132,
+      y: 133,
       ...COMPACT_WINDOW_SIZE,
     })
   })
 
-  it('migrates the installed v2 compact shell once but preserves v2 custom geometry', () => {
+  it('migrates installed v2/v3 compact shells once but preserves custom geometry', () => {
     expect(validateSettings({
       schemaVersion: 2,
       sizePreset: 'compact',
       windowBounds: { x: 100, y: 200, width: 260, height: 120 },
     })).toMatchObject({
       sizePreset: 'compact',
+      windowBounds: { x: 135, y: 220, width: 190, height: 80 },
+    })
+    expect(validateSettings({
+      schemaVersion: 3,
+      sizePreset: 'compact',
       windowBounds: { x: 130, y: 216, width: 200, height: 88 },
+    })).toMatchObject({
+      sizePreset: 'compact',
+      windowBounds: { x: 135, y: 220, width: 190, height: 80 },
     })
     const custom = { x: 100, y: 200, width: 310, height: 160 }
     expect(validateSettings({ schemaVersion: 2, sizePreset: 'custom', windowBounds: custom })).toMatchObject({

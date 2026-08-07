@@ -9,7 +9,7 @@
  */
 import type { SizePreset, TimingMode } from '../shared/ipc-contract.js'
 
-export const SETTINGS_SCHEMA_VERSION = 3
+export const SETTINGS_SCHEMA_VERSION = 4
 
 export type WindowBounds = { x: number; y: number; width: number; height: number }
 
@@ -32,8 +32,8 @@ export const DEFAULT_SETTINGS: Settings = {
   timingMode: 'remaining',
 }
 
-/** Minimalist-v3 closed surface: focused timer, status, and disclosure caret. */
-export const COMPACT_WINDOW_SIZE = { width: 200, height: 88 } as const
+/** Minimalist-v4 closed surface: focused timer, status, and disclosure caret. */
+export const COMPACT_WINDOW_SIZE = { width: 190, height: 80 } as const
 
 /** Minimalist-v2 open surface: compact timer plus the settings/details drawer. */
 export const DETAILS_WINDOW_SIZE = { width: 360, height: 520 } as const
@@ -81,10 +81,11 @@ export function validateSettings(raw: unknown): Settings {
   if (!isObject(raw)) return { ...DEFAULT_SETTINGS }
   const windowBounds = readBounds(raw.windowBounds)
   const sourceVersion = typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1
-  // All original beta layouts migrate, while a v2 install migrates only when
-  // it still represents the semantic compact preset. A genuine v2 custom/large
-  // resize is preserved and stamped v3, so this refinement never repeats.
-  const migrateCompact = sourceVersion < 2 || (sourceVersion === 2 && raw.sizePreset === 'compact')
+  // All original beta layouts migrate, while v2/v3 installs migrate only when
+  // they still represent the semantic compact preset. Genuine custom/large
+  // resizes are preserved and stamped v4, so this refinement never repeats.
+  const migrateCompact = sourceVersion < 2
+    || (sourceVersion < SETTINGS_SCHEMA_VERSION && raw.sizePreset === 'compact')
   const migratedBounds = migrateCompact && windowBounds
     ? {
         x: Math.round(windowBounds.x + (windowBounds.width - COMPACT_WINDOW_SIZE.width) / 2),
@@ -94,9 +95,9 @@ export function validateSettings(raw: unknown): Settings {
     : windowBounds
   return {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
-    // Version 3 refines the visual shell. Old beta windows and the semantic v2
-    // compact preset shrink once around their center; v2 custom/large and all
-    // v3 geometry remain verbatim.
+    // Version 4 refines the visual shell. Old beta windows and semantic v2/v3
+    // compact presets shrink once around their center; custom/large and all v4
+    // geometry remain verbatim.
     windowBounds: migratedBounds,
     selectedDisplayId: readString(raw.selectedDisplayId),
     sizePreset: migrateCompact ? 'compact' : readPreset(raw.sizePreset),

@@ -127,7 +127,7 @@ describe('moveToDisplay (S-020) and applyPreset (S-018)', () => {
 
 describe('minimalist details drawer placement', () => {
   it('expands downward from the current top-left when the details surface fits', () => {
-    const compact = rect(200, 100, 200, 88)
+    const compact = rect(200, 100, 190, 80)
     expect(expandDetailsBounds(compact, primary.workArea)).toEqual({
       x: 200,
       y: 100,
@@ -136,15 +136,15 @@ describe('minimalist details drawer placement', () => {
   })
 
   it('expands upward near the bottom while retaining the compact bottom edge', () => {
-    const compact = rect(200, 800, 200, 88)
+    const compact = rect(200, 800, 190, 80)
     const expanded = expandDetailsBounds(compact, primary.workArea)
-    expect(expanded).toEqual({ x: 200, y: 368, ...DETAILS_WINDOW_SIZE })
+    expect(expanded).toEqual({ x: 200, y: 360, ...DETAILS_WINDOW_SIZE })
     expect(expanded.y + expanded.height).toBe(compact.y + compact.height)
   })
 
   it('edge-clamps the expanded surface on work areas smaller than the preset', () => {
     const smallWorkArea = WA(100, 50, 300, 400)
-    expect(expandDetailsBounds(rect(350, 300, 200, 88), smallWorkArea)).toEqual({
+    expect(expandDetailsBounds(rect(350, 300, 190, 80), smallWorkArea)).toEqual({
       x: 100,
       y: 50,
       width: 300,
@@ -153,7 +153,7 @@ describe('minimalist details drawer placement', () => {
   })
 
   it('restores the exact captured compact bounds after a downward expansion', () => {
-    const compact = rect(200, 100, 200, 88)
+    const compact = rect(200, 100, 190, 80)
     const expanded = expandDetailsBounds(compact, primary.workArea)
     expect(expanded).not.toEqual(compact)
     expect(restoreCompactBounds(compact, primary.workArea)).toEqual(compact)
@@ -165,18 +165,18 @@ describe('minimalist details drawer placement', () => {
   })
 
   it('restores the exact captured compact bounds after an upward expansion', () => {
-    const compact = rect(200, 800, 200, 88)
+    const compact = rect(200, 800, 190, 80)
     expect(expandDetailsBounds(compact, primary.workArea).y).toBeLessThan(compact.y)
     expect(restoreCompactBounds(compact, primary.workArea)).toEqual(compact)
   })
 
   it('edge-clamps a compact restore only when the work area changed', () => {
-    const compact = rect(1800, 1000, 200, 88)
+    const compact = rect(1800, 1000, 190, 80)
     expect(restoreCompactBounds(compact, primary.workArea)).toEqual({
-      x: 1920 - 200,
-      y: 1040 - 88,
-      width: 200,
-      height: 88,
+      x: 1920 - 190,
+      y: 1040 - 80,
+      width: 190,
+      height: 80,
     })
   })
 })

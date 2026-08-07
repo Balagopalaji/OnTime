@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { mountApp, patchTimers, renderApp } from './main'
+import { timerFitWidthCqw } from './powerpoint-panel'
 import type { AppView, PreloadApi } from '../shared/ipc-contract'
 import type { PowerPointVideoTile, PowerPointViewState } from '@ontime/presentation-core'
 
@@ -94,11 +95,17 @@ const rowTimes = (root: HTMLElement): (string | null)[] =>
 const openDrawer = { settingsOpen: true, toggleSettings: () => {} }
 
 describe('renderApp status', () => {
+  it('gives longer hour-formatted timers a narrower responsive width factor', () => {
+    expect(timerFitWidthCqw('00:00')).toBeGreaterThan(timerFitWidthCqw('1:00:00'))
+    expect(timerFitWidthCqw('1:00:00')).toBeGreaterThan(timerFitWidthCqw('10:00:00'))
+  })
+
   it('renders only the status and focused time on the closed active surface', () => {
     const root = document.createElement('div')
     renderApp(root, baseView, vi.fn())
     expect(root.querySelector('#badge')?.getAttribute('data-badge')).toBe('playing')
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
+    expect((root.querySelector('#time') as HTMLElement).style.getPropertyValue('--time-fit-width')).toMatch(/cqw$/)
     expect(root.querySelector('#slide')).toBeNull()
     expect(root.querySelector('#video')).toBeNull()
     expect(root.querySelector('#title')).toBeNull()

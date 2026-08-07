@@ -54,13 +54,13 @@ describe('load (S-023 corrupt recovery, first-run)', () => {
     expect(result.settings.timingMode).toBe('elapsed')
   })
 
-  it('atomically persists the installed v2 compact refinement once and does not repeat it', async () => {
+  it('atomically persists the installed compact refinement once and does not repeat it', async () => {
     let tick = 10
     const fs = new FakeFs({
       [PATH]: JSON.stringify({
-        schemaVersion: 2,
+      schemaVersion: 3,
         sizePreset: 'compact',
-        windowBounds: { x: 40, y: 80, width: 260, height: 120 },
+        windowBounds: { x: 70, y: 96, width: 200, height: 88 },
         alwaysOnTop: true,
         timingMode: 'remaining',
       }),
@@ -70,7 +70,7 @@ describe('load (S-023 corrupt recovery, first-run)', () => {
     expect(first.settings).toMatchObject({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       sizePreset: 'compact',
-      windowBounds: { x: 70, y: 96, width: 200, height: 88 },
+      windowBounds: { x: 75, y: 100, width: 190, height: 80 },
     })
     expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({ schemaVersion: SETTINGS_SCHEMA_VERSION })
     const writesAfterMigration = fs.ops.filter((op) => op.startsWith('write:')).length

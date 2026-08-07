@@ -20,7 +20,7 @@ import {
 } from './view.js'
 import type { AppView, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 import { createPlaybackClock } from './playback-clock.js'
-import { renderPowerPointPanel, renderVideoList } from './powerpoint-panel.js'
+import { renderPowerPointPanel, renderVideoList, setTimerText } from './powerpoint-panel.js'
 
 declare global {
   interface Window {
@@ -252,7 +252,7 @@ export function renderApp(
 export function patchTimers(root: HTMLElement, view: AppView, advanceMs: number): void {
   const model = describeView(view.state, { timingMode: view.timingMode, advanceMs })
   const time = root.querySelector('#time')
-  if (time && time.textContent !== model.timeText) time.textContent = model.timeText
+  if (time instanceof HTMLElement) setTimerText(time, model.timeText)
   const rowTimes = root.querySelectorAll('.video-row .video-row-time')
   model.videoRows.filter((row) => !row.isFocus).forEach((row, index) => {
     const node = rowTimes[index]
