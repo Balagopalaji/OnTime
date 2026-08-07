@@ -21,6 +21,7 @@ import {
 import type { AppView, PanelMode, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 import { createPlaybackClock } from './playback-clock.js'
 import { applyManualPanelMode, currentSlideKey, INITIAL_PANEL_STATE, reconcilePanelState } from './panel-state.js'
+import { renderOptionStrip, renderWindowControls } from './panel-options.js'
 import { renderPowerPointPanel, renderVideoList, setTimerText } from './powerpoint-panel.js'
 
 declare global {
@@ -82,17 +83,18 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   collapse.setAttribute('aria-label', 'Collapse whole tray')
   collapse.addEventListener('click', () => options.setPanelMode('closed'))
   nav.append(collapse)
-  const switcher = element(
-    'button',
-    'tray-button tray-switch',
-    options.panelMode === 'options' && videoRows.length > 1 ? 'Videos' : 'Options',
-  )
+  const optionsOpen = options.panelMode === 'options'
+  const switcher = element('button', 'tray-button tray-switch', '⚙')
   switcher.type = 'button'
   switcher.id = 'panel-switch'
-  switcher.title = options.panelMode === 'options' && videoRows.length > 1 ? 'Collapse options' : 'Expand options'
+  switcher.title = optionsOpen ? 'Hide options' : 'Show options'
   switcher.setAttribute('aria-label', switcher.title)
-  switcher.addEventListener('click', () => options.setPanelMode(options.panelMode === 'options' ? 'videos' : 'options'))
-  if (options.panelMode === 'videos' || videoRows.length > 1) nav.append(switcher)
+  switcher.setAttribute('aria-expanded', String(optionsOpen))
+  switcher.setAttribute('aria-pressed', String(optionsOpen))
+  switcher.addEventListener('click', () => {
+    options.setPanelMode(optionsOpen ? (videoRows.length > 1 ? 'videos' : 'closed') : 'options')
+  })
+  nav.append(switcher)
   tray.append(nav)
 
   if (options.panelMode === 'videos') {
@@ -100,49 +102,7 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
     return section
   }
 
-  const optionStrip = element('div', 'option-strip')
-  const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
-  const timing = element('button', 'option-button timing-mode', view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed')
-  timing.type = 'button'
-  timing.id = 'timing-mode'
-  timing.dataset.mode = view.timingMode
-  timing.title = `Show ${nextMode} time`
-  timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
-  timing.addEventListener('click', () => {
-    const currentMode = timing.dataset.mode === 'elapsed' ? 'elapsed' : 'remaining'
-    dispatch({ type: 'setTimingMode', mode: currentMode === 'remaining' ? 'elapsed' : 'remaining' })
-  })
-  const alwaysOnTop = element('button', 'option-button always-on-top', 'On top')
-  alwaysOnTop.type = 'button'
-  alwaysOnTop.id = 'always-on-top'
-  alwaysOnTop.title = 'Always on top'
-  alwaysOnTop.setAttribute('aria-label', 'Always on top')
-  alwaysOnTop.setAttribute('aria-pressed', String(view.alwaysOnTop))
-  alwaysOnTop.addEventListener('click', () => {
-    const enabled = alwaysOnTop.getAttribute('aria-pressed') !== 'true'
-    alwaysOnTop.setAttribute('aria-pressed', String(enabled))
-    dispatch({ type: 'setAlwaysOnTop', enabled })
-  })
-  const copy = element('button', 'option-button', 'Diagnostics')
-  copy.type = 'button'
-  copy.id = 'copy-diagnostics'
-  copy.title = 'Copy diagnostics'
-  copy.setAttribute('aria-label', 'Copy diagnostics')
-  copy.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
-  const minimize = element('button', 'option-button symbol-button', '—')
-  minimize.type = 'button'
-  minimize.id = 'minimize-window'
-  minimize.title = 'Minimize'
-  minimize.setAttribute('aria-label', 'Minimize window')
-  minimize.addEventListener('click', () => dispatch({ type: 'minimizeWindow' }))
-  const close = element('button', 'option-button symbol-button close-window', '×')
-  close.type = 'button'
-  close.id = 'close-window'
-  close.title = 'Close'
-  close.setAttribute('aria-label', 'Close window')
-  close.addEventListener('click', () => dispatch({ type: 'closeWindow' }))
-  optionStrip.append(timing, alwaysOnTop, copy, minimize, close)
-  tray.append(optionStrip)
+  tray.append(renderOptionStrip(view, dispatch))
   section.append(tray)
 
   return section
@@ -175,6 +135,7 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
     timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
   }
   section.querySelector('#always-on-top')?.setAttribute('aria-pressed', String(view.alwaysOnTop))
+  section.querySelector('#auto-open-video-list')?.setAttribute('aria-pressed', String(view.autoOpenVideoList))
   const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')
   videoRows.forEach((row, index) => {
     const item = rowNodes[index]
@@ -211,7 +172,11 @@ export function renderApp(
   controls: ControlsOptions = { panelMode: 'closed', setPanelMode: () => {} },
 ): void {
   root.dataset.panelMode = controls.panelMode
-  root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch, controls))
+  root.replaceChildren(
+    renderStatus(view, advanceMs),
+    renderControls(view, dispatch, controls),
+    renderWindowControls(dispatch),
+  )
 }
 
 /**
@@ -339,7 +304,7 @@ export function mountApp(options: {
     current = smoothed
     const count = totalVideoCount(smoothed)
     const previousMode = panelState.mode
-    panelState = reconcilePanelState(panelState, currentSlideKey(smoothed), count)
+    panelState = reconcilePanelState(panelState, currentSlideKey(smoothed), count, smoothed.autoOpenVideoList)
     const automaticModeChange = previousMode !== panelState.mode
     if (automaticModeChange || (panelState.mode !== 'closed' && panelVideoCount !== count)) {
       panelVideoCount = count

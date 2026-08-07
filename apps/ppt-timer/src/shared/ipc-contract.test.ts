@@ -52,6 +52,7 @@ describe('parseRendererAction (S-014/S-033 closed union)', () => {
   it('accepts each valid action', () => {
     expect(parseRendererAction({ type: 'setTimingMode', mode: 'elapsed' })).toEqual({ ok: true, action: { type: 'setTimingMode', mode: 'elapsed' } })
     expect(parseRendererAction({ type: 'setAlwaysOnTop', enabled: false })).toEqual({ ok: true, action: { type: 'setAlwaysOnTop', enabled: false } })
+    expect(parseRendererAction({ type: 'setAutoOpenVideoList', enabled: true })).toEqual({ ok: true, action: { type: 'setAutoOpenVideoList', enabled: true } })
     expect(parseRendererAction({ type: 'applyPreset', preset: 'large' })).toEqual({ ok: true, action: { type: 'applyPreset', preset: 'large' } })
     expect(parseRendererAction({ type: 'moveToDisplay', displayId: '2' })).toEqual({ ok: true, action: { type: 'moveToDisplay', displayId: '2' } })
     expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', totalVideoCount: 4 })).toEqual({
@@ -74,6 +75,7 @@ describe('parseRendererAction (S-014/S-033 closed union)', () => {
   it('rejects malformed payloads', () => {
     expect(parseRendererAction({ type: 'setTimingMode', mode: 'sideways' }).ok).toBe(false)
     expect(parseRendererAction({ type: 'setAlwaysOnTop', enabled: 'yes' }).ok).toBe(false)
+    expect(parseRendererAction({ type: 'setAutoOpenVideoList', enabled: 'yes' }).ok).toBe(false)
     expect(parseRendererAction({ type: 'applyPreset', preset: 'custom' }).ok).toBe(false)
     expect(parseRendererAction({ type: 'applyPreset', preset: 'enormous' }).ok).toBe(false)
     expect(parseRendererAction({ type: 'moveToDisplay', displayId: '' }).ok).toBe(false)

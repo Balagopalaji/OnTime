@@ -31,6 +31,7 @@ export function reconcilePanelState(
   state: PanelSessionState,
   slideKey: string | null,
   totalVideoCount: number,
+  autoOpenVideoList: boolean,
 ): PanelSessionState {
   const slideChanged = slideKey !== state.slideKey
   let next: PanelSessionState = slideChanged
@@ -38,6 +39,11 @@ export function reconcilePanelState(
     : state
 
   if (next.ownership === 'manual') return next
+  if (!autoOpenVideoList) {
+    return next.ownership === 'auto'
+      ? { ...next, mode: 'closed', ownership: null }
+      : next
+  }
   if (next.ownership === 'auto') {
     return totalVideoCount > 1
       ? { ...next, mode: 'videos' }

@@ -108,13 +108,18 @@ export function applyPreset(currentBounds: Rectangle, preset: Exclude<SizePreset
 
 /**
  * Derive the trusted tray size from its closed shell, mode, and every video
- * row. The final work-area clamp handles presentations taller than the screen.
+ * row. Expansion never narrows a user-widened collapsed window. The final
+ * work-area clamp handles surfaces wider or taller than the screen.
  */
-export function panelSize(mode: Exclude<PanelMode, 'closed'>, totalVideoCount: number): { width: number; height: number } {
+export function panelSize(
+  mode: Exclude<PanelMode, 'closed'>,
+  totalVideoCount: number,
+  collapsedWidth = PANEL_WIDTH,
+): { width: number; height: number } {
   const rows = Math.max(0, Math.trunc(totalVideoCount))
   const optionsHeight = mode === 'options' ? PANEL_OPTIONS_GAP + PANEL_OPTIONS_HEIGHT : 0
   return {
-    width: PANEL_WIDTH,
+    width: Math.max(PANEL_WIDTH, collapsedWidth),
     height:
       COMPACT_WINDOW_SIZE.height +
       PANEL_TRAY_PADDING +
@@ -131,7 +136,7 @@ export function expandPanelBounds(
   mode: Exclude<PanelMode, 'closed'>,
   totalVideoCount: number,
 ): Rectangle {
-  const size = panelSize(mode, totalVideoCount)
+  const size = panelSize(mode, totalVideoCount, currentBounds.width)
   const workBottom = workArea.y + workArea.height
   const canExpandDown = currentBounds.y + size.height <= workBottom
   const y = canExpandDown

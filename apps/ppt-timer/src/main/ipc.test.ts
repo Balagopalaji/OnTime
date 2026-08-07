@@ -25,6 +25,7 @@ const appView: AppView = {
   state: { kind: 'connecting', multipleVideos: false, videoCount: 0, multipleInstanceWarning: false },
   timingMode: 'remaining',
   alwaysOnTop: true,
+  autoOpenVideoList: false,
   preset: 'compact',
   displays: [],
   selectedDisplayId: null,

@@ -538,31 +538,37 @@ The standalone shell is now frameless and single-instance. The first visual
 pass was still too large and exposed name/deck/slide metadata in the collapsed
 surface. The refined M1 contract is `190 × 80` with only status and focused
 time plus a bottom-right caret. Expansion is a two-stage, content-sized
-`260`-pixel-wide tray: the complete video list first, then a 28-pixel action
-strip behind the second disclosure. A multi-video slide automatically opens the
-list without focusing the timer. Every video is present, including the focused
-video, and the tray grows to all rows without an internal scrollbar or visible
-row cap. Video-stage height is `110 + 28 * videoCount` pixels; options add 30
-pixels. An automatically opened tray closes when the view returns to one or no
-videos. Manual expansion transfers ownership to the operator and is not
-auto-collapsed; same-slide manual dismissal is also respected. The whole-tray
-caret remains at the bottom-right in every state. The action labels are
-`Remaining`/`Elapsed`, `On top`, `Diagnostics`, minimize, and close, with
-tooltips and bordered operational controls. Focused metadata headings, cards,
-and the nonfunctional remote placeholder remain absent. Collapse restores the
-captured compact position, including intentional custom sizing.
+tray with a 260-pixel minimum width: the complete video list first, then a
+compact 28-pixel single-row action strip behind the gear disclosure. A widened
+collapsed timer keeps that width while expanded; a narrower timer widens to the
+readable minimum and collapse restores its exact custom geometry. The default is non-invasive:
+multi-video slides remain collapsed. A persisted `Auto open` toggle defaults
+off; when enabled, it opens a multi-video list without focusing the timer.
+Every video is present, including the focused video, and the tray grows to all
+rows without an internal scrollbar or visible row cap. Video-stage height is
+`110 + 28 * videoCount` pixels; options add 30 pixels. An automatically opened
+tray closes when the view returns to one or no videos. Manual expansion
+transfers ownership to the operator and is not auto-collapsed; same-slide manual
+dismissal is also respected. The gear and whole-tray caret remain separate at
+the bottom-right in every expanded state. The action labels are
+`Remaining`/`Elapsed`, `On top`, `Auto open`, and `Diagnostics`; they retain
+intrinsic compact widths instead of stretching with the window. Minimize and
+close live in independent top-right window chrome in every state and remain
+invisible until hover or keyboard focus. Operational toggles use tooltips and
+subtle borders; the window controls are borderless at rest. Focused metadata
+headings, cards, and the nonfunctional remote placeholder remain absent.
 
 | Verification | Result |
 | --- | --- |
-| PPT timer suite | PASS — 391 tests |
+| PPT timer suite | PASS — 401 tests |
 | PPT bridge suite | PASS — 72 tests |
 | Both typechecks | PASS |
 | Production application build | PASS |
 | Static guardrails and dependency boundaries | PASS |
 | `git diff --check` | PASS — line-ending warnings only |
 | Current M1 source rebuild and silent installer replacement | PASS |
-| Packaged staged-tray renderer review | PASS — five-video list auto-opened at logical size `260 × 250`, showed all five rows with no scrollbar, and kept the collapse caret bottom-right |
-| Current installer SHA-256 | `5670cdf2c06a7e8aef36c5d0731af37102e8facd57da19506307e502c7127d69` |
+| Packaged staged-tray renderer review | PASS — multi-video view stayed collapsed by default; gear/caret remained bottom-right and the options strip stayed separate from hover-only top-right window controls |
+| Current installer SHA-256 | `b056bc24bd35373a120a8e4f3393ee90365a38e2c9868a959cf82462994ffe7e` |
 | Native transient-terminal correction live replay | PENDING |
 | Mixed-DPI and near-work-area-edge expansion review | PENDING |
 

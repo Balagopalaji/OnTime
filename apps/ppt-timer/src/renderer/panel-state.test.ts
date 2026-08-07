@@ -25,6 +25,7 @@ const view = (slideNumber: number, title = 'Deck.pptx'): AppView => ({
   },
   timingMode: 'remaining',
   alwaysOnTop: true,
+  autoOpenVideoList: false,
   preset: 'compact',
   displays: [],
   selectedDisplayId: null,
@@ -43,19 +44,24 @@ describe('panel ownership state', () => {
   })
 
   it('auto-opens multi-video slides and auto-closes only auto ownership', () => {
-    const opened = reconcilePanelState(INITIAL_PANEL_STATE, currentSlideKey(view(4)), 2)
+    expect(reconcilePanelState(INITIAL_PANEL_STATE, currentSlideKey(view(4)), 2, false)).toEqual({
+      ...INITIAL_PANEL_STATE,
+      slideKey: currentSlideKey(view(4)),
+    })
+    const opened = reconcilePanelState(INITIAL_PANEL_STATE, currentSlideKey(view(4)), 2, true)
     expect(opened).toMatchObject({ mode: 'videos', ownership: 'auto' })
-    expect(reconcilePanelState(opened, opened.slideKey, 1)).toMatchObject({ mode: 'closed', ownership: null })
+    expect(reconcilePanelState(opened, opened.slideKey, 1, true)).toMatchObject({ mode: 'closed', ownership: null })
+    expect(reconcilePanelState(opened, opened.slideKey, 2, false)).toMatchObject({ mode: 'closed', ownership: null })
     const manual = applyManualPanelMode(opened, 'options', 2)
-    expect(reconcilePanelState(manual, manual.slideKey, 1)).toMatchObject({ mode: 'options', ownership: 'manual' })
+    expect(reconcilePanelState(manual, manual.slideKey, 1, false)).toMatchObject({ mode: 'options', ownership: 'manual' })
   })
 
   it('honours same-slide dismissal and resets it for a new slide', () => {
     const key4 = currentSlideKey(view(4))
-    const opened = reconcilePanelState(INITIAL_PANEL_STATE, key4, 3)
+    const opened = reconcilePanelState(INITIAL_PANEL_STATE, key4, 3, true)
     const dismissed = applyManualPanelMode(opened, 'closed', 3)
-    expect(reconcilePanelState(dismissed, key4, 3)).toMatchObject({ mode: 'closed', dismissedSlideKey: key4 })
-    const next = reconcilePanelState(dismissed, currentSlideKey(view(5)), 3)
+    expect(reconcilePanelState(dismissed, key4, 3, true)).toMatchObject({ mode: 'closed', dismissedSlideKey: key4 })
+    const next = reconcilePanelState(dismissed, currentSlideKey(view(5)), 3, true)
     expect(next).toMatchObject({ mode: 'videos', ownership: 'auto', dismissedSlideKey: null })
   })
 })

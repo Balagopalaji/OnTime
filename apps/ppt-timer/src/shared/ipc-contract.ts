@@ -33,6 +33,7 @@ export type AppView = {
   state: PowerPointViewState
   timingMode: TimingMode
   alwaysOnTop: boolean
+  autoOpenVideoList: boolean
   preset: SizePreset
   displays: DisplayInfo[]
   selectedDisplayId: string | null
@@ -42,6 +43,7 @@ export type AppView = {
 export type RendererAction =
   | { type: 'setTimingMode'; mode: TimingMode }
   | { type: 'setAlwaysOnTop'; enabled: boolean }
+  | { type: 'setAutoOpenVideoList'; enabled: boolean }
   | { type: 'applyPreset'; preset: Exclude<SizePreset, 'custom'> }
   | { type: 'moveToDisplay'; displayId: string }
   | { type: 'setPanelMode'; mode: PanelMode; totalVideoCount: number }
@@ -117,6 +119,9 @@ export function parseRendererAction(raw: unknown): ParseResult {
       return { ok: false }
     case 'setAlwaysOnTop':
       if (typeof raw.enabled === 'boolean') return { ok: true, action: { type: 'setAlwaysOnTop', enabled: raw.enabled } }
+      return { ok: false }
+    case 'setAutoOpenVideoList':
+      if (typeof raw.enabled === 'boolean') return { ok: true, action: { type: 'setAutoOpenVideoList', enabled: raw.enabled } }
       return { ok: false }
     case 'applyPreset':
       if (raw.preset === 'compact' || raw.preset === 'large') return { ok: true, action: { type: 'applyPreset', preset: raw.preset } }

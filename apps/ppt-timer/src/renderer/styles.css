@@ -270,8 +270,53 @@ input:focus-visible {
   text-align: right;
 }
 
-.close-window:hover {
-  border-color: rgba(219, 140, 131, 0.55);
+.window-controls {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 6;
+  width: 42px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls:hover,
+.window-controls:focus-within {
+  opacity: 1;
+}
+
+.window-control-button {
+  width: 19px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #c6cbd0;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-button:hover,
+.window-control-button:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.window-control-button:focus-visible {
+  outline-width: 1px;
+  outline-offset: -1px;
+}
+
+.window-control-button.close-window:hover {
   background: rgba(219, 140, 131, 0.16);
   color: #ffd6d1;
 }
@@ -383,37 +428,62 @@ input:focus-visible {
 }
 
 .tray-switch {
-  margin-left: auto;
+  position: absolute;
+  right: 23px;
+  bottom: 1px;
+  z-index: 4;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
+  font-size: 11px;
 }
 
 .option-strip {
+  --option-timing-max: 50px;
+  --option-top-max: 40px;
+  --option-auto-max: 50px;
+  --option-diagnostics-max: 61px;
   flex: 0 0 28px;
   height: 28px;
-  display: grid;
-  grid-template-columns: minmax(58px, 1fr) 44px 58px 22px 22px;
+  display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 2px;
-  padding: 2px 23px 0 0;
-  border-top: 1px solid var(--line);
+  padding: 2px 45px 0 0;
+  box-shadow: inset 0 1px var(--line);
 }
 
 .option-button {
-  width: 100%;
+  flex: 0 0 auto;
+  width: auto;
   padding-inline: 3px;
+  font-size: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.always-on-top[aria-pressed="true"] {
-  background: rgba(105, 211, 155, 0.13);
-  color: var(--playing);
+#timing-mode {
+  max-width: var(--option-timing-max);
 }
 
-.symbol-button {
-  padding: 0;
-  color: #c6cbd0;
-  font-size: 14px;
+#always-on-top {
+  max-width: var(--option-top-max);
+}
+
+#auto-open-video-list {
+  max-width: var(--option-auto-max);
+}
+
+#copy-diagnostics {
+  max-width: var(--option-diagnostics-max);
+}
+
+.option-button[aria-pressed="true"],
+.tray-switch[aria-pressed="true"] {
+  background: rgba(105, 211, 155, 0.13);
+  color: var(--playing);
 }
 
 /* Visually hidden but announced: the polite status live region. */

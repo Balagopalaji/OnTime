@@ -29,6 +29,7 @@ const baseView: AppView = {
   state: playing,
   timingMode: 'remaining',
   alwaysOnTop: true,
+  autoOpenVideoList: false,
   preset: 'compact',
   displays: [
     { id: '1', label: 'Display 1' },
@@ -93,6 +94,7 @@ const rowTimes = (root: HTMLElement): (string | null)[] =>
   Array.from(root.querySelectorAll('.video-row .video-row-time')).map((node) => node.textContent)
 
 const openDrawer = { panelMode: 'options' as const, setPanelMode: () => {} }
+const autoOpening = (view: AppView): AppView => ({ ...view, autoOpenVideoList: true })
 
 describe('renderApp status', () => {
   it('gives longer hour-formatted timers a narrower responsive width factor', () => {
@@ -147,15 +149,55 @@ describe('timer-only controls', () => {
     expect(root.querySelector('#timing-mode')?.textContent).toBe('Remaining')
     expect(root.querySelector('#always-on-top')?.textContent).toBe('On top')
     expect(root.querySelector('#always-on-top')?.getAttribute('aria-pressed')).toBe('true')
+    expect(root.querySelector('#auto-open-video-list')?.textContent).toBe('Auto open')
+    expect(root.querySelector('#auto-open-video-list')?.getAttribute('aria-pressed')).toBe('false')
+    expect(root.querySelector('#auto-open-video-list')?.getAttribute('title')).toContain('Automatically open')
     expect(root.querySelector('#copy-diagnostics')?.textContent).toBe('Diagnostics')
+    expect(root.querySelector('.option-strip')?.children).toHaveLength(4)
+    expect(Array.from(root.querySelectorAll('.option-strip > button')).map((node) => node.id)).toEqual([
+      'timing-mode',
+      'always-on-top',
+      'auto-open-video-list',
+      'copy-diagnostics',
+    ])
+    expect(root.querySelector('.option-strip #minimize-window')).toBeNull()
+    expect(root.querySelector('.option-strip #close-window')).toBeNull()
     expect(root.querySelector('#minimize-window')?.textContent).toBe('—')
     expect(root.querySelector('#close-window')?.textContent).toBe('×')
+    expect(root.querySelector('.window-controls')?.getAttribute('role')).toBe('group')
+    expect(root.querySelector('.window-controls')?.getAttribute('aria-label')).toBe('Window controls')
     expect(root.querySelector('#remote-access')).toBeNull()
-    for (const id of ['panel-collapse', 'panel-switch', 'timing-mode', 'always-on-top', 'copy-diagnostics', 'minimize-window', 'close-window']) {
+    for (const id of ['panel-collapse', 'panel-switch', 'timing-mode', 'always-on-top', 'auto-open-video-list', 'copy-diagnostics', 'minimize-window', 'close-window']) {
       const button = root.querySelector(`#${id}`)
       expect(button?.getAttribute('title'), id).toBeTruthy()
       expect(button?.getAttribute('aria-label'), id).toBeTruthy()
     }
+  })
+
+  it('uses one accessible gear toggle for videos and options without replacing the tray caret', () => {
+    const root = document.createElement('div')
+    const setPanelMode = vi.fn()
+    const view = twoVideoView([focusPlaying, secondPaused])
+    renderApp(root, view, vi.fn(), 0, { panelMode: 'videos', setPanelMode })
+    const gear = root.querySelector('#panel-switch') as HTMLButtonElement
+    expect(gear.textContent).toBe('⚙')
+    expect(gear.title).toBe('Show options')
+    expect(gear.getAttribute('aria-expanded')).toBe('false')
+    expect(gear.getAttribute('aria-pressed')).toBe('false')
+    expect(root.querySelector('#panel-collapse')).not.toBeNull()
+    gear.click()
+    expect(setPanelMode).toHaveBeenCalledWith('options')
+
+    setPanelMode.mockClear()
+    renderApp(root, twoVideoView([focusPlaying]), vi.fn(), 0, {
+      panelMode: 'options',
+      setPanelMode,
+    })
+    const singleGear = root.querySelector('#panel-switch') as HTMLButtonElement
+    expect(singleGear.title).toBe('Hide options')
+    expect(singleGear.getAttribute('aria-expanded')).toBe('true')
+    singleGear.click()
+    expect(setPanelMode).toHaveBeenCalledWith('closed')
   })
 
   it('pins the bare disclosure caret bottom-right and keeps the all-row tray scrollbar-free', () => {
@@ -166,7 +208,31 @@ describe('timer-only controls', () => {
     const css = readFileSync(candidate as string, 'utf8')
     expect(css).toMatch(/\.controls\[data-panel-mode="closed"\][\s\S]*?right:\s*1px;[\s\S]*?bottom:\s*1px;/)
     expect(css).toMatch(/\.tray-collapse\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?right:\s*1px;[\s\S]*?bottom:\s*1px;/)
+    expect(css).toMatch(/\.tray-switch\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?right:\s*23px;[\s\S]*?bottom:\s*1px;/)
+    expect(css).toMatch(/\.window-controls\s*\{[\s\S]*?top:\s*1px;[\s\S]*?right:\s*1px;[\s\S]*?opacity:\s*0;[\s\S]*?-webkit-app-region:\s*no-drag;/)
+    expect(css).toMatch(/\.window-controls:hover,\s*\.window-controls:focus-within\s*\{[\s\S]*?opacity:\s*1;/)
+    expect(css).toMatch(/\.window-control-button\s*\{[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;/)
+    expect(css).toMatch(/\.option-strip\s*\{[\s\S]*?display:\s*flex;[\s\S]*?justify-content:\s*flex-start;/)
+    expect(css).toMatch(/\.option-button\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?width:\s*auto;/)
+    expect(css).not.toMatch(/\.option-strip\s*\{[\s\S]*?grid-template-columns:/)
+    const optionCaps = Array.from(css.matchAll(/--option-[a-z-]+-max:\s*(\d+)px;/g), (match) => Number(match[1]))
+    expect(optionCaps).toHaveLength(4)
+    // 260px tray - 8px tray padding - 45px gear/caret reserve = 207px.
+    // Four capped intrinsic controls plus three 2px gaps fit without overlap.
+    expect(optionCaps.reduce((sum, width) => sum + width, 0) + 6).toBeLessThanOrEqual(207)
     expect(css).toMatch(/\.panel-tray \.videos\s*\{[\s\S]*?overflow-y:\s*visible;/)
+  })
+
+  it('renders independent window controls in every tray state', () => {
+    const root = document.createElement('div')
+    const view = twoVideoView([focusPlaying, secondPaused])
+    for (const panelMode of ['closed', 'videos', 'options'] as const) {
+      renderApp(root, view, vi.fn(), 0, { panelMode, setPanelMode: () => {} })
+      const cluster = root.querySelector('.window-controls')
+      expect(cluster, panelMode).not.toBeNull()
+      expect(cluster?.querySelector('#minimize-window')?.getAttribute('title')).toBe('Minimize window')
+      expect(cluster?.querySelector('#close-window')?.getAttribute('aria-label')).toBe('Close window')
+    }
   })
 })
 
@@ -245,7 +311,9 @@ describe('renderApp focused timer and all-video tray', () => {
     expect(rowTimes(root)).toEqual(['00:48', '00:39'])
     expect(root.querySelector('#panel-tray')?.getAttribute('aria-label')).toBe('Timer options')
     expect(root.querySelector('#panel-collapse')).not.toBeNull()
-    expect(root.querySelector('#panel-switch')?.textContent).toBe('Videos')
+    expect(root.querySelector('#panel-switch')?.textContent).toBe('⚙')
+    expect(root.querySelector('#panel-switch')?.getAttribute('title')).toBe('Hide options')
+    expect(root.querySelector('#panel-switch')?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('uses the focus row for the headline rather than the helper scalar', () => {
@@ -366,7 +434,7 @@ describe('mountApp local interpolation', () => {
 
   it('ticks roughly every 250 ms and decrements the playing row locally', () => {
     withFakeTimers(() => {
-      const h = mount(twoVideoView([focusPlaying, secondPaused]))
+      const h = mount(autoOpening(twoVideoView([focusPlaying, secondPaused])))
       expect(rowTimes(h.root)).toEqual(['00:48', '00:39'])
 
       h.setClock(1_000)
@@ -567,7 +635,7 @@ describe('control stability across pushes', () => {
       const outside = document.createElement('button')
       document.body.append(outside)
       outside.focus()
-      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      listener?.(autoOpening(twoVideoView([focusPlaying, secondPaused])))
 
       expect(document.activeElement).toBe(outside)
       expect(root.querySelector('#videos')).not.toBeNull()
@@ -580,10 +648,10 @@ describe('control stability across pushes', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(root.querySelector('#panel-tray')).toBeNull()
       expect(document.activeElement).toBe(root.querySelector('#settings-toggle'))
-      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6 })
+      listener?.({ ...autoOpening(twoVideoView([focusPlaying, secondPaused])), revision: 6 })
       expect(root.querySelector('#panel-tray')).toBeNull()
       const nextSlide = twoVideoView([focusPlaying, secondPaused])
-      listener?.({ ...nextSlide, revision: 7, state: { ...nextSlide.state, slideNumber: 4 } as PowerPointViewState })
+      listener?.({ ...autoOpening(nextSlide), revision: 7, state: { ...nextSlide.state, slideNumber: 4 } as PowerPointViewState })
       expect(root.querySelector('#videos')).not.toBeNull()
       expect(api.dispatch).toHaveBeenCalledTimes(5)
       expect(api.dispatch).toHaveBeenNthCalledWith(1, { type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 })
@@ -595,6 +663,65 @@ describe('control stability across pushes', () => {
       stop()
     } finally {
       root.remove()
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves multi-video slides closed by default and closes an auto-owned tray when disabled', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const dispatch = vi.fn(async () => undefined)
+      const root = document.createElement('div')
+      const stop = mountApp({
+        root,
+        api: {
+          getView: vi.fn(() => new Promise<AppView>(() => {})),
+          subscribe: vi.fn((fn) => { listener = fn; return () => {} }),
+          dispatch,
+        },
+        announcer: null,
+        now: () => 0,
+      })
+      const defaultView = twoVideoView([focusPlaying, secondPaused])
+      listener?.(defaultView)
+      expect(root.querySelector('#panel-tray')).toBeNull()
+      expect(dispatch).not.toHaveBeenCalled()
+
+      listener?.({ ...autoOpening(defaultView), revision: 6 })
+      expect(root.querySelector('#videos')).not.toBeNull()
+      listener?.({ ...defaultView, revision: 7 })
+      expect(root.querySelector('#panel-tray')).toBeNull()
+      expect(dispatch).toHaveBeenLastCalledWith({ type: 'setPanelMode', mode: 'closed', totalVideoCount: 2 })
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('opens the video stage manually on the first click when auto-open is off', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const dispatch = vi.fn(async () => undefined)
+      const root = document.createElement('div')
+      const stop = mountApp({
+        root,
+        api: {
+          getView: vi.fn(() => new Promise<AppView>(() => {})),
+          subscribe: vi.fn((fn) => { listener = fn; return () => {} }),
+          dispatch,
+        },
+        announcer: null,
+        now: () => 0,
+      })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      expect(root.querySelector('#videos')).not.toBeNull()
+      expect(root.querySelector('#timing-mode')).toBeNull()
+      expect(dispatch).toHaveBeenCalledWith({ type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 })
+      stop()
+    } finally {
       vi.useRealTimers()
     }
   })
@@ -641,14 +768,14 @@ describe('control stability across pushes', () => {
         return { root, dispatch, push: (value: AppView) => listener?.(value), stop }
       }
       const automatic = makeHarness()
-      automatic.push(twoVideoView([focusPlaying, secondPaused]))
-      automatic.push({ ...twoVideoView([focusPlaying]), revision: 6 })
+      automatic.push(autoOpening(twoVideoView([focusPlaying, secondPaused])))
+      automatic.push({ ...autoOpening(twoVideoView([focusPlaying])), revision: 6 })
       expect(automatic.root.querySelector('#panel-tray')).toBeNull()
       expect(automatic.dispatch).toHaveBeenLastCalledWith({ type: 'setPanelMode', mode: 'closed', totalVideoCount: 1 })
       automatic.stop()
 
       const manual = makeHarness()
-      manual.push(twoVideoView([focusPlaying, secondPaused]))
+      manual.push(autoOpening(twoVideoView([focusPlaying, secondPaused])))
       ;(manual.root.querySelector('#panel-switch') as HTMLButtonElement).click()
       manual.push({ ...twoVideoView([focusPlaying]), revision: 6 })
       expect(manual.root.querySelector('#timing-mode')).not.toBeNull()
@@ -674,7 +801,7 @@ describe('control stability across pushes', () => {
       const root = document.createElement('div')
       document.body.append(root)
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
-      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      listener?.(autoOpening(twoVideoView([focusPlaying, secondPaused])))
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
 
       const controls = root.querySelector('.controls')
@@ -688,6 +815,7 @@ describe('control stability across pushes', () => {
       expect(root.querySelector('.controls')).toBe(controls)
       expect(root.querySelector('#always-on-top')).toBe(topButton)
       expect(document.activeElement).toBe(topButton)
+      expect(root.querySelector('#auto-open-video-list')?.getAttribute('aria-pressed')).toBe('false')
       // The one-second difference is within the trusted-clock tolerance, so a
       // timing-only push does not rewind the local count at the same instant.
       expect(root.querySelector('#time')?.textContent).toBe('00:48')
@@ -713,7 +841,7 @@ describe('control stability across pushes', () => {
         dispatch: vi.fn(async () => undefined),
       }
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
-      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      listener?.(autoOpening(twoVideoView([focusPlaying, secondPaused])))
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
       const topButton = root.querySelector('#always-on-top') as HTMLButtonElement
       topButton.focus()
@@ -757,12 +885,13 @@ describe('control stability across pushes', () => {
         announcer: null,
         now: () => 0,
       })
-      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      listener?.(autoOpening(twoVideoView([focusPlaying, secondPaused])))
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
-      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6, timingMode: 'elapsed' })
+      listener?.({ ...autoOpening(twoVideoView([focusPlaying, secondPaused])), revision: 6, timingMode: 'elapsed' })
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
       ;(root.querySelector('#always-on-top') as HTMLButtonElement).click()
+      ;(root.querySelector('#auto-open-video-list') as HTMLButtonElement).click()
       ;(root.querySelector('#copy-diagnostics') as HTMLButtonElement).click()
       ;(root.querySelector('#minimize-window') as HTMLButtonElement).click()
       ;(root.querySelector('#close-window') as HTMLButtonElement).click()
@@ -772,6 +901,7 @@ describe('control stability across pushes', () => {
         { type: 'setTimingMode', mode: 'elapsed' },
         { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
+        { type: 'setAutoOpenVideoList', enabled: false },
         { type: 'copyDiagnostics' },
         { type: 'minimizeWindow' },
         { type: 'closeWindow' },

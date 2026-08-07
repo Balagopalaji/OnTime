@@ -18,6 +18,7 @@ describe('settings schema defaults (S-018/S-019)', () => {
       selectedDisplayId: null,
       sizePreset: 'compact',
       alwaysOnTop: true,
+      autoOpenVideoList: false,
       timingMode: 'remaining',
     })
   })
@@ -43,8 +44,9 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
   })
 
   it('keeps valid fields and defaults the rest', () => {
-    const result = validateSettings({ alwaysOnTop: false, timingMode: 'elapsed' })
+    const result = validateSettings({ alwaysOnTop: false, autoOpenVideoList: true, timingMode: 'elapsed' })
     expect(result.alwaysOnTop).toBe(false)
+    expect(result.autoOpenVideoList).toBe(true)
     expect(result.timingMode).toBe('elapsed')
     expect(result.windowBounds).toBeNull()
     expect(result.selectedDisplayId).toBeNull()
@@ -64,12 +66,14 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
       selectedDisplayId: 123,
       sizePreset: 'enormous',
       alwaysOnTop: 'yes',
+      autoOpenVideoList: 'yes',
       timingMode: 'sideways',
     })
     expect(result.windowBounds).toBeNull()
     expect(result.selectedDisplayId).toBeNull()
     expect(result.sizePreset).toBe('compact')
     expect(result.alwaysOnTop).toBe(true)
+    expect(result.autoOpenVideoList).toBe(false)
     expect(result.timingMode).toBe('remaining')
   })
 
@@ -144,6 +148,22 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
     expect(validateSettings({ schemaVersion: 2, sizePreset: 'custom', windowBounds: custom })).toMatchObject({
       sizePreset: 'custom',
       windowBounds: custom,
+    })
+  })
+
+  it('adds the default-off auto-open preference to v4 without repeating the compact geometry migration', () => {
+    const v4Bounds = { x: 70, y: 96, width: 260, height: 120 }
+    expect(validateSettings({
+      schemaVersion: 4,
+      sizePreset: 'compact',
+      windowBounds: v4Bounds,
+      alwaysOnTop: true,
+      timingMode: 'remaining',
+    })).toMatchObject({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      sizePreset: 'compact',
+      windowBounds: v4Bounds,
+      autoOpenVideoList: false,
     })
   })
 

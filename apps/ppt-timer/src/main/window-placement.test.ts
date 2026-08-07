@@ -146,6 +146,20 @@ describe('content-sized panel placement', () => {
     })
   })
 
+  it('never narrows a wide collapsed window but still widens a narrow one to the tray minimum', () => {
+    expect(expandPanelBounds(rect(200, 100, 190, 80), primary.workArea, 'videos', 2)).toMatchObject({
+      x: 200,
+      width: 260,
+    })
+    expect(expandPanelBounds(rect(200, 100, 420, 80), primary.workArea, 'videos', 2)).toEqual({
+      x: 200,
+      y: 100,
+      width: 420,
+      height: 166,
+    })
+    expect(panelSize('options', 2, 420)).toEqual({ width: 420, height: 196 })
+  })
+
   it('expands upward near the bottom while retaining the compact bottom edge', () => {
     const compact = rect(200, 900, 190, 80)
     const expanded = expandPanelBounds(compact, primary.workArea, 'options', 2)
@@ -160,6 +174,16 @@ describe('content-sized panel placement', () => {
       y: 50,
       width: 240,
       height: 160,
+    })
+  })
+
+  it('work-area clamps a captured width that is wider than the available display', () => {
+    const workArea = WA(100, 50, 500, 400)
+    expect(expandPanelBounds(rect(150, 80, 700, 80), workArea, 'videos', 2)).toEqual({
+      x: 100,
+      y: 80,
+      width: 500,
+      height: 166,
     })
   })
 

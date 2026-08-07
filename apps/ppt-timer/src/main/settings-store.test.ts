@@ -70,14 +70,41 @@ describe('load (S-023 corrupt recovery, first-run)', () => {
     expect(first.settings).toMatchObject({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       sizePreset: 'compact',
+      autoOpenVideoList: false,
       windowBounds: { x: 75, y: 100, width: 190, height: 80 },
     })
-    expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({ schemaVersion: SETTINGS_SCHEMA_VERSION })
+    expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      autoOpenVideoList: false,
+    })
     const writesAfterMigration = fs.ops.filter((op) => op.startsWith('write:')).length
 
     const second = await createSettingsStore({ filePath: PATH, fs, now: () => tick++ }).load()
     expect(second.migrated).toBe(false)
     expect(fs.ops.filter((op) => op.startsWith('write:'))).toHaveLength(writesAfterMigration)
+  })
+
+  it('persists the default-off preference when migrating v4 without changing its geometry', async () => {
+    const bounds = { x: 70, y: 96, width: 260, height: 120 }
+    const fs = new FakeFs({
+      [PATH]: JSON.stringify({
+        schemaVersion: 4,
+        sizePreset: 'compact',
+        windowBounds: bounds,
+        alwaysOnTop: true,
+        timingMode: 'remaining',
+      }),
+    })
+    const result = await createSettingsStore({ filePath: PATH, fs, now: () => 50 }).load()
+    expect(result).toMatchObject({
+      migrated: true,
+      settings: { windowBounds: bounds, autoOpenVideoList: false },
+    })
+    expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      windowBounds: bounds,
+      autoOpenVideoList: false,
+    })
   })
 
   it('quarantines a malformed JSON file with .corrupt-<ts> and returns defaults', async () => {

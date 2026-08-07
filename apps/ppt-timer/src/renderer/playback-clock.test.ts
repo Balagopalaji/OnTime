@@ -32,6 +32,7 @@ const view = (videos: PowerPointVideoTile[], revision = 1, timingMode: 'remainin
   state: state(videos),
   timingMode,
   alwaysOnTop: true,
+  autoOpenVideoList: false,
   preset: 'compact',
   displays: [],
   selectedDisplayId: null,

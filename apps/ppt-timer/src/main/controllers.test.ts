@@ -47,6 +47,7 @@ describe('getView composes the AppView (S-014/S-033)', () => {
     expect(view.ctaAvailable).toBe(true)
     expect(view.timingMode).toBe('remaining')
     expect(view.alwaysOnTop).toBe(true)
+    expect(view.autoOpenVideoList).toBe(false)
     expect(view.preset).toBe('compact')
     expect(view.displays).toEqual([{ id: '1', label: 'Display 1' }])
   })
@@ -70,6 +71,12 @@ describe('dispatch routes actions to effects + persistence', () => {
     await createAppControllers(deps).dispatch({ type: 'setAlwaysOnTop', enabled: false })
     expect(deps.effects.setAlwaysOnTop).toHaveBeenCalledWith(false)
     expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ alwaysOnTop: false }))
+  })
+
+  it('setAutoOpenVideoList persists the renderer preference', async () => {
+    const deps = makeDeps()
+    await createAppControllers(deps).dispatch({ type: 'setAutoOpenVideoList', enabled: true })
+    expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ autoOpenVideoList: true }))
   })
 
   it('applyPreset applies the effect and persists the preset', async () => {

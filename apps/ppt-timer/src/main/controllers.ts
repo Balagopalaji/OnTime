@@ -52,6 +52,7 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       state: hostView.state,
       timingMode: settings.timingMode,
       alwaysOnTop: settings.alwaysOnTop,
+      autoOpenVideoList: settings.autoOpenVideoList,
       preset: settings.sizePreset,
       displays: deps.displays(),
       selectedDisplayId: settings.selectedDisplayId,
@@ -73,6 +74,10 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       case 'setAlwaysOnTop': {
         deps.effects.setAlwaysOnTop(action.enabled)
         persist(withSettingsField(settings, { alwaysOnTop: action.enabled }))
+        return
+      }
+      case 'setAutoOpenVideoList': {
+        persist(withSettingsField(settings, { autoOpenVideoList: action.enabled }))
         return
       }
       case 'applyPreset': {

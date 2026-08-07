@@ -5,11 +5,11 @@
  * dropping, and partial-data recovery.
  *
  * Persisted under `app.getPath('userData')` as schema-versioned JSON: window
- * bounds, selected display id, size preset, always-on-top, and timing mode.
+ * bounds, selected display id, size preset, always-on-top, auto-open, and timing mode.
  */
 import type { SizePreset, TimingMode } from '../shared/ipc-contract.js'
 
-export const SETTINGS_SCHEMA_VERSION = 4
+export const SETTINGS_SCHEMA_VERSION = 5
 
 export type WindowBounds = { x: number; y: number; width: number; height: number }
 
@@ -19,6 +19,7 @@ export type Settings = {
   selectedDisplayId: string | null
   sizePreset: SizePreset
   alwaysOnTop: boolean
+  autoOpenVideoList: boolean
   timingMode: TimingMode
 }
 
@@ -29,10 +30,11 @@ export const DEFAULT_SETTINGS: Settings = {
   selectedDisplayId: null,
   sizePreset: 'compact',
   alwaysOnTop: true,
+  autoOpenVideoList: false,
   timingMode: 'remaining',
 }
 
-/** Minimalist-v4 closed surface: focused timer, status, and disclosure caret. */
+/** Minimalist-v5 closed surface: focused timer, status, and disclosure caret. */
 export const COMPACT_WINDOW_SIZE = { width: 190, height: 80 } as const
 
 /** Minimalist-v2 open surface: compact timer plus the settings/details drawer. */
@@ -83,9 +85,9 @@ export function validateSettings(raw: unknown): Settings {
   const sourceVersion = typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1
   // All original beta layouts migrate, while v2/v3 installs migrate only when
   // they still represent the semantic compact preset. Genuine custom/large
-  // resizes are preserved and stamped v4, so this refinement never repeats.
+  // resizes are preserved and stamped v4+, so this refinement never repeats.
   const migrateCompact = sourceVersion < 2
-    || (sourceVersion < SETTINGS_SCHEMA_VERSION && raw.sizePreset === 'compact')
+    || (sourceVersion < 4 && raw.sizePreset === 'compact')
   const migratedBounds = migrateCompact && windowBounds
     ? {
         x: Math.round(windowBounds.x + (windowBounds.width - COMPACT_WINDOW_SIZE.width) / 2),
@@ -96,12 +98,13 @@ export function validateSettings(raw: unknown): Settings {
   return {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
     // Version 4 refines the visual shell. Old beta windows and semantic v2/v3
-    // compact presets shrink once around their center; custom/large and all v4
+    // compact presets shrink once around their center; custom/large and all v4+
     // geometry remain verbatim.
     windowBounds: migratedBounds,
     selectedDisplayId: readString(raw.selectedDisplayId),
     sizePreset: migrateCompact ? 'compact' : readPreset(raw.sizePreset),
     alwaysOnTop: typeof raw.alwaysOnTop === 'boolean' ? raw.alwaysOnTop : true,
+    autoOpenVideoList: typeof raw.autoOpenVideoList === 'boolean' ? raw.autoOpenVideoList : false,
     timingMode: readTimingMode(raw.timingMode),
   }
 }
