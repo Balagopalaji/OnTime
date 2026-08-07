@@ -98,32 +98,41 @@ Positive evidence from the same run:
 - Design compact single-video, multi-video, ready/paused/ended, unavailable/reconnecting, and settings states.
 - The collapsed surface is an exact minimalist contract: one status label, one
   focused countdown, and a bottom-right disclosure caret. Video/deck/slide
-  identity, warnings, the full video list, window controls, display settings, and
-  diagnostics do not appear until expanded.
+  identity, warnings, the full video list, display settings, and diagnostics do
+  not appear until expanded.
 - Use a `190 × 80` frameless compact window and a two-stage, content-sized
-  `260`-pixel-wide tray. The first stage contains every video row, including the
-  focused video, and must size to its content without an internal scrollbar or
-  row cap. The second disclosure adds one compact action strip for timing mode,
-  `On top`, `Diagnostics`, minimize, and close. Its controls use subtle borders
-  so toggles are recognizable, and every interactive control has a concise hover
-  explanation and accessible label. The disclosure/collapse caret remains at
-  the bottom-right in every tray state.
-- A slide with more than one video automatically opens the first-stage video
-  list without taking focus from PowerPoint. An automatically owned tray closes
+  tray whose expanded width is `max(260 px, captured collapsed custom width)`.
+  A widened timer therefore never narrows during expansion, while a smaller
+  timer widens to the readable minimum. The first stage contains every video
+  row, including the focused video, and must size to its content without an
+  internal scrollbar or row cap.
+- A compact bottom-right gear icon opens and closes the second-stage action
+  strip in both first-stage and second-stage states. That stage contains exactly
+  four intrinsic-width, non-stretching operational controls in one row:
+  `Remaining`/`Elapsed`, `On top`, persisted `Auto open` (default off), and
+  `Diagnostics`. They use subtle borders so toggles are recognizable. Every
+  interactive control has a concise hover explanation and accessible label.
+- Minimize and close are independent top-right window chrome, available in all
+  panel states. They are invisible at rest, revealed on hover or keyboard focus,
+  and remain borderless. The whole-tray disclosure/collapse caret also remains
+  at the bottom-right in every tray state.
+- The non-invasive default is a closed tray. When the persisted `Auto open`
+  toggle is enabled, a slide with more than one video opens the first-stage list
+  without taking focus from PowerPoint. An automatically owned tray then closes
   when the slide returns to one or zero videos. Any user expansion transfers
   ownership to the user and is not auto-collapsed; a user dismissal is respected
   for the rest of that slide rather than reopening on later observations. The
   control strip remains a separate second-stage disclosure rather than appearing
   with the automatically opened list.
 - Expansion grows down when space permits, otherwise grows up while retaining
-  the compact bottom edge; collapse restores the captured compact position.
-  Tray geometry is never persisted as compact geometry.
+  the compact bottom edge; collapse restores the exact captured custom position
+  and size. Tray geometry is never persisted as compact geometry.
 - Do not show a nonfunctional remote toggle. Remote state/control appears only
   after M3 supplies an actionable authenticated transport.
-- Use an explicit drag region, retained resize affordance, accessible in-app
-  minimize/close controls, keyboard-accessible expansion/collapse, and a subtle
-  dark edge. Pre-M1 beta geometry receives one schema migration to the compact
-  surface; subsequent custom sizing is respected.
+- Use an explicit drag region, retained resize affordance, keyboard-accessible
+  window chrome and expansion/collapse, and a subtle dark edge. Pre-M1 beta
+  geometry receives one schema migration to the compact surface; subsequent
+  custom sizing is respected.
 - Do not mix renderer-clock changes into the visual implementation.
 
 **Exit:** visual review at compact/large/custom sizes, 100/125/150% scaling, light/dark slide backgrounds, and Presenter View; no regression to always-on-top or focus behavior.
