@@ -203,3 +203,310 @@ The user manually retested the final installed build on 2026-07-30 and confirmed
 3. Continue the still-pending Stage 7 manual acceptance matrix: state transitions/video timing/multiple videos; settings; displays and mixed DPI; recovery/diagnostics; cleanup; installer upgrade/uninstall preservation; and Companion coexistence. Record every command and PASS/FAIL here.
 4. If packaging again, use the local Node 22.12/.NET 10 toolchains and the existing `electronDist` workaround. Close only timer processes before silent install; do not terminate PowerPoint or Companion without an explicit need.
 5. Keep source changes narrow. Before editing for a new issue, capture a reproducible Windows symptom and state the proposed minimal fix.
+
+### Countdown/play-start issue — 2026-07-30
+
+The next source issue is the standalone countdown becoming visibly erratic and
+taking several seconds to begin after PowerPoint video playback starts. Sol
+investigation traced both symptoms through the canonical path
+`PowerPoint COM → Program.cs → bridge/session → normalization/projection → renderer`:
+
+- The renderer's former measurement signature included elapsed/remaining on
+  every row, so ordinary one-second COM movement re-anchored the local
+  interpolation on every poll. Quantization and COM jitter therefore appeared
+  as repeated snaps.
+- The native helper rejected `CurrentPosition == 0` and only classified a
+  player after a positive elapsed value existed. It also used the wrong
+  `PpPlayerState` mapping (`2` as playing instead of `0`), delaying or
+  misclassifying playback. PowerPoint's values are now named in the helper:
+  `0=playing`, `1=paused`, `2=stopped`, `3=not ready`.
+
+The narrow source repair is now applied:
+
+- `Program.cs` accepts zero elapsed, resolves `Player.State` independently of
+  elapsed availability, emits an immediate zero/full-duration playing anchor,
+  and emits `playing=false` for recognized non-playing states.
+- `apps/ppt-timer/src/renderer/playback-clock.ts` keeps independent per-video
+  monotonic anchors. Newer playing views confirm the clock without resetting it;
+  pause/stop/end, identity or duration changes, timing loss, or drift greater
+  than 1,500 ms re-anchor. The existing 250 ms repaint cadence and 2,000 ms
+  silent-helper safety freeze remain.
+- Presenter View AOT code was not changed; the accepted `pop-up-menu` repair
+  remains fixed.
+
+Focused source verification after the repair:
+
+| Command | Result |
+| --- | --- |
+| PPT bridge focused tests | PASS — 45 tests, including native enum/zero-anchor guards |
+| Presentation-core focused tests | PASS — 111 tests |
+| Standalone renderer + playback-clock tests | PASS — 87 tests |
+| Standalone TypeScript typecheck | PASS |
+| Native helper `.NET 10` Release build | PASS — 0 errors; existing NU1510 warning only |
+
+Live Windows/PowerPoint acceptance is still required and has not been claimed.
+The next manual cases are immediate play from zero, pause/resume, stopped-at-zero,
+seek in both directions, replay, end, coarse/stuck COM readings, multiple
+simultaneous videos, helper stall/recovery, and Companion coexistence. The
+existing local CI lane is currently blocked before product tests by its
+pre-existing static line-limit findings in `apps/ppt-timer/src/main/main.ts`
+(405 lines) and `overlay-debug.ts` (413 lines); those are unrelated to this
+timing repair.
+
+### Dist rebuild and handoff ledger closeout — 2026-07-30
+
+The updated countdown/play-start repair has been rebuilt into a Windows
+installer. The ignored local tool folders and native `bin/obj` folders were
+preserved, and Presenter View AOT remains the accepted `pop-up-menu` repair.
+
+| Command / verification | Result |
+| --- | --- |
+| `packages/ppt-bridge/scripts/build-windows.ps1` with local .NET 10 | PASS — self-contained `ppt-probe.exe` rebuilt; existing NU1510 warning only |
+| `npm run dist -- --config.electronDist=.tools/electron-v43.2.0-win32-x64-unpacked` | PASS — NSIS installer rebuilt with updated renderer and helper |
+| Helper PE identity | PASS — ProductVersion `0.1.0-beta.1`, FileVersion `0.1.0.1` |
+| `npm run manifest` with independently verified helper version | PASS |
+| Packaged helper gate | PASS — exactly one helper at `resources/bin/ppt-probe.exe` |
+| Packaged runtime gate | PASS — bridge/core `dist-cjs/index.js` entries present; forbidden assets absent |
+| Installer SHA-256 | `24fa167e6253b51f6bd71d09e4a94a0a8f90a0228aad3975d9eac709a94e46ee` |
+
+Final artifact:
+
+`apps/ppt-timer/dist_out/OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-setup.exe`
+(126,520,642 bytes). The package build used the existing local Electron
+distribution workaround. Electron Builder's NSIS cache was redirected to the
+permitted session temp directory because the global/workspace cache paths were
+blocked in this environment; this is not a committed product configuration
+change.
+
+Automated handoff work is complete. Manual acceptance remains **not run**, not
+failed: immediate play/countdown, pause/resume, stop/end, seek/replay, multiple
+videos, helper stall/recovery, settings/displays, installer lifecycle, and
+Companion coexistence still require the installed artifact and a live
+PowerPoint/Windows environment.
+
+### Countdown startup follow-up — 2026-07-30
+
+The remaining startup symptom was traced to the standalone session's fixed
+1,000 ms cadence. Polls do not overlap; while a synchronous COM read is in
+flight, interval ticks are discarded. The renderer's 1,500 ms strict drift
+threshold already suppresses visible deterministic-clock corrections for all
+drift under one second (and an additional 500 ms beyond that), so it remains
+unchanged.
+
+The bounded follow-up repair is applied:
+
+- `PowerPointSession` keeps the established `setInterval` behavior when no
+  adaptive policy is supplied, preserving Companion behavior. Standalone can
+  supply a completion-based adaptive policy without overlapping reads.
+- The standalone host uses a 200 ms burst for up to 2 seconds after first media
+  discovery, a playing transition, or elapsed movement over the canonical 200
+  ms start-inference threshold. It then returns to 1,000 ms. There is no
+  dependable cross-process PowerPoint play-button click signal in this path, so
+  no global mouse hook or COM event sink was added.
+- The initial immediate poll now owns the first adaptive follow-up, so the
+  first 200 ms burst is not delayed by a pre-armed 1,000 ms timer. A
+  standalone-only 350 ms provisional gate suppresses one ambiguous initial
+  `ready → paused` flash; a confirmed `playing` or a stable pause is then
+  published normally.
+- Bridge diagnostics now record only helper polls slower than 250 ms as
+  `poll_slow` (rate-limited to one event per helper generation/5 seconds),
+  allowing the next live test to distinguish slow COM/helper work from
+  scheduler latency without filling the report during normal polling.
+
+Focused verification:
+
+| Command | Result |
+| --- | --- |
+| PPT bridge and standalone typechecks after CJS dependency rebuild | PASS |
+| Focused bridge/session, diagnostics, session-host, poll-policy, and playback-clock tests | PASS — 84 tests |
+| `git diff --check` | PASS |
+
+A read-only probe against the existing PowerPoint process found steady helper
+polls of approximately 2–4 ms after attachment. One first COM-unavailable poll
+took approximately 3,116 ms; three later cold helper starts were approximately
+164 ms each. No slideshow/video was active, so this is diagnostic evidence only,
+not live countdown acceptance. The next installed-build test should copy
+diagnostics after immediate play from zero and after pause/resume; manual
+acceptance remains not run.
+
+### Latest dist build and launch — 2026-07-30
+
+The adaptive polling/startup-gate changes were packaged from the current working
+tree and the installed app was launched.
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run dist -- --config.electronDist=..\\..\\.tools\\electron-v43.2.0-win32-x64-unpacked` from `apps/ppt-timer` | PASS — production build, native helper packaging, and NSIS installer completed |
+| Installer | `apps/ppt-timer/dist_out/OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-setup.exe` |
+| Installer size | 126,522,599 bytes |
+| Installer SHA-256 | `9c03045e789eb32f038cfadf6cc8bd2e712b8b695543de308680f0dff51247e4` |
+| Installed app launch | PASS — installed executable started and remained running; `ppt-probe` child also present |
+
+The build used the existing local Electron distribution workaround and a local
+`.electron-builder-cache` because the default Electron Builder cache was blocked
+by permissions. The cache is local build state, not a product configuration
+change. Direct launch of `dist_out/win-unpacked` was blocked by Windows
+Application Control; the installed executable was used for the launch check.
+The silent installer command did not return before its 30-second shell timeout,
+so do not treat installer replacement/upgrade as independently accepted from
+this run; verify the installed file before live testing if that distinction
+matters.
+
+Automated verification remains PASS from the preceding checkpoint: bridge tests
+61/61, standalone timer tests 291/291, typechecks, lint, production build, and
+focused adaptive-polling/startup tests 84/84. Live PowerPoint acceptance remains
+not run. The next owner should test immediate play from zero, pause/resume,
+stop/end, seek/replay, multiple videos, helper stall/recovery, and Companion
+coexistence while copying diagnostics for the first play and pause/resume cases.
+
+### Final source closeout checkpoint — 2026-07-30
+
+The current source was reviewed against the completed timing fixes. The prior
+Windows package/install/launch evidence above remains historical and passed; the
+current final source changes have not yet been rebuilt or packaged into a new
+installer.
+
+Current implementation summary:
+
+- Renderer playback clocks keep persistent per-video paused/non-playing anchors.
+  Repeated non-playing samples retain the frozen anchor, while an omitted timing
+  sample cannot erase a usable baseline; the first usable timing is adopted only
+  when no baseline exists.
+- Missing timing preserves continuity when a baseline exists. Accepted playing
+  clocks confirm without re-anchoring, and drift strictly greater than 1,500 ms
+  corrects.
+- Standalone polling is per-video adaptive: 200 ms bounded confirmation bursts,
+  500 ms armed cadence for a nonterminal ready/paused video, and 1,000 ms for
+  settled no-media/all-playing/all-terminal/failure states, with no overlapping
+  reads.
+- Movement episodes accumulate per video and trigger once after strict `>200 ms`
+  movement; 1,000 ms of stationary evidence is required before movement can
+  re-arm.
+- Per-video contradictory non-playing status requires 350 ms before the
+  standalone display changes; ended, scope/media changes, and large seeks remain
+  immediate. The separate initial connecting/ready → paused presentation gate is
+  also 350 ms.
+- The standalone focus tracker keeps the visible headline stable through false
+  pauses and selects the most-recently-started still-playing video with
+  deterministic fallback. The helper primary identity remains canonical
+  diagnostic metadata.
+- A rejected/null poll resets the standalone adaptive policy state and returns
+  to the 1,000 ms settled fallback; Companion retains its established polling
+  behavior.
+
+| Command / verification | Result |
+| --- | --- |
+| Complete PPT timer suite | PASS — 335 tests |
+| Complete PPT bridge suite | PASS — 62 tests |
+| PPT timer typecheck | PASS |
+| PPT bridge typecheck | PASS |
+| `git diff --check` | PASS — existing line-ending warnings only |
+| Independent integrated review | No remaining actionable source findings |
+| Live PowerPoint acceptance | NOT RUN |
+| Current changes rebuilt/packaged into a new installer | NOT YET REBUILT/PACKAGED |
+
+Live PowerPoint media, displays/mixed DPI, recovery, Companion coexistence,
+and installer upgrade/uninstall acceptance remain not run. The earlier focused
+counts and package evidence are preserved above as historical records.
+
+### Native warm-cache and live helper-poll checkpoint — 2026-08-07
+
+This checkpoint supersedes the current-state conclusions in the 2026-07-30
+closeout while preserving those dated entries as historical evidence. The
+current source was rebuilt, installed, and hash-verified before live testing.
+
+Final timing and status semantics:
+
+- A confirmed-playing renderer clock continues deterministically through sparse
+  or delayed readings until known-duration zero, a confirmed non-playing
+  transition, or actual timing unavailability. The removed 2,000 ms
+  silent-helper freeze is not current behavior.
+- One contradictory numeric outlier is ignored. A correction requires two
+  advancing, mutually consistent samples beyond the strict 1,500 ms drift
+  threshold.
+- Status precedence is ended evidence, then explicit `playing`/`paused`, then
+  inferred evidence. A contradictory pause/non-playing observation requires
+  350 ms of stable evidence; confirmed playing cancels the pending pause, while
+  ended, scope/media changes, and large seeks remain immediate.
+- The native helper builds its ordered descriptor cache only after a complete
+  cold v1 media scan. Warm complete-v1 sweeps read `Player.State` for every
+  cached shape ID and read `CurrentPosition` on state transitions plus bounded
+  rotating active and stopped/not-ready refreshes. Missing/invalid state,
+  incomplete traversal, identity uncertainty, or other cache uncertainty falls
+  back to a cold scan. Editing same-slide media descriptors after scope warming
+  remains an experimental limitation, not accepted behavior.
+
+Companion was closed during the measured live helper-poll runs:
+
+| Slide media | Normal warm helper poll duration | Samples | Prior baseline |
+| --- | --- | ---: | --- |
+| 1 video | median 770 ms; range 439–783 ms | 6 | 1.1–2.0 s |
+| 2 videos | median 923 ms; range 898–969 ms | 3 | 2.6–3.3 s |
+| 5 videos | median 1,254 ms; range 1,221–1,607 ms | 6 | 5.2–5.6 s |
+
+Separately, the user reported that behavior was much better. The diagnostic
+values above are helper poll durations, not click-to-visible countdown latency;
+click-to-visible start/pause latency was not instrumented or certified by this
+log. No strict sub-one-second claim is made, including for the five-video case.
+Two recorded values, `10,802,470 ms` and `651,594,668 ms`, were excluded because
+they followed machine suspend/resume; they are artifacts, not normal helper poll
+duration. Timeout/restart recovery was observed, but those observations are
+recovery evidence rather than normal-duration samples and do not by themselves
+complete S-027 or the broader recovery matrix.
+
+| Artifact verification | Result |
+| --- | --- |
+| Current source rebuild | PASS |
+| Installer installation used for live runs | PASS |
+| Installer SHA-256 | `52c0d4d004d4fd7934c19a0f2e76d88bd3e8da2a4b3cf81f73068722b2dfdeab` |
+
+This is bounded evidence for normal warm helper polling, not full Stage 7
+acceptance or certified click-to-visible startup behavior. Companion coexistence
+was not tested because Companion was closed.
+The complete play/pause/end/seek/stall matrix, displays/mixed DPI, full
+diagnostics/recovery acceptance, and installer upgrade/uninstall preservation
+remain open. Historical installer hashes and checkpoints above remain valid for
+the builds they identify.
+
+### Follow-up stress test and new release blockers — 2026-08-07
+
+The installed app was exercised again after a break in development. This run
+found two release-blocking defects that supersede the earlier recommendation to
+move directly to visual polish:
+
+1. The app took long enough to become visible that repeated launch clicks opened
+   multiple application instances. Startup also appeared CPU-heavy (the laptop
+   fan increased). The current main process does not acquire an Electron
+   single-instance lock. Before release, a second launch must focus/show the
+   existing window rather than starting another app/helper, and cold/warm
+   launch-to-visible time plus process/CPU/memory counts must be measured.
+2. A single 33-second video on slide 8 repeatedly displayed approximately 24
+   seconds at startup, counted from that value, and then jumped backward to
+   approximately 30 seconds before continuing. This is not acceptable clock
+   smoothing. Capture raw per-video observations and renderer
+   anchor/pending-correction decisions for the sequence and add a deterministic
+   regression before changing clock policy.
+
+Other observations were positive:
+
+- The five-video slide played smoothly.
+- Moving away from and back to media slides showed `--:--` during transition and
+  then restored the video durations.
+- Closing PowerPoint produced "PowerPoint is not running".
+- PowerPoint open without a slideshow produced "No slideshow running".
+- Starting the existing controller alongside the standalone appeared fine in a
+  short check; sustained two-consumer coexistence remains unaccepted.
+
+The first app was closed before diagnostics were copied, so its launch and
+duplicate-instance evidence is observational rather than present in the pasted
+ring buffer. After reopening, generation 1 started normally and the copied
+diagnostics included normal observations plus `poll_slow` samples of 330 ms,
+737 ms, and 395 ms. Those values are helper poll durations, not user-action or
+launch-to-visible timings, and do not explain the 24-to-30-second correction on
+their own. The next diagnostic build should log sanitized raw per-video timing
+and renderer correction decisions behind an explicit bounded debug mode.
+
+The active sequencing and cross-product follow-up now live in
+`docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`. Stabilize
+these findings first; implement the frameless charcoal redesign only after the
+M0 exit gate passes.

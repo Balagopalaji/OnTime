@@ -1,12 +1,19 @@
 ---
 Type: Plan
-Status: draft
+Status: superseded
 Owner: KDB
-Last updated: 2026-01-12
+Last updated: 2026-08-07
 Scope: Phase 3 draft for a standalone PowerPoint video timer app.
 ---
 
 # Phase 3 Draft: Standalone PowerPoint Video Timer
+
+> This early draft is retained for product history. The current standalone
+> release contract is `docs/spec/standalone-powerpoint-video-timer.spec.md` and
+> the continuation into reusable PowerPoint panels, lightweight/full
+> controllers, compact LAN/cloud timer viewers, clean outputs, controls, and
+> future NDI is planned in
+> `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`.
 
 Purpose
 - Ship a lightweight, free Windows app that shows PowerPoint slide + video timing.

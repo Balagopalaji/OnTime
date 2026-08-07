@@ -220,4 +220,4 @@ This file translates the Phase 3 plan into granular, implementable steps. Each p
 - [ ] macOS version bump step (optional parity with Windows script) — target: 3E.
 - [ ] Reassess RAM budgets using packaged builds; meet Minimal target — target: 3E.
 - [ ] Prefer VLC when opening external videos (fallback to default player) — target: 3C.
-- [ ] Standalone PowerPoint video timer app (deferred beyond Phase 3 core).
+- [x] Standalone PowerPoint timer removed from the Phase 3 critical path and activated as a separate productization track; see `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md` for its unfinished work.

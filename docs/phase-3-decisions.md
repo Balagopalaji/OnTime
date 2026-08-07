@@ -2,7 +2,7 @@
 Type: Reference
 Status: draft
 Owner: KDB
-Last updated: 2026-01-22
+Last updated: 2026-08-07
 Scope: Phase 3 scope locks, assumptions, and open questions.
 ---
 
@@ -15,7 +15,7 @@ Scope: Phase 3 scope locks, assumptions, and open questions.
 - Companion cue events: add explicit socket event payload schemas for cue CRUD/reorder/ack in `docs/interface.md` (Phase 3C Pass A).
 - LAN offline viewer implementation follows `docs/local-offline-lan-plan.md` as the authoritative plan.
 - Protocol/schema changes follow `docs/interface.md` (planned Phase 3 fields already defined there).
-- Standalone PowerPoint video timer app is deferred until after Phase 3 core.
+- Standalone PowerPoint timer productization now runs as a separate parallel track and is not part of the Phase 3 Show Controller critical path. Its reusable PowerPoint/display roadmap is `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`.
 - Show Planner features are gated by room tier, not Companion mode. Companion modes remain Minimal/Show Control/Production.
 - Cue authority model: Firestore is primary when online; Companion stores an offline cache and queues writes for replay on reconnect. Conflict resolution follows `docs/local-mode.md` timestamp arbitration, preferring local authority when the controller is local.
 - Tier gating default: Basic = timers only; Show Control = sections/segments + live cues; Production = manual cues + crew chat + multi-room dashboard.
