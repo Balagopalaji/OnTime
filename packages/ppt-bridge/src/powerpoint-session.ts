@@ -18,6 +18,8 @@ export type PowerPointSessionTransport = {
 export type PowerPointSessionOptions = {
   transport: PowerPointSessionTransport
   pollIntervalMs?: number
+  /** Optional adaptive cadence used by standalone hosts; Companion keeps the default. */
+  pollIntervalFor?: (outcome: BridgePollOutcome | null, nowMs: number) => number
   now?: () => number
   initialState?: PowerPointMachineState
   onTransition?: (result: PowerPointMachineResult) => void
@@ -71,10 +73,13 @@ function rawToOutcome(result: PowerPointPollResult): BridgePollOutcome {
 export class PowerPointSession {
   private readonly transport: PowerPointSessionTransport
   private readonly pollIntervalMs: number
+  private readonly pollIntervalFor?: (outcome: BridgePollOutcome | null, nowMs: number) => number
   private readonly now: () => number
   private readonly onTransition?: (result: PowerPointMachineResult) => void
   private _state: PowerPointMachineState
   private timer: NodeJS.Timeout | null = null
+  private polling = false
+  private nextPollDelayMs: number
   private inFlight: Promise<void> | null = null
   private closed = false
   private closePromise: Promise<void> | null = null
@@ -82,9 +87,11 @@ export class PowerPointSession {
   constructor(options: PowerPointSessionOptions) {
     this.transport = options.transport
     this.pollIntervalMs = options.pollIntervalMs ?? 1_000
+    this.pollIntervalFor = options.pollIntervalFor
     this.now = options.now ?? Date.now
     this.onTransition = options.onTransition
     this._state = options.initialState ?? createInitialPowerPointMachineState()
+    this.nextPollDelayMs = this.pollIntervalMs
   }
 
   get state(): PowerPointMachineState {
@@ -92,18 +99,26 @@ export class PowerPointSession {
   }
 
   start(): void {
-    if (this.closed || this.timer) return
-    this.timer = setInterval(() => { void this.pollNow() }, this.pollIntervalMs)
+    if (this.closed || this.polling) return
+    this.polling = true
+    if (!this.pollIntervalFor) {
+      // Preserve the established Companion cadence when no adaptive policy is
+      // supplied. Only the standalone host opts into completion-based bursts.
+      this.timer = setInterval(() => { void this.pollNow() }, this.pollIntervalMs)
+      return
+    }
+    if (this.inFlight) return
+    this.schedulePoll(this.pollIntervalMs)
   }
 
   stopPolling(): void {
-    if (!this.timer) return
-    clearInterval(this.timer)
+    this.polling = false
+    if (this.timer) clearInterval(this.timer)
     this.timer = null
   }
 
   isPolling(): boolean {
-    return this.timer !== null
+    return this.polling
   }
 
   pollNow(): Promise<void> {
@@ -111,15 +126,48 @@ export class PowerPointSession {
     if (this.inFlight) return this.inFlight
     this.inFlight = this.transport.poll()
       .then((outcome) => {
-        if (!this.closed) this.acceptOutcome(outcome, this.now())
+        if (this.closed) return
+        const nowMs = this.now()
+        this.acceptOutcome(outcome, nowMs)
+        this.nextPollDelayMs = this.nextPollDelay(outcome, nowMs)
       })
       .catch(() => {
-        if (!this.closed) this.dispatch({ type: 'operational_failure' })
+        if (!this.closed) {
+          const nowMs = this.now()
+          this.dispatch({ type: 'operational_failure' })
+          this.nextPollDelayMs = this.nextPollDelay(null, nowMs)
+        }
       })
       .finally(() => {
         this.inFlight = null
+        // `createSessionHost.start()` begins an immediate poll before starting
+        // the adaptive session timer. Let that first response schedule its
+        // burst instead of leaving the initial 1 s fallback armed.
+        if (this.pollIntervalFor && this.polling && !this.timer) {
+          this.schedulePoll(this.nextPollDelayMs)
+        }
       })
     return this.inFlight
+  }
+
+  private schedulePoll(delayMs: number): void {
+    if (this.closed || !this.polling || this.timer) return
+    this.timer = setTimeout(() => {
+      this.timer = null
+      void this.pollNow().finally(() => {
+        this.schedulePoll(this.nextPollDelayMs)
+      })
+    }, Math.max(0, delayMs))
+  }
+
+  private nextPollDelay(outcome: BridgePollOutcome | null, nowMs: number): number {
+    if (!this.pollIntervalFor) return this.pollIntervalMs
+    try {
+      const delayMs = this.pollIntervalFor(outcome, nowMs)
+      return Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : this.pollIntervalMs
+    } catch {
+      return this.pollIntervalMs
+    }
   }
 
   close(): Promise<void> {

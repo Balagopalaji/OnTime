@@ -95,13 +95,28 @@ describe('PptBridgeClient', () => {
     await client.close()
   })
 
+  it('records only materially slow helper polls for diagnostics', async () => {
+    const diagnostics: BridgeDiagnosticEvent[] = []
+    const client = createPptBridgeClient({
+      executableCandidates: [candidate('delay', ['--delay', '300'])],
+      pollTimeoutMs: 1_000,
+      diagnostics: (event) => diagnostics.push(event),
+    })
+    await expect(client.poll()).resolves.toMatchObject({ kind: 'observation' })
+    await client.close()
+    expect(diagnostics).toContainEqual(expect.objectContaining({ kind: 'poll_slow', outcome: 'observation' }))
+  })
+
   it('types missing helpers, malformed output, invalid payload, and oversized output', async () => {
     const missing = createPptBridgeClient({ executableCandidates: [{ executablePath: '/definitely/missing/helper' }] })
     await expect(missing.poll()).resolves.toMatchObject({ kind: 'helper_missing' })
     await missing.close()
 
     for (const mode of ['malformed', 'invalid', 'oversized']) {
-      const client = createPptBridgeClient({ executableCandidates: [candidate(mode)], pollTimeoutMs: 200 })
+      // This case validates response classification, not timeout behavior.
+      // Leave enough headroom for the oversized helper while other Vitest files
+      // run native/CJS build checks in parallel on slower Windows hosts.
+      const client = createPptBridgeClient({ executableCandidates: [candidate(mode)], pollTimeoutMs: 2_000 })
       await expect(client.poll()).resolves.toMatchObject({ kind: mode === 'malformed' ? 'invalid_json' : mode === 'invalid' ? 'invalid_payload' : 'oversized_response' })
       await client.close()
     }

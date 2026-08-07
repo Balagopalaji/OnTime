@@ -77,6 +77,120 @@ describe('PowerPointSession', () => {
     }
   })
 
+  it('uses an adaptive delay after a completed poll without overlapping requests', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (outcome: BridgePollOutcome) => void
+      const poll = vi.fn(() => new Promise<BridgePollOutcome>((res) => { resolve = res }))
+      const session = new PowerPointSession({
+        transport: { poll },
+        pollIntervalMs: 100,
+        pollIntervalFor: vi.fn(() => 20),
+        now: () => 42,
+      })
+      session.start()
+      vi.advanceTimersByTime(100)
+      expect(poll).toHaveBeenCalledTimes(1)
+      const first = session.pollNow()
+      expect(session.pollNow()).toBe(first)
+      resolve(observation())
+      await first
+
+      await vi.advanceTimersByTimeAsync(19)
+      expect(poll).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(poll).toHaveBeenCalledTimes(2)
+      session.stopPolling()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lets an immediate poll schedule its adaptive follow-up', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (outcome: BridgePollOutcome) => void
+      const poll = vi.fn(() => new Promise<BridgePollOutcome>((res) => { resolve = res }))
+      const session = new PowerPointSession({
+        transport: { poll },
+        pollIntervalMs: 1_000,
+        pollIntervalFor: vi.fn(() => 200),
+      })
+      const first = session.pollNow()
+      session.start()
+      resolve(observation())
+      await first
+
+      await vi.advanceTimersByTimeAsync(199)
+      expect(poll).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(poll).toHaveBeenCalledTimes(2)
+      session.stopPolling()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resets adaptive policy state through null after a rejected poll before recovery', async () => {
+    vi.useFakeTimers()
+    try {
+      let nowMs = 0
+      const media = observation({
+        videos: [{ id: 10, duration: 10_000, elapsed: 0, status: 'paused', playing: false }],
+      })
+      const poll = vi.fn()
+        .mockResolvedValueOnce(media)
+        .mockRejectedValueOnce(new Error('transport failed'))
+        .mockResolvedValue(media)
+      let hasObservedMedia = false
+      const pollIntervalFor = vi.fn((outcome: BridgePollOutcome | null, _receivedNowMs: number) => {
+        if (outcome === null) {
+          hasObservedMedia = false
+          return 30
+        }
+        const delay = hasObservedMedia ? 100 : 20
+        hasObservedMedia = true
+        return delay
+      })
+      const session = new PowerPointSession({
+        transport: { poll },
+        pollIntervalMs: 1_000,
+        pollIntervalFor,
+        now: () => nowMs,
+      })
+
+      const first = session.pollNow()
+      session.start()
+      await first
+      expect(pollIntervalFor).toHaveBeenCalledWith(media, 0)
+
+      nowMs = 20
+      await vi.advanceTimersByTimeAsync(20)
+      expect(poll).toHaveBeenCalledTimes(2)
+      expect(pollIntervalFor.mock.calls[1]?.[0]).toBeNull()
+      expect(pollIntervalFor.mock.calls[1]?.[1]).toBe(20)
+      expect(session.state.sourceState.kind).toBe('unavailable')
+
+      nowMs = 50
+      await vi.advanceTimersByTimeAsync(29)
+      expect(poll).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(poll).toHaveBeenCalledTimes(3)
+      expect(pollIntervalFor.mock.calls[2]?.[0]).toBe(media)
+
+      // The recovery used the reset/cold delay (20 ms), not the stale 100 ms
+      // continuation delay that the first observation would otherwise set.
+      nowMs = 70
+      await vi.advanceTimersByTimeAsync(19)
+      expect(poll).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(poll).toHaveBeenCalledTimes(4)
+      await session.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('allows stop/start, but close is terminal and closes transport once', async () => {
     const close = vi.fn()
     const poll = vi.fn(() => Promise.resolve<BridgePollOutcome>(observation()))

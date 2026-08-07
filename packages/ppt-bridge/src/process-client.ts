@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { emitDiagnostic, type BridgeDiagnosticSink } from './diagnostics.js'
+import { PollCompletionDiagnostics } from './process-client-diagnostics.js'
 import { validatePowerPointResponse } from './validate-response.js'
 import {
   MAX_RESPONSE_BYTES,
@@ -20,6 +21,7 @@ type Pending = {
   resolve: (outcome: BridgePollOutcome) => void
   timer?: NodeJS.Timeout
   generation?: number
+  startedAt?: number
 }
 
 export type PptBridgeClientOptions = {
@@ -67,6 +69,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
   private stdoutBuffer = Buffer.alloc(0)
   private pending: Pending | null = null
   private restartAttempt = 0
+  private readonly completionDiagnostics: PollCompletionDiagnostics
   private restartTimer: NodeJS.Timeout | null = null
   private restartResolve: (() => void) | null = null
   private terminationBarrier: Promise<void> | null = null
@@ -80,6 +83,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
     this.forcedTerminationWaitMs = options.forcedTerminationWaitMs ?? 500
     this.restartBackoffMs = options.restartBackoffMs?.length ? options.restartBackoffMs : [1_000, 2_000, 5_000]
     this.diagnostics = options.diagnostics
+    this.completionDiagnostics = new PollCompletionDiagnostics(this.diagnostics)
     this.spawnProcess = options.spawnProcess ?? ((path, args, spawnOptions) => nodeSpawn(path, [...args], spawnOptions))
   }
 
@@ -225,6 +229,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
       return
     }
     pending.generation = generation
+    pending.startedAt = Date.now()
     pending.timer = setTimeout(() => {
       if (this.pending !== pending || this.generation !== generation) return
       emitDiagnostic(this.diagnostics, { kind: 'helper_timeout', generation, timeoutMs: this.pollTimeoutMs })
@@ -285,13 +290,7 @@ export class PptBridgeClientImpl implements PptBridgeClient {
     if (this.pending !== pending) return
     if (pending.timer) clearTimeout(pending.timer)
     this.pending = null
-    if (outcome.kind !== 'observation') {
-      if (outcome.kind === 'powerpoint_not_running' || outcome.kind === 'no_slideshow' || outcome.kind === 'com_unavailable' || outcome.kind === 'helper_missing' || outcome.kind === 'timeout' || outcome.kind === 'process_exit' || outcome.kind === 'closed') {
-        emitDiagnostic(this.diagnostics, { kind: 'availability', outcome: outcome.kind })
-      } else if (outcome.kind === 'invalid_json' || outcome.kind === 'invalid_payload' || outcome.kind === 'oversized_response') {
-        emitDiagnostic(this.diagnostics, { kind: 'output_failure', outcome: outcome.kind })
-      }
-    }
+    this.completionDiagnostics.record({ generation: pending.generation, startedAt: pending.startedAt, completedAt: pending.startedAt === undefined ? undefined : Date.now(), outcomeKind: outcome.kind })
     pending.resolve(outcome)
   }
 
