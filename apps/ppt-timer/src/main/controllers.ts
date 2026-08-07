@@ -20,7 +20,7 @@ export type WindowEffects = {
   setAlwaysOnTop(enabled: boolean): void
   applyPreset(preset: Exclude<SizePreset, 'custom'>): void
   moveToDisplay(displayId: string): void
-  setPanelMode(mode: PanelMode, secondaryVideoCount: number): void
+  setPanelMode(mode: PanelMode, totalVideoCount: number): void
   minimizeWindow(): void
   closeWindow(): void
 }
@@ -87,7 +87,7 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
         return
       }
       case 'setPanelMode': {
-        deps.effects.setPanelMode(action.mode, action.secondaryVideoCount)
+        deps.effects.setPanelMode(action.mode, action.totalVideoCount)
         return
       }
       case 'minimizeWindow': {

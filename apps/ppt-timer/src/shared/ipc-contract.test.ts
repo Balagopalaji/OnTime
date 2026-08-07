@@ -54,9 +54,9 @@ describe('parseRendererAction (S-014/S-033 closed union)', () => {
     expect(parseRendererAction({ type: 'setAlwaysOnTop', enabled: false })).toEqual({ ok: true, action: { type: 'setAlwaysOnTop', enabled: false } })
     expect(parseRendererAction({ type: 'applyPreset', preset: 'large' })).toEqual({ ok: true, action: { type: 'applyPreset', preset: 'large' } })
     expect(parseRendererAction({ type: 'moveToDisplay', displayId: '2' })).toEqual({ ok: true, action: { type: 'moveToDisplay', displayId: '2' } })
-    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 4 })).toEqual({
+    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', totalVideoCount: 4 })).toEqual({
       ok: true,
-      action: { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 4 },
+      action: { type: 'setPanelMode', mode: 'videos', totalVideoCount: 4 },
     })
     expect(parseRendererAction({ type: 'minimizeWindow' })).toEqual({ ok: true, action: { type: 'minimizeWindow' } })
     expect(parseRendererAction({ type: 'closeWindow' })).toEqual({ ok: true, action: { type: 'closeWindow' } })
@@ -78,10 +78,11 @@ describe('parseRendererAction (S-014/S-033 closed union)', () => {
     expect(parseRendererAction({ type: 'applyPreset', preset: 'enormous' }).ok).toBe(false)
     expect(parseRendererAction({ type: 'moveToDisplay', displayId: '' }).ok).toBe(false)
     expect(parseRendererAction({ type: 'moveToDisplay', displayId: 2 }).ok).toBe(false)
-    expect(parseRendererAction({ type: 'setPanelMode', mode: 'huge', secondaryVideoCount: 2 }).ok).toBe(false)
-    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: -1 }).ok).toBe(false)
-    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1.5 }).ok).toBe(false)
-    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1_001 }).ok).toBe(false)
+    expect(parseRendererAction({ type: 'setPanelMode', mode: 'huge', totalVideoCount: 2 }).ok).toBe(false)
+    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', totalVideoCount: -1 }).ok).toBe(false)
+    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', totalVideoCount: 1.5 }).ok).toBe(false)
+    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', totalVideoCount: 1_001 }).ok).toBe(false)
+    expect(parseRendererAction({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 2 }).ok).toBe(false)
   })
 
   it('openUpsell never carries a renderer-supplied URL into the action', () => {

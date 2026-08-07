@@ -20,6 +20,7 @@ import {
 } from './view.js'
 import type { AppView, PanelMode, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 import { createPlaybackClock } from './playback-clock.js'
+import { applyManualPanelMode, currentSlideKey, INITIAL_PANEL_STATE, reconcilePanelState } from './panel-state.js'
 import { renderPowerPointPanel, renderVideoList, setTimerText } from './powerpoint-panel.js'
 
 declare global {
@@ -50,18 +51,18 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   const section = element('section', 'controls')
   section.dataset.panelMode = options.panelMode
   const model = describeView(view.state, { timingMode: view.timingMode })
-  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
-  section.dataset.videoSignature = JSON.stringify(secondaryRows.map((row) => [row.key, row.nameText, row.statusText]))
+  const videoRows = model.videoRows
+  section.dataset.videoSignature = JSON.stringify(videoRows.map((row) => [row.key, row.nameText, row.statusText]))
 
   if (options.panelMode === 'closed') {
     const open = element('button', 'settings-toggle')
     open.type = 'button'
     open.id = 'settings-toggle'
     open.setAttribute('aria-expanded', 'false')
-    open.setAttribute('aria-label', secondaryRows.length > 0 ? 'Show other videos' : 'Show timer options')
-    open.title = secondaryRows.length > 0 ? 'Other videos' : 'Timer options'
+    open.setAttribute('aria-label', videoRows.length > 1 ? 'Show video list' : 'Show timer options')
+    open.title = videoRows.length > 1 ? 'Show video list' : 'Show timer options'
     open.append(element('span', 'settings-caret'))
-    open.addEventListener('click', () => options.setPanelMode(secondaryRows.length > 0 ? 'videos' : 'options'))
+    open.addEventListener('click', () => options.setPanelMode(videoRows.length > 1 ? 'videos' : 'options'))
     section.append(open)
     return section
   }
@@ -69,28 +70,29 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   const tray = element('section', 'panel-tray')
   tray.id = 'panel-tray'
   tray.setAttribute('role', 'region')
-  tray.setAttribute('aria-label', options.panelMode === 'videos' ? 'Other videos' : 'Timer options')
-  const list = renderVideoList(secondaryRows)
+  tray.setAttribute('aria-label', options.panelMode === 'videos' ? 'Video list' : 'Timer options')
+  const list = renderVideoList(videoRows)
   if (list) tray.append(list)
 
   const nav = element('div', 'tray-nav')
   const collapse = element('button', 'tray-button tray-collapse', '▴')
   collapse.type = 'button'
   collapse.id = 'panel-collapse'
-  collapse.title = 'Collapse panel'
-  collapse.setAttribute('aria-label', 'Collapse panel')
+  collapse.title = 'Collapse whole tray'
+  collapse.setAttribute('aria-label', 'Collapse whole tray')
   collapse.addEventListener('click', () => options.setPanelMode('closed'))
   nav.append(collapse)
   const switcher = element(
     'button',
     'tray-button tray-switch',
-    options.panelMode === 'options' && secondaryRows.length > 0 ? 'Videos' : 'Options',
+    options.panelMode === 'options' && videoRows.length > 1 ? 'Videos' : 'Options',
   )
   switcher.type = 'button'
   switcher.id = 'panel-switch'
-  switcher.title = options.panelMode === 'options' && secondaryRows.length > 0 ? 'Show videos' : 'Show options'
+  switcher.title = options.panelMode === 'options' && videoRows.length > 1 ? 'Collapse options' : 'Expand options'
+  switcher.setAttribute('aria-label', switcher.title)
   switcher.addEventListener('click', () => options.setPanelMode(options.panelMode === 'options' ? 'videos' : 'options'))
-  if (options.panelMode === 'videos' || secondaryRows.length > 0) nav.append(switcher)
+  if (options.panelMode === 'videos' || videoRows.length > 1) nav.append(switcher)
   tray.append(nav)
 
   if (options.panelMode === 'videos') {
@@ -104,19 +106,24 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   timing.type = 'button'
   timing.id = 'timing-mode'
   timing.dataset.mode = view.timingMode
+  timing.title = `Show ${nextMode} time`
   timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
   timing.addEventListener('click', () => {
     const currentMode = timing.dataset.mode === 'elapsed' ? 'elapsed' : 'remaining'
     dispatch({ type: 'setTimingMode', mode: currentMode === 'remaining' ? 'elapsed' : 'remaining' })
   })
-  const alwaysOnTop = element('button', 'option-button always-on-top', 'Top')
+  const alwaysOnTop = element('button', 'option-button always-on-top', 'On top')
   alwaysOnTop.type = 'button'
   alwaysOnTop.id = 'always-on-top'
   alwaysOnTop.title = 'Always on top'
   alwaysOnTop.setAttribute('aria-label', 'Always on top')
   alwaysOnTop.setAttribute('aria-pressed', String(view.alwaysOnTop))
-  alwaysOnTop.addEventListener('click', () => dispatch({ type: 'setAlwaysOnTop', enabled: alwaysOnTop.getAttribute('aria-pressed') !== 'true' }))
-  const copy = element('button', 'option-button', 'Copy')
+  alwaysOnTop.addEventListener('click', () => {
+    const enabled = alwaysOnTop.getAttribute('aria-pressed') !== 'true'
+    alwaysOnTop.setAttribute('aria-pressed', String(enabled))
+    dispatch({ type: 'setAlwaysOnTop', enabled })
+  })
+  const copy = element('button', 'option-button', 'Diagnostics')
   copy.type = 'button'
   copy.id = 'copy-diagnostics'
   copy.title = 'Copy diagnostics'
@@ -154,8 +161,8 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
 function patchControls(section: HTMLElement, view: AppView, options: ControlsOptions): boolean {
   if (section.dataset.panelMode !== options.panelMode) return false
   const model = describeView(view.state, { timingMode: view.timingMode })
-  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
-  const signature = JSON.stringify(secondaryRows.map((row) => [row.key, row.nameText, row.statusText]))
+  const videoRows = model.videoRows
+  const signature = JSON.stringify(videoRows.map((row) => [row.key, row.nameText, row.statusText]))
   if (section.dataset.videoSignature !== signature) return false
   if (options.panelMode === 'closed') return true
 
@@ -164,11 +171,12 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
     const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
     timing.dataset.mode = view.timingMode
     timing.textContent = view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed'
+    timing.title = `Show ${nextMode} time`
     timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
   }
   section.querySelector('#always-on-top')?.setAttribute('aria-pressed', String(view.alwaysOnTop))
   const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')
-  secondaryRows.forEach((row, index) => {
+  videoRows.forEach((row, index) => {
     const item = rowNodes[index]
     if (!item) return
     const name = item.querySelector('.video-row-name')
@@ -218,7 +226,7 @@ export function patchTimers(root: HTMLElement, view: AppView, advanceMs: number)
   const time = root.querySelector('#time')
   if (time instanceof HTMLElement) setTimerText(time, model.timeText)
   const rowTimes = root.querySelectorAll('.video-row .video-row-time')
-  model.videoRows.filter((row) => !row.isFocus).forEach((row, index) => {
+  model.videoRows.forEach((row, index) => {
     const node = rowTimes[index]
     if (node && node.textContent !== row.timeText) node.textContent = row.timeText
   })
@@ -268,34 +276,33 @@ export function mountApp(options: {
   let announced: string | null = null
   let statusNode: HTMLElement | null = null
   let controlsNode: HTMLElement | null = null
-  let panelMode: PanelMode = 'closed'
-  let panelSecondaryCount = 0
+  let panelState = INITIAL_PANEL_STATE
+  let panelVideoCount = 0
 
-  const secondaryVideoCount = (view: AppView | null): number =>
+  const totalVideoCount = (view: AppView | null): number =>
     view === null
       ? 0
-      : describeView(view.state, { timingMode: view.timingMode }).videoRows.filter((row) => !row.isFocus).length
+      : describeView(view.state, { timingMode: view.timingMode }).videoRows.length
 
   const controlsOptions = (): ControlsOptions => ({
-    panelMode,
+    panelMode: panelState.mode,
     setPanelMode,
   })
 
   /** Panel mode is transient. The main process derives dimensions from this
    * closed mode/count pair; the renderer never supplies pixel geometry. */
   function setPanelMode(requested: PanelMode): void {
-    const count = secondaryVideoCount(current)
-    const next = requested === 'videos' && count === 0 ? 'options' : requested
-    if (panelMode === next && panelSecondaryCount === count) return
-    panelMode = next
-    panelSecondaryCount = count
-    root.dataset.panelMode = next
-    dispatch({ type: 'setPanelMode', mode: next, secondaryVideoCount: count })
+    const count = totalVideoCount(current)
+    const mode = requested === 'videos' && count <= 1 ? 'options' : requested
+    panelState = applyManualPanelMode(panelState, mode, count)
+    panelVideoCount = count
+    root.dataset.panelMode = mode
+    dispatch({ type: 'setPanelMode', mode, totalVideoCount: count })
     if (controlsNode === null || current === null) return
     const nextControls = renderControls(current, dispatch, controlsOptions())
     controlsNode.replaceWith(nextControls)
     controlsNode = nextControls
-    const focusTarget = next === 'closed' ? '#settings-toggle' : '#panel-collapse'
+    const focusTarget = mode === 'closed' ? '#settings-toggle' : '#panel-collapse'
     nextControls.querySelector<HTMLButtonElement>(focusTarget)?.focus()
   }
 
@@ -304,7 +311,7 @@ export function mountApp(options: {
    * and the SAME controls node patched in place unless the change is structural.
    * Uses the same builders as `renderApp`, so display strings cannot diverge.
    */
-  const paint = (view: AppView, advanceMs: number): void => {
+  const paint = (view: AppView, advanceMs: number, restoreFocus = true): void => {
     if (statusNode === null || controlsNode === null) {
       // First paint goes through the same full-render entry point the tests
       // exercise, then keeps references for the incremental paints that follow.
@@ -321,7 +328,7 @@ export function mountApp(options: {
       const nextControls = renderControls(view, dispatch, controlsOptions())
       controlsNode.replaceWith(nextControls)
       controlsNode = nextControls
-      if (focusId) nextControls.querySelector<HTMLElement>(`#${CSS.escape(focusId)}`)?.focus()
+      if (restoreFocus && focusId) nextControls.querySelector<HTMLElement>(`#${CSS.escape(focusId)}`)?.focus()
     }
   }
 
@@ -330,14 +337,16 @@ export function mountApp(options: {
     lastRevision = view.revision
     const smoothed = playbackClock.accept(view, now())
     current = smoothed
-    const count = secondaryVideoCount(smoothed)
-    if (panelMode === 'videos' && count === 0) panelMode = 'options'
-    if (panelMode !== 'closed' && panelSecondaryCount !== count) {
-      panelSecondaryCount = count
-      dispatch({ type: 'setPanelMode', mode: panelMode, secondaryVideoCount: count })
+    const count = totalVideoCount(smoothed)
+    const previousMode = panelState.mode
+    panelState = reconcilePanelState(panelState, currentSlideKey(smoothed), count)
+    const automaticModeChange = previousMode !== panelState.mode
+    if (automaticModeChange || (panelState.mode !== 'closed' && panelVideoCount !== count)) {
+      panelVideoCount = count
+      dispatch({ type: 'setPanelMode', mode: panelState.mode, totalVideoCount: count })
     }
-    root.dataset.panelMode = panelMode
-    paint(smoothed, 0)
+    root.dataset.panelMode = panelState.mode
+    paint(smoothed, 0, !automaticModeChange)
     if (announcer) {
       const text = announcementFor(describeView(smoothed.state, { timingMode: smoothed.timingMode }))
       if (text !== announced) {
@@ -357,16 +366,16 @@ export function mountApp(options: {
   const unsubscribe = api.subscribe(render)
   const ticker = setInterval(tick, SMOOTHING_TICK_MS)
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape' && panelMode !== 'closed') {
+    if (event.key === 'Escape' && panelState.mode !== 'closed') {
       event.preventDefault()
-      setPanelMode(panelMode === 'options' && secondaryVideoCount(current) > 0 ? 'videos' : 'closed')
+      setPanelMode(panelState.mode === 'options' && totalVideoCount(current) > 1 ? 'videos' : 'closed')
     }
   }
   document.addEventListener('keydown', onKeyDown)
   void api.getView().then(render)
   return () => {
-    if (panelMode !== 'closed') {
-      dispatch({ type: 'setPanelMode', mode: 'closed', secondaryVideoCount: secondaryVideoCount(current) })
+    if (panelState.mode !== 'closed') {
+      dispatch({ type: 'setPanelMode', mode: 'closed', totalVideoCount: totalVideoCount(current) })
     }
     clearInterval(ticker)
     unsubscribe()

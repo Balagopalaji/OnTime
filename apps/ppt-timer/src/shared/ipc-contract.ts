@@ -44,7 +44,7 @@ export type RendererAction =
   | { type: 'setAlwaysOnTop'; enabled: boolean }
   | { type: 'applyPreset'; preset: Exclude<SizePreset, 'custom'> }
   | { type: 'moveToDisplay'; displayId: string }
-  | { type: 'setPanelMode'; mode: PanelMode; secondaryVideoCount: number }
+  | { type: 'setPanelMode'; mode: PanelMode; totalVideoCount: number }
   | { type: 'minimizeWindow' }
   | { type: 'closeWindow' }
   | { type: 'copyDiagnostics' }
@@ -127,14 +127,14 @@ export function parseRendererAction(raw: unknown): ParseResult {
     case 'setPanelMode':
       if (
         (raw.mode === 'closed' || raw.mode === 'videos' || raw.mode === 'options') &&
-        Number.isInteger(raw.secondaryVideoCount) &&
-        typeof raw.secondaryVideoCount === 'number' &&
-        raw.secondaryVideoCount >= 0 &&
-        raw.secondaryVideoCount <= 1_000
+        Number.isSafeInteger(raw.totalVideoCount) &&
+        typeof raw.totalVideoCount === 'number' &&
+        raw.totalVideoCount >= 0 &&
+        raw.totalVideoCount <= 1_000
       ) {
         return {
           ok: true,
-          action: { type: 'setPanelMode', mode: raw.mode, secondaryVideoCount: raw.secondaryVideoCount },
+          action: { type: 'setPanelMode', mode: raw.mode, totalVideoCount: raw.totalVideoCount },
         }
       }
       return { ok: false }

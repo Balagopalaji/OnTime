@@ -538,25 +538,36 @@ The standalone shell is now frameless and single-instance. The first visual
 pass was still too large and exposed name/deck/slide metadata in the collapsed
 surface. The refined M1 contract is `190 × 80` with only status and focused
 time plus a bottom-right caret. Expansion is a two-stage, content-sized
-`260`-pixel-wide tray: secondary videos first, then a 28-pixel action strip.
-One to three secondary rows produce video-stage heights of 138, 166, and 194
-pixels; options add 30 pixels, and further rows scroll. Focused metadata,
-headings, cards, and the nonfunctional remote placeholder were removed. Collapse
-restores the captured compact position, including intentional custom sizing.
+`260`-pixel-wide tray: the complete video list first, then a 28-pixel action
+strip behind the second disclosure. A multi-video slide automatically opens the
+list without focusing the timer. Every video is present, including the focused
+video, and the tray grows to all rows without an internal scrollbar or visible
+row cap. Video-stage height is `110 + 28 * videoCount` pixels; options add 30
+pixels. An automatically opened tray closes when the view returns to one or no
+videos. Manual expansion transfers ownership to the operator and is not
+auto-collapsed; same-slide manual dismissal is also respected. The whole-tray
+caret remains at the bottom-right in every state. The action labels are
+`Remaining`/`Elapsed`, `On top`, `Diagnostics`, minimize, and close, with
+tooltips and bordered operational controls. Focused metadata headings, cards,
+and the nonfunctional remote placeholder remain absent. Collapse restores the
+captured compact position, including intentional custom sizing.
 
 | Verification | Result |
 | --- | --- |
-| PPT timer suite | PASS — 386 tests |
+| PPT timer suite | PASS — 391 tests |
 | PPT bridge suite | PASS — 72 tests |
 | Both typechecks | PASS |
 | Production application build | PASS |
 | Static guardrails and dependency boundaries | PASS |
 | `git diff --check` | PASS — line-ending warnings only |
 | Current M1 source rebuild and silent installer replacement | PASS |
-| Packaged staged-tray renderer review | PASS — two-video tray `260 × 138`, options `260 × 168`, and Escape options → videos → compact |
+| Packaged staged-tray renderer review | PASS — five-video list auto-opened at logical size `260 × 250`, showed all five rows with no scrollbar, and kept the collapse caret bottom-right |
+| Current installer SHA-256 | `5670cdf2c06a7e8aef36c5d0731af37102e8facd57da19506307e502c7127d69` |
 | Native transient-terminal correction live replay | PENDING |
 | Mixed-DPI and near-work-area-edge expansion review | PENDING |
 
 The current M1 geometry and terminal-position correction are rebuilt and
-installed. Final Stage 7 acceptance still requires the slide 6 first-play replay
-and the remaining mixed-DPI/work-area-edge checks.
+installed. Automatic collapse, manual-ownership persistence, and options-stage
+appearance remain user acceptance items even though their state and DOM paths
+are covered deterministically. Final Stage 7 acceptance still requires the
+slide 6 first-play replay and the remaining mixed-DPI/work-area-edge checks.

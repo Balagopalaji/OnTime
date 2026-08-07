@@ -129,9 +129,9 @@ describe('dispatch routes actions to effects + persistence', () => {
   it('changes transient panel mode without persisting geometry', async () => {
     const deps = makeDeps()
     const controllers = createAppControllers(deps)
-    await controllers.dispatch({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 4 })
-    await controllers.dispatch({ type: 'setPanelMode', mode: 'options', secondaryVideoCount: 4 })
-    await controllers.dispatch({ type: 'setPanelMode', mode: 'closed', secondaryVideoCount: 4 })
+    await controllers.dispatch({ type: 'setPanelMode', mode: 'videos', totalVideoCount: 4 })
+    await controllers.dispatch({ type: 'setPanelMode', mode: 'options', totalVideoCount: 4 })
+    await controllers.dispatch({ type: 'setPanelMode', mode: 'closed', totalVideoCount: 4 })
     expect(deps.effects.setPanelMode).toHaveBeenNthCalledWith(1, 'videos', 4)
     expect(deps.effects.setPanelMode).toHaveBeenNthCalledWith(2, 'options', 4)
     expect(deps.effects.setPanelMode).toHaveBeenNthCalledWith(3, 'closed', 4)

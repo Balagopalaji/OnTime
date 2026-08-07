@@ -109,6 +109,8 @@ describe('renderApp status', () => {
     expect(root.querySelector('#slide')).toBeNull()
     expect(root.querySelector('#video')).toBeNull()
     expect(root.querySelector('#title')).toBeNull()
+    expect(root.querySelector('#settings-toggle')?.getAttribute('title')).toBe('Show timer options')
+    expect(root.querySelector('#settings-toggle')?.getAttribute('aria-label')).toBe('Show timer options')
   })
 
   it('removes numeric time and shows a retry badge on an unavailable view (S-013)', () => {
@@ -138,16 +140,33 @@ describe('timer-only controls', () => {
     expect(root.querySelector('[data-preset], #display-select, #cta')).toBeNull()
   })
 
-  it('renders only the compact operational button strip in options', () => {
+  it('renders only the labelled compact operational button strip in options', () => {
     const root = document.createElement('div')
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     expect(root.querySelector('#panel-tray')).not.toBeNull()
     expect(root.querySelector('#timing-mode')?.textContent).toBe('Remaining')
+    expect(root.querySelector('#always-on-top')?.textContent).toBe('On top')
     expect(root.querySelector('#always-on-top')?.getAttribute('aria-pressed')).toBe('true')
-    expect(root.querySelector('#copy-diagnostics')).not.toBeNull()
+    expect(root.querySelector('#copy-diagnostics')?.textContent).toBe('Diagnostics')
     expect(root.querySelector('#minimize-window')?.textContent).toBe('—')
     expect(root.querySelector('#close-window')?.textContent).toBe('×')
     expect(root.querySelector('#remote-access')).toBeNull()
+    for (const id of ['panel-collapse', 'panel-switch', 'timing-mode', 'always-on-top', 'copy-diagnostics', 'minimize-window', 'close-window']) {
+      const button = root.querySelector(`#${id}`)
+      expect(button?.getAttribute('title'), id).toBeTruthy()
+      expect(button?.getAttribute('aria-label'), id).toBeTruthy()
+    }
+  })
+
+  it('pins the bare disclosure caret bottom-right and keeps the all-row tray scrollbar-free', () => {
+    const candidate = ['src/renderer/styles.css', 'apps/ppt-timer/src/renderer/styles.css']
+      .map((relative) => resolve(process.cwd(), relative))
+      .find((absolute) => existsSync(absolute))
+    expect(candidate).toBeDefined()
+    const css = readFileSync(candidate as string, 'utf8')
+    expect(css).toMatch(/\.controls\[data-panel-mode="closed"\][\s\S]*?right:\s*1px;[\s\S]*?bottom:\s*1px;/)
+    expect(css).toMatch(/\.tray-collapse\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?right:\s*1px;[\s\S]*?bottom:\s*1px;/)
+    expect(css).toMatch(/\.panel-tray \.videos\s*\{[\s\S]*?overflow-y:\s*visible;/)
   })
 })
 
@@ -205,8 +224,8 @@ describe('mountApp', () => {
   })
 })
 
-describe('renderApp focused timer and secondary-video drawer', () => {
-  it('keeps the closed surface focused and puts only secondary videos in the drawer', () => {
+describe('renderApp focused timer and all-video tray', () => {
+  it('keeps the closed surface focused and lists every video in the tray', () => {
     const root = document.createElement('div')
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn())
     expect(root.querySelector('#video')).toBeNull()
@@ -218,11 +237,12 @@ describe('renderApp focused timer and secondary-video drawer', () => {
     expect(root.querySelector('#settings-drawer-title')).toBeNull()
     expect(root.querySelector('.drawer-deck')).toBeNull()
     expect(root.querySelector('.drawer-slide')).toBeNull()
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.getAttribute('data-ordinal')).toBe('1')
-    expect(rows[0]?.querySelector('.video-row-name')?.textContent).toBe('B.mp4')
-    expect(rows[0]?.querySelector('.video-row-status')?.textContent).toBe('Paused')
-    expect(rowTimes(root)).toEqual(['00:39'])
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.getAttribute('data-ordinal'))).toEqual(['0', '1'])
+    expect(rows[0]?.querySelector('.video-row-name')?.textContent).toBe('A.mp4')
+    expect(rows[1]?.querySelector('.video-row-name')?.textContent).toBe('B.mp4')
+    expect(rows[1]?.querySelector('.video-row-status')?.textContent).toBe('Paused')
+    expect(rowTimes(root)).toEqual(['00:48', '00:39'])
     expect(root.querySelector('#panel-tray')?.getAttribute('aria-label')).toBe('Timer options')
     expect(root.querySelector('#panel-collapse')).not.toBeNull()
     expect(root.querySelector('#panel-switch')?.textContent).toBe('Videos')
@@ -233,14 +253,13 @@ describe('renderApp focused timer and secondary-video drawer', () => {
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     // 999_000 ms (16:39) would appear if the headline fell back to the scalar.
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
-    expect(root.textContent).not.toContain('A.mp4')
-    expect(root.querySelector('.video-row[data-ordinal="0"]')).toBeNull()
+    expect(root.querySelector('.video-row[data-ordinal="0"] .video-row-name')?.textContent).toBe('A.mp4')
   })
 
   it('renders the headline and secondary rows in elapsed mode', () => {
     const root = document.createElement('div')
     renderApp(root, { ...twoVideoView([focusPlaying, secondPaused]), timingMode: 'elapsed' }, vi.fn(), 0, openDrawer)
-    expect(rowTimes(root)).toEqual(['00:21'])
+    expect(rowTimes(root)).toEqual(['00:12', '00:21'])
     expect(root.querySelector('#time')?.textContent).toBe('00:12')
   })
 
@@ -258,17 +277,17 @@ describe('patchTimers', () => {
     renderApp(root, view, vi.fn(), 0, openDrawer)
 
     const timeNode = root.querySelector('#time')
-    const statusNode = root.querySelector('.video-row .video-row-status')
-    const nameNode = root.querySelector('.video-row .video-row-name')
-    const rowNode = root.querySelector('.video-row')
+    const statusNode = root.querySelector('.video-row[data-ordinal="1"] .video-row-status')
+    const nameNode = root.querySelector('.video-row[data-ordinal="1"] .video-row-name')
+    const rowNode = root.querySelector('.video-row[data-ordinal="1"]')
 
     patchTimers(root, view, 3_000)
 
-    expect(rowTimes(root)).toEqual(['00:39'])
+    expect(rowTimes(root)).toEqual(['00:45', '00:39'])
     expect(root.querySelector('#time')?.textContent).toBe('00:45')
     // Same nodes, untouched status/name text, and controls still wired.
     expect(root.querySelector('#time')).toBe(timeNode)
-    expect(root.querySelector('.video-row')).toBe(rowNode)
+    expect(root.querySelector('.video-row[data-ordinal="1"]')).toBe(rowNode)
     expect(statusNode?.textContent).toBe('Paused')
     expect(nameNode?.textContent).toBe('B.mp4')
     expect(root.querySelector('#panel-collapse')).not.toBeNull()
@@ -281,10 +300,10 @@ describe('patchTimers', () => {
       tile({ ordinal: 1, name: 'B.mp4', status: 'playing', playing: true, durationMs: 20_000, elapsedMs: 5_000, remainingMs: 15_000 }),
     ])
     renderApp(root, view, vi.fn(), 0, openDrawer)
-    expect(rowTimes(root)).toEqual(['00:15'])
+    expect(rowTimes(root)).toEqual(['00:48', '00:15'])
     patchTimers(root, view, 2_000)
     expect(root.querySelector('#time')?.textContent).toBe('00:46')
-    expect(rowTimes(root)).toEqual(['00:13'])
+    expect(rowTimes(root)).toEqual(['00:46', '00:13'])
   })
 
   it('freezes paused and ended rows at any advance', () => {
@@ -295,7 +314,7 @@ describe('patchTimers', () => {
     ])
     renderApp(root, view, vi.fn(), 0, openDrawer)
     patchTimers(root, view, 2_000)
-    expect(rowTimes(root)).toEqual(['00:00'])
+    expect(rowTimes(root)).toEqual(['00:48', '00:00'])
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
   })
 })
@@ -348,18 +367,17 @@ describe('mountApp local interpolation', () => {
   it('ticks roughly every 250 ms and decrements the playing row locally', () => {
     withFakeTimers(() => {
       const h = mount(twoVideoView([focusPlaying, secondPaused]))
-      ;(h.root.querySelector('#settings-toggle') as HTMLButtonElement).click()
-      expect(rowTimes(h.root)).toEqual(['00:39'])
+      expect(rowTimes(h.root)).toEqual(['00:48', '00:39'])
 
       h.setClock(1_000)
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:47')
-      expect(rowTimes(h.root)).toEqual(['00:39'])
+      expect(rowTimes(h.root)).toEqual(['00:47', '00:39'])
 
       h.setClock(1_500)
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
-      expect(rowTimes(h.root)).toEqual(['00:39'])
+      expect(rowTimes(h.root)).toEqual(['00:46', '00:39'])
       h.stop()
     })
   })
@@ -531,7 +549,7 @@ describe('mountApp local interpolation', () => {
 })
 
 describe('control stability across pushes', () => {
-  it('steps closed -> videos -> options and Escape steps back', () => {
+  it('auto-opens without focus, honours dismissal, and resets it on a new slide', () => {
     vi.useFakeTimers()
     const root = document.createElement('div')
     document.body.append(root)
@@ -546,11 +564,12 @@ describe('control stability across pushes', () => {
         dispatch: vi.fn(async () => undefined),
       }
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      const outside = document.createElement('button')
+      document.body.append(outside)
+      outside.focus()
       listener?.(twoVideoView([focusPlaying, secondPaused]))
 
-      const toggle = root.querySelector('#settings-toggle') as HTMLButtonElement
-      expect(root.querySelector('#timing-mode')).toBeNull()
-      toggle.click()
+      expect(document.activeElement).toBe(outside)
       expect(root.querySelector('#videos')).not.toBeNull()
       expect(root.querySelector('#timing-mode')).toBeNull()
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
@@ -561,11 +580,18 @@ describe('control stability across pushes', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(root.querySelector('#panel-tray')).toBeNull()
       expect(document.activeElement).toBe(root.querySelector('#settings-toggle'))
-      expect(api.dispatch).toHaveBeenCalledTimes(4)
-      expect(api.dispatch).toHaveBeenNthCalledWith(1, { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1 })
-      expect(api.dispatch).toHaveBeenNthCalledWith(2, { type: 'setPanelMode', mode: 'options', secondaryVideoCount: 1 })
-      expect(api.dispatch).toHaveBeenNthCalledWith(3, { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1 })
-      expect(api.dispatch).toHaveBeenNthCalledWith(4, { type: 'setPanelMode', mode: 'closed', secondaryVideoCount: 1 })
+      listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6 })
+      expect(root.querySelector('#panel-tray')).toBeNull()
+      const nextSlide = twoVideoView([focusPlaying, secondPaused])
+      listener?.({ ...nextSlide, revision: 7, state: { ...nextSlide.state, slideNumber: 4 } as PowerPointViewState })
+      expect(root.querySelector('#videos')).not.toBeNull()
+      expect(api.dispatch).toHaveBeenCalledTimes(5)
+      expect(api.dispatch).toHaveBeenNthCalledWith(1, { type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(2, { type: 'setPanelMode', mode: 'options', totalVideoCount: 2 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(3, { type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(4, { type: 'setPanelMode', mode: 'closed', totalVideoCount: 2 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(5, { type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 })
+      outside.remove()
       stop()
     } finally {
       root.remove()
@@ -587,9 +613,47 @@ describe('control stability across pushes', () => {
       listener?.(twoVideoView([focusPlaying]))
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       expect(root.querySelector('#timing-mode')).not.toBeNull()
-      expect(root.querySelector('#videos')).toBeNull()
-      expect(api.dispatch).toHaveBeenCalledWith({ type: 'setPanelMode', mode: 'options', secondaryVideoCount: 0 })
+      expect(root.querySelectorAll('.video-row')).toHaveLength(1)
+      expect(api.dispatch).toHaveBeenCalledWith({ type: 'setPanelMode', mode: 'options', totalVideoCount: 1 })
       stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('auto-owned trays collapse at one video while manual options stay open', () => {
+    vi.useFakeTimers()
+    try {
+      const makeHarness = () => {
+        let listener: ((view: AppView) => void) | undefined
+        const dispatch = vi.fn(async () => undefined)
+        const root = document.createElement('div')
+        const stop = mountApp({
+          root,
+          api: {
+            getView: vi.fn(() => new Promise<AppView>(() => {})),
+            subscribe: vi.fn((fn) => { listener = fn; return () => {} }),
+            dispatch,
+          },
+          announcer: null,
+          now: () => 0,
+        })
+        return { root, dispatch, push: (value: AppView) => listener?.(value), stop }
+      }
+      const automatic = makeHarness()
+      automatic.push(twoVideoView([focusPlaying, secondPaused]))
+      automatic.push({ ...twoVideoView([focusPlaying]), revision: 6 })
+      expect(automatic.root.querySelector('#panel-tray')).toBeNull()
+      expect(automatic.dispatch).toHaveBeenLastCalledWith({ type: 'setPanelMode', mode: 'closed', totalVideoCount: 1 })
+      automatic.stop()
+
+      const manual = makeHarness()
+      manual.push(twoVideoView([focusPlaying, secondPaused]))
+      ;(manual.root.querySelector('#panel-switch') as HTMLButtonElement).click()
+      manual.push({ ...twoVideoView([focusPlaying]), revision: 6 })
+      expect(manual.root.querySelector('#timing-mode')).not.toBeNull()
+      expect(manual.dispatch).toHaveBeenLastCalledWith({ type: 'setPanelMode', mode: 'options', totalVideoCount: 1 })
+      manual.stop()
     } finally {
       vi.useRealTimers()
     }
@@ -611,7 +675,6 @@ describe('control stability across pushes', () => {
       document.body.append(root)
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
-      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
 
       const controls = root.querySelector('.controls')
@@ -651,7 +714,6 @@ describe('control stability across pushes', () => {
       }
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
-      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
       const topButton = root.querySelector('#always-on-top') as HTMLButtonElement
       topButton.focus()
@@ -696,7 +758,6 @@ describe('control stability across pushes', () => {
         now: () => 0,
       })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
-      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
       listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6, timingMode: 'elapsed' })
@@ -706,8 +767,8 @@ describe('control stability across pushes', () => {
       ;(root.querySelector('#minimize-window') as HTMLButtonElement).click()
       ;(root.querySelector('#close-window') as HTMLButtonElement).click()
       expect(dispatched).toEqual([
-        { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1 },
-        { type: 'setPanelMode', mode: 'options', secondaryVideoCount: 1 },
+        { type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 },
+        { type: 'setPanelMode', mode: 'options', totalVideoCount: 2 },
         { type: 'setTimingMode', mode: 'elapsed' },
         { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
@@ -768,7 +829,6 @@ describe('accessible announcements', () => {
       }
 
       listener?.(warned(5, 48_000))
-      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       expect(root.querySelector('#multi-instance')).toBeNull()
       expect(writes).toEqual([
         'Multiple PowerPoint instances detected; verify the deck — Playing — 1. A.mp4: Playing, 2. B.mp4: Paused',

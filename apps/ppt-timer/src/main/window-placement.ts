@@ -20,7 +20,6 @@ export type DisplaySnapshot = { id: string; label: string; workArea: Rectangle }
 
 export const VISIBILITY_THRESHOLD = 80 * 60
 export const PANEL_WIDTH = 260
-export const MAX_VISIBLE_SECONDARY_ROWS = 3
 export const PANEL_ROW_HEIGHT = 28
 export const PANEL_NAV_HEIGHT = 22
 export const PANEL_OPTIONS_HEIGHT = 28
@@ -108,13 +107,11 @@ export function applyPreset(currentBounds: Rectangle, preset: Exclude<SizePreset
 }
 
 /**
- * Opens the details drawer without needlessly moving the compact surface.
- * Prefer retaining the top edge so the drawer grows downward. Near the bottom
- * of a display, retain the compact surface's bottom edge and grow upward. A
- * work area smaller than the details preset is handled by the final clamp.
+ * Derive the trusted tray size from its closed shell, mode, and every video
+ * row. The final work-area clamp handles presentations taller than the screen.
  */
-export function panelSize(mode: Exclude<PanelMode, 'closed'>, secondaryVideoCount: number): { width: number; height: number } {
-  const rows = Math.min(MAX_VISIBLE_SECONDARY_ROWS, Math.max(0, Math.trunc(secondaryVideoCount)))
+export function panelSize(mode: Exclude<PanelMode, 'closed'>, totalVideoCount: number): { width: number; height: number } {
+  const rows = Math.max(0, Math.trunc(totalVideoCount))
   const optionsHeight = mode === 'options' ? PANEL_OPTIONS_GAP + PANEL_OPTIONS_HEIGHT : 0
   return {
     width: PANEL_WIDTH,
@@ -132,9 +129,9 @@ export function expandPanelBounds(
   currentBounds: Rectangle,
   workArea: Rectangle,
   mode: Exclude<PanelMode, 'closed'>,
-  secondaryVideoCount: number,
+  totalVideoCount: number,
 ): Rectangle {
-  const size = panelSize(mode, secondaryVideoCount)
+  const size = panelSize(mode, totalVideoCount)
   const workBottom = workArea.y + workArea.height
   const canExpandDown = currentBounds.y + size.height <= workBottom
   const y = canExpandDown

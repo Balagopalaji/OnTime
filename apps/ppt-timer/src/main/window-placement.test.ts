@@ -127,13 +127,13 @@ describe('moveToDisplay (S-020) and applyPreset (S-018)', () => {
 })
 
 describe('content-sized panel placement', () => {
-  it('derives trusted sizes from mode and a clamped visible row count', () => {
+  it('derives trusted sizes from mode and every reported video row', () => {
     expect(panelSize('videos', 0)).toEqual({ width: 260, height: 110 })
     expect(panelSize('videos', 1)).toEqual({ width: 260, height: 138 })
     expect(panelSize('videos', 3)).toEqual({ width: 260, height: 194 })
-    expect(panelSize('videos', 99)).toEqual({ width: 260, height: 194 })
+    expect(panelSize('videos', 5)).toEqual({ width: 260, height: 250 })
     expect(panelSize('options', 0)).toEqual({ width: 260, height: 140 })
-    expect(panelSize('options', 2)).toEqual({ width: 260, height: 196 })
+    expect(panelSize('options', 5)).toEqual({ width: 260, height: 280 })
   })
 
   it('expands downward from the current top-left when the panel fits', () => {

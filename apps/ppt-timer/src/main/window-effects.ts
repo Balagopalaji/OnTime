@@ -69,7 +69,7 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
         displayCount: deps.getDisplays().length,
       })
     },
-    setPanelMode: (mode, secondaryVideoCount) => {
+    setPanelMode: (mode, totalVideoCount) => {
       const window = usableWindow()
       if (!window) return
       if (mode !== 'closed') {
@@ -78,7 +78,7 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
           deps.setDetailsState(compactBounds)
         }
         deps.setProgrammaticBounds(
-          expandPanelBounds(compactBounds, currentWorkArea(deps, window), mode, secondaryVideoCount),
+          expandPanelBounds(compactBounds, currentWorkArea(deps, window), mode, totalVideoCount),
           undefined,
           true,
         )
