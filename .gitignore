@@ -11,3 +11,11 @@ prompt-exports/
 packages/ppt-bridge/dist-cjs/
 packages/presentation-core/dist-cjs/
 packages/ppt-bridge/bin/
+.dotnet-cli/
+.electron-builder-cache/
+.npm-cache/
+.tools/
+.tmp-cjs-build-*/
+.claude/settings.local.json
+packages/ppt-bridge/native/windows-ppt-probe/bin/
+packages/ppt-bridge/native/windows-ppt-probe/obj/
