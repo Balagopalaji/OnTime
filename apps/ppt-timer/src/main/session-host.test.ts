@@ -10,6 +10,11 @@ import {
 import { DiagnosticsBuffer, type DiagMeta } from './diagnostics'
 import { DEFAULT_SETTINGS } from './settings-schema'
 import { createSettingsStore, type SettingsFs } from './settings-store'
+import {
+  POWERPOINT_ARMED_POLL_INTERVAL_MS,
+  POWERPOINT_START_BURST_INTERVAL_MS,
+  POWERPOINT_START_BURST_WINDOW_MS,
+} from './playback-poll-policy'
 
 const ext = { rootUnknownFieldCount: 0, videoUnknownFieldCount: 0, editSlideVideoUnknownFieldCount: 0 }
 
@@ -173,6 +178,68 @@ describe('createSessionHost lifecycle', () => {
     expect('timeMs' in host.getView().state).toBe(false) // numeric timing cleared
   })
 
+  it('holds one ambiguous startup pause until playing is confirmed', async () => {
+    const paused: BridgePollOutcome = {
+      ...playingOutcome,
+      observation: {
+        ...playingOutcome.observation,
+        videoPlaying: false,
+      },
+    }
+    const onView = vi.fn()
+    const fake = makeFakeClient([paused, playingOutcome])
+    const host = createSessionHost({
+      candidates: [],
+      createClient: fake.create,
+      pollIntervalMs: 1_000,
+      adaptivePolling: true,
+      onView,
+    })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.getView().state.kind).toBe('connecting')
+
+    await vi.advanceTimersByTimeAsync(200)
+    expect(host.getView().state.kind).toBe('playing')
+    expect(onView.mock.calls.map(([view]) => view.state.kind)).toEqual(['connecting', 'playing'])
+    await host.shutdown()
+  })
+
+  it('uses the bounded burst and armed cadence through the session callback', async () => {
+    const armed: BridgePollOutcome = {
+      kind: 'observation',
+      warnings: [],
+      extensions: ext,
+      observation: {
+        state: 'foreground',
+        inSlideshow: true,
+        instanceId: 1234,
+        slideNumber: 3,
+        title: 'Deck.pptx',
+        videoDetected: true,
+        videos: [
+          { id: 10, duration: 10_000, elapsed: 0, status: 'playing', playing: true },
+          { id: 20, duration: 10_000, elapsed: 0, status: 'paused', playing: false },
+        ],
+      },
+    }
+    const fake = makeFakeClient(Array.from({ length: 12 }, () => armed))
+    const host = createSessionHost({ candidates: [], createClient: fake.create })
+    host.start()
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fake.calls.poll).toBe(1)
+    await vi.advanceTimersByTimeAsync(POWERPOINT_START_BURST_INTERVAL_MS)
+    expect(fake.calls.poll).toBe(2)
+    await vi.advanceTimersByTimeAsync(POWERPOINT_START_BURST_WINDOW_MS - POWERPOINT_START_BURST_INTERVAL_MS)
+    expect(fake.calls.poll).toBe(11)
+    await vi.advanceTimersByTimeAsync(POWERPOINT_ARMED_POLL_INTERVAL_MS - 1)
+    expect(fake.calls.poll).toBe(11)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fake.calls.poll).toBe(12)
+    await host.shutdown()
+  })
+
   it('P0-01 publishes unavailable with no numeric time in the same poll as a critical partial-COM failure', async () => {
     const partialCom = validatePowerPointResponse(JSON.stringify({
       state: 'foreground',
@@ -231,7 +298,9 @@ describe('createSessionHost lifecycle', () => {
       videoRemaining: 9_000,
       videos: [
         { id: 10, name: 'helper-primary.mp4', duration: 10_000, elapsed: 1_000, remaining: 9_000, status: 'paused', playing: false },
-        { id: 20, name: 'delta-inferred.mp4', duration: 10_000, elapsed: videoBElapsed, remaining: 10_000 - videoBElapsed, status: 'paused', playing: false },
+        // No explicit status: elapsed movement is intentionally the only
+        // playing evidence for this fixture.
+        { id: 20, name: 'delta-inferred.mp4', duration: 10_000, elapsed: videoBElapsed, remaining: 10_000 - videoBElapsed, playing: false },
       ],
     }))
     const baseline = raw(1_000)
@@ -524,10 +593,16 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'paused', playing: false },
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
     ])
-    const fake = makeFakeClient([poll1, poll2])
+    const poll3 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'paused', playing: false },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+    ])
+    const fake = makeFakeClient([poll1, poll2, poll3])
     const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect((host.getView().state as { kind: string }).kind).toBe('playing')
     await vi.advanceTimersByTimeAsync(1_000)
     const state = host.getView().state as { selectedVideoId?: number; kind: string }
     expect(state.kind).toBe('paused')
@@ -681,8 +756,8 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
   // SAME video goes playing -> paused -> playing) re-ranks the video to the top
   // because the tracker treats the resume as a fresh "newly playing" transition.
   // This is the intended behavior: a resumed video is the most-recently-started
-  // still-playing video. (Debounce of transient dropped polls is a separate
-  // concern owned by the session/machine layer and is NOT redesigned here.)
+  // still-playing video. Standalone per-video false-pause stabilization now
+  // lives at the host's normalized-state/focus projection boundary.
   it('P2-4 a paused-then-resumed video re-ranks as the most recent on resume', async () => {
     const poll1 = videoOutcome(1234, 3, [
       { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
@@ -694,19 +769,199 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
     ])
-    // id 20 resumes -> it newly transitions to playing -> top rank -> focus again.
+    // The second contradictory sample crosses the standalone 350 ms pause
+    // confirmation window, so this is a genuine pause rather than a false one.
     const poll3 = videoOutcome(1234, 3, [
       { id: 10, name: 'a', duration: 10_000, elapsed: 3_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+    ])
+    // id 20 resumes -> it newly transitions to playing -> top rank -> focus again.
+    const poll4 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 3_000, status: 'playing', playing: true },
       { id: 20, name: 'b', duration: 10_000, elapsed: 600, status: 'playing', playing: true },
+    ])
+    const fake = makeFakeClient([poll1, poll2, poll3, poll4])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20) // cold lowest-elapsed
+    await vi.advanceTimersByTimeAsync(1_000) // poll2: pause evidence starts, so 20 stays focused
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+    await vi.advanceTimersByTimeAsync(1_000) // poll3: sustained pause -> 10 is the only playing -> focus 10
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
+    await vi.advanceTimersByTimeAsync(1_000) // poll4: 20 resumes -> newly playing -> top rank -> focus 20
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+  })
+
+  it('holds a false pause on the focused video without changing the view or countdown source', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+    ])
+    const poll2 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+    ])
+    const fake = makeFakeClient([poll1, poll2])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const state = host.getView().state as { kind: string; selectedVideoId?: number; timeMs?: number; videos?: Array<{ id?: number; status: string }> }
+    expect(state).toMatchObject({ kind: 'playing', selectedVideoId: 20, timeMs: 9_500 })
+    expect(state.videos?.find((video) => video.id === 20)?.status).toBe('playing')
+  })
+
+  it('does not re-rank a focused video after transient name/duration omission', async () => {
+    const poll1 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 20_000, elapsed: 500, status: 'playing', playing: true },
+    ])
+    const completePoll2 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 20_000, elapsed: 500, status: 'paused', playing: false },
+      { id: 30, name: 'c', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+    ])
+    const poll2: BridgePollOutcome = completePoll2.kind === 'observation'
+      ? {
+          ...completePoll2,
+          observation: {
+            ...completePoll2.observation,
+            videos: completePoll2.observation.videos?.map((video) =>
+              video.id === 20 ? { ...video, name: undefined, duration: undefined } : video,
+            ),
+          },
+        }
+      : completePoll2
+    const poll3 = videoOutcome(1234, 3, [
+      { id: 10, name: 'a', duration: 10_000, elapsed: 3_000, status: 'playing', playing: true },
+      { id: 20, name: 'b', duration: 20_000, elapsed: 600, status: 'playing', playing: true },
+      { id: 30, name: 'c', duration: 10_000, elapsed: 1_500, status: 'playing', playing: true },
     ])
     const fake = makeFakeClient([poll1, poll2, poll3])
     const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20) // cold lowest-elapsed
-    await vi.advanceTimersByTimeAsync(1_000) // poll2: 20 pauses -> 10 is the only playing -> focus 10
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
-    await vi.advanceTimersByTimeAsync(1_000) // poll3: 20 resumes -> newly playing -> top rank -> focus 20
-    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+    expect(focusId(host)).toBe(20)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const held = host.getView().state as { selectedVideoId?: number; videos?: Array<{ id?: number; status: string }> }
+    expect(held.selectedVideoId).toBe(30)
+    expect(held.videos?.find((video) => video.id === 20)?.status).toBe('playing')
+    await vi.advanceTimersByTimeAsync(1_000)
+    // If the omitted fields reset identity, id 20 looks newly started here and
+    // incorrectly steals focus from id 30.
+    expect(focusId(host)).toBe(30)
+  })
+
+  it('does not let a false pause on another video make its next raw playing sample steal focus', async () => {
+    const polls = [
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 1_500, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 1_000, status: 'paused', playing: false },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 2_500, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 1_100, status: 'playing', playing: true },
+      ]),
+    ]
+    const fake = makeFakeClient(polls)
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(focusId(host)).toBe(10)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(10)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(10)
+  })
+
+  it('moves focus after sustained pause evidence and re-ranks once on genuine resume', async () => {
+    const polls = [
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 3_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 4_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 600, status: 'playing', playing: true },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 5_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 700, status: 'playing', playing: true },
+      ]),
+    ]
+    const fake = makeFakeClient(polls)
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(focusId(host)).toBe(20)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(20) // below confirmation only
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(10) // genuine pause accepted
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(20) // one genuine resume re-rank
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(20) // steady playing does not re-rank again
+  })
+
+  it('reprojects a held pause from stableSource when timing mode changes', async () => {
+    const fake = makeFakeClient([
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+      ]),
+    ])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    host.setTimingMode('elapsed')
+    const state = host.getView().state as { kind: string; selectedVideoId?: number; timeMs?: number; videos?: Array<{ id?: number; status: string }> }
+    expect(state).toMatchObject({ kind: 'playing', selectedVideoId: 20, timeMs: 500 })
+    expect(state.videos?.find((video) => video.id === 20)?.status).toBe('playing')
+  })
+
+  it('resets stabilization with focus across a non-presentation interlude', async () => {
+    const fake = makeFakeClient([
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 0, status: 'paused', playing: false },
+      ]),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'playing', playing: true },
+      ]),
+      noSlideshowOutcome(),
+      videoOutcome(1234, 3, [
+        { id: 10, name: 'a', duration: 10_000, elapsed: 200, status: 'playing', playing: true },
+        { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
+      ]),
+    ])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(20)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(host.getView().state.kind).toBe('no_slideshow')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(focusId(host)).toBe(10)
   })
 })

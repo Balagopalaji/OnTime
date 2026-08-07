@@ -1,15 +1,16 @@
 /**
  * Session host / app-state coordinator (ISSUE-001 H5, S-002/S-013/S-014/S-017/
  * S-027). Thin glue over the canonical capability — it does NOT reimplement
- * poll cadence, no-overlap, debounce/cache/clearing, helper restart, or timing
- * math. Those live in `@ontime/ppt-bridge` (client + session) and
+ * poll cadence, no-overlap, cache/clearing, helper restart, or timing math.
+ * Those live in `@ontime/ppt-bridge` (client + session) and
  * `@ontime/presentation-core` (projection).
  *
  * Responsibilities:
  *  - build the transport: wrap `client.poll()` so the canonical affinity signal
  *    (S-012, H5-PRE) is captured before the session reduces the outcome.
- *  - own `PowerPointSession`, project each source-state transition to an
- *    immutable view, and publish it with a monotonic revision.
+ *  - own `PowerPointSession`, stabilize standalone per-video status at the
+ *    normalized-state boundary, project each transition to an immutable view,
+ *    and publish it with a monotonic revision.
  *  - reproject on a remaining/elapsed toggle WITHOUT polling (S-014).
  *  - shut down idempotally: stop the session + close the helper exactly once.
  * The view never extrapolates between polls (S-017); an `unavailable` transition
@@ -29,12 +30,16 @@ import type { PresentationSourceState, PowerPointViewState } from '@ontime/prese
 import type { TimingMode } from '../shared/ipc-contract.js'
 import type { DiagnosticsBuffer } from './diagnostics.js'
 import { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
+import { createPlaybackPollPolicy, POWERPOINT_STARTUP_PAUSE_GATE_MS } from './playback-poll-policy.js'
+import { initVideoStatusStabilizer, stabilizeVideoStatuses } from './video-status-stabilizer.js'
 
 export type HostView = { revision: number; state: PowerPointViewState }
 
 export type SessionHostOptions = {
   candidates: readonly HelperLaunchCandidate[]
   pollIntervalMs?: number
+  /** Test/diagnostic escape hatch; production defaults to the bounded startup burst. */
+  adaptivePolling?: boolean
   /** Persisted setting applied before the first connecting projection or poll. */
   timingMode?: TimingMode
   diagnostics?: DiagnosticsBuffer
@@ -117,6 +122,8 @@ export function projectHostView(
 
 export function createSessionHost(options: SessionHostOptions): SessionHost {
   const pollIntervalMs = options.pollIntervalMs ?? 1_000
+  const adaptivePolling = options.adaptivePolling ?? options.pollIntervalMs === undefined
+  const pollIntervalFor = adaptivePolling ? createPlaybackPollPolicy() : undefined
   const diagnostics = options.diagnostics
   const createClient = options.createClient ?? createPptBridgeClient
   const onView = options.onView
@@ -135,6 +142,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   let lastProtocolVersion: number | null = null
   let lastHelperVersion: string | null = null
   let shutdownPromise: Promise<void> | null = null
+  let startupPausedSinceMs: number | null = null
+  // The projection source after standalone-only per-video status stabilization.
+  // Timing-mode reprojection must use this held source, not the session's raw
+  // source, or a toggle could expose a transient false pause.
+  let stableSource: PresentationSourceState = { kind: 'connecting' }
+  let videoStatusStabilizer = initVideoStatusStabilizer()
   // Standalone multi-video focus history (ISSUE-001). Updated from the session
   // transition before projection so the focus-aware projection sees the latest
   // recency ranking. Reset is driven by the tracker's scope check (instanceId /
@@ -212,9 +225,31 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   const session = new PowerPointSession({
     transport,
     pollIntervalMs,
+    pollIntervalFor,
     onTransition: (result) => {
-      recordTransition(result.state.sourceState)
-      const source = result.state.sourceState
+      const rawSource = result.state.sourceState
+      recordTransition(rawSource)
+      let source = rawSource
+      if (rawSource.kind === 'presentation') {
+        const stabilized = stabilizeVideoStatuses(
+          videoStatusStabilizer,
+          rawSource.snapshot.instanceId,
+          rawSource.snapshot.slideNumber,
+          rawSource.snapshot.videos ?? [],
+          Date.now(),
+        )
+        videoStatusStabilizer = stabilized.state
+        source = {
+          kind: 'presentation',
+          snapshot: { ...rawSource.snapshot, videos: stabilized.videos },
+        }
+      } else {
+        // A non-presentation source is a hard boundary for both status
+        // continuity and focus recency, even if the next presentation reports
+        // the same instance and slide.
+        videoStatusStabilizer = initVideoStatusStabilizer()
+      }
+      stableSource = source
       // Advance the focus tracker for presentation observations. EVERY other
       // source kind resets the history (P0-1): the reducer can emit
       // `unavailable` / `powerpoint_not_running` / `no_slideshow` on the SAME
@@ -235,7 +270,16 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       } else {
         focus = initFocusTracker()
       }
-      publish(projectHostView(source, timingMode, multipleInstanceWarning, focus.playOrder))
+      const nextView = projectHostView(source, timingMode, multipleInstanceWarning, focus.playOrder)
+      const nextIsAmbiguousStartupPause = nextView.kind === 'paused' &&
+        (currentView.state.kind === 'connecting' || currentView.state.kind === 'ready' || startupPausedSinceMs !== null)
+      if (nextIsAmbiguousStartupPause) {
+        const nowMs = Date.now()
+        startupPausedSinceMs ??= nowMs
+        if (nowMs - startupPausedSinceMs < POWERPOINT_STARTUP_PAUSE_GATE_MS) return
+      }
+      startupPausedSinceMs = null
+      publish(nextView)
     },
   })
 
@@ -260,9 +304,10 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   const setTimingMode = (mode: TimingMode): void => {
     if (mode === timingMode) return
     timingMode = mode
+    startupPausedSinceMs = null
     // Reproject from the CURRENT session state without requesting a poll (S-014).
     // Focus history is reused so the selected video stays stable across a toggle.
-    publish(projectHostView(session.state.sourceState, timingMode, multipleInstanceWarning, focus.playOrder))
+    publish(projectHostView(stableSource, timingMode, multipleInstanceWarning, focus.playOrder))
   }
 
   const shutdown = (): Promise<void> => {
