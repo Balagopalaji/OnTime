@@ -9,10 +9,10 @@
  *   current display work area; valid bounds are kept (clamped into that area).
  * - Off-screen / removed-display / DPI-changed bounds recenter onto the saved
  *   display if still present, otherwise the primary display.
- * - Dimensions clamp to the work area and enforce the 320x180 minimum where the
+ * - Dimensions clamp to the work area and enforce the compact minimum where the
  *   work area permits; presets preserve the current center.
  */
-import { MIN_WINDOW_SIZE, PRESET_SIZES, type WindowBounds } from './settings-schema.js'
+import { DETAILS_WINDOW_SIZE, MIN_WINDOW_SIZE, PRESET_SIZES, type WindowBounds } from './settings-schema.js'
 import type { SizePreset } from '../shared/ipc-contract.js'
 
 export type Rectangle = { x: number; y: number; width: number; height: number }
@@ -98,4 +98,35 @@ export function moveToDisplay(target: DisplaySnapshot, size: { width: number; he
 export function applyPreset(currentBounds: Rectangle, preset: Exclude<SizePreset, 'custom'>, workArea: Rectangle): Rectangle {
   const center = centerOf(currentBounds)
   return centerBounds(center.x, center.y, PRESET_SIZES[preset], workArea)
+}
+
+/**
+ * Opens the details drawer without needlessly moving the compact surface.
+ * Prefer retaining the top edge so the drawer grows downward. Near the bottom
+ * of a display, retain the compact surface's bottom edge and grow upward. A
+ * work area smaller than the details preset is handled by the final clamp.
+ */
+export function expandDetailsBounds(currentBounds: Rectangle, workArea: Rectangle): Rectangle {
+  const workBottom = workArea.y + workArea.height
+  const canExpandDown = currentBounds.y + DETAILS_WINDOW_SIZE.height <= workBottom
+  const y = canExpandDown
+    ? currentBounds.y
+    : Math.max(workArea.y, currentBounds.y + currentBounds.height - DETAILS_WINDOW_SIZE.height)
+
+  return clampIntoWorkArea(
+    { x: currentBounds.x, y, ...DETAILS_WINDOW_SIZE },
+    workArea,
+  )
+}
+
+/**
+ * Closes the details drawer to the exact compact preset at its captured origin.
+ * The only adjustment is an edge clamp when display geometry changed while the
+ * drawer was open.
+ */
+export function restoreCompactBounds(savedCompactBounds: Rectangle, workArea: Rectangle): Rectangle {
+  return clampIntoWorkArea(
+    { x: savedCompactBounds.x, y: savedCompactBounds.y, ...PRESET_SIZES.compact },
+    workArea,
+  )
 }

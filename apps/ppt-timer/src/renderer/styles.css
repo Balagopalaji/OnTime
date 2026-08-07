@@ -51,11 +51,12 @@ input:focus-visible {
 
 #app {
   position: relative;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   min-width: 0;
-  padding: 10px;
+  padding: 7px 8px 5px;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% -20%, rgba(255, 255, 255, 0.055), transparent 46%),
@@ -64,27 +65,20 @@ input:focus-visible {
 }
 
 .status {
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 12px 28px 8px;
+  gap: 3px;
+  min-height: 82px;
+  padding: 5px 10px 2px;
   text-align: center;
   -webkit-app-region: drag;
 }
 
-.focus-identity {
-  width: 100%;
-  min-height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.badge {
+.status-label {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -97,7 +91,7 @@ input:focus-visible {
   text-transform: uppercase;
 }
 
-.badge::before {
+.status-label::before {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -122,53 +116,13 @@ input:focus-visible {
   overflow: hidden;
   color: var(--text);
   font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-  font-size: clamp(44px, 17vw, 72px);
+  font-size: clamp(42px, 20vw, 58px);
   font-variant-numeric: tabular-nums lining-nums;
   font-weight: 560;
   letter-spacing: -0.055em;
   line-height: 0.94;
   text-overflow: clip;
   white-space: nowrap;
-}
-
-.video {
-  flex: 0 1 160px;
-  min-width: 0;
-  max-width: min(44vw, 160px);
-  overflow: hidden;
-  color: #c8cdd1;
-  font-size: 11px;
-  font-weight: 520;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.presentation-context {
-  max-width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  color: var(--quiet);
-  font-size: 10px;
-  line-height: 1.2;
-}
-
-.title {
-  max-width: min(48vw, 170px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.slide {
-  flex: none;
-}
-
-.title + .slide::before {
-  margin-right: 7px;
-  color: #50565b;
-  content: "\00b7";
 }
 
 .message {
@@ -187,20 +141,25 @@ input:focus-visible {
 /* The only permanent control is a quiet disclosure caret. All pointer targets
    opt out of the frameless drag region. */
 .controls {
-  position: absolute;
-  z-index: 10;
-  top: 7px;
-  right: 7px;
+  flex: 1 1 auto;
+  min-height: 20px;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  overflow: hidden;
   -webkit-app-region: no-drag;
 }
 
+.controls[data-settings-open="true"] {
+  min-height: 0;
+}
+
 .settings-toggle {
-  width: 24px;
-  height: 24px;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 18px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -234,15 +193,15 @@ input:focus-visible {
 }
 
 .settings-drawer {
-  width: min(320px, calc(100vw - 16px));
-  max-height: calc(100vh - 40px);
-  padding: 12px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  padding: 10px;
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: rgba(31, 34, 37, 0.985);
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.44);
   -webkit-app-region: no-drag;
 }
 
@@ -267,6 +226,39 @@ input:focus-visible {
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.drawer-subtitle {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -2px 0 10px;
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.drawer-deck {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-slide {
+  flex: none;
+}
+
+.drawer-deck + .drawer-slide::before {
+  margin-right: 7px;
+  color: #5f666b;
+  content: "\00b7";
 }
 
 .settings-group {
@@ -331,7 +323,7 @@ input:focus-visible {
 }
 
 .video-group {
-  margin-top: 11px;
+  margin: 0 0 11px;
 }
 
 .group-label {
@@ -407,26 +399,27 @@ input:focus-visible {
 }
 
 .window-controls {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin: 0 0 11px;
 }
 
 .window-control {
-  width: 30px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
+  height: 28px;
+  padding: 0 8px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--surface-raised);
   color: #d5d9dc;
   cursor: pointer;
-  font-size: 17px;
+  font-size: 10px;
   line-height: 1;
   -webkit-app-region: no-drag;
+}
+
+.settings-label {
+  margin-bottom: 6px;
 }
 
 .window-control:hover {
@@ -460,16 +453,14 @@ input:focus-visible {
 
   .status {
     gap: 3px;
-    padding-block: 6px;
+    min-height: 76px;
+    padding-block: 3px;
   }
 
   .time {
     font-size: clamp(40px, 15vw, 62px);
   }
 
-  .title {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

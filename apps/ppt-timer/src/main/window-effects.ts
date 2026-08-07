@@ -11,7 +11,14 @@ import {
   type AlwaysOnTopSetterMarker,
   type ProgrammaticBoundsReason,
 } from './overlay-debug.js'
-import { applyPreset as placePreset, moveToDisplay as placeMoveToDisplay, type DisplaySnapshot, type Rectangle } from './window-placement.js'
+import {
+  applyPreset as placePreset,
+  expandDetailsBounds,
+  moveToDisplay as placeMoveToDisplay,
+  restoreCompactBounds,
+  type DisplaySnapshot,
+  type Rectangle,
+} from './window-placement.js'
 
 export type CreateWindowEffectsDeps = {
   getWindow(): BrowserWindow | null
@@ -19,7 +26,8 @@ export type CreateWindowEffectsDeps = {
   getDisplays(): DisplaySnapshot[]
   getDisplayWorkArea(bounds: Rectangle): Rectangle
   getDisplayScaleFactor(bounds: Rectangle): number
-  setProgrammaticBounds(bounds: Rectangle, reason: ProgrammaticBoundsReason): void
+  setProgrammaticBounds(bounds: Rectangle, reason?: ProgrammaticBoundsReason, transient?: boolean): void
+  setDetailsState(compactBounds: Rectangle | null): void
   pushDiagnostic(event: AppDiagEvent): void
   overlayDebug: boolean
   alwaysOnTopSetterMarker: AlwaysOnTopSetterMarker
@@ -31,6 +39,7 @@ function currentWorkArea(deps: CreateWindowEffectsDeps, window: BrowserWindow): 
 
 /** Creates the small imperative adapter consumed by application controllers. */
 export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffects {
+  let compactBounds: Rectangle | null = null
   const usableWindow = (): BrowserWindow | null => {
     const window = deps.getWindow()
     return window && !window.isDestroyed() ? window : null
@@ -59,6 +68,22 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
         scaleFactor: deps.getDisplayScaleFactor(target.workArea),
         displayCount: deps.getDisplays().length,
       })
+    },
+    setDetailsExpanded: (expanded) => {
+      const window = usableWindow()
+      if (!window) return
+      if (expanded) {
+        if (compactBounds) return
+        compactBounds = window.getBounds()
+        deps.setDetailsState(compactBounds)
+        deps.setProgrammaticBounds(expandDetailsBounds(compactBounds, currentWorkArea(deps, window)), undefined, true)
+        return
+      }
+      if (!compactBounds) return
+      const restore = restoreCompactBounds(compactBounds, currentWorkArea(deps, window))
+      deps.setProgrammaticBounds(restore, undefined, true)
+      compactBounds = null
+      deps.setDetailsState(null)
     },
     minimizeWindow: () => usableWindow()?.minimize(),
     closeWindow: () => usableWindow()?.close(),

@@ -71,12 +71,54 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   drawer.setAttribute('role', 'region')
   drawer.setAttribute('aria-labelledby', 'settings-drawer-title')
 
+  const model = describeView(view.state, { timingMode: view.timingMode })
+  const focus = model.videoRows.find((row) => row.isFocus)
+  section.dataset.detailsSignature = JSON.stringify([
+    focus?.key, focus?.nameText, focus?.statusText, model.titleText, model.slideText, model.multiInstanceWarning,
+  ])
   const heading = element('div', 'drawer-heading')
-  const drawerTitle = element('span', 'drawer-title', 'PowerPoint timer')
+  const drawerTitle = element('span', 'drawer-title', focus?.nameText ?? model.videoText ?? 'PowerPoint timer')
   drawerTitle.id = 'settings-drawer-title'
   heading.append(drawerTitle)
-  heading.append(element('span', 'drawer-subtitle', 'Display settings'))
+  heading.append(element('span', 'drawer-subtitle', focus?.statusText ?? model.stateKind.replace(/_/g, ' ')))
   drawer.append(heading)
+
+  const context = element('div', 'drawer-context')
+  if (model.titleText) context.append(element('span', 'drawer-deck', model.titleText))
+  if (model.slideText) context.append(element('span', 'drawer-slide', model.slideText))
+  if (context.childElementCount > 0) drawer.append(context)
+  if (model.multiInstanceWarning) {
+    const warning = element('div', 'warning', model.multiInstanceWarning)
+    warning.id = 'multi-instance'
+    drawer.append(warning)
+  }
+
+  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
+  section.dataset.videoKeys = secondaryRows.map((row) => row.key).join(',')
+  const list = renderVideoList(secondaryRows)
+  if (list) {
+    const videoGroup = element('div', 'video-group')
+    const videoLabel = element('div', 'group-label', 'Other videos')
+    videoLabel.id = 'other-videos-title'
+    list.setAttribute('aria-labelledby', videoLabel.id)
+    videoGroup.append(videoLabel, list)
+    drawer.append(videoGroup)
+  }
+
+  const windowControls = element('div', 'window-controls')
+  const minimize = element('button', 'window-control', 'Minimize')
+  minimize.type = 'button'
+  minimize.id = 'minimize-window'
+  minimize.addEventListener('click', () => dispatch({ type: 'minimizeWindow' }))
+  const close = element('button', 'window-control close-window', 'Close')
+  close.type = 'button'
+  close.id = 'close-window'
+  close.addEventListener('click', () => dispatch({ type: 'closeWindow' }))
+  windowControls.append(minimize, close)
+  drawer.append(windowControls)
+
+  const settingsLabel = element('div', 'group-label settings-label', 'Settings')
+  drawer.append(settingsLabel)
 
   const settingsGroup = element('div', 'settings-group')
   const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
@@ -117,42 +159,11 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   settingsGroup.append(remote)
   drawer.append(settingsGroup)
 
-  const model = describeView(view.state, { timingMode: view.timingMode })
-  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
-  section.dataset.videoKeys = secondaryRows.map((row) => row.key).join(',')
-  const list = renderVideoList(secondaryRows)
-  if (list) {
-    const videoGroup = element('div', 'video-group')
-    const videoLabel = element('div', 'group-label', 'Other videos')
-    videoLabel.id = 'other-videos-title'
-    list.setAttribute('aria-labelledby', videoLabel.id)
-    videoGroup.append(videoLabel, list)
-    drawer.append(videoGroup)
-  }
-
   const copy = element('button', 'copy', 'Copy diagnostics')
   copy.type = 'button'
   copy.id = 'copy-diagnostics'
   copy.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
   drawer.append(copy)
-
-  const windowControls = element('div', 'window-controls')
-  const minimize = element('button', 'window-control')
-  minimize.type = 'button'
-  minimize.id = 'minimize-window'
-  minimize.textContent = '\u2212'
-  minimize.setAttribute('aria-label', 'Minimize window')
-  minimize.title = 'Minimize window'
-  minimize.addEventListener('click', () => dispatch({ type: 'minimizeWindow' }))
-  const close = element('button', 'window-control close-window')
-  close.type = 'button'
-  close.id = 'close-window'
-  close.textContent = '\u00d7'
-  close.setAttribute('aria-label', 'Close timer')
-  close.title = 'Close timer'
-  close.addEventListener('click', () => dispatch({ type: 'closeWindow' }))
-  windowControls.append(minimize, close)
-  drawer.append(windowControls)
   section.append(drawer)
 
   return section
@@ -187,6 +198,10 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
   const checkbox = section.querySelector<HTMLInputElement>('#always-on-top')
   if (checkbox !== null && checkbox.checked !== view.alwaysOnTop) checkbox.checked = view.alwaysOnTop
   const model = describeView(view.state, { timingMode: view.timingMode })
+  const focus = model.videoRows.find((row) => row.isFocus)
+  if (section.dataset.detailsSignature !== JSON.stringify([
+    focus?.key, focus?.nameText, focus?.statusText, model.titleText, model.slideText, model.multiInstanceWarning,
+  ])) return false
   const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
   if (section.dataset.videoKeys !== secondaryRows.map((row) => row.key).join(',')) return false
   const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')
@@ -301,6 +316,7 @@ export function mountApp(options: {
   const setSettingsOpen = (open: boolean): void => {
     if (settingsOpen === open) return
     settingsOpen = open
+    dispatch({ type: 'setDetailsExpanded', expanded: open })
     if (controlsNode === null || current === null) return
     const active = document.activeElement
     const restoreSettingsFocus = active !== null && controlsNode.contains(active)
@@ -369,6 +385,7 @@ export function mountApp(options: {
   document.addEventListener('keydown', onKeyDown)
   void api.getView().then(render)
   return () => {
+    if (settingsOpen) dispatch({ type: 'setDetailsExpanded', expanded: false })
     clearInterval(ticker)
     unsubscribe()
     document.removeEventListener('keydown', onKeyDown)

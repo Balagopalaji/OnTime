@@ -29,6 +29,7 @@ function makeDeps(overrides: Partial<AppControllersDeps> = {}): AppControllersDe
       setAlwaysOnTop: vi.fn(),
       applyPreset: vi.fn(),
       moveToDisplay: vi.fn(),
+      setDetailsExpanded: vi.fn(),
       minimizeWindow: vi.fn(),
       closeWindow: vi.fn(),
     },
@@ -122,6 +123,16 @@ describe('dispatch routes actions to effects + persistence', () => {
     await controllers.dispatch({ type: 'closeWindow' })
     expect(deps.effects.minimizeWindow).toHaveBeenCalledOnce()
     expect(deps.effects.closeWindow).toHaveBeenCalledOnce()
+    expect(deps.saveSettings).not.toHaveBeenCalled()
+  })
+
+  it('expands and collapses details without persisting transient geometry', async () => {
+    const deps = makeDeps()
+    const controllers = createAppControllers(deps)
+    await controllers.dispatch({ type: 'setDetailsExpanded', expanded: true })
+    await controllers.dispatch({ type: 'setDetailsExpanded', expanded: false })
+    expect(deps.effects.setDetailsExpanded).toHaveBeenNthCalledWith(1, true)
+    expect(deps.effects.setDetailsExpanded).toHaveBeenNthCalledWith(2, false)
     expect(deps.saveSettings).not.toHaveBeenCalled()
   })
 

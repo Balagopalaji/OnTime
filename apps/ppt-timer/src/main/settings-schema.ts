@@ -9,7 +9,7 @@
  */
 import type { SizePreset, TimingMode } from '../shared/ipc-contract.js'
 
-export const SETTINGS_SCHEMA_VERSION = 1
+export const SETTINGS_SCHEMA_VERSION = 2
 
 export type WindowBounds = { x: number; y: number; width: number; height: number }
 
@@ -22,7 +22,7 @@ export type Settings = {
   timingMode: TimingMode
 }
 
-/** S-018: default window 360x220; S-019: always-on-top defaults on; timing remaining. */
+/** S-018: compact window by default; S-019: always-on-top defaults on; timing remaining. */
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
   windowBounds: null,
@@ -32,13 +32,19 @@ export const DEFAULT_SETTINGS: Settings = {
   timingMode: 'remaining',
 }
 
+/** Minimalist-v2 closed surface: focused timer, status, and disclosure caret. */
+export const COMPACT_WINDOW_SIZE = { width: 260, height: 120 } as const
+
+/** Minimalist-v2 open surface: compact timer plus the settings/details drawer. */
+export const DETAILS_WINDOW_SIZE = { width: 360, height: 520 } as const
+
 /** S-018 minimum window size; placement module enforces it against the work area. */
-export const MIN_WINDOW_SIZE = { width: 320, height: 180 } as const
+export const MIN_WINDOW_SIZE = COMPACT_WINDOW_SIZE
 
 /** S-018 compact/large presets. */
 export const PRESET_SIZES: Record<Exclude<SizePreset, 'custom'>, { width: number; height: number }> = {
-  compact: { width: 360, height: 220 },
-  large: { width: 520, height: 320 },
+  compact: COMPACT_WINDOW_SIZE,
+  large: DETAILS_WINDOW_SIZE,
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -73,11 +79,23 @@ function readString(raw: unknown): string | null {
  */
 export function validateSettings(raw: unknown): Settings {
   if (!isObject(raw)) return { ...DEFAULT_SETTINGS }
+  const windowBounds = readBounds(raw.windowBounds)
+  const legacy = raw.schemaVersion !== SETTINGS_SCHEMA_VERSION
+  const migratedBounds = legacy && windowBounds
+    ? {
+        x: Math.round(windowBounds.x + (windowBounds.width - COMPACT_WINDOW_SIZE.width) / 2),
+        y: Math.round(windowBounds.y + (windowBounds.height - COMPACT_WINDOW_SIZE.height) / 2),
+        ...COMPACT_WINDOW_SIZE,
+      }
+    : windowBounds
   return {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
-    windowBounds: readBounds(raw.windowBounds),
+    // Version 2 is a one-time visual-shell migration. Every pre-v2 beta window
+    // starts once at the new compact size while retaining its former center;
+    // v2 custom and large geometry is thereafter preserved verbatim.
+    windowBounds: migratedBounds,
     selectedDisplayId: readString(raw.selectedDisplayId),
-    sizePreset: readPreset(raw.sizePreset),
+    sizePreset: legacy ? 'compact' : readPreset(raw.sizePreset),
     alwaysOnTop: typeof raw.alwaysOnTop === 'boolean' ? raw.alwaysOnTop : true,
     timingMode: readTimingMode(raw.timingMode),
   }

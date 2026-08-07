@@ -10,7 +10,7 @@
  * - Writes are serialized through one promise queue and use same-directory
  *   temp-file -> atomic rename so a crash mid-write cannot leave a partial file.
  */
-import { DEFAULT_SETTINGS, validateSettings, type Settings } from './settings-schema.js'
+import { DEFAULT_SETTINGS, SETTINGS_SCHEMA_VERSION, validateSettings, type Settings } from './settings-schema.js'
 
 export type SettingsFs = {
   readFile(path: string): Promise<string>
@@ -18,7 +18,7 @@ export type SettingsFs = {
   rename(from: string, to: string): Promise<void>
 }
 
-export type LoadResult = { settings: Settings; recovered: boolean; quarantinedPath: string | null }
+export type LoadResult = { settings: Settings; recovered: boolean; migrated: boolean; quarantinedPath: string | null }
 
 export type SettingsStoreOptions = {
   filePath: string
@@ -51,35 +51,39 @@ export function createSettingsStore(options: SettingsStoreOptions): SettingsStor
     }
   }
 
+  const save = (settings: Settings): Promise<void> => {
+    const run = queue.then(async () => {
+      const tmp = `${filePath}.tmp-${now()}`
+      const data = JSON.stringify(settings, null, 2)
+      await fs.writeFile(tmp, data)
+      await fs.rename(tmp, filePath)
+    })
+    queue = run.catch(() => undefined)
+    return run
+  }
+
   const load = async (): Promise<LoadResult> => {
     let text: string
     try {
       text = await fs.readFile(filePath)
     } catch (error) {
-      if (isEnoent(error)) return { settings: { ...DEFAULT_SETTINGS }, recovered: false, quarantinedPath: null }
+      if (isEnoent(error)) return { settings: { ...DEFAULT_SETTINGS }, recovered: false, migrated: false, quarantinedPath: null }
       const quarantinedPath = await quarantine('read-failed')
-      return { settings: { ...DEFAULT_SETTINGS }, recovered: true, quarantinedPath }
+      return { settings: { ...DEFAULT_SETTINGS }, recovered: true, migrated: false, quarantinedPath }
     }
     try {
       const parsed = JSON.parse(text) as unknown
-      return { settings: validateSettings(parsed), recovered: false, quarantinedPath: null }
+      const settings = validateSettings(parsed)
+      const migrated = typeof parsed === 'object' && parsed !== null
+        && (parsed as { schemaVersion?: unknown }).schemaVersion !== SETTINGS_SCHEMA_VERSION
+      // Migration persistence is best-effort. A transient write failure must
+      // not misclassify valid JSON as corrupt or block the timer from opening.
+      if (migrated) await save(settings).catch(() => undefined)
+      return { settings, recovered: false, migrated, quarantinedPath: null }
     } catch {
       const quarantinedPath = await quarantine('parse-failed')
-      return { settings: { ...DEFAULT_SETTINGS }, recovered: true, quarantinedPath }
+      return { settings: { ...DEFAULT_SETTINGS }, recovered: true, migrated: false, quarantinedPath }
     }
-  }
-
-  const save = (settings: Settings): Promise<void> => {
-    const run = queue.then(async () => {
-      const tmp = `${filePath}.tmp-${now()}`
-      const data = JSON.stringify(settings, null, 2)
-      // Ordered: write the temp file fully, then rename atomically onto the target.
-      await fs.writeFile(tmp, data)
-      await fs.rename(tmp, filePath)
-    })
-    // Keep the chain alive without surfacing a rejection to later writers.
-    queue = run.catch(() => undefined)
-    return run
   }
 
   return { load, save }

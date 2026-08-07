@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createSettingsStore, type SettingsFs } from './settings-store'
-import { DEFAULT_SETTINGS } from './settings-schema'
+import { DEFAULT_SETTINGS, SETTINGS_SCHEMA_VERSION } from './settings-schema'
 
 class FakeFs {
   files = new Map<string, string>()
@@ -52,6 +52,32 @@ describe('load (S-023 corrupt recovery, first-run)', () => {
     expect(result.recovered).toBe(false)
     expect(result.settings.alwaysOnTop).toBe(false)
     expect(result.settings.timingMode).toBe('elapsed')
+  })
+
+  it('atomically persists the v2 layout migration once and does not repeat it', async () => {
+    let tick = 10
+    const fs = new FakeFs({
+      [PATH]: JSON.stringify({
+        schemaVersion: 1,
+        sizePreset: 'custom',
+        windowBounds: { x: 40, y: 80, width: 360, height: 410 },
+        alwaysOnTop: true,
+        timingMode: 'remaining',
+      }),
+    })
+    const first = await createSettingsStore({ filePath: PATH, fs, now: () => tick++ }).load()
+    expect(first.migrated).toBe(true)
+    expect(first.settings).toMatchObject({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      sizePreset: 'compact',
+      windowBounds: { x: 90, y: 225, width: 260, height: 120 },
+    })
+    expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({ schemaVersion: SETTINGS_SCHEMA_VERSION })
+    const writesAfterMigration = fs.ops.filter((op) => op.startsWith('write:')).length
+
+    const second = await createSettingsStore({ filePath: PATH, fs, now: () => tick++ }).load()
+    expect(second.migrated).toBe(false)
+    expect(fs.ops.filter((op) => op.startsWith('write:'))).toHaveLength(writesAfterMigration)
   })
 
   it('quarantines a malformed JSON file with .corrupt-<ts> and returns defaults', async () => {

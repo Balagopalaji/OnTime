@@ -19,6 +19,7 @@ export type WindowEffects = {
   setAlwaysOnTop(enabled: boolean): void
   applyPreset(preset: Exclude<SizePreset, 'custom'>): void
   moveToDisplay(displayId: string): void
+  setDetailsExpanded(expanded: boolean): void
   minimizeWindow(): void
   closeWindow(): void
 }
@@ -82,6 +83,10 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
         deps.effects.moveToDisplay(action.displayId)
         // Moving a window does not mean the operator chose a custom size.
         persist(withSettingsField(settings, { selectedDisplayId: action.displayId }))
+        return
+      }
+      case 'setDetailsExpanded': {
+        deps.effects.setDetailsExpanded(action.expanded)
         return
       }
       case 'minimizeWindow': {

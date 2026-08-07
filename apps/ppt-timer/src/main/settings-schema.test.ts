@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
+  COMPACT_WINDOW_SIZE,
+  DETAILS_WINDOW_SIZE,
   MIN_WINDOW_SIZE,
   PRESET_SIZES,
   SETTINGS_SCHEMA_VERSION,
@@ -9,7 +11,7 @@ import {
 } from './settings-schema'
 
 describe('settings schema defaults (S-018/S-019)', () => {
-  it('defaults to compact 360x220, no saved bounds/display, always-on-top on, timing remaining', () => {
+  it('defaults to compact, no saved bounds/display, always-on-top on, timing remaining', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       windowBounds: null,
@@ -20,10 +22,12 @@ describe('settings schema defaults (S-018/S-019)', () => {
     })
   })
 
-  it('exposes the minimum 320x180 and compact/large presets', () => {
-    expect(MIN_WINDOW_SIZE).toEqual({ width: 320, height: 180 })
-    expect(PRESET_SIZES.compact).toEqual({ width: 360, height: 220 })
-    expect(PRESET_SIZES.large).toEqual({ width: 520, height: 320 })
+  it('exposes the minimalist compact/details sizes as the minimum and presets', () => {
+    expect(COMPACT_WINDOW_SIZE).toEqual({ width: 260, height: 120 })
+    expect(DETAILS_WINDOW_SIZE).toEqual({ width: 360, height: 520 })
+    expect(MIN_WINDOW_SIZE).toBe(COMPACT_WINDOW_SIZE)
+    expect(PRESET_SIZES.compact).toBe(COMPACT_WINDOW_SIZE)
+    expect(PRESET_SIZES.large).toBe(DETAILS_WINDOW_SIZE)
   })
 })
 
@@ -71,6 +75,7 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
 
   it('accepts a valid windowBounds and string display id and preserves custom/large presets', () => {
     const result = validateSettings({
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
       windowBounds: { x: 10, y: 20, width: 360, height: 220 },
       selectedDisplayId: 'Display2',
       sizePreset: 'large',
@@ -81,11 +86,45 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
   })
 
   it('preserves a "custom" preset from a prior manual resize', () => {
-    expect(validateSettings({ sizePreset: 'custom' }).sizePreset).toBe('custom')
+    expect(validateSettings({ schemaVersion: SETTINGS_SCHEMA_VERSION, sizePreset: 'custom' }).sizePreset).toBe('custom')
+  })
+
+  it('migrates any pre-v2 beta bounds once to compact while retaining their center', () => {
+    const betaBounds = { x: 40, y: 80, width: 360, height: 410 }
+    for (const sizePreset of ['compact', 'custom', 'large', undefined]) {
+      expect(validateSettings({ schemaVersion: 1, sizePreset, windowBounds: betaBounds })).toMatchObject({
+        sizePreset: 'compact',
+        windowBounds: {
+          x: 90,
+          y: 225,
+          ...COMPACT_WINDOW_SIZE,
+        },
+      })
+    }
+  })
+
+  it('never repeats the migration for current custom or large settings', () => {
+    const customBounds = { x: 40, y: 80, width: 444, height: 333 }
+    expect(validateSettings({ schemaVersion: SETTINGS_SCHEMA_VERSION, sizePreset: 'custom', windowBounds: customBounds })).toMatchObject({
+      sizePreset: 'custom',
+      windowBounds: customBounds,
+    })
+    expect(validateSettings({ schemaVersion: SETTINGS_SCHEMA_VERSION, sizePreset: 'large', windowBounds: customBounds })).toMatchObject({
+      sizePreset: 'large',
+      windowBounds: customBounds,
+    })
+  })
+
+  it('migrates legacy partial settings that omitted the preset', () => {
+    expect(validateSettings({ schemaVersion: 1, windowBounds: { x: 5, y: 6, width: 444, height: 333 } }).windowBounds).toEqual({
+      x: 97,
+      y: 113,
+      ...COMPACT_WINDOW_SIZE,
+    })
   })
 
   it('always stamps the current schema version even if the file carried another', () => {
-    expect(validateSettings({ schemaVersion: 999, alwaysOnTop: false }).schemaVersion).toBe(1)
+    expect(validateSettings({ schemaVersion: 999, alwaysOnTop: false }).schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
   })
 })
 

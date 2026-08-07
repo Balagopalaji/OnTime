@@ -11,6 +11,16 @@ const BADGE_LABEL: Record<Badge, string> = {
   retry: 'Retrying',
 }
 
+const STATE_LABEL: Partial<Record<RenderModel['stateKind'], string>> = {
+  connecting: 'Connecting to PowerPoint',
+  powerpoint_not_running: 'PowerPoint is not running',
+  no_slideshow: 'No slideshow running',
+  no_video: 'No video on this slide',
+  timing_unavailable: 'Timing unavailable',
+  ready: 'Ready',
+  ended: 'Ended',
+}
+
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag)
   if (className) node.className = className
@@ -22,51 +32,20 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
 export function renderPowerPointPanel(model: RenderModel): HTMLElement {
   const section = element('section', 'status')
   section.dataset.state = model.stateKind
-  const focus = model.videoRows.find((row) => row.isFocus)
-  const identity = element('div', 'focus-identity')
-
+  let label: HTMLElement
   if (model.badge) {
-    const badge = element('span', 'badge', BADGE_LABEL[model.badge])
-    badge.id = 'badge'
-    badge.dataset.badge = model.badge
-    identity.append(badge)
+    label = element('span', 'status-label badge', BADGE_LABEL[model.badge])
+    label.id = 'badge'
+    label.dataset.badge = model.badge
+  } else {
+    label = element('span', 'status-label message', STATE_LABEL[model.stateKind] ?? model.messageText ?? 'PowerPoint timer')
+    label.id = 'message'
   }
-  if (focus || model.videoText) {
-    const video = element('div', 'video', focus?.nameText ?? model.videoText ?? '')
-    video.id = 'video'
-    identity.append(video)
-  }
-  if (identity.childElementCount > 0) section.append(identity)
+  section.append(label)
 
   const time = element('div', 'time', model.timeText)
   time.id = 'time'
   section.append(time)
-
-  if (model.titleText || model.slideText) {
-    const context = element('div', 'presentation-context')
-    if (model.titleText) {
-      const title = element('div', 'title', model.titleText)
-      title.id = 'title'
-      context.append(title)
-    }
-    if (model.slideText) {
-      const slide = element('div', 'slide', model.slideText)
-      slide.id = 'slide'
-      context.append(slide)
-    }
-    section.append(context)
-  }
-  if (model.messageText) {
-    const message = element('div', 'message', model.messageText)
-    message.id = 'message'
-    section.append(message)
-  }
-  if (model.multiInstanceWarning) {
-    // Announced once through the separate polite live region, not this node.
-    const warning = element('div', 'warning', model.multiInstanceWarning)
-    warning.id = 'multi-instance'
-    section.append(warning)
-  }
   return section
 }
 

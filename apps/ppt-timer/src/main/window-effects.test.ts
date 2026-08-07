@@ -22,6 +22,7 @@ describe('createWindowEffects', () => {
   it('routes local window mutations through its injected shell adapters', () => {
     const window = fakeWindow()
     const setProgrammaticBounds = vi.fn()
+    const setDetailsState = vi.fn()
     const pushDiagnostic = vi.fn()
     const effects = createWindowEffects({
       getWindow: () => window,
@@ -30,6 +31,7 @@ describe('createWindowEffects', () => {
       getDisplayWorkArea: () => primary,
       getDisplayScaleFactor: () => 1.25,
       setProgrammaticBounds,
+      setDetailsState,
       pushDiagnostic,
       overlayDebug: false,
       alwaysOnTopSetterMarker: { insideAppSetter: false },
@@ -38,12 +40,18 @@ describe('createWindowEffects', () => {
     effects.setAlwaysOnTop(true)
     effects.applyPreset('compact')
     effects.moveToDisplay('secondary')
+    effects.setDetailsExpanded(true)
+    effects.setDetailsExpanded(false)
     effects.minimizeWindow()
     effects.closeWindow()
 
     expect(window.setAlwaysOnTop).toHaveBeenCalledWith(true, 'pop-up-menu')
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(1, expect.any(Object), 'preset')
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(2, { x: 2400, y: 270, width: 320, height: 180 }, 'moveToDisplay')
+    expect(setProgrammaticBounds).toHaveBeenNthCalledWith(3, { x: 10, y: 10, width: 360, height: 520 }, undefined, true)
+    expect(setProgrammaticBounds).toHaveBeenNthCalledWith(4, { x: 10, y: 10, width: 260, height: 120 }, undefined, true)
+    expect(setDetailsState).toHaveBeenNthCalledWith(1, { x: 10, y: 10, width: 320, height: 180 })
+    expect(setDetailsState).toHaveBeenNthCalledWith(2, null)
     expect(pushDiagnostic).toHaveBeenCalledWith(expect.objectContaining({ kind: 'display_change', displayId: 'secondary', scaleFactor: 1.25, displayCount: 2 }))
     expect(window.minimize).toHaveBeenCalledOnce()
     expect(window.close).toHaveBeenCalledOnce()
@@ -57,6 +65,7 @@ describe('createWindowEffects', () => {
       getDisplayWorkArea: () => primary,
       getDisplayScaleFactor: () => 1,
       setProgrammaticBounds: vi.fn(),
+      setDetailsState: vi.fn(),
       pushDiagnostic: vi.fn(),
       overlayDebug: false,
       alwaysOnTopSetterMarker: { insideAppSetter: false },
@@ -64,6 +73,7 @@ describe('createWindowEffects', () => {
     expect(() => effects.setAlwaysOnTop(true)).not.toThrow()
     expect(() => effects.applyPreset('large')).not.toThrow()
     expect(() => effects.moveToDisplay('missing')).not.toThrow()
+    expect(() => effects.setDetailsExpanded(true)).not.toThrow()
     expect(() => effects.minimizeWindow()).not.toThrow()
     expect(() => effects.closeWindow()).not.toThrow()
   })

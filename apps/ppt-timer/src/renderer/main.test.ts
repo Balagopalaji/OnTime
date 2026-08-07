@@ -94,13 +94,14 @@ const rowTimes = (root: HTMLElement): (string | null)[] =>
 const openDrawer = { settingsOpen: true, toggleSettings: () => {} }
 
 describe('renderApp status', () => {
-  it('renders the playing badge, formatted time, slide, and video for a playing view', () => {
+  it('renders only the status and focused time on the closed active surface', () => {
     const root = document.createElement('div')
     renderApp(root, baseView, vi.fn())
     expect(root.querySelector('#badge')?.getAttribute('data-badge')).toBe('playing')
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
-    expect(root.querySelector('#slide')?.textContent).toBe('Slide 3 of 10')
-    expect(root.querySelector('#video')?.textContent).toBe('Intro.mp4')
+    expect(root.querySelector('#slide')).toBeNull()
+    expect(root.querySelector('#video')).toBeNull()
+    expect(root.querySelector('#title')).toBeNull()
   })
 
   it('removes numeric time and shows a retry badge on an unavailable view (S-013)', () => {
@@ -113,7 +114,7 @@ describe('renderApp status', () => {
 
   it('renders the multiple-instance warning overlay (S-012)', () => {
     const root = document.createElement('div')
-    renderApp(root, { ...baseView, state: { ...playing, multipleInstanceWarning: true } }, vi.fn())
+    renderApp(root, { ...baseView, state: { ...playing, multipleInstanceWarning: true } }, vi.fn(), 0, openDrawer)
     expect(root.querySelector('#multi-instance')?.textContent).toBe('Multiple PowerPoint instances detected; verify the deck')
   })
 })
@@ -197,12 +198,15 @@ describe('renderApp focused timer and secondary-video drawer', () => {
   it('keeps the closed surface focused and puts only secondary videos in the drawer', () => {
     const root = document.createElement('div')
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn())
-    expect(root.querySelector('#video')?.textContent).toBe('A.mp4')
+    expect(root.querySelector('#video')).toBeNull()
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
     expect(root.querySelector('#videos')).toBeNull()
 
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     const rows = Array.from(root.querySelectorAll('.video-row'))
+    expect(root.querySelector('#settings-drawer-title')?.textContent).toBe('A.mp4')
+    expect(root.querySelector('.drawer-deck')?.textContent).toBe('Deck.pptx')
+    expect(root.querySelector('.drawer-slide')?.textContent).toBe('Slide 3 of 10')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.getAttribute('data-ordinal')).toBe('1')
     expect(rows[0]?.querySelector('.video-row-name')?.textContent).toBe('B.mp4')
@@ -218,7 +222,7 @@ describe('renderApp focused timer and secondary-video drawer', () => {
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     // 999_000 ms (16:39) would appear if the headline fell back to the scalar.
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
-    expect(root.querySelector('#video')?.textContent).toBe('A.mp4')
+    expect(root.querySelector('#settings-drawer-title')?.textContent).toBe('A.mp4')
     expect(root.querySelector('.video-row[data-ordinal="0"]')).toBeNull()
   })
 
@@ -547,6 +551,11 @@ describe('control stability across pushes', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(root.querySelector('#timing-mode')).toBeNull()
       expect(document.activeElement).toBe(root.querySelector('#settings-toggle'))
+      expect(api.dispatch).toHaveBeenCalledTimes(4)
+      expect(api.dispatch).toHaveBeenNthCalledWith(1, { type: 'setDetailsExpanded', expanded: true })
+      expect(api.dispatch).toHaveBeenNthCalledWith(2, { type: 'setDetailsExpanded', expanded: false })
+      expect(api.dispatch).toHaveBeenNthCalledWith(3, { type: 'setDetailsExpanded', expanded: true })
+      expect(api.dispatch).toHaveBeenNthCalledWith(4, { type: 'setDetailsExpanded', expanded: false })
       stop()
     } finally {
       root.remove()
@@ -664,6 +673,7 @@ describe('control stability across pushes', () => {
       ;(root.querySelector('#minimize-window') as HTMLButtonElement).click()
       ;(root.querySelector('#close-window') as HTMLButtonElement).click()
       expect(dispatched).toEqual([
+        { type: 'setDetailsExpanded', expanded: true },
         { type: 'setTimingMode', mode: 'elapsed' },
         { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
@@ -724,6 +734,7 @@ describe('accessible announcements', () => {
       }
 
       listener?.(warned(5, 48_000))
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
       const warning = root.querySelector('#multi-instance')
       expect(warning?.textContent).toBe('Multiple PowerPoint instances detected; verify the deck')
       // The visible warning must NOT be its own live region: the status section

@@ -123,39 +123,38 @@ async function main(): Promise<void> {
 
   const loaded = await store.load()
   let currentSettings: Settings = loaded.settings
+  let detailsCompactBounds: Rectangle | null = null
+  let transientBoundsTarget: Rectangle | null = null
   const resizePolicy = createWindowResizePolicy()
   if (loaded.recovered) diagnostics.push({ kind: 'settings_recovered', quarantinedPath: loaded.quarantinedPath })
 
-  // Live window bounds are the authority once a window exists, so a settings
-  // write triggered by any control cannot clobber the user's latest drag/resize.
   const liveBounds = (): WindowBounds | null => {
     if (!mainWindow || mainWindow.isDestroyed()) return currentSettings.windowBounds
+    if (detailsCompactBounds) return boundsToWindow(detailsCompactBounds)
     return boundsToWindow(mainWindow.getBounds())
   }
-  // Settings writes are best-effort; a failed persist is logged, never thrown,
-  // so a transient disk error cannot produce an unhandled rejection or crash.
   const reportWriteError = (error: unknown): void => console.error('[ppt-timer] settings write failed', error)
   const writeSettings = (next: Settings): Promise<void> => {
     currentSettings = next
     return store.save(next)
   }
-  // Controllers own timing/always-on-top/preset/display fields; window geometry
-  // is injected here so both persistence paths funnel through one source. The
-  // returned promise never rejects, so controllers' fire-and-forget save is safe.
   const saveFromController = (next: Settings): Promise<void> =>
     writeSettings({ ...next, windowBounds: liveBounds() }).catch(reportWriteError)
   const persistBounds = (userResize = false): void => {
-    const bounds = liveBounds()
+    if (detailsCompactBounds || !mainWindow || mainWindow.isDestroyed()) return
+    const actual = mainWindow.getBounds()
+    if (transientBoundsTarget && boundsEqual(actual, transientBoundsTarget)) return
+    transientBoundsTarget = null
+    const bounds = boundsToWindow(actual)
     void writeSettings(settingsForResizeEvent(currentSettings, bounds, userResize)).catch(reportWriteError)
     if (bounds) diagnostics.push({ kind: 'window_bounds', x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height })
   }
-  const setProgrammaticBounds = (bounds: Rectangle, reason?: ProgrammaticBoundsReason): void => {
+  const setProgrammaticBounds = (bounds: Rectangle, reason?: ProgrammaticBoundsReason, transient = false): void => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const current = mainWindow.getBounds()
+    if (transient) transientBoundsTarget = bounds
     resizePolicy.beforeProgrammaticBounds(current, bounds)
     mainWindow.setBounds(bounds)
-    // Record before/after for the debug report. The display id is read AFTER the
-    // setBounds from the matched display (passive read); no activation occurs.
     if (reason && overlayDebug) {
       const after = mainWindow.getBounds()
       const displayId = screen.getDisplayMatching(after).id
@@ -189,6 +188,7 @@ async function main(): Promise<void> {
     getDisplayWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea,
     getDisplayScaleFactor: (bounds) => screen.getDisplayMatching(bounds).scaleFactor,
     setProgrammaticBounds,
+    setDetailsState: (compactBounds) => { detailsCompactBounds = compactBounds },
     pushDiagnostic: diagnostics.push.bind(diagnostics),
     overlayDebug,
     alwaysOnTopSetterMarker,
