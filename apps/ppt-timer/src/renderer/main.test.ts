@@ -92,7 +92,7 @@ const secondPaused = tile({
 const rowTimes = (root: HTMLElement): (string | null)[] =>
   Array.from(root.querySelectorAll('.video-row .video-row-time')).map((node) => node.textContent)
 
-const openDrawer = { settingsOpen: true, toggleSettings: () => {} }
+const openDrawer = { panelMode: 'options' as const, setPanelMode: () => {} }
 
 describe('renderApp status', () => {
   it('gives longer hour-formatted timers a narrower responsive width factor', () => {
@@ -119,10 +119,11 @@ describe('renderApp status', () => {
     expect(root.querySelector('#slide')).toBeNull()
   })
 
-  it('renders the multiple-instance warning overlay (S-012)', () => {
+  it('keeps diagnostic metadata out of the compact options tray', () => {
     const root = document.createElement('div')
     renderApp(root, { ...baseView, state: { ...playing, multipleInstanceWarning: true } }, vi.fn(), 0, openDrawer)
-    expect(root.querySelector('#multi-instance')?.textContent).toBe('Multiple PowerPoint instances detected; verify the deck')
+    expect(root.querySelector('#multi-instance')).toBeNull()
+    expect(root.textContent).not.toContain('Deck.pptx')
   })
 })
 
@@ -137,13 +138,16 @@ describe('timer-only controls', () => {
     expect(root.querySelector('[data-preset], #display-select, #cta')).toBeNull()
   })
 
-  it('renders an honest disabled remote option in the details drawer', () => {
+  it('renders only the compact operational button strip in options', () => {
     const root = document.createElement('div')
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
-    const remote = root.querySelector('#remote-access') as HTMLInputElement
-    expect(root.querySelector('#settings-drawer')).not.toBeNull()
-    expect(remote.disabled).toBe(true)
-    expect(root.querySelector('#remote-access-state')?.textContent).toBe('Coming later')
+    expect(root.querySelector('#panel-tray')).not.toBeNull()
+    expect(root.querySelector('#timing-mode')?.textContent).toBe('Remaining')
+    expect(root.querySelector('#always-on-top')?.getAttribute('aria-pressed')).toBe('true')
+    expect(root.querySelector('#copy-diagnostics')).not.toBeNull()
+    expect(root.querySelector('#minimize-window')?.textContent).toBe('—')
+    expect(root.querySelector('#close-window')?.textContent).toBe('×')
+    expect(root.querySelector('#remote-access')).toBeNull()
   })
 })
 
@@ -211,17 +215,17 @@ describe('renderApp focused timer and secondary-video drawer', () => {
 
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     const rows = Array.from(root.querySelectorAll('.video-row'))
-    expect(root.querySelector('#settings-drawer-title')?.textContent).toBe('A.mp4')
-    expect(root.querySelector('.drawer-deck')?.textContent).toBe('Deck.pptx')
-    expect(root.querySelector('.drawer-slide')?.textContent).toBe('Slide 3 of 10')
+    expect(root.querySelector('#settings-drawer-title')).toBeNull()
+    expect(root.querySelector('.drawer-deck')).toBeNull()
+    expect(root.querySelector('.drawer-slide')).toBeNull()
     expect(rows).toHaveLength(1)
     expect(rows[0]?.getAttribute('data-ordinal')).toBe('1')
     expect(rows[0]?.querySelector('.video-row-name')?.textContent).toBe('B.mp4')
     expect(rows[0]?.querySelector('.video-row-status')?.textContent).toBe('Paused')
     expect(rowTimes(root)).toEqual(['00:39'])
-    expect(root.querySelector('#settings-toggle')?.getAttribute('aria-controls')).toBe('settings-drawer')
-    expect(root.querySelector('#settings-drawer')?.getAttribute('aria-labelledby')).toBe('settings-drawer-title')
-    expect(root.querySelector('#videos')?.getAttribute('aria-labelledby')).toBe('other-videos-title')
+    expect(root.querySelector('#panel-tray')?.getAttribute('aria-label')).toBe('Timer options')
+    expect(root.querySelector('#panel-collapse')).not.toBeNull()
+    expect(root.querySelector('#panel-switch')?.textContent).toBe('Videos')
   })
 
   it('uses the focus row for the headline rather than the helper scalar', () => {
@@ -229,7 +233,7 @@ describe('renderApp focused timer and secondary-video drawer', () => {
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     // 999_000 ms (16:39) would appear if the headline fell back to the scalar.
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
-    expect(root.querySelector('#settings-drawer-title')?.textContent).toBe('A.mp4')
+    expect(root.textContent).not.toContain('A.mp4')
     expect(root.querySelector('.video-row[data-ordinal="0"]')).toBeNull()
   })
 
@@ -267,7 +271,7 @@ describe('patchTimers', () => {
     expect(root.querySelector('.video-row')).toBe(rowNode)
     expect(statusNode?.textContent).toBe('Paused')
     expect(nameNode?.textContent).toBe('B.mp4')
-    expect(root.querySelector('#settings-toggle')).not.toBeNull()
+    expect(root.querySelector('#panel-collapse')).not.toBeNull()
   })
 
   it('advances two concurrent playing rows independently', () => {
@@ -527,7 +531,7 @@ describe('mountApp local interpolation', () => {
 })
 
 describe('control stability across pushes', () => {
-  it('opens settings, closes them with the same toggle and Escape', () => {
+  it('steps closed -> videos -> options and Escape steps back', () => {
     vi.useFakeTimers()
     const root = document.createElement('div')
     document.body.append(root)
@@ -547,22 +551,21 @@ describe('control stability across pushes', () => {
       const toggle = root.querySelector('#settings-toggle') as HTMLButtonElement
       expect(root.querySelector('#timing-mode')).toBeNull()
       toggle.click()
-      expect(root.querySelector('#timing-mode')).not.toBeNull()
-      expect(root.querySelector('#settings-toggle')?.getAttribute('aria-expanded')).toBe('true')
-      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      expect(root.querySelector('#videos')).not.toBeNull()
       expect(root.querySelector('#timing-mode')).toBeNull()
-      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
-      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
-      checkbox.focus()
-      expect(document.activeElement).toBe(checkbox)
+      ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
+      expect(root.querySelector('#timing-mode')).not.toBeNull()
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(root.querySelector('#timing-mode')).toBeNull()
+      expect(root.querySelector('#videos')).not.toBeNull()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(root.querySelector('#panel-tray')).toBeNull()
       expect(document.activeElement).toBe(root.querySelector('#settings-toggle'))
       expect(api.dispatch).toHaveBeenCalledTimes(4)
-      expect(api.dispatch).toHaveBeenNthCalledWith(1, { type: 'setDetailsExpanded', expanded: true })
-      expect(api.dispatch).toHaveBeenNthCalledWith(2, { type: 'setDetailsExpanded', expanded: false })
-      expect(api.dispatch).toHaveBeenNthCalledWith(3, { type: 'setDetailsExpanded', expanded: true })
-      expect(api.dispatch).toHaveBeenNthCalledWith(4, { type: 'setDetailsExpanded', expanded: false })
+      expect(api.dispatch).toHaveBeenNthCalledWith(1, { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(2, { type: 'setPanelMode', mode: 'options', secondaryVideoCount: 1 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(3, { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1 })
+      expect(api.dispatch).toHaveBeenNthCalledWith(4, { type: 'setPanelMode', mode: 'closed', secondaryVideoCount: 1 })
       stop()
     } finally {
       root.remove()
@@ -570,7 +573,29 @@ describe('control stability across pushes', () => {
     }
   })
 
-  it('keeps settings controls and focus across a timing-only view push', () => {
+  it('single-video first click skips the empty videos stage', () => {
+    vi.useFakeTimers()
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => { listener = fn; return () => {} }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const root = document.createElement('div')
+      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      listener?.(twoVideoView([focusPlaying]))
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      expect(root.querySelector('#timing-mode')).not.toBeNull()
+      expect(root.querySelector('#videos')).toBeNull()
+      expect(api.dispatch).toHaveBeenCalledWith({ type: 'setPanelMode', mode: 'options', secondaryVideoCount: 0 })
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps options controls and focus across a timing-only view push', () => {
     vi.useFakeTimers()
     try {
       let listener: ((view: AppView) => void) | undefined
@@ -587,18 +612,19 @@ describe('control stability across pushes', () => {
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
 
       const controls = root.querySelector('.controls')
-      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
-      expect(checkbox.checked).toBe(true)
-      checkbox.focus()
-      expect(document.activeElement).toBe(checkbox)
+      const topButton = root.querySelector('#always-on-top') as HTMLButtonElement
+      expect(topButton.getAttribute('aria-pressed')).toBe('true')
+      topButton.focus()
+      expect(document.activeElement).toBe(topButton)
 
       listener?.({ ...twoVideoView([{ ...focusPlaying, remainingMs: 47_000 }, secondPaused]), revision: 6 })
 
       expect(root.querySelector('.controls')).toBe(controls)
-      expect(root.querySelector('#always-on-top')).toBe(checkbox)
-      expect(document.activeElement).toBe(checkbox)
+      expect(root.querySelector('#always-on-top')).toBe(topButton)
+      expect(document.activeElement).toBe(topButton)
       // The one-second difference is within the trusted-clock tolerance, so a
       // timing-only push does not rewind the local count at the same instant.
       expect(root.querySelector('#time')?.textContent).toBe('00:48')
@@ -626,8 +652,9 @@ describe('control stability across pushes', () => {
       const stop = mountApp({ root, api, announcer: null, now: () => 0 })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
-      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
-      checkbox.focus()
+      ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
+      const topButton = root.querySelector('#always-on-top') as HTMLButtonElement
+      topButton.focus()
 
       // Changing the focus swaps the secondary key from ordinal 1 to 0, so the
       // drawer needs a structural redraw rather than its ordinary in-place patch.
@@ -639,7 +666,7 @@ describe('control stability across pushes', () => {
         revision: 6,
       })
 
-      expect(root.querySelector('#always-on-top')).not.toBe(checkbox)
+      expect(root.querySelector('#always-on-top')).not.toBe(topButton)
       expect(document.activeElement).toBe(root.querySelector('#always-on-top'))
       stop()
     } finally {
@@ -670,17 +697,17 @@ describe('control stability across pushes', () => {
       })
       listener?.(twoVideoView([focusPlaying, secondPaused]))
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
       listener?.({ ...twoVideoView([focusPlaying, secondPaused]), revision: 6, timingMode: 'elapsed' })
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
-      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
-      checkbox.checked = false
-      checkbox.dispatchEvent(new Event('change'))
+      ;(root.querySelector('#always-on-top') as HTMLButtonElement).click()
       ;(root.querySelector('#copy-diagnostics') as HTMLButtonElement).click()
       ;(root.querySelector('#minimize-window') as HTMLButtonElement).click()
       ;(root.querySelector('#close-window') as HTMLButtonElement).click()
       expect(dispatched).toEqual([
-        { type: 'setDetailsExpanded', expanded: true },
+        { type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 1 },
+        { type: 'setPanelMode', mode: 'options', secondaryVideoCount: 1 },
         { type: 'setTimingMode', mode: 'elapsed' },
         { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
@@ -742,12 +769,7 @@ describe('accessible announcements', () => {
 
       listener?.(warned(5, 48_000))
       ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
-      const warning = root.querySelector('#multi-instance')
-      expect(warning?.textContent).toBe('Multiple PowerPoint instances detected; verify the deck')
-      // The visible warning must NOT be its own live region: the status section
-      // is replaced every poll, and re-inserting a role="alert" node re-announces
-      // it assertively each time.
-      expect(warning?.getAttribute('role')).toBeNull()
+      expect(root.querySelector('#multi-instance')).toBeNull()
       expect(writes).toEqual([
         'Multiple PowerPoint instances detected; verify the deck — Playing — 1. A.mp4: Playing, 2. B.mp4: Paused',
       ])
@@ -756,9 +778,7 @@ describe('accessible announcements', () => {
       listener?.(warned(6, 47_000))
       listener?.(warned(7, 46_000))
       listener?.(warned(8, 45_000))
-      expect(root.querySelector('#multi-instance')?.textContent).toBe(
-        'Multiple PowerPoint instances detected; verify the deck',
-      )
+      expect(root.querySelector('#multi-instance')).toBeNull()
       expect(writes).toHaveLength(1)
       stop()
     } finally {

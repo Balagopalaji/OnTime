@@ -537,22 +537,23 @@ Live media results:
 The standalone shell is now frameless and single-instance. The first visual
 pass was still too large and exposed name/deck/slide metadata in the collapsed
 surface. The refined M1 contract is `190 × 80` with only status and focused
-time plus a centered bottom caret. Expanding temporarily uses `360 × 520` for
-focused context, secondary videos, controls, settings, remote placeholder, and
-diagnostics; collapse restores the compact position. A one-time settings schema
-migration shrinks all pre-M1 beta geometry, including legacy custom bounds,
-without remigrating later custom sizes.
+time plus a bottom-right caret. Expansion is a two-stage, content-sized
+`260`-pixel-wide tray: secondary videos first, then a 28-pixel action strip.
+One to three secondary rows produce video-stage heights of 138, 166, and 194
+pixels; options add 30 pixels, and further rows scroll. Focused metadata,
+headings, cards, and the nonfunctional remote placeholder were removed. Collapse
+restores the captured compact position, including intentional custom sizing.
 
 | Verification | Result |
 | --- | --- |
-| PPT timer suite | PASS — 381 tests |
+| PPT timer suite | PASS — 386 tests |
 | PPT bridge suite | PASS — 72 tests |
 | Both typechecks | PASS |
 | Production application build | PASS |
 | Static guardrails and dependency boundaries | PASS |
 | `git diff --check` | PASS — line-ending warnings only |
 | Current M1 source rebuild and silent installer replacement | PASS |
-| Packaged collapsed/expanded renderer review | PASS — status/time-only compact surface, visible caret, `360 × 520` drawer, and Escape restoration |
+| Packaged staged-tray renderer review | PASS — two-video tray `260 × 138`, options `260 × 168`, and Escape options → videos → compact |
 | Native transient-terminal correction live replay | PENDING |
 | Mixed-DPI and near-work-area-edge expansion review | PENDING |
 

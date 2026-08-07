@@ -12,13 +12,20 @@
  * - Dimensions clamp to the work area and enforce the compact minimum where the
  *   work area permits; presets preserve the current center.
  */
-import { DETAILS_WINDOW_SIZE, MIN_WINDOW_SIZE, PRESET_SIZES, type WindowBounds } from './settings-schema.js'
-import type { SizePreset } from '../shared/ipc-contract.js'
+import { COMPACT_WINDOW_SIZE, MIN_WINDOW_SIZE, PRESET_SIZES, type WindowBounds } from './settings-schema.js'
+import type { PanelMode, SizePreset } from '../shared/ipc-contract.js'
 
 export type Rectangle = { x: number; y: number; width: number; height: number }
 export type DisplaySnapshot = { id: string; label: string; workArea: Rectangle }
 
 export const VISIBILITY_THRESHOLD = 80 * 60
+export const PANEL_WIDTH = 260
+export const MAX_VISIBLE_SECONDARY_ROWS = 3
+export const PANEL_ROW_HEIGHT = 28
+export const PANEL_NAV_HEIGHT = 22
+export const PANEL_OPTIONS_HEIGHT = 28
+export const PANEL_TRAY_PADDING = 8
+export const PANEL_OPTIONS_GAP = 2
 
 export function intersectArea(a: Rectangle, b: Rectangle): number {
   const xOverlap = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
@@ -106,15 +113,36 @@ export function applyPreset(currentBounds: Rectangle, preset: Exclude<SizePreset
  * of a display, retain the compact surface's bottom edge and grow upward. A
  * work area smaller than the details preset is handled by the final clamp.
  */
-export function expandDetailsBounds(currentBounds: Rectangle, workArea: Rectangle): Rectangle {
+export function panelSize(mode: Exclude<PanelMode, 'closed'>, secondaryVideoCount: number): { width: number; height: number } {
+  const rows = Math.min(MAX_VISIBLE_SECONDARY_ROWS, Math.max(0, Math.trunc(secondaryVideoCount)))
+  const optionsHeight = mode === 'options' ? PANEL_OPTIONS_GAP + PANEL_OPTIONS_HEIGHT : 0
+  return {
+    width: PANEL_WIDTH,
+    height:
+      COMPACT_WINDOW_SIZE.height +
+      PANEL_TRAY_PADDING +
+      (rows * PANEL_ROW_HEIGHT) +
+      PANEL_NAV_HEIGHT +
+      optionsHeight,
+  }
+}
+
+/** Opens a trusted, content-sized tray, growing down where possible and up near the work-area edge. */
+export function expandPanelBounds(
+  currentBounds: Rectangle,
+  workArea: Rectangle,
+  mode: Exclude<PanelMode, 'closed'>,
+  secondaryVideoCount: number,
+): Rectangle {
+  const size = panelSize(mode, secondaryVideoCount)
   const workBottom = workArea.y + workArea.height
-  const canExpandDown = currentBounds.y + DETAILS_WINDOW_SIZE.height <= workBottom
+  const canExpandDown = currentBounds.y + size.height <= workBottom
   const y = canExpandDown
     ? currentBounds.y
-    : Math.max(workArea.y, currentBounds.y + currentBounds.height - DETAILS_WINDOW_SIZE.height)
+    : Math.max(workArea.y, currentBounds.y + currentBounds.height - size.height)
 
   return clampIntoWorkArea(
-    { x: currentBounds.x, y, ...DETAILS_WINDOW_SIZE },
+    { x: currentBounds.x, y, ...size },
     workArea,
   )
 }

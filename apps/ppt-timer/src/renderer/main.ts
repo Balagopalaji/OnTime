@@ -18,7 +18,7 @@ import {
   describeView,
   SMOOTHING_TICK_MS,
 } from './view.js'
-import type { AppView, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
+import type { AppView, PanelMode, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 import { createPlaybackClock } from './playback-clock.js'
 import { renderPowerPointPanel, renderVideoList, setTimerText } from './powerpoint-panel.js'
 
@@ -31,8 +31,8 @@ declare global {
 type Dispatch = (action: RendererAction) => void
 
 type ControlsOptions = {
-  settingsOpen: boolean
-  toggleSettings: () => void
+  panelMode: PanelMode
+  setPanelMode: (mode: PanelMode) => void
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -48,81 +48,59 @@ function renderStatus(view: AppView, advanceMs: number): HTMLElement {
 
 function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOptions): HTMLElement {
   const section = element('section', 'controls')
-  section.dataset.settingsOpen = String(options.settingsOpen)
-
-  const settings = element('button', 'settings-toggle')
-  settings.type = 'button'
-  settings.id = 'settings-toggle'
-  settings.setAttribute('aria-expanded', String(options.settingsOpen))
-  settings.setAttribute('aria-controls', 'settings-drawer')
-  settings.setAttribute('aria-haspopup', 'dialog')
-  settings.setAttribute('aria-label', options.settingsOpen ? 'Close settings' : 'Open settings')
-  settings.title = options.settingsOpen ? 'Close settings' : 'Open settings'
-  settings.append(element('span', 'settings-caret'))
-  settings.addEventListener('click', options.toggleSettings)
-  section.append(settings)
-
-  // Timer mode is intentionally presentation-only. Settings are renderer-local
-  // and deliberately not persisted, so a launch always starts uncluttered.
-  if (!options.settingsOpen) return section
-
-  const drawer = element('section', 'settings-drawer')
-  drawer.id = 'settings-drawer'
-  drawer.setAttribute('role', 'region')
-  drawer.setAttribute('aria-labelledby', 'settings-drawer-title')
-
+  section.dataset.panelMode = options.panelMode
   const model = describeView(view.state, { timingMode: view.timingMode })
-  const focus = model.videoRows.find((row) => row.isFocus)
-  section.dataset.detailsSignature = JSON.stringify([
-    focus?.key, focus?.nameText, focus?.statusText, model.titleText, model.slideText, model.multiInstanceWarning,
-  ])
-  const heading = element('div', 'drawer-heading')
-  const drawerTitle = element('span', 'drawer-title', focus?.nameText ?? model.videoText ?? 'PowerPoint timer')
-  drawerTitle.id = 'settings-drawer-title'
-  heading.append(drawerTitle)
-  heading.append(element('span', 'drawer-subtitle', focus?.statusText ?? model.stateKind.replace(/_/g, ' ')))
-  drawer.append(heading)
-
-  const context = element('div', 'drawer-context')
-  if (model.titleText) context.append(element('span', 'drawer-deck', model.titleText))
-  if (model.slideText) context.append(element('span', 'drawer-slide', model.slideText))
-  if (context.childElementCount > 0) drawer.append(context)
-  if (model.multiInstanceWarning) {
-    const warning = element('div', 'warning', model.multiInstanceWarning)
-    warning.id = 'multi-instance'
-    drawer.append(warning)
-  }
-
   const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
-  section.dataset.videoKeys = secondaryRows.map((row) => row.key).join(',')
-  const list = renderVideoList(secondaryRows)
-  if (list) {
-    const videoGroup = element('div', 'video-group')
-    const videoLabel = element('div', 'group-label', 'Other videos')
-    videoLabel.id = 'other-videos-title'
-    list.setAttribute('aria-labelledby', videoLabel.id)
-    videoGroup.append(videoLabel, list)
-    drawer.append(videoGroup)
+  section.dataset.videoSignature = JSON.stringify(secondaryRows.map((row) => [row.key, row.nameText, row.statusText]))
+
+  if (options.panelMode === 'closed') {
+    const open = element('button', 'settings-toggle')
+    open.type = 'button'
+    open.id = 'settings-toggle'
+    open.setAttribute('aria-expanded', 'false')
+    open.setAttribute('aria-label', secondaryRows.length > 0 ? 'Show other videos' : 'Show timer options')
+    open.title = secondaryRows.length > 0 ? 'Other videos' : 'Timer options'
+    open.append(element('span', 'settings-caret'))
+    open.addEventListener('click', () => options.setPanelMode(secondaryRows.length > 0 ? 'videos' : 'options'))
+    section.append(open)
+    return section
   }
 
-  const windowControls = element('div', 'window-controls')
-  const minimize = element('button', 'window-control', 'Minimize')
-  minimize.type = 'button'
-  minimize.id = 'minimize-window'
-  minimize.addEventListener('click', () => dispatch({ type: 'minimizeWindow' }))
-  const close = element('button', 'window-control close-window', 'Close')
-  close.type = 'button'
-  close.id = 'close-window'
-  close.addEventListener('click', () => dispatch({ type: 'closeWindow' }))
-  windowControls.append(minimize, close)
-  drawer.append(windowControls)
+  const tray = element('section', 'panel-tray')
+  tray.id = 'panel-tray'
+  tray.setAttribute('role', 'region')
+  tray.setAttribute('aria-label', options.panelMode === 'videos' ? 'Other videos' : 'Timer options')
+  const list = renderVideoList(secondaryRows)
+  if (list) tray.append(list)
 
-  const settingsLabel = element('div', 'group-label settings-label', 'Settings')
-  drawer.append(settingsLabel)
+  const nav = element('div', 'tray-nav')
+  const collapse = element('button', 'tray-button tray-collapse', '▴')
+  collapse.type = 'button'
+  collapse.id = 'panel-collapse'
+  collapse.title = 'Collapse panel'
+  collapse.setAttribute('aria-label', 'Collapse panel')
+  collapse.addEventListener('click', () => options.setPanelMode('closed'))
+  nav.append(collapse)
+  const switcher = element(
+    'button',
+    'tray-button tray-switch',
+    options.panelMode === 'options' && secondaryRows.length > 0 ? 'Videos' : 'Options',
+  )
+  switcher.type = 'button'
+  switcher.id = 'panel-switch'
+  switcher.title = options.panelMode === 'options' && secondaryRows.length > 0 ? 'Show videos' : 'Show options'
+  switcher.addEventListener('click', () => options.setPanelMode(options.panelMode === 'options' ? 'videos' : 'options'))
+  if (options.panelMode === 'videos' || secondaryRows.length > 0) nav.append(switcher)
+  tray.append(nav)
 
-  const settingsGroup = element('div', 'settings-group')
+  if (options.panelMode === 'videos') {
+    section.append(tray)
+    return section
+  }
+
+  const optionStrip = element('div', 'option-strip')
   const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
-  const timing = element('button', 'toggle', view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed')
+  const timing = element('button', 'option-button timing-mode', view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed')
   timing.type = 'button'
   timing.id = 'timing-mode'
   timing.dataset.mode = view.timingMode
@@ -131,40 +109,34 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
     const currentMode = timing.dataset.mode === 'elapsed' ? 'elapsed' : 'remaining'
     dispatch({ type: 'setTimingMode', mode: currentMode === 'remaining' ? 'elapsed' : 'remaining' })
   })
-  const timingRow = element('div', 'setting-row')
-  timingRow.append(element('span', 'setting-label', 'Timer shows'), timing)
-  settingsGroup.append(timingRow)
-
-  const alwaysOnTop = element('label', 'setting-row always-on-top')
-  alwaysOnTop.append(element('span', 'setting-label', 'Always on top'))
-  const checkbox = document.createElement('input')
-  checkbox.type = 'checkbox'
-  checkbox.id = 'always-on-top'
-  checkbox.setAttribute('aria-label', 'Always on top')
-  checkbox.checked = view.alwaysOnTop
-  checkbox.addEventListener('change', () => dispatch({ type: 'setAlwaysOnTop', enabled: checkbox.checked }))
-  alwaysOnTop.append(checkbox)
-  settingsGroup.append(alwaysOnTop)
-
-  const remote = element('label', 'setting-row remote-access')
-  remote.append(element('span', 'setting-label', 'Remote viewing'))
-  const remoteState = element('span', 'setting-future', 'Coming later')
-  const remoteCheckbox = document.createElement('input')
-  remoteCheckbox.type = 'checkbox'
-  remoteCheckbox.id = 'remote-access'
-  remoteCheckbox.disabled = true
-  remoteCheckbox.setAttribute('aria-describedby', 'remote-access-state')
-  remoteState.id = 'remote-access-state'
-  remote.append(remoteState, remoteCheckbox)
-  settingsGroup.append(remote)
-  drawer.append(settingsGroup)
-
-  const copy = element('button', 'copy', 'Copy diagnostics')
+  const alwaysOnTop = element('button', 'option-button always-on-top', 'Top')
+  alwaysOnTop.type = 'button'
+  alwaysOnTop.id = 'always-on-top'
+  alwaysOnTop.title = 'Always on top'
+  alwaysOnTop.setAttribute('aria-label', 'Always on top')
+  alwaysOnTop.setAttribute('aria-pressed', String(view.alwaysOnTop))
+  alwaysOnTop.addEventListener('click', () => dispatch({ type: 'setAlwaysOnTop', enabled: alwaysOnTop.getAttribute('aria-pressed') !== 'true' }))
+  const copy = element('button', 'option-button', 'Copy')
   copy.type = 'button'
   copy.id = 'copy-diagnostics'
+  copy.title = 'Copy diagnostics'
+  copy.setAttribute('aria-label', 'Copy diagnostics')
   copy.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
-  drawer.append(copy)
-  section.append(drawer)
+  const minimize = element('button', 'option-button symbol-button', '—')
+  minimize.type = 'button'
+  minimize.id = 'minimize-window'
+  minimize.title = 'Minimize'
+  minimize.setAttribute('aria-label', 'Minimize window')
+  minimize.addEventListener('click', () => dispatch({ type: 'minimizeWindow' }))
+  const close = element('button', 'option-button symbol-button close-window', '×')
+  close.type = 'button'
+  close.id = 'close-window'
+  close.title = 'Close'
+  close.setAttribute('aria-label', 'Close window')
+  close.addEventListener('click', () => dispatch({ type: 'closeWindow' }))
+  optionStrip.append(timing, alwaysOnTop, copy, minimize, close)
+  tray.append(optionStrip)
+  section.append(tray)
 
   return section
 }
@@ -180,13 +152,12 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
  * closed. Patching in place keeps focus and open popups alive between polls.
  */
 function patchControls(section: HTMLElement, view: AppView, options: ControlsOptions): boolean {
-  if (section.dataset.settingsOpen !== String(options.settingsOpen)) return false
-  const settings = section.querySelector<HTMLButtonElement>('#settings-toggle')
-  settings?.setAttribute('aria-expanded', String(options.settingsOpen))
-  settings?.setAttribute('aria-controls', 'settings-drawer')
-  settings?.setAttribute('aria-label', options.settingsOpen ? 'Close settings' : 'Open settings')
-  settings?.setAttribute('title', options.settingsOpen ? 'Close settings' : 'Open settings')
-  if (!options.settingsOpen) return true
+  if (section.dataset.panelMode !== options.panelMode) return false
+  const model = describeView(view.state, { timingMode: view.timingMode })
+  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
+  const signature = JSON.stringify(secondaryRows.map((row) => [row.key, row.nameText, row.statusText]))
+  if (section.dataset.videoSignature !== signature) return false
+  if (options.panelMode === 'closed') return true
 
   const timing = section.querySelector<HTMLButtonElement>('#timing-mode')
   if (timing !== null) {
@@ -195,15 +166,7 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
     timing.textContent = view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed'
     timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
   }
-  const checkbox = section.querySelector<HTMLInputElement>('#always-on-top')
-  if (checkbox !== null && checkbox.checked !== view.alwaysOnTop) checkbox.checked = view.alwaysOnTop
-  const model = describeView(view.state, { timingMode: view.timingMode })
-  const focus = model.videoRows.find((row) => row.isFocus)
-  if (section.dataset.detailsSignature !== JSON.stringify([
-    focus?.key, focus?.nameText, focus?.statusText, model.titleText, model.slideText, model.multiInstanceWarning,
-  ])) return false
-  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
-  if (section.dataset.videoKeys !== secondaryRows.map((row) => row.key).join(',')) return false
+  section.querySelector('#always-on-top')?.setAttribute('aria-pressed', String(view.alwaysOnTop))
   const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')
   secondaryRows.forEach((row, index) => {
     const item = rowNodes[index]
@@ -237,8 +200,9 @@ export function renderApp(
   view: AppView,
   dispatch: Dispatch,
   advanceMs = 0,
-  controls: ControlsOptions = { settingsOpen: false, toggleSettings: () => {} },
+  controls: ControlsOptions = { panelMode: 'closed', setPanelMode: () => {} },
 ): void {
+  root.dataset.panelMode = controls.panelMode
   root.replaceChildren(renderStatus(view, advanceMs), renderControls(view, dispatch, controls))
 }
 
@@ -304,26 +268,35 @@ export function mountApp(options: {
   let announced: string | null = null
   let statusNode: HTMLElement | null = null
   let controlsNode: HTMLElement | null = null
-  let settingsOpen = false
+  let panelMode: PanelMode = 'closed'
+  let panelSecondaryCount = 0
+
+  const secondaryVideoCount = (view: AppView | null): number =>
+    view === null
+      ? 0
+      : describeView(view.state, { timingMode: view.timingMode }).videoRows.filter((row) => !row.isFocus).length
 
   const controlsOptions = (): ControlsOptions => ({
-    settingsOpen,
-    toggleSettings: () => setSettingsOpen(!settingsOpen),
+    panelMode,
+    setPanelMode,
   })
 
-  /** Settings are a temporary local view. Rebuilding this small section is
-   * intentional when it opens/closes; normal PowerPoint polls still patch it. */
-  const setSettingsOpen = (open: boolean): void => {
-    if (settingsOpen === open) return
-    settingsOpen = open
-    dispatch({ type: 'setDetailsExpanded', expanded: open })
+  /** Panel mode is transient. The main process derives dimensions from this
+   * closed mode/count pair; the renderer never supplies pixel geometry. */
+  function setPanelMode(requested: PanelMode): void {
+    const count = secondaryVideoCount(current)
+    const next = requested === 'videos' && count === 0 ? 'options' : requested
+    if (panelMode === next && panelSecondaryCount === count) return
+    panelMode = next
+    panelSecondaryCount = count
+    root.dataset.panelMode = next
+    dispatch({ type: 'setPanelMode', mode: next, secondaryVideoCount: count })
     if (controlsNode === null || current === null) return
-    const active = document.activeElement
-    const restoreSettingsFocus = active !== null && controlsNode.contains(active)
     const nextControls = renderControls(current, dispatch, controlsOptions())
     controlsNode.replaceWith(nextControls)
     controlsNode = nextControls
-    if (restoreSettingsFocus) nextControls.querySelector<HTMLButtonElement>('#settings-toggle')?.focus()
+    const focusTarget = next === 'closed' ? '#settings-toggle' : '#panel-collapse'
+    nextControls.querySelector<HTMLButtonElement>(focusTarget)?.focus()
   }
 
   /**
@@ -357,6 +330,13 @@ export function mountApp(options: {
     lastRevision = view.revision
     const smoothed = playbackClock.accept(view, now())
     current = smoothed
+    const count = secondaryVideoCount(smoothed)
+    if (panelMode === 'videos' && count === 0) panelMode = 'options'
+    if (panelMode !== 'closed' && panelSecondaryCount !== count) {
+      panelSecondaryCount = count
+      dispatch({ type: 'setPanelMode', mode: panelMode, secondaryVideoCount: count })
+    }
+    root.dataset.panelMode = panelMode
     paint(smoothed, 0)
     if (announcer) {
       const text = announcementFor(describeView(smoothed.state, { timingMode: smoothed.timingMode }))
@@ -377,15 +357,17 @@ export function mountApp(options: {
   const unsubscribe = api.subscribe(render)
   const ticker = setInterval(tick, SMOOTHING_TICK_MS)
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape' && settingsOpen) {
+    if (event.key === 'Escape' && panelMode !== 'closed') {
       event.preventDefault()
-      setSettingsOpen(false)
+      setPanelMode(panelMode === 'options' && secondaryVideoCount(current) > 0 ? 'videos' : 'closed')
     }
   }
   document.addEventListener('keydown', onKeyDown)
   void api.getView().then(render)
   return () => {
-    if (settingsOpen) dispatch({ type: 'setDetailsExpanded', expanded: false })
+    if (panelMode !== 'closed') {
+      dispatch({ type: 'setPanelMode', mode: 'closed', secondaryVideoCount: secondaryVideoCount(current) })
+    }
     clearInterval(ticker)
     unsubscribe()
     document.removeEventListener('keydown', onKeyDown)

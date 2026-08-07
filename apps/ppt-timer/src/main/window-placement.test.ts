@@ -3,18 +3,19 @@ import {
   applyPreset,
   centerOf,
   clampIntoWorkArea,
-  expandDetailsBounds,
+  expandPanelBounds,
   findDisplay,
   intersectArea,
   isSubstantiallyVisible,
   moveToDisplay,
+  panelSize,
   restoreBounds,
   restoreCompactBounds,
   VISIBILITY_THRESHOLD,
   type DisplaySnapshot,
   type Rectangle,
 } from './window-placement'
-import { DETAILS_WINDOW_SIZE, PRESET_SIZES } from './settings-schema'
+import { PRESET_SIZES } from './settings-schema'
 
 const WA = (x: number, y: number, w: number, h: number): Rectangle => ({ x, y, width: w, height: h })
 const rect = (x: number, y: number, w: number, h: number): Rectangle => ({ x, y, width: w, height: h })
@@ -125,36 +126,46 @@ describe('moveToDisplay (S-020) and applyPreset (S-018)', () => {
   })
 })
 
-describe('minimalist details drawer placement', () => {
-  it('expands downward from the current top-left when the details surface fits', () => {
+describe('content-sized panel placement', () => {
+  it('derives trusted sizes from mode and a clamped visible row count', () => {
+    expect(panelSize('videos', 0)).toEqual({ width: 260, height: 110 })
+    expect(panelSize('videos', 1)).toEqual({ width: 260, height: 138 })
+    expect(panelSize('videos', 3)).toEqual({ width: 260, height: 194 })
+    expect(panelSize('videos', 99)).toEqual({ width: 260, height: 194 })
+    expect(panelSize('options', 0)).toEqual({ width: 260, height: 140 })
+    expect(panelSize('options', 2)).toEqual({ width: 260, height: 196 })
+  })
+
+  it('expands downward from the current top-left when the panel fits', () => {
     const compact = rect(200, 100, 190, 80)
-    expect(expandDetailsBounds(compact, primary.workArea)).toEqual({
+    expect(expandPanelBounds(compact, primary.workArea, 'videos', 2)).toEqual({
       x: 200,
       y: 100,
-      ...DETAILS_WINDOW_SIZE,
+      width: 260,
+      height: 166,
     })
   })
 
   it('expands upward near the bottom while retaining the compact bottom edge', () => {
-    const compact = rect(200, 800, 190, 80)
-    const expanded = expandDetailsBounds(compact, primary.workArea)
-    expect(expanded).toEqual({ x: 200, y: 360, ...DETAILS_WINDOW_SIZE })
+    const compact = rect(200, 900, 190, 80)
+    const expanded = expandPanelBounds(compact, primary.workArea, 'options', 2)
+    expect(expanded).toEqual({ x: 200, y: 784, width: 260, height: 196 })
     expect(expanded.y + expanded.height).toBe(compact.y + compact.height)
   })
 
   it('edge-clamps the expanded surface on work areas smaller than the preset', () => {
-    const smallWorkArea = WA(100, 50, 300, 400)
-    expect(expandDetailsBounds(rect(350, 300, 190, 80), smallWorkArea)).toEqual({
+    const smallWorkArea = WA(100, 50, 240, 160)
+    expect(expandPanelBounds(rect(300, 150, 190, 80), smallWorkArea, 'options', 20)).toEqual({
       x: 100,
       y: 50,
-      width: 300,
-      height: 400,
+      width: 240,
+      height: 160,
     })
   })
 
   it('restores the exact captured compact bounds after a downward expansion', () => {
     const compact = rect(200, 100, 190, 80)
-    const expanded = expandDetailsBounds(compact, primary.workArea)
+    const expanded = expandPanelBounds(compact, primary.workArea, 'videos', 2)
     expect(expanded).not.toEqual(compact)
     expect(restoreCompactBounds(compact, primary.workArea)).toEqual(compact)
   })
@@ -165,8 +176,8 @@ describe('minimalist details drawer placement', () => {
   })
 
   it('restores the exact captured compact bounds after an upward expansion', () => {
-    const compact = rect(200, 800, 190, 80)
-    expect(expandDetailsBounds(compact, primary.workArea).y).toBeLessThan(compact.y)
+    const compact = rect(200, 900, 190, 80)
+    expect(expandPanelBounds(compact, primary.workArea, 'options', 2).y).toBeLessThan(compact.y)
     expect(restoreCompactBounds(compact, primary.workArea)).toEqual(compact)
   })
 

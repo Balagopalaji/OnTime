@@ -14,6 +14,7 @@ import type { PowerPointTimingMode, PowerPointViewState } from '@ontime/presenta
 
 export type SizePreset = 'compact' | 'large' | 'custom'
 export type TimingMode = PowerPointTimingMode
+export type PanelMode = 'closed' | 'videos' | 'options'
 
 /** Persisted display reference (Electron display id stringified at the boundary). */
 export type DisplayInfo = {
@@ -43,7 +44,7 @@ export type RendererAction =
   | { type: 'setAlwaysOnTop'; enabled: boolean }
   | { type: 'applyPreset'; preset: Exclude<SizePreset, 'custom'> }
   | { type: 'moveToDisplay'; displayId: string }
-  | { type: 'setDetailsExpanded'; expanded: boolean }
+  | { type: 'setPanelMode'; mode: PanelMode; secondaryVideoCount: number }
   | { type: 'minimizeWindow' }
   | { type: 'closeWindow' }
   | { type: 'copyDiagnostics' }
@@ -123,8 +124,19 @@ export function parseRendererAction(raw: unknown): ParseResult {
     case 'moveToDisplay':
       if (typeof raw.displayId === 'string' && raw.displayId.length > 0) return { ok: true, action: { type: 'moveToDisplay', displayId: raw.displayId } }
       return { ok: false }
-    case 'setDetailsExpanded':
-      if (typeof raw.expanded === 'boolean') return { ok: true, action: { type: 'setDetailsExpanded', expanded: raw.expanded } }
+    case 'setPanelMode':
+      if (
+        (raw.mode === 'closed' || raw.mode === 'videos' || raw.mode === 'options') &&
+        Number.isInteger(raw.secondaryVideoCount) &&
+        typeof raw.secondaryVideoCount === 'number' &&
+        raw.secondaryVideoCount >= 0 &&
+        raw.secondaryVideoCount <= 1_000
+      ) {
+        return {
+          ok: true,
+          action: { type: 'setPanelMode', mode: raw.mode, secondaryVideoCount: raw.secondaryVideoCount },
+        }
+      }
       return { ok: false }
     case 'minimizeWindow':
       return { ok: true, action: { type: 'minimizeWindow' } }

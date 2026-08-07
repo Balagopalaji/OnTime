@@ -82,9 +82,16 @@ input:focus-visible {
 /* In the compact surface the status owns the viewport and the disclosure
    control floats over its unused bottom-right corner. The open drawer restores
    the normal document flow below. */
-#app:has(.controls[data-settings-open="false"]) .status {
+#app[data-panel-mode="closed"] .status {
   flex: 1 1 auto;
   width: 100%;
+  min-height: 0;
+}
+
+#app:not([data-panel-mode="closed"]) .status {
+  /* The 80px outer shell has 6px of root border/padding, leaving the same
+     74px timer surface here before the content-sized tray begins. */
+  flex: 0 0 74px;
   min-height: 0;
 }
 
@@ -155,38 +162,14 @@ input:focus-visible {
   line-height: 1.3;
 }
 
-.warning {
-  max-width: 280px;
-  color: var(--warning);
-  font-size: 10px;
-  line-height: 1.25;
-}
-
 /* The only permanent control is a quiet disclosure caret. All pointer targets
    opt out of the frameless drag region. */
 .controls {
   flex: 1 1 auto;
   min-height: 15px;
   display: flex;
-  flex-direction: column-reverse;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 3px;
   overflow: hidden;
   -webkit-app-region: no-drag;
-}
-
-.controls[data-settings-open="true"] {
-  min-height: 0;
-}
-
-.controls[data-settings-open="false"] {
-  position: absolute;
-  right: 1px;
-  bottom: 1px;
-  width: 20px;
-  min-height: 0;
-  overflow: visible;
 }
 
 .settings-toggle {
@@ -223,147 +206,6 @@ input:focus-visible {
   transition: transform 140ms ease;
 }
 
-.settings-toggle[aria-expanded="true"] .settings-caret {
-  transform: rotate(-90deg);
-}
-
-.settings-drawer {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
-  padding: 10px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: rgba(31, 34, 37, 0.985);
-  -webkit-app-region: no-drag;
-}
-
-.drawer-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 9px;
-}
-
-.drawer-title {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.drawer-subtitle,
-.group-label {
-  color: var(--quiet);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.drawer-subtitle {
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.drawer-context {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: -2px 0 10px;
-  color: var(--quiet);
-  font-size: 10px;
-}
-
-.drawer-deck {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.drawer-slide {
-  flex: none;
-}
-
-.drawer-deck + .drawer-slide::before {
-  margin-right: 7px;
-  color: #5f666b;
-  content: "\00b7";
-}
-
-.settings-group {
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-}
-
-.setting-row {
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.setting-row + .setting-row {
-  border-top: 1px solid var(--line);
-}
-
-.setting-label {
-  flex: 1;
-}
-
-.setting-row button,
-.copy {
-  padding: 4px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: #d5d9dc;
-  font-size: 10px;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.setting-row button:hover,
-.copy:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.setting-row input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--playing);
-  -webkit-app-region: no-drag;
-}
-
-.remote-access {
-  color: var(--quiet);
-}
-
-.setting-future {
-  color: var(--quiet);
-  font-size: 10px;
-  letter-spacing: 0.035em;
-  text-transform: uppercase;
-}
-
-.video-group {
-  margin: 0 0 11px;
-}
-
-.group-label {
-  margin: 0 1px 6px;
-}
 
 .videos {
   width: 100%;
@@ -428,44 +270,145 @@ input:focus-visible {
   text-align: right;
 }
 
-.copy {
-  width: 100%;
-  margin-top: 10px;
-}
-
-.window-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-  margin: 0 0 11px;
-}
-
-.window-control {
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: #d5d9dc;
-  cursor: pointer;
-  font-size: 10px;
-  line-height: 1;
-  -webkit-app-region: no-drag;
-}
-
-.settings-label {
-  margin-bottom: 6px;
-}
-
-.window-control:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 .close-window:hover {
   border-color: rgba(219, 140, 131, 0.55);
   background: rgba(219, 140, 131, 0.16);
   color: #ffd6d1;
+}
+
+/* Two-stage content-sized tray. Closed controls float in the corner and take
+   no timer space; open controls consume exactly the geometry derived by main. */
+.controls[data-panel-mode="closed"] {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  z-index: 3;
+  width: 20px;
+  height: 14px;
+  min-height: 0;
+  overflow: visible;
+}
+
+.controls:not([data-panel-mode="closed"]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.panel-tray {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 1px var(--line-strong);
+  background: rgba(27, 30, 32, 0.99);
+  -webkit-app-region: no-drag;
+}
+
+.panel-tray .videos {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 5px;
+}
+
+.panel-tray .video-row {
+  flex: 0 0 28px;
+  min-height: 28px;
+  padding: 4px 5px;
+  gap: 6px;
+}
+
+.panel-tray .video-row-name,
+.panel-tray .video-row-time,
+.panel-tray .video-row-status {
+  font-size: 9px;
+}
+
+.panel-tray .video-row-status {
+  padding: 1px 4px;
+}
+
+.tray-nav {
+  flex: 0 0 22px;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.tray-button,
+.option-button {
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--quiet);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.tray-button:hover,
+.option-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.tray-button:focus-visible,
+.option-button:focus-visible {
+  outline: 1px solid rgba(105, 211, 155, 0.58);
+  outline-offset: -1px;
+}
+
+.tray-collapse {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  font-size: 10px;
+}
+
+.tray-switch {
+  margin-left: auto;
+}
+
+.option-strip {
+  flex: 0 0 28px;
+  height: 28px;
+  display: grid;
+  grid-template-columns: minmax(60px, 1fr) 34px 38px 24px 24px;
+  align-items: center;
+  gap: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.option-button {
+  width: 100%;
+  padding-inline: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.always-on-top[aria-pressed="true"] {
+  background: rgba(105, 211, 155, 0.13);
+  color: var(--playing);
+}
+
+.symbol-button {
+  padding: 0;
+  color: #c6cbd0;
+  font-size: 14px;
 }
 
 /* Visually hidden but announced: the polite status live region. */

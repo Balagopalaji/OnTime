@@ -13,7 +13,7 @@ import {
 } from './overlay-debug.js'
 import {
   applyPreset as placePreset,
-  expandDetailsBounds,
+  expandPanelBounds,
   moveToDisplay as placeMoveToDisplay,
   restoreCompactBounds,
   type DisplaySnapshot,
@@ -69,14 +69,19 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
         displayCount: deps.getDisplays().length,
       })
     },
-    setDetailsExpanded: (expanded) => {
+    setPanelMode: (mode, secondaryVideoCount) => {
       const window = usableWindow()
       if (!window) return
-      if (expanded) {
-        if (compactBounds) return
-        compactBounds = window.getBounds()
-        deps.setDetailsState(compactBounds)
-        deps.setProgrammaticBounds(expandDetailsBounds(compactBounds, currentWorkArea(deps, window)), undefined, true)
+      if (mode !== 'closed') {
+        if (!compactBounds) {
+          compactBounds = window.getBounds()
+          deps.setDetailsState(compactBounds)
+        }
+        deps.setProgrammaticBounds(
+          expandPanelBounds(compactBounds, currentWorkArea(deps, window), mode, secondaryVideoCount),
+          undefined,
+          true,
+        )
         return
       }
       if (!compactBounds) return

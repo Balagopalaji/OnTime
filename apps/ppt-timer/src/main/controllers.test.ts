@@ -29,7 +29,7 @@ function makeDeps(overrides: Partial<AppControllersDeps> = {}): AppControllersDe
       setAlwaysOnTop: vi.fn(),
       applyPreset: vi.fn(),
       moveToDisplay: vi.fn(),
-      setDetailsExpanded: vi.fn(),
+      setPanelMode: vi.fn(),
       minimizeWindow: vi.fn(),
       closeWindow: vi.fn(),
     },
@@ -126,13 +126,15 @@ describe('dispatch routes actions to effects + persistence', () => {
     expect(deps.saveSettings).not.toHaveBeenCalled()
   })
 
-  it('expands and collapses details without persisting transient geometry', async () => {
+  it('changes transient panel mode without persisting geometry', async () => {
     const deps = makeDeps()
     const controllers = createAppControllers(deps)
-    await controllers.dispatch({ type: 'setDetailsExpanded', expanded: true })
-    await controllers.dispatch({ type: 'setDetailsExpanded', expanded: false })
-    expect(deps.effects.setDetailsExpanded).toHaveBeenNthCalledWith(1, true)
-    expect(deps.effects.setDetailsExpanded).toHaveBeenNthCalledWith(2, false)
+    await controllers.dispatch({ type: 'setPanelMode', mode: 'videos', secondaryVideoCount: 4 })
+    await controllers.dispatch({ type: 'setPanelMode', mode: 'options', secondaryVideoCount: 4 })
+    await controllers.dispatch({ type: 'setPanelMode', mode: 'closed', secondaryVideoCount: 4 })
+    expect(deps.effects.setPanelMode).toHaveBeenNthCalledWith(1, 'videos', 4)
+    expect(deps.effects.setPanelMode).toHaveBeenNthCalledWith(2, 'options', 4)
+    expect(deps.effects.setPanelMode).toHaveBeenNthCalledWith(3, 'closed', 4)
     expect(deps.saveSettings).not.toHaveBeenCalled()
   })
 

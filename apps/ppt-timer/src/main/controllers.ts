@@ -11,6 +11,7 @@ import type {
   AppView,
   DisplayInfo,
   RendererAction,
+  PanelMode,
   SizePreset,
   UpsellConfig,
 } from '../shared/ipc-contract.js'
@@ -19,7 +20,7 @@ export type WindowEffects = {
   setAlwaysOnTop(enabled: boolean): void
   applyPreset(preset: Exclude<SizePreset, 'custom'>): void
   moveToDisplay(displayId: string): void
-  setDetailsExpanded(expanded: boolean): void
+  setPanelMode(mode: PanelMode, secondaryVideoCount: number): void
   minimizeWindow(): void
   closeWindow(): void
 }
@@ -85,8 +86,8 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
         persist(withSettingsField(settings, { selectedDisplayId: action.displayId }))
         return
       }
-      case 'setDetailsExpanded': {
-        deps.effects.setDetailsExpanded(action.expanded)
+      case 'setPanelMode': {
+        deps.effects.setPanelMode(action.mode, action.secondaryVideoCount)
         return
       }
       case 'minimizeWindow': {
