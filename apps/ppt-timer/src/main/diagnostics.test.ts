@@ -60,6 +60,20 @@ describe('DiagnosticsBuffer ring (S-026 last 100)', () => {
 })
 
 describe('buildReport includes the S-026 diagnostic surface', () => {
+  it('records startup milestones and repeated launches', () => {
+    const buf = new DiagnosticsBuffer({ now: () => 123 })
+    buf.push({ kind: 'app_launch' })
+    buf.push({ kind: 'app_ready', elapsedMs: 245 })
+    buf.push({ kind: 'window_ready', elapsedMs: 612 })
+    buf.push({ kind: 'second_instance' })
+
+    const report = buf.buildReport(meta)
+    expect(report).toContain('[123] app app_launch')
+    expect(report).toContain('[123] app app_ready elapsedMs=245')
+    expect(report).toContain('[123] app window_ready elapsedMs=612')
+    expect(report).toContain('[123] app second_instance')
+  })
+
   it('records versions, signing, affinity, slide/media, display, and bounds', () => {
     const buf = new DiagnosticsBuffer()
     buf.pushBridge({ kind: 'helper_start', generation: 1 })

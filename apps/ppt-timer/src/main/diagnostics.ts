@@ -53,6 +53,9 @@ export type DiagMeta = {
  */
 export type AppDiagEvent =
   | { kind: 'app_launch' }
+  | { kind: 'app_ready'; elapsedMs: number }
+  | { kind: 'window_ready'; elapsedMs: number }
+  | { kind: 'second_instance' }
   | { kind: 'app_shutdown' }
   | { kind: 'availability_transition'; from: string; to: string }
   | { kind: 'slide_observed'; slideNumber: number | null; mediaCount: number; selectedMediaId: number | null; selectedMediaIndex: number | null }
@@ -93,6 +96,7 @@ function formatBridge(event: BridgeDiagnosticEvent): string {
     case 'helper_close': return `bridge helper_close phase=${event.phase}`
     case 'helper_termination': return `bridge helper_termination generation=${event.generation} context=${event.context} result=${event.result} waitMs=${event.waitMs}`
     case 'helper_stderr': return `bridge helper_stderr generation=${event.generation} byteCount=${event.byteCount}`
+    case 'poll_slow': return `bridge poll_slow generation=${event.generation} elapsedMs=${event.elapsedMs} outcome=${event.outcome}`
     case 'validation_warning': return `bridge validation_warning code=${event.code} path=${event.path}`
     case 'availability': return `bridge availability outcome=${event.outcome}`
     case 'output_failure': return `bridge output_failure outcome=${event.outcome}`
@@ -108,6 +112,9 @@ function fmtBounds(x: number, y: number, w: number, h: number): string {
 function formatApp(event: AppDiagEvent): string {
   switch (event.kind) {
     case 'app_launch': return 'app app_launch'
+    case 'app_ready': return `app app_ready elapsedMs=${event.elapsedMs}`
+    case 'window_ready': return `app window_ready elapsedMs=${event.elapsedMs}`
+    case 'second_instance': return 'app second_instance'
     case 'app_shutdown': return 'app app_shutdown'
     case 'availability_transition': return `app availability_transition from=${event.from} to=${event.to}`
     case 'slide_observed': return `app slide_observed slide=${event.slideNumber ?? '--'} mediaCount=${event.mediaCount} selectedMediaId=${event.selectedMediaId ?? '--'} selectedMediaIndex=${event.selectedMediaIndex ?? '--'}`

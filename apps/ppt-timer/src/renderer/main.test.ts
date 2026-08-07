@@ -91,6 +91,8 @@ const secondPaused = tile({
 const rowTimes = (root: HTMLElement): (string | null)[] =>
   Array.from(root.querySelectorAll('.video-row .video-row-time')).map((node) => node.textContent)
 
+const openDrawer = { settingsOpen: true, toggleSettings: () => {} }
+
 describe('renderApp status', () => {
   it('renders the playing badge, formatted time, slide, and video for a playing view', () => {
     const root = document.createElement('div')
@@ -125,6 +127,15 @@ describe('timer-only controls', () => {
     expect(root.querySelector('#always-on-top')).toBeNull()
     expect(root.querySelector('#copy-diagnostics')).toBeNull()
     expect(root.querySelector('[data-preset], #display-select, #cta')).toBeNull()
+  })
+
+  it('renders an honest disabled remote option in the details drawer', () => {
+    const root = document.createElement('div')
+    renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
+    const remote = root.querySelector('#remote-access') as HTMLInputElement
+    expect(root.querySelector('#settings-drawer')).not.toBeNull()
+    expect(remote.disabled).toBe(true)
+    expect(root.querySelector('#remote-access-state')?.textContent).toBe('Coming later')
   })
 })
 
@@ -182,35 +193,39 @@ describe('mountApp', () => {
   })
 })
 
-describe('renderApp per-video rows', () => {
-  it('renders one row per video with label, status text, and an independent timer', () => {
+describe('renderApp focused timer and secondary-video drawer', () => {
+  it('keeps the closed surface focused and puts only secondary videos in the drawer', () => {
     const root = document.createElement('div')
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn())
+    expect(root.querySelector('#video')?.textContent).toBe('A.mp4')
+    expect(root.querySelector('#time')?.textContent).toBe('00:48')
+    expect(root.querySelector('#videos')).toBeNull()
+
+    renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     const rows = Array.from(root.querySelectorAll('.video-row'))
-    expect(rows).toHaveLength(2)
-    expect(rows[0]?.querySelector('.video-row-name')?.textContent).toBe('1. A.mp4')
-    expect(rows[0]?.querySelector('.video-row-status')?.textContent).toBe('Playing')
-    expect(rows[1]?.querySelector('.video-row-name')?.textContent).toBe('2. B.mp4')
-    expect(rows[1]?.querySelector('.video-row-status')?.textContent).toBe('Paused')
-    expect(rowTimes(root)).toEqual(['00:48', '00:39'])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.getAttribute('data-ordinal')).toBe('1')
+    expect(rows[0]?.querySelector('.video-row-name')?.textContent).toBe('B.mp4')
+    expect(rows[0]?.querySelector('.video-row-status')?.textContent).toBe('Paused')
+    expect(rowTimes(root)).toEqual(['00:39'])
+    expect(root.querySelector('#settings-toggle')?.getAttribute('aria-controls')).toBe('settings-drawer')
+    expect(root.querySelector('#settings-drawer')?.getAttribute('aria-labelledby')).toBe('settings-drawer-title')
+    expect(root.querySelector('#videos')?.getAttribute('aria-labelledby')).toBe('other-videos-title')
   })
 
-  it('highlights exactly the focus row and aligns it with the large timer', () => {
+  it('uses the focus row for the headline rather than the helper scalar', () => {
     const root = document.createElement('div')
-    renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn())
-    const focused = Array.from(root.querySelectorAll('.video-row[data-focus="true"]'))
-    expect(focused).toHaveLength(1)
-    expect(focused[0]?.querySelector('.video-row-name')?.textContent).toBe('1. A.mp4')
-    expect(focused[0]?.classList.contains('focus')).toBe(true)
+    renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     // 999_000 ms (16:39) would appear if the headline fell back to the scalar.
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
-    expect(root.querySelector('#time')?.textContent).toBe(focused[0]?.querySelector('.video-row-time')?.textContent)
+    expect(root.querySelector('#video')?.textContent).toBe('A.mp4')
+    expect(root.querySelector('.video-row[data-ordinal="0"]')).toBeNull()
   })
 
-  it('renders each row in elapsed mode when the timing mode is elapsed', () => {
+  it('renders the headline and secondary rows in elapsed mode', () => {
     const root = document.createElement('div')
-    renderApp(root, { ...twoVideoView([focusPlaying, secondPaused]), timingMode: 'elapsed' }, vi.fn())
-    expect(rowTimes(root)).toEqual(['00:12', '00:21'])
+    renderApp(root, { ...twoVideoView([focusPlaying, secondPaused]), timingMode: 'elapsed' }, vi.fn(), 0, openDrawer)
+    expect(rowTimes(root)).toEqual(['00:21'])
     expect(root.querySelector('#time')?.textContent).toBe('00:12')
   })
 
@@ -225,7 +240,7 @@ describe('patchTimers', () => {
   it('rewrites only the timer strings, leaving the rest of the DOM in place', () => {
     const root = document.createElement('div')
     const view = twoVideoView([focusPlaying, secondPaused])
-    renderApp(root, view, vi.fn())
+    renderApp(root, view, vi.fn(), 0, openDrawer)
 
     const timeNode = root.querySelector('#time')
     const statusNode = root.querySelector('.video-row .video-row-status')
@@ -234,13 +249,13 @@ describe('patchTimers', () => {
 
     patchTimers(root, view, 3_000)
 
-    expect(rowTimes(root)).toEqual(['00:45', '00:39'])
+    expect(rowTimes(root)).toEqual(['00:39'])
     expect(root.querySelector('#time')?.textContent).toBe('00:45')
     // Same nodes, untouched status/name text, and controls still wired.
     expect(root.querySelector('#time')).toBe(timeNode)
     expect(root.querySelector('.video-row')).toBe(rowNode)
-    expect(statusNode?.textContent).toBe('Playing')
-    expect(nameNode?.textContent).toBe('1. A.mp4')
+    expect(statusNode?.textContent).toBe('Paused')
+    expect(nameNode?.textContent).toBe('B.mp4')
     expect(root.querySelector('#settings-toggle')).not.toBeNull()
   })
 
@@ -250,10 +265,11 @@ describe('patchTimers', () => {
       focusPlaying,
       tile({ ordinal: 1, name: 'B.mp4', status: 'playing', playing: true, durationMs: 20_000, elapsedMs: 5_000, remainingMs: 15_000 }),
     ])
-    renderApp(root, view, vi.fn())
-    expect(rowTimes(root)).toEqual(['00:48', '00:15'])
+    renderApp(root, view, vi.fn(), 0, openDrawer)
+    expect(rowTimes(root)).toEqual(['00:15'])
     patchTimers(root, view, 2_000)
-    expect(rowTimes(root)).toEqual(['00:46', '00:13'])
+    expect(root.querySelector('#time')?.textContent).toBe('00:46')
+    expect(rowTimes(root)).toEqual(['00:13'])
   })
 
   it('freezes paused and ended rows at any advance', () => {
@@ -262,9 +278,9 @@ describe('patchTimers', () => {
       tile({ ordinal: 0, name: 'A.mp4', status: 'paused', durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
       tile({ ordinal: 1, name: 'B.mp4', status: 'ended', durationMs: 30_000, elapsedMs: 30_000, remainingMs: 0 }),
     ])
-    renderApp(root, view, vi.fn())
+    renderApp(root, view, vi.fn(), 0, openDrawer)
     patchTimers(root, view, 2_000)
-    expect(rowTimes(root)).toEqual(['00:48', '00:00'])
+    expect(rowTimes(root)).toEqual(['00:00'])
     expect(root.querySelector('#time')?.textContent).toBe('00:48')
   })
 })
@@ -317,21 +333,23 @@ describe('mountApp local interpolation', () => {
   it('ticks roughly every 250 ms and decrements the playing row locally', () => {
     withFakeTimers(() => {
       const h = mount(twoVideoView([focusPlaying, secondPaused]))
-      expect(rowTimes(h.root)).toEqual(['00:48', '00:39'])
+      ;(h.root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      expect(rowTimes(h.root)).toEqual(['00:39'])
 
       h.setClock(1_000)
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:47')
-      expect(rowTimes(h.root)).toEqual(['00:47', '00:39'])
+      expect(rowTimes(h.root)).toEqual(['00:39'])
 
       h.setClock(1_500)
       vi.advanceTimersByTime(250)
-      expect(rowTimes(h.root)).toEqual(['00:46', '00:39'])
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
+      expect(rowTimes(h.root)).toEqual(['00:39'])
       h.stop()
     })
   })
 
-  it('stops advancing after 2 seconds without a fresh observation', () => {
+  it('keeps advancing without a fresh observation until the known media end', () => {
     withFakeTimers(() => {
       const h = mount(twoVideoView([focusPlaying, secondPaused]))
 
@@ -339,58 +357,63 @@ describe('mountApp local interpolation', () => {
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
 
-      // 30 s of silence: the display freezes at the capped value rather than
-      // counting on, and never invents Paused or Ended.
+      // Helper silence does not make a confirmed playing clock visibly freeze.
       h.setClock(30_000)
       vi.advanceTimersByTime(250)
-      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:18')
       h.setClock(600_000)
       vi.advanceTimersByTime(250)
-      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
-      expect(h.root.querySelector('.video-row .video-row-status')?.textContent).toBe('Playing')
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:00')
+      expect(h.root.querySelector('#badge')?.textContent).toBe('Playing')
       expect(h.root.querySelector('#message')).toBeNull()
       h.stop()
     })
   })
 
-  it('snaps to a fresh observation instead of blending across a discontinuity', () => {
+  it('requires two consistent observations before correcting a discontinuity', () => {
     withFakeTimers(() => {
       const h = mount(twoVideoView([focusPlaying, secondPaused]))
       h.setClock(1_500)
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
 
-      // A replay/seek observation arrives at t=1500 with remaining back at 58 s.
+      // One replay/seek-shaped measurement is treated as noise.
       h.push({
         ...twoVideoView([{ ...focusPlaying, elapsedMs: 2_000, remainingMs: 58_000 }, secondPaused]),
         revision: 6,
       })
-      expect(h.root.querySelector('#time')?.textContent).toBe('00:58')
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
 
-      // And it becomes the new anchor: the next tick counts down from 58 s.
+      // A second advancing sample confirms the correction and becomes the new
+      // deterministic anchor.
       h.setClock(2_500)
-      vi.advanceTimersByTime(250)
+      h.push({
+        ...twoVideoView([{ ...focusPlaying, elapsedMs: 3_000, remainingMs: 57_000 }, secondPaused]),
+        revision: 7,
+      })
       expect(h.root.querySelector('#time')?.textContent).toBe('00:57')
+      h.setClock(3_500)
+      vi.advanceTimersByTime(250)
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:56')
       h.stop()
     })
   })
 
   it('does not let a stale revision replace newer timing or rewind the anchor', () => {
     withFakeTimers(() => {
-      const h = mount(twoVideoView([focusPlaying, secondPaused]))
-      h.setClock(1_000)
-      h.push({
+      const h = mount({
         ...twoVideoView([{ ...focusPlaying, elapsedMs: 30_000, remainingMs: 30_000 }, secondPaused]),
         revision: 9,
       })
       expect(h.root.querySelector('#time')?.textContent).toBe('00:30')
 
       // A late, lower-revision view carrying older timing must be dropped.
-      h.setClock(1_500)
+      h.setClock(500)
       h.push({ ...twoVideoView([focusPlaying, secondPaused]), revision: 4 })
       expect(h.root.querySelector('#time')?.textContent).toBe('00:30')
 
-      // The revision-9 anchor still stands: 500 ms after it, remaining is 29 s.
+      // The revision-9 anchor still stands and keeps moving locally.
+      h.setClock(1_000)
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:29')
       h.stop()
@@ -441,27 +464,32 @@ describe('mountApp local interpolation', () => {
       vi.advanceTimersByTime(250)
       expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
 
-      // A real discontinuity still snaps immediately.
+      // A real discontinuity needs two advancing samples.
       h.setClock(2_000)
       h.push({ ...twoVideoView([{ ...focusPlaying, remainingMs: 58_000, elapsedMs: 2_000 }, secondPaused]), revision: 7 })
-      expect(h.root.querySelector('#time')?.textContent).toBe('00:58')
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
+      h.setClock(3_000)
+      h.push({ ...twoVideoView([{ ...focusPlaying, remainingMs: 57_000, elapsedMs: 3_000 }, secondPaused]), revision: 8 })
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:57')
       h.stop()
     })
   })
 
-  it('freezes at the cap through a run of identical re-emissions', () => {
+  it('keeps counting through normal newer COM measurements without re-anchoring', () => {
     withFakeTimers(() => {
       const h = mount(twoVideoView([focusPlaying, secondPaused]))
-      // Helper stuck on one value: five identical re-emissions, one per second.
+      // The helper advances normally: each newer reading confirms playback and
+      // should not create a one-second snap at the delivery boundary.
       for (let index = 1; index <= 5; index += 1) {
         h.setClock(index * 1_000)
-        h.push({ ...twoVideoView([{ ...focusPlaying }, { ...secondPaused }]), revision: 5 + index })
+        h.push({
+          ...twoVideoView([{ ...focusPlaying, elapsedMs: 12_000 + index * 1_000, remainingMs: 48_000 - index * 1_000 }, { ...secondPaused }]),
+          revision: 5 + index,
+        })
         vi.advanceTimersByTime(250)
       }
-      // Advanced to the 2 s cap and froze there — no per-second sawtooth back
-      // to 00:48, and no invented Paused/Ended.
-      expect(h.root.querySelector('#time')?.textContent).toBe('00:46')
-      expect(h.root.querySelector('.video-row .video-row-status')?.textContent).toBe('Playing')
+      expect(h.root.querySelector('#time')?.textContent).toBe('00:43')
+      expect(h.root.querySelector('#badge')?.textContent).toBe('Playing')
       h.stop()
     })
   })
@@ -555,10 +583,51 @@ describe('control stability across pushes', () => {
       expect(root.querySelector('.controls')).toBe(controls)
       expect(root.querySelector('#always-on-top')).toBe(checkbox)
       expect(document.activeElement).toBe(checkbox)
-      expect(root.querySelector('#time')?.textContent).toBe('00:47')
+      // The one-second difference is within the trusted-clock tolerance, so a
+      // timing-only push does not rewind the local count at the same instant.
+      expect(root.querySelector('#time')?.textContent).toBe('00:48')
       stop()
       root.remove()
     } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restores focused always-on-top by stable id when the focus video changes', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    document.body.append(root)
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const api: PreloadApi = {
+        getView: vi.fn(() => new Promise<AppView>(() => {})),
+        subscribe: vi.fn((fn) => {
+          listener = fn
+          return () => {}
+        }),
+        dispatch: vi.fn(async () => undefined),
+      }
+      const stop = mountApp({ root, api, announcer: null, now: () => 0 })
+      listener?.(twoVideoView([focusPlaying, secondPaused]))
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      const checkbox = root.querySelector('#always-on-top') as HTMLInputElement
+      checkbox.focus()
+
+      // Changing the focus swaps the secondary key from ordinal 1 to 0, so the
+      // drawer needs a structural redraw rather than its ordinary in-place patch.
+      listener?.({
+        ...twoVideoView([
+          { ...focusPlaying, isFocus: false },
+          { ...secondPaused, isFocus: true, status: 'playing', playing: true },
+        ]),
+        revision: 6,
+      })
+
+      expect(root.querySelector('#always-on-top')).not.toBe(checkbox)
+      expect(document.activeElement).toBe(root.querySelector('#always-on-top'))
+      stop()
+    } finally {
+      root.remove()
       vi.useRealTimers()
     }
   })
@@ -592,11 +661,15 @@ describe('control stability across pushes', () => {
       checkbox.checked = false
       checkbox.dispatchEvent(new Event('change'))
       ;(root.querySelector('#copy-diagnostics') as HTMLButtonElement).click()
+      ;(root.querySelector('#minimize-window') as HTMLButtonElement).click()
+      ;(root.querySelector('#close-window') as HTMLButtonElement).click()
       expect(dispatched).toEqual([
         { type: 'setTimingMode', mode: 'elapsed' },
         { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
         { type: 'copyDiagnostics' },
+        { type: 'minimizeWindow' },
+        { type: 'closeWindow' },
       ])
       stop()
     } finally {

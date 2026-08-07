@@ -9,9 +9,8 @@
 import { app, BrowserWindow, clipboard, Menu, screen, shell, type Display } from 'electron'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
 import { UPSELL_URL_CONSTANT } from './config.js'
-import { createAppControllers, type WindowEffects } from './controllers.js'
+import { createAppControllers } from './controllers.js'
 import { DiagnosticsBuffer, isOverlayDebug, type AppDiagEvent, type DiagMeta } from './diagnostics.js'
 import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
@@ -30,20 +29,19 @@ import {
 } from './overlay-debug.js'
 import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
+import { acquireSingleInstanceActivation } from './single-instance.js'
 import { selectLaunchTargets } from './launch-policy.js'
 import { MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
+import { createWindowEffects } from './window-effects.js'
 import {
-  applyPreset as placePreset,
   isSubstantiallyVisible,
-  moveToDisplay as placeMoveToDisplay,
   restoreBounds,
   type DisplaySnapshot,
   type Rectangle,
 } from './window-placement.js'
 import { resolveUpsellUrl, type DisplayInfo } from '../shared/ipc-contract.js'
-
 // Grace period before a hung helper close is abandoned so a stuck COM call can
 // never wedge quit (S-024). The non-Windows path resolves within a microtask.
 const SHUTDOWN_TIMEOUT_MS = 2_000
@@ -66,14 +64,18 @@ const boundsToWindow = (bounds: Rectangle): WindowBounds => ({
   height: bounds.height,
 })
 
-const boundsEqual = (a: Rectangle, b: Rectangle): boolean =>
-  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+const boundsEqual = (a: Rectangle, b: Rectangle): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 
 async function main(): Promise<void> {
+  const startupStartedAt = performance.now()
   let mainWindow: BrowserWindow | null = null
   let quitting = false
 
   const diagnostics = new DiagnosticsBuffer()
+  diagnostics.push({ kind: 'app_launch' })
+  const startupElapsedMs = (): number => Math.max(0, Math.round(performance.now() - startupStartedAt))
+  const singleInstance = acquireSingleInstanceActivation(app, () => diagnostics.push({ kind: 'second_instance' }))
+  if (!singleInstance) return
 
   // Opt-in Windows overlay diagnostics (ISSUE-001 Presenter View faults). When
   // PPT_TIMER_DEBUG is unset this entire surface is inert: no listeners, no
@@ -180,34 +182,17 @@ async function main(): Promise<void> {
     onView: () => pushView(),
   })
 
-  const workAreaForWindow = (): Rectangle => {
-    const reference = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : primarySnapshot().workArea
-    return screen.getDisplayMatching(reference).workArea
-  }
-
-  const effects: WindowEffects = {
-    setAlwaysOnTop: (enabled) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      setAlwaysOnTopWithDebug(mainWindow, enabled, overlayDebug, logDebug, alwaysOnTopSetterMarker)
-    },
-    applyPreset: (preset) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      setProgrammaticBounds(placePreset(mainWindow.getBounds(), preset, workAreaForWindow()), 'preset')
-    },
-    moveToDisplay: (displayId) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      const target = listSnapshots().find((snapshot) => snapshot.id === displayId)
-      if (!target) return
-      const bounds = mainWindow.getBounds()
-      setProgrammaticBounds(placeMoveToDisplay(target, { width: bounds.width, height: bounds.height }), 'moveToDisplay')
-      diagnostics.push({
-        kind: 'display_change',
-        displayId,
-        scaleFactor: screen.getDisplayMatching(target.workArea).scaleFactor,
-        displayCount: screen.getAllDisplays().length,
-      })
-    },
-  }
+  const effects = createWindowEffects({
+    getWindow: () => mainWindow,
+    getPrimaryWorkArea: () => primarySnapshot().workArea,
+    getDisplays: listSnapshots,
+    getDisplayWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea,
+    getDisplayScaleFactor: (bounds) => screen.getDisplayMatching(bounds).scaleFactor,
+    setProgrammaticBounds,
+    pushDiagnostic: diagnostics.push.bind(diagnostics),
+    overlayDebug,
+    alwaysOnTopSetterMarker,
+  })
 
   const diagMeta = (): DiagMeta => ({
     // Electron reads this from the packaged app's package.json version field.
@@ -283,6 +268,10 @@ async function main(): Promise<void> {
       // explicit `pop-up-menu` level. Starting false prevents Electron from
       // briefly selecting its default `floating` level before that policy runs.
       alwaysOnTop: false,
+      // The compact timer deliberately owns its chrome. Dragging is exposed by
+      // the renderer's explicit `-webkit-app-region: drag` surface and window
+      // controls have `no-drag`, so no invisible native title bar remains.
+      frame: false,
       title: 'OnTime PowerPoint Timer',
       backgroundColor: '#0b0b0f',
       show: false,
@@ -303,10 +292,16 @@ async function main(): Promise<void> {
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     mainWindow.webContents.on('will-navigate', (event) => event.preventDefault())
 
-    mainWindow.on('ready-to-show', () => mainWindow?.show())
+    const createdWindow = mainWindow
+    mainWindow.on('ready-to-show', () => {
+      diagnostics.push({ kind: 'window_ready', elapsedMs: startupElapsedMs() })
+      createdWindow.show()
+      singleInstance.windowReady(createdWindow)
+    })
     mainWindow.on('moved', persistBounds)
     mainWindow.on('resized', () => persistBounds(!resizePolicy.consumeResize()))
     mainWindow.on('closed', () => {
+      singleInstance.windowClosed(createdWindow)
       mainWindow = null
     })
 
@@ -373,6 +368,7 @@ async function main(): Promise<void> {
   app.on('window-all-closed', () => app.quit())
 
   await app.whenReady()
+  diagnostics.push({ kind: 'app_ready', elapsedMs: startupElapsedMs() })
 
   // Remove the generic Windows Electron application menu (File/Edit/View/Window/
   // Help). A timer overlay has no document/edit surface, and the default menu's
@@ -396,7 +392,6 @@ async function main(): Promise<void> {
     if (overlayDebug) logDebug(displayEventEvent('display-metrics-changed', toDebugDisplay(display), screen.getAllDisplays().length))
   })
 
-  diagnostics.push({ kind: 'app_launch' })
   createWindow()
   host.start()
 }

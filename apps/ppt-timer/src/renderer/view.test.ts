@@ -7,7 +7,6 @@ import {
   localAdvanceMs,
   SMOOTHING_STALE_MS,
   tileRemainingMs,
-  timingSignature,
 } from './view'
 
 const ortho = { multipleVideos: false, videoCount: 0, multipleInstanceWarning: false }
@@ -263,6 +262,7 @@ describe('describeView — per-video rows', () => {
   it('renders one row per video with ordinal/name, status text, and an independent timer', () => {
     const m = describeView(withVideos('playing', twoVideos), { timingMode: 'remaining' })
     expect(m.videoRows).toHaveLength(2)
+    expect(m.videoRows[0]?.nameText).toBe('Intro.mp4')
     expect(m.videoRows[0]?.label).toBe('1. Intro.mp4')
     expect(m.videoRows[0]?.statusText).toBe('Playing')
     expect(m.videoRows[0]?.timeText).toBe('00:48')
@@ -281,6 +281,7 @@ describe('describeView — per-video rows', () => {
       ]),
     )
     expect(m.videoRows.map((row) => row.label)).toEqual(['1. Video 1', '2. Video 2', '3. Video 3', '4. Video 4'])
+    expect(m.videoRows.map((row) => row.nameText)).toEqual(['Video 1', 'Video 2', 'Video 3', 'Video 4'])
     expect(m.videoRows.map((row) => row.statusText)).toEqual(['Ready', 'Playing', 'Paused', 'Ended'])
   })
 
@@ -494,57 +495,6 @@ describe('describeView — bounded local interpolation', () => {
     ])
     expect(describeView(view, { timingMode: 'remaining', advanceMs: 1_000 }).timeText).toBe('--:--')
     expect(describeView(view, { timingMode: 'elapsed', advanceMs: 1_000 }).timeText).toBe('--:--')
-  })
-})
-
-describe('timingSignature', () => {
-  const rows = [
-    tile({ ordinal: 0, id: 11, name: 'A.mp4', status: 'playing', playing: true, durationMs: 60_000, elapsedMs: 12_000, remainingMs: 48_000, isFocus: true }),
-    tile({ ordinal: 1, id: 12, name: 'B.mp4', status: 'paused', durationMs: 60_000, elapsedMs: 21_000, remainingMs: 39_000 }),
-  ]
-
-  it('is stable for a re-delivered identical measurement', () => {
-    expect(timingSignature(withVideos('playing', rows))).toBe(timingSignature(withVideos('playing', rows)))
-    // A fresh array of equal tiles is still the same measurement.
-    expect(timingSignature(withVideos('playing', rows.map((row) => ({ ...row }))))).toBe(
-      timingSignature(withVideos('playing', rows)),
-    )
-  })
-
-  it('changes for any real timing, status, identity, or state change', () => {
-    const baseline = timingSignature(withVideos('playing', rows))
-    const changed = [
-      withVideos('playing', [{ ...rows[0]!, remainingMs: 47_000 }, rows[1]!]),
-      withVideos('playing', [{ ...rows[0]!, elapsedMs: 13_000 }, rows[1]!]),
-      withVideos('playing', [{ ...rows[0]!, durationMs: 61_000 }, rows[1]!]),
-      withVideos('playing', [{ ...rows[0]!, status: 'paused' as const }, rows[1]!]),
-      withVideos('playing', [{ ...rows[0]!, id: 99 }, rows[1]!]),
-      withVideos('playing', [{ ...rows[0]!, isFocus: false }, { ...rows[1]!, isFocus: true }]),
-      withVideos('playing', [rows[1]!, rows[0]!]),
-      withVideos('playing', [rows[0]!]),
-      withVideos('paused', rows),
-      state({ kind: 'unavailable', ...ortho }),
-    ]
-    for (const view of changed) expect(timingSignature(view)).not.toBe(baseline)
-  })
-
-  it('distinguishes slide changes that coincidentally share timing', () => {
-    const slideTwo = withVideos('playing', rows)
-    const slideThree = { ...withVideos('playing', rows), slideNumber: 3 } as typeof slideTwo
-    expect(timingSignature(slideThree)).not.toBe(timingSignature(slideTwo))
-  })
-
-  it('distinguishes deck changes landing on the same slide with the same timing', () => {
-    const deckOne = withVideos('playing', rows)
-    const deckTwo = { ...withVideos('playing', rows), title: 'Other.pptx' } as typeof deckOne
-    expect(timingSignature(deckTwo)).not.toBe(timingSignature(deckOne))
-  })
-
-  it('cannot be forged by a deck title containing separator characters', () => {
-    const crafted = { ...withVideos('playing', rows), title: 'A~2~999~|;0' } as PowerPointViewState
-    const plain = { ...withVideos('playing', rows), title: 'A' } as PowerPointViewState
-    expect(timingSignature(crafted)).not.toBe(timingSignature(plain))
-    expect(timingSignature(crafted)).toBe(timingSignature({ ...crafted }))
   })
 })
 

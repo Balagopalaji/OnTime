@@ -7,23 +7,20 @@
  * `innerHTML`, so a deck name can never inject markup.
  *
  * Smoothing lives HERE and nowhere else: the projection stays clock-free
- * (S-017) and IPC traffic is unchanged. Each new MEASUREMENT (keyed by
- * {@link timingSignature}, not by delivery) is stamped with a local monotonic
- * observation time, and a 250 ms tick patches ONLY the timer strings using a
- * bounded advance ({@link localAdvanceMs}). Every fresh measurement re-anchors,
- * so a seek, replay, delayed poll, or corrected COM value snaps straight to the
- * newest observation instead of blending across it; a re-delivered unchanged
- * measurement does not, so the countdown never runs backwards.
+ * (bounded S-017 behavior) and IPC traffic is unchanged. The renderer's playback clock accepts
+ * the first trusted playing measurement, then advances locally between polls.
+ * Newer COM readings confirm playback but do not reset that clock unless the
+ * player stops, identity/duration changes, or two newer readings consistently
+ * confirm a material correction. A 250 ms tick patches ONLY timer strings.
  */
 import {
   announcementFor,
   describeView,
-  localAdvanceMs,
   SMOOTHING_TICK_MS,
-  timingSignature,
-  type Badge,
 } from './view.js'
 import type { AppView, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
+import { createPlaybackClock } from './playback-clock.js'
+import { renderPowerPointPanel, renderVideoList } from './powerpoint-panel.js'
 
 declare global {
   interface Window {
@@ -38,12 +35,6 @@ type ControlsOptions = {
   toggleSettings: () => void
 }
 
-const BADGE_LABEL: Record<Badge, string> = {
-  playing: '▶ Playing',
-  paused: '⏸ Paused',
-  retry: '⟳ Retrying',
-}
-
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag)
   if (className) node.className = className
@@ -52,74 +43,7 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
 }
 
 function renderStatus(view: AppView, advanceMs: number): HTMLElement {
-  const model = describeView(view.state, { timingMode: view.timingMode, advanceMs })
-  const section = element('section', 'status')
-  section.dataset.state = model.stateKind
-
-  if (model.badge) {
-    const badge = element('span', 'badge', BADGE_LABEL[model.badge])
-    badge.id = 'badge'
-    badge.dataset.badge = model.badge
-    section.append(badge)
-  }
-
-  const time = element('div', 'time', model.timeText)
-  time.id = 'time'
-  section.append(time)
-
-  if (model.titleText) {
-    const title = element('div', 'title', model.titleText)
-    title.id = 'title'
-    section.append(title)
-  }
-  if (model.slideText) {
-    const slide = element('div', 'slide', model.slideText)
-    slide.id = 'slide'
-    section.append(slide)
-  }
-  if (model.videoText) {
-    const video = element('div', 'video', model.videoText)
-    video.id = 'video'
-    section.append(video)
-  }
-  if (model.messageText) {
-    const message = element('div', 'message', model.messageText)
-    message.id = 'message'
-    section.append(message)
-  }
-  // Every slide video gets its own row beneath the large focus timer, with an
-  // independent timer. Exactly one row is highlighted: the projection marks a
-  // single `isFocus` tile, and that same tile backs the large timer above.
-  if (model.videoRows.length > 0) {
-    const list = element('ul', 'videos')
-    list.id = 'videos'
-    for (const row of model.videoRows) {
-      const item = element('li', 'video-row')
-      item.dataset.key = row.key
-      item.dataset.ordinal = String(row.ordinal)
-      if (row.isFocus) {
-        item.classList.add('focus')
-        item.dataset.focus = 'true'
-      }
-      item.append(element('span', 'video-row-name', row.label))
-      const status = element('span', 'video-row-status', row.statusText)
-      status.dataset.status = row.statusText.toLowerCase()
-      item.append(status)
-      item.append(element('span', 'video-row-time', row.timeText))
-      list.append(item)
-    }
-    section.append(list)
-  }
-  if (model.multiInstanceWarning) {
-    // Visible only — NOT a live region. The status section is replaced on every
-    // poll, so a `role="alert"` here re-announced itself once per second for as
-    // long as the condition held. The warning is announced once, on change,
-    // through `#announcer` instead (see `announcementFor`).
-    const warning = element('div', 'warning', model.multiInstanceWarning)
-    warning.id = 'multi-instance'
-    section.append(warning)
-  }
-  return section
+  return renderPowerPointPanel(describeView(view.state, { timingMode: view.timingMode, advanceMs }))
 }
 
 function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOptions): HTMLElement {
@@ -130,9 +54,11 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   settings.type = 'button'
   settings.id = 'settings-toggle'
   settings.setAttribute('aria-expanded', String(options.settingsOpen))
+  settings.setAttribute('aria-controls', 'settings-drawer')
+  settings.setAttribute('aria-haspopup', 'dialog')
   settings.setAttribute('aria-label', options.settingsOpen ? 'Close settings' : 'Open settings')
   settings.title = options.settingsOpen ? 'Close settings' : 'Open settings'
-  settings.textContent = '⚙'
+  settings.append(element('span', 'settings-caret'))
   settings.addEventListener('click', options.toggleSettings)
   section.append(settings)
 
@@ -140,6 +66,19 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
   // and deliberately not persisted, so a launch always starts uncluttered.
   if (!options.settingsOpen) return section
 
+  const drawer = element('section', 'settings-drawer')
+  drawer.id = 'settings-drawer'
+  drawer.setAttribute('role', 'region')
+  drawer.setAttribute('aria-labelledby', 'settings-drawer-title')
+
+  const heading = element('div', 'drawer-heading')
+  const drawerTitle = element('span', 'drawer-title', 'PowerPoint timer')
+  drawerTitle.id = 'settings-drawer-title'
+  heading.append(drawerTitle)
+  heading.append(element('span', 'drawer-subtitle', 'Display settings'))
+  drawer.append(heading)
+
+  const settingsGroup = element('div', 'settings-group')
   const nextMode = view.timingMode === 'remaining' ? 'elapsed' : 'remaining'
   const timing = element('button', 'toggle', view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed')
   timing.type = 'button'
@@ -150,22 +89,71 @@ function renderControls(view: AppView, dispatch: Dispatch, options: ControlsOpti
     const currentMode = timing.dataset.mode === 'elapsed' ? 'elapsed' : 'remaining'
     dispatch({ type: 'setTimingMode', mode: currentMode === 'remaining' ? 'elapsed' : 'remaining' })
   })
-  section.append(timing)
+  const timingRow = element('div', 'setting-row')
+  timingRow.append(element('span', 'setting-label', 'Timer shows'), timing)
+  settingsGroup.append(timingRow)
 
-  const alwaysOnTop = element('label', 'always-on-top', 'Always on top')
+  const alwaysOnTop = element('label', 'setting-row always-on-top')
+  alwaysOnTop.append(element('span', 'setting-label', 'Always on top'))
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'
   checkbox.id = 'always-on-top'
+  checkbox.setAttribute('aria-label', 'Always on top')
   checkbox.checked = view.alwaysOnTop
   checkbox.addEventListener('change', () => dispatch({ type: 'setAlwaysOnTop', enabled: checkbox.checked }))
-  alwaysOnTop.prepend(checkbox)
-  section.append(alwaysOnTop)
+  alwaysOnTop.append(checkbox)
+  settingsGroup.append(alwaysOnTop)
+
+  const remote = element('label', 'setting-row remote-access')
+  remote.append(element('span', 'setting-label', 'Remote viewing'))
+  const remoteState = element('span', 'setting-future', 'Coming later')
+  const remoteCheckbox = document.createElement('input')
+  remoteCheckbox.type = 'checkbox'
+  remoteCheckbox.id = 'remote-access'
+  remoteCheckbox.disabled = true
+  remoteCheckbox.setAttribute('aria-describedby', 'remote-access-state')
+  remoteState.id = 'remote-access-state'
+  remote.append(remoteState, remoteCheckbox)
+  settingsGroup.append(remote)
+  drawer.append(settingsGroup)
+
+  const model = describeView(view.state, { timingMode: view.timingMode })
+  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
+  section.dataset.videoKeys = secondaryRows.map((row) => row.key).join(',')
+  const list = renderVideoList(secondaryRows)
+  if (list) {
+    const videoGroup = element('div', 'video-group')
+    const videoLabel = element('div', 'group-label', 'Other videos')
+    videoLabel.id = 'other-videos-title'
+    list.setAttribute('aria-labelledby', videoLabel.id)
+    videoGroup.append(videoLabel, list)
+    drawer.append(videoGroup)
+  }
 
   const copy = element('button', 'copy', 'Copy diagnostics')
   copy.type = 'button'
   copy.id = 'copy-diagnostics'
   copy.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
-  section.append(copy)
+  drawer.append(copy)
+
+  const windowControls = element('div', 'window-controls')
+  const minimize = element('button', 'window-control')
+  minimize.type = 'button'
+  minimize.id = 'minimize-window'
+  minimize.textContent = '\u2212'
+  minimize.setAttribute('aria-label', 'Minimize window')
+  minimize.title = 'Minimize window'
+  minimize.addEventListener('click', () => dispatch({ type: 'minimizeWindow' }))
+  const close = element('button', 'window-control close-window')
+  close.type = 'button'
+  close.id = 'close-window'
+  close.textContent = '\u00d7'
+  close.setAttribute('aria-label', 'Close timer')
+  close.title = 'Close timer'
+  close.addEventListener('click', () => dispatch({ type: 'closeWindow' }))
+  windowControls.append(minimize, close)
+  drawer.append(windowControls)
+  section.append(drawer)
 
   return section
 }
@@ -184,6 +172,7 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
   if (section.dataset.settingsOpen !== String(options.settingsOpen)) return false
   const settings = section.querySelector<HTMLButtonElement>('#settings-toggle')
   settings?.setAttribute('aria-expanded', String(options.settingsOpen))
+  settings?.setAttribute('aria-controls', 'settings-drawer')
   settings?.setAttribute('aria-label', options.settingsOpen ? 'Close settings' : 'Open settings')
   settings?.setAttribute('title', options.settingsOpen ? 'Close settings' : 'Open settings')
   if (!options.settingsOpen) return true
@@ -197,7 +186,30 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
   }
   const checkbox = section.querySelector<HTMLInputElement>('#always-on-top')
   if (checkbox !== null && checkbox.checked !== view.alwaysOnTop) checkbox.checked = view.alwaysOnTop
+  const model = describeView(view.state, { timingMode: view.timingMode })
+  const secondaryRows = model.videoRows.filter((row) => !row.isFocus)
+  if (section.dataset.videoKeys !== secondaryRows.map((row) => row.key).join(',')) return false
+  const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')
+  secondaryRows.forEach((row, index) => {
+    const item = rowNodes[index]
+    if (!item) return
+    const name = item.querySelector('.video-row-name')
+    const status = item.querySelector<HTMLElement>('.video-row-status')
+    const time = item.querySelector('.video-row-time')
+    if (name && name.textContent !== row.nameText) name.textContent = row.nameText
+    if (status) {
+      if (status.textContent !== row.statusText) status.textContent = row.statusText
+      status.dataset.status = row.statusText.toLowerCase()
+    }
+    if (time && time.textContent !== row.timeText) time.textContent = row.timeText
+  })
   return true
+}
+
+/** Restore focus by stable control id after an unavoidable structural redraw. */
+function focusedControlId(section: HTMLElement): string | null {
+  const active = document.activeElement
+  return active instanceof HTMLElement && section.contains(active) && active.id.length > 0 ? active.id : null
 }
 
 /**
@@ -227,7 +239,7 @@ export function patchTimers(root: HTMLElement, view: AppView, advanceMs: number)
   const time = root.querySelector('#time')
   if (time && time.textContent !== model.timeText) time.textContent = model.timeText
   const rowTimes = root.querySelectorAll('.video-row .video-row-time')
-  model.videoRows.forEach((row, index) => {
+  model.videoRows.filter((row) => !row.isFocus).forEach((row, index) => {
     const node = rowTimes[index]
     if (node && node.textContent !== row.timeText) node.textContent = row.timeText
   })
@@ -273,8 +285,7 @@ export function mountApp(options: {
   // leaves the observation anchor alone, so it cannot rewind newer timing.
   let lastRevision = -1
   let current: AppView | null = null
-  let observedAt = 0
-  let anchoredSignature: string | null = null
+  const playbackClock = createPlaybackClock()
   let announced: string | null = null
   let statusNode: HTMLElement | null = null
   let controlsNode: HTMLElement | null = null
@@ -317,34 +328,22 @@ export function mountApp(options: {
     statusNode.replaceWith(nextStatus)
     statusNode = nextStatus
     if (!patchControls(controlsNode, view, controlsOptions())) {
+      const focusId = focusedControlId(controlsNode)
       const nextControls = renderControls(view, dispatch, controlsOptions())
       controlsNode.replaceWith(nextControls)
       controlsNode = nextControls
+      if (focusId) nextControls.querySelector<HTMLElement>(`#${CSS.escape(focusId)}`)?.focus()
     }
   }
 
   const render = (view: AppView): void => {
     if (view.revision < lastRevision) return
     lastRevision = view.revision
-    current = view
-    // Anchor on the MEASUREMENT, not on delivery. A view whose timing signature
-    // matches the anchored one carries no new reading — a same-revision push
-    // after a display change, or a new revision whose timing was re-emitted from
-    // the prior snapshot after a dropped poll — so the anchor is retained and the
-    // paint continues from its current advance. Re-anchoring there would snap the
-    // display back to the older value, i.e. run the countdown backwards.
-    // A genuinely new measurement re-anchors and paints at advance 0, so a seek,
-    // replay, or corrected value snaps instead of blending, and a new
-    // non-presentation state drops every timing anchor.
-    const signature = timingSignature(view.state)
-    const fresh = signature !== anchoredSignature
-    if (fresh) {
-      anchoredSignature = signature
-      observedAt = now()
-    }
-    paint(view, fresh ? 0 : localAdvanceMs(observedAt, now()))
+    const smoothed = playbackClock.accept(view, now())
+    current = smoothed
+    paint(smoothed, 0)
     if (announcer) {
-      const text = announcementFor(describeView(view.state, { timingMode: view.timingMode }))
+      const text = announcementFor(describeView(smoothed.state, { timingMode: smoothed.timingMode }))
       if (text !== announced) {
         announced = text
         announcer.textContent = text
@@ -353,8 +352,10 @@ export function mountApp(options: {
   }
 
   const tick = (): void => {
-    if (current === null) return
-    patchTimers(root, current, localAdvanceMs(observedAt, now()))
+    const smoothed = playbackClock.current(now())
+    if (smoothed === null) return
+    current = smoothed
+    patchTimers(root, smoothed, 0)
   }
 
   const unsubscribe = api.subscribe(render)

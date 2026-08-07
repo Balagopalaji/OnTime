@@ -29,6 +29,8 @@ function makeDeps(overrides: Partial<AppControllersDeps> = {}): AppControllersDe
       setAlwaysOnTop: vi.fn(),
       applyPreset: vi.fn(),
       moveToDisplay: vi.fn(),
+      minimizeWindow: vi.fn(),
+      closeWindow: vi.fn(),
     },
     ...overrides,
   }
@@ -111,6 +113,16 @@ describe('dispatch routes actions to effects + persistence', () => {
     const deps = makeDeps({ getDiagnosticsReport: () => 'DIAG-REPORT' })
     await createAppControllers(deps).dispatch({ type: 'copyDiagnostics' })
     expect(deps.copyToClipboard).toHaveBeenCalledWith('DIAG-REPORT')
+  })
+
+  it('routes local window controls without persisting settings', async () => {
+    const deps = makeDeps()
+    const controllers = createAppControllers(deps)
+    await controllers.dispatch({ type: 'minimizeWindow' })
+    await controllers.dispatch({ type: 'closeWindow' })
+    expect(deps.effects.minimizeWindow).toHaveBeenCalledOnce()
+    expect(deps.effects.closeWindow).toHaveBeenCalledOnce()
+    expect(deps.saveSettings).not.toHaveBeenCalled()
   })
 
   it('openUpsell opens the configured URL externally when available', async () => {

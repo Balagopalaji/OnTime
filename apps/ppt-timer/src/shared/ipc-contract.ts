@@ -43,6 +43,8 @@ export type RendererAction =
   | { type: 'setAlwaysOnTop'; enabled: boolean }
   | { type: 'applyPreset'; preset: Exclude<SizePreset, 'custom'> }
   | { type: 'moveToDisplay'; displayId: string }
+  | { type: 'minimizeWindow' }
+  | { type: 'closeWindow' }
   | { type: 'copyDiagnostics' }
   | { type: 'openUpsell' }
 
@@ -120,6 +122,10 @@ export function parseRendererAction(raw: unknown): ParseResult {
     case 'moveToDisplay':
       if (typeof raw.displayId === 'string' && raw.displayId.length > 0) return { ok: true, action: { type: 'moveToDisplay', displayId: raw.displayId } }
       return { ok: false }
+    case 'minimizeWindow':
+      return { ok: true, action: { type: 'minimizeWindow' } }
+    case 'closeWindow':
+      return { ok: true, action: { type: 'closeWindow' } }
     case 'copyDiagnostics':
       return { ok: true, action: { type: 'copyDiagnostics' } }
     case 'openUpsell':

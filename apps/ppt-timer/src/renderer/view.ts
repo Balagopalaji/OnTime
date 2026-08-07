@@ -27,6 +27,8 @@ export type VideoRowModel = {
   /** Stable within a view: the tile's zero-based shape ordinal, stringified. */
   key: string
   ordinal: number
+  /** Human-readable video name without its list position. */
+  nameText: string
   /** `"1. Intro.mp4"` — ordinal plus name, with a `Video N` name fallback. */
   label: string
   statusText: 'Ready' | 'Playing' | 'Paused' | 'Ended'
@@ -187,6 +189,12 @@ function rowLabel(tile: PowerPointVideoTile): string {
   return `${position}. ${name !== undefined && name.length > 0 ? name : `Video ${position}`}`
 }
 
+function rowName(tile: PowerPointVideoTile): string {
+  const position = tile.ordinal + 1
+  const name = tile.name?.trim()
+  return name !== undefined && name.length > 0 ? name : `Video ${position}`
+}
+
 function slideLabel(state: PowerPointViewState): string | null {
   if (!isPresentation(state)) return null
   if (state.slideNumber === undefined) return null
@@ -242,6 +250,7 @@ export function describeView(state: PowerPointViewState, options: DescribeViewOp
     videoRows: tiles.map((tile) => ({
       key: String(tile.ordinal),
       ordinal: tile.ordinal,
+      nameText: rowName(tile),
       label: rowLabel(tile),
       statusText: STATUS_TEXT[tile.status],
       timeText: timingSuppressed ? DASHED : tileTimeText(tile, timingMode),
@@ -311,50 +320,4 @@ export function announcementFor(model: RenderModel): string {
   return [model.multiInstanceWarning, head, detail]
     .filter((part): part is string => part !== null && part !== undefined && part.length > 0)
     .join(' — ')
-}
-
-/**
- * Identity of the MEASUREMENT a view carries: state kind, slide, and every
- * row's identity plus observed timing. Two views with the same signature carry
- * the same observation, however they were delivered.
- *
- * The renderer anchors local interpolation on this rather than on delivery,
- * because a push is not proof of a fresh reading. Two real paths re-deliver an
- * unchanged measurement: a display-list change pushes the view WITHOUT
- * incrementing the revision, and a dropped/partial poll produces a NEW revision
- * whose timing normalization re-emitted from the prior snapshot. Re-anchoring on
- * either one snaps the display back to the older value — a visible rewind, the
- * exact artefact the smoothing exists to remove.
- *
- * `timeMs` is included even though it is mode-derived, so toggling
- * remaining/elapsed re-anchors and discards up to one poll of accumulated
- * advance. That is deliberate and invisible: every displayed number changes at
- * that instant anyway. It cannot be dropped for rows-bearing views either — a
- * protocol-v1 projection with no primary hint and no `playOrder` rank marks NO
- * row as focus, and the headline then falls back to `timeMs` as its only
- * measurement, so omitting it would miss a genuine scalar-only reading.
- *
- * JSON-encoded so a deck title containing a separator character cannot forge a
- * collision between two different measurements.
- */
-export function timingSignature(state: PowerPointViewState): string {
-  if (!isPresentation(state)) return state.kind
-  return JSON.stringify([
-    state.kind,
-    state.slideNumber ?? null,
-    // Deck identity keeps the signature total: without it, switching decks onto
-    // the same slide number with identical video timing would retain the anchor.
-    state.title,
-    state.timeMs,
-    state.durationMs,
-    state.videos.map((tile) => [
-      tile.ordinal,
-      tile.id ?? null,
-      tile.status,
-      tile.durationMs,
-      tile.elapsedMs,
-      tile.remainingMs,
-      tile.isFocus,
-    ]),
-  ])
 }

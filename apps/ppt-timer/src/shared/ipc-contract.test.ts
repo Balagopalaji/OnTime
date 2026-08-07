@@ -54,6 +54,8 @@ describe('parseRendererAction (S-014/S-033 closed union)', () => {
     expect(parseRendererAction({ type: 'setAlwaysOnTop', enabled: false })).toEqual({ ok: true, action: { type: 'setAlwaysOnTop', enabled: false } })
     expect(parseRendererAction({ type: 'applyPreset', preset: 'large' })).toEqual({ ok: true, action: { type: 'applyPreset', preset: 'large' } })
     expect(parseRendererAction({ type: 'moveToDisplay', displayId: '2' })).toEqual({ ok: true, action: { type: 'moveToDisplay', displayId: '2' } })
+    expect(parseRendererAction({ type: 'minimizeWindow' })).toEqual({ ok: true, action: { type: 'minimizeWindow' } })
+    expect(parseRendererAction({ type: 'closeWindow' })).toEqual({ ok: true, action: { type: 'closeWindow' } })
     expect(parseRendererAction({ type: 'copyDiagnostics' })).toEqual({ ok: true, action: { type: 'copyDiagnostics' } })
   })
 
