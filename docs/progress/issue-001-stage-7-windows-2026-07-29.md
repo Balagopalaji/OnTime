@@ -551,9 +551,11 @@ without remigrating later custom sizes.
 | Production application build | PASS |
 | Static guardrails and dependency boundaries | PASS |
 | `git diff --check` | PASS — line-ending warnings only |
+| Current M1 source rebuild and silent installer replacement | PASS |
+| Packaged collapsed/expanded renderer review | PASS — status/time-only compact surface, visible caret, `360 × 520` drawer, and Escape restoration |
 | Native transient-terminal correction live replay | PENDING |
-| Minimal `260 × 120` shell packaged/live DPI and edge-expansion review | PENDING |
+| Mixed-DPI and near-work-area-edge expansion review | PENDING |
 
-The earlier package was useful for clock and launch acceptance, but the current
-M1 geometry and terminal-position correction must be rebuilt and installed
-before final Stage 7 acceptance.
+The current M1 geometry and terminal-position correction are rebuilt and
+installed. Final Stage 7 acceptance still requires the slide 6 first-play replay
+and the remaining mixed-DPI/work-area-edge checks.
