@@ -98,16 +98,26 @@ Positive evidence from the same run:
 - Design compact single-video, multi-video, ready/paused/ended, unavailable/reconnecting, and settings states.
 - The collapsed surface is an exact minimalist contract: one status label, one
   focused countdown, and a bottom-right disclosure caret. Video/deck/slide
-  identity, warnings, secondary videos, window controls, display settings, and
+  identity, warnings, the full video list, window controls, display settings, and
   diagnostics do not appear until expanded.
 - Use a `190 × 80` frameless compact window and a two-stage, content-sized
-  `260`-pixel-wide tray. The first stage contains only secondary video rows and
-  shows at most three before scrolling. The second adds one compact action
-  strip for timing mode, always-on-top, diagnostics copy, minimize, and close.
-  A single-video slide skips the empty video stage. Expansion grows down when
-  space permits, otherwise grows up while retaining the compact bottom edge;
-  collapse restores the captured compact position. Tray geometry is never
-  persisted as compact geometry.
+  `260`-pixel-wide tray. The first stage contains every video row, including the
+  focused video, and must size to its content without an internal scrollbar or
+  row cap. The second disclosure adds one compact action strip for timing mode,
+  `On top`, `Diagnostics`, minimize, and close. Its controls use subtle borders
+  so toggles are recognizable, and every interactive control has a concise hover
+  explanation and accessible label. The disclosure/collapse caret remains at
+  the bottom-right in every tray state.
+- A slide with more than one video automatically opens the first-stage video
+  list without taking focus from PowerPoint. An automatically owned tray closes
+  when the slide returns to one or zero videos. Any user expansion transfers
+  ownership to the user and is not auto-collapsed; a user dismissal is respected
+  for the rest of that slide rather than reopening on later observations. The
+  control strip remains a separate second-stage disclosure rather than appearing
+  with the automatically opened list.
+- Expansion grows down when space permits, otherwise grows up while retaining
+  the compact bottom edge; collapse restores the captured compact position.
+  Tray geometry is never persisted as compact geometry.
 - Do not show a nonfunctional remote toggle. Remote state/control appears only
   after M3 supplies an actionable authenticated transport.
 - Use an explicit drag region, retained resize affordance, accessible in-app
