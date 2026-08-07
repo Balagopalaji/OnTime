@@ -536,7 +536,7 @@ Live media results:
 
 The standalone shell is now frameless and single-instance. The first visual
 pass was still too large and exposed name/deck/slide metadata in the collapsed
-surface. The corrected M1 contract is `260 × 120` with only status and focused
+surface. The refined M1 contract is `200 × 88` with only status and focused
 time plus a centered bottom caret. Expanding temporarily uses `360 × 520` for
 focused context, secondary videos, controls, settings, remote placeholder, and
 diagnostics; collapse restores the compact position. A one-time settings schema

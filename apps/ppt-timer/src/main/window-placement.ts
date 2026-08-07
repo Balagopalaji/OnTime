@@ -120,13 +120,9 @@ export function expandDetailsBounds(currentBounds: Rectangle, workArea: Rectangl
 }
 
 /**
- * Closes the details drawer to the exact compact preset at its captured origin.
- * The only adjustment is an edge clamp when display geometry changed while the
- * drawer was open.
+ * Closes the details drawer to the exact captured collapsed geometry, including
+ * an intentional custom size. Only a changed display work area may clamp it.
  */
 export function restoreCompactBounds(savedCompactBounds: Rectangle, workArea: Rectangle): Rectangle {
-  return clampIntoWorkArea(
-    { x: savedCompactBounds.x, y: savedCompactBounds.y, ...PRESET_SIZES.compact },
-    workArea,
-  )
+  return clampIntoWorkArea(savedCompactBounds, workArea)
 }

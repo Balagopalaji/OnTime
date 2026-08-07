@@ -54,13 +54,13 @@ describe('load (S-023 corrupt recovery, first-run)', () => {
     expect(result.settings.timingMode).toBe('elapsed')
   })
 
-  it('atomically persists the v2 layout migration once and does not repeat it', async () => {
+  it('atomically persists the installed v2 compact refinement once and does not repeat it', async () => {
     let tick = 10
     const fs = new FakeFs({
       [PATH]: JSON.stringify({
-        schemaVersion: 1,
-        sizePreset: 'custom',
-        windowBounds: { x: 40, y: 80, width: 360, height: 410 },
+        schemaVersion: 2,
+        sizePreset: 'compact',
+        windowBounds: { x: 40, y: 80, width: 260, height: 120 },
         alwaysOnTop: true,
         timingMode: 'remaining',
       }),
@@ -70,7 +70,7 @@ describe('load (S-023 corrupt recovery, first-run)', () => {
     expect(first.settings).toMatchObject({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       sizePreset: 'compact',
-      windowBounds: { x: 90, y: 225, width: 260, height: 120 },
+      windowBounds: { x: 70, y: 96, width: 200, height: 88 },
     })
     expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({ schemaVersion: SETTINGS_SCHEMA_VERSION })
     const writesAfterMigration = fs.ops.filter((op) => op.startsWith('write:')).length

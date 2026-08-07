@@ -9,7 +9,7 @@
  */
 import type { SizePreset, TimingMode } from '../shared/ipc-contract.js'
 
-export const SETTINGS_SCHEMA_VERSION = 2
+export const SETTINGS_SCHEMA_VERSION = 3
 
 export type WindowBounds = { x: number; y: number; width: number; height: number }
 
@@ -32,8 +32,8 @@ export const DEFAULT_SETTINGS: Settings = {
   timingMode: 'remaining',
 }
 
-/** Minimalist-v2 closed surface: focused timer, status, and disclosure caret. */
-export const COMPACT_WINDOW_SIZE = { width: 260, height: 120 } as const
+/** Minimalist-v3 closed surface: focused timer, status, and disclosure caret. */
+export const COMPACT_WINDOW_SIZE = { width: 200, height: 88 } as const
 
 /** Minimalist-v2 open surface: compact timer plus the settings/details drawer. */
 export const DETAILS_WINDOW_SIZE = { width: 360, height: 520 } as const
@@ -80,8 +80,12 @@ function readString(raw: unknown): string | null {
 export function validateSettings(raw: unknown): Settings {
   if (!isObject(raw)) return { ...DEFAULT_SETTINGS }
   const windowBounds = readBounds(raw.windowBounds)
-  const legacy = raw.schemaVersion !== SETTINGS_SCHEMA_VERSION
-  const migratedBounds = legacy && windowBounds
+  const sourceVersion = typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1
+  // All original beta layouts migrate, while a v2 install migrates only when
+  // it still represents the semantic compact preset. A genuine v2 custom/large
+  // resize is preserved and stamped v3, so this refinement never repeats.
+  const migrateCompact = sourceVersion < 2 || (sourceVersion === 2 && raw.sizePreset === 'compact')
+  const migratedBounds = migrateCompact && windowBounds
     ? {
         x: Math.round(windowBounds.x + (windowBounds.width - COMPACT_WINDOW_SIZE.width) / 2),
         y: Math.round(windowBounds.y + (windowBounds.height - COMPACT_WINDOW_SIZE.height) / 2),
@@ -90,12 +94,12 @@ export function validateSettings(raw: unknown): Settings {
     : windowBounds
   return {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
-    // Version 2 is a one-time visual-shell migration. Every pre-v2 beta window
-    // starts once at the new compact size while retaining its former center;
-    // v2 custom and large geometry is thereafter preserved verbatim.
+    // Version 3 refines the visual shell. Old beta windows and the semantic v2
+    // compact preset shrink once around their center; v2 custom/large and all
+    // v3 geometry remain verbatim.
     windowBounds: migratedBounds,
     selectedDisplayId: readString(raw.selectedDisplayId),
-    sizePreset: legacy ? 'compact' : readPreset(raw.sizePreset),
+    sizePreset: migrateCompact ? 'compact' : readPreset(raw.sizePreset),
     alwaysOnTop: typeof raw.alwaysOnTop === 'boolean' ? raw.alwaysOnTop : true,
     timingMode: readTimingMode(raw.timingMode),
   }
