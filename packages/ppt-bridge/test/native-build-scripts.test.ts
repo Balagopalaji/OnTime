@@ -147,6 +147,32 @@ describe('Windows native build scripts', () => {
     expect(program).not.toContain('stateRaw.HasValue && hasElapsed');
   });
 
+  it('replaces only a cached stopped-end position when Player.State newly becomes playing', () => {
+    const program = readNativeProgram();
+    const normalized = program.indexOf('var freshElapsedMs = NormalizeElapsed(effectiveDurationMs, rawElapsed);');
+    const replacement = program.indexOf('if (ShouldReplaceStaleTerminalPositionWithPlayAnchor(');
+    const classified = program.indexOf('var hasFreshPosition = freshElapsedMs.HasValue;');
+    expect(normalized).toBeGreaterThanOrEqual(0);
+    expect(replacement).toBeGreaterThan(normalized);
+    expect(classified).toBeGreaterThan(replacement);
+    expect(program.slice(replacement, classified)).toContain('freshElapsedMs = 0;');
+
+    const helperStart = program.indexOf('private static bool ShouldReplaceStaleTerminalPositionWithPlayAnchor(');
+    const helperEnd = program.indexOf('// A cold response can use media discovered before a COM failure', helperStart);
+    const helper = program.slice(helperStart, helperEnd);
+    expect(helperStart).toBeGreaterThanOrEqual(0);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    // These gates are the regression contract: a cached terminal status plus a
+    // stopped/not-ready -> playing transition and a fresh at-end position.
+    // Stable playing end samples and first observations (cached == null) must
+    // remain on the existing immediate-ended path.
+    expect(helper).toContain('cached?.Status == "ended"');
+    expect(helper).toContain('cached.StateRaw is PpPlayerStopped or PpPlayerNotReady');
+    expect(helper).toContain('stateRaw == PpPlayerPlaying');
+    expect(helper).toContain('cached.StateRaw != stateRaw');
+    expect(helper).toContain('freshElapsedMs.Value >= durationMs.Value - 250');
+  });
+
   it('uses state-first media polling and avoids redundant edit-window media scans', () => {
     const program = readNativeProgram();
     const stateRead = program.indexOf('TryGetProp(player, "State")');

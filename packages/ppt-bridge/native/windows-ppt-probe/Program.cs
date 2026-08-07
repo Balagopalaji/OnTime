@@ -336,6 +336,18 @@ internal static class Program
         entry["duration"] = effectiveDurationMs.Value;
       }
       var freshElapsedMs = NormalizeElapsed(effectiveDurationMs, rawElapsed);
+      if (ShouldReplaceStaleTerminalPositionWithPlayAnchor(
+        cached,
+        candidate.StateRaw,
+        effectiveDurationMs,
+        freshElapsedMs))
+      {
+        // PowerPoint can change Player.State from stopped to playing before
+        // CurrentPosition leaves the previous run's terminal value. The state
+        // transition is authoritative start evidence; emitting the stale end
+        // would flash 00:00 and prevent focus from recognizing the new play.
+        freshElapsedMs = 0;
+      }
       var hasFreshPosition = freshElapsedMs.HasValue;
       var elapsedMs = freshElapsedMs;
       var usedAdvancedWarmElapsed = false;
@@ -656,6 +668,26 @@ internal static class Program
     var advanced = Math.Min((long)int.MaxValue, (long)elapsedMs + advanceMs);
     if (durationMs.HasValue) advanced = Math.Min(advanced, durationMs.Value);
     return (int)advanced;
+  }
+
+  private static bool ShouldReplaceStaleTerminalPositionWithPlayAnchor(
+    CachedMediaValue? cached,
+    int? stateRaw,
+    int? durationMs,
+    int? freshElapsedMs)
+  {
+    // Keep this deliberately narrower than generic end inference. It requires
+    // a known terminal cache, a stopped/not-ready -> playing transition, and a
+    // fresh position that is itself still at the end. A stable playing video
+    // reaching its end, and a first observation without transition history,
+    // continue through the normal immediate-ended path.
+    return cached?.Status == "ended" &&
+      cached.StateRaw is PpPlayerStopped or PpPlayerNotReady &&
+      stateRaw == PpPlayerPlaying &&
+      cached.StateRaw != stateRaw &&
+      durationMs.HasValue &&
+      freshElapsedMs.HasValue &&
+      freshElapsedMs.Value >= durationMs.Value - 250;
   }
 
   // A cold response can use media discovered before a COM failure, but a warm
