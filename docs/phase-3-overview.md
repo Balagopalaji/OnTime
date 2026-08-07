@@ -2,15 +2,15 @@
 Type: Plan
 Status: planned
 Owner: KDB
-Last updated: 2026-02-01
+Last updated: 2026-08-07
 Scope: Phase 3 plan for Show Controller definition, LAN offline viewers, Show Planner build, and Save/Load Sessions.
 ---
 
 # Phase 3 Overview (OnTime)
 
-Phase 3 focuses on defining and delivering the Show Controller/Planner experience, then shipping LAN offline viewers so the experience works in venues without reliable internet. The standalone PowerPoint video timer app is deferred until after Phase 3 core.
+Phase 3 focuses on defining and delivering the Show Controller/Planner experience, then shipping LAN offline viewers so the experience works in venues without reliable internet. The standalone PowerPoint video timer was subsequently started as a separate, parallel productization track because it is the first directly usable product of the PowerPoint extraction work.
 
-**Scope boundary:** Phase 3 covers Show Controller definition, LAN offline viewer infrastructure, and Show Controller build. It does not include the standalone PPT timer app or Phase 4 AI/undo-redo work.
+**Scope boundary:** Phase 3 covers Show Controller definition, LAN offline viewer infrastructure, and Show Controller build. It does not absorb the standalone PPT timer app or Phase 4 AI/undo-redo work. The standalone, reusable PowerPoint panel, lightweight/full-controller composition, compact timer viewer, clean-output, and future NDI sequence is owned by `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`; it reuses Phase 3 LAN/interface constraints where applicable.
 
 ## Goals
 - Define Show Controller/Planner workflows, cue authority model, and viewer requirements before building LAN distribution.
@@ -39,8 +39,10 @@ Phase 3 focuses on defining and delivering the Show Controller/Planner experienc
 - Viewer-only Electron app (trust-bypass) and controller second-display output (viewer-only).
 - Prefer VLC for external video playback (fallback to default player).
 
+### Separate parallel productization track
+- Standalone PowerPoint timer and reusable PowerPoint/display capability (see `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`).
+
 ### Deferred
-- Standalone PowerPoint video timer app (see `docs/phase-3-standalone-ppt-timer.md`).
 - Mobile LAN viewers until trust flow is proven.
 - Export/Import sessions to file (Phase 4).
 
