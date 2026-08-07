@@ -100,7 +100,7 @@ Positive evidence from the same run:
   focused countdown, and a centered bottom disclosure caret. Video/deck/slide
   identity, warnings, secondary videos, window controls, display settings, and
   diagnostics do not appear until expanded.
-- Use a `260 × 120` frameless compact window and a transient `360 × 520`
+- Use a `200 × 88` frameless compact window and a transient `360 × 520`
   details window. Expansion grows down when space permits, otherwise grows up
   while retaining the compact bottom edge; collapse restores the captured
   compact position. Expanded geometry is never persisted as compact geometry.
