@@ -97,16 +97,19 @@ Positive evidence from the same run:
 
 - Design compact single-video, multi-video, ready/paused/ended, unavailable/reconnecting, and settings states.
 - The collapsed surface is an exact minimalist contract: one status label, one
-  focused countdown, and a centered bottom disclosure caret. Video/deck/slide
+  focused countdown, and a bottom-right disclosure caret. Video/deck/slide
   identity, warnings, secondary videos, window controls, display settings, and
   diagnostics do not appear until expanded.
-- Use a `190 × 80` frameless compact window and a transient `360 × 520`
-  details window. Expansion grows down when space permits, otherwise grows up
-  while retaining the compact bottom edge; collapse restores the captured
-  compact position. Expanded geometry is never persisted as compact geometry.
-- The details order is focused video context, secondary videos, window
-  controls, display/remote settings, then diagnostics. The future remote toggle
-  remains visibly disabled until M3 exists.
+- Use a `190 × 80` frameless compact window and a two-stage, content-sized
+  `260`-pixel-wide tray. The first stage contains only secondary video rows and
+  shows at most three before scrolling. The second adds one compact action
+  strip for timing mode, always-on-top, diagnostics copy, minimize, and close.
+  A single-video slide skips the empty video stage. Expansion grows down when
+  space permits, otherwise grows up while retaining the compact bottom edge;
+  collapse restores the captured compact position. Tray geometry is never
+  persisted as compact geometry.
+- Do not show a nonfunctional remote toggle. Remote state/control appears only
+  after M3 supplies an actionable authenticated transport.
 - Use an explicit drag region, retained resize affordance, accessible in-app
   minimize/close controls, keyboard-accessible expansion/collapse, and a subtle
   dark edge. Pre-M1 beta geometry receives one schema migration to the compact
@@ -118,6 +121,9 @@ Positive evidence from the same run:
 ### M2 — Shared display and PowerPoint panel boundaries
 
 - Extract or build a framework-neutral timer display/view-model boundary.
+- Extract the accepted frameless compact shell as a reusable content-slot frame
+  so the regular always-on-top timer viewer can host the generic stage timer in
+  the same window behavior without importing PowerPoint semantics.
 - Build the reusable PowerPoint countdown panel on top of it.
 - Keep source adapters and commands outside the components.
 - Prove the standalone consumes the shared panel without changing established timing behavior.
