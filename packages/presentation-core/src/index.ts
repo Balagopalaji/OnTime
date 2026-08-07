@@ -19,6 +19,7 @@ export type {
   PresentationMachineAction,
 } from './powerpoint-machine'
 export { POWERPOINT_END_INFER_MS, projectPowerPointView, resolveVideoStatus } from './powerpoint-view'
+export { derivePowerPointRemainingMs } from './powerpoint-timing'
 export type {
   PowerPointTimingMode,
   PowerPointVideoTile,

@@ -1,4 +1,8 @@
-import type { PowerPointVideoTile, PowerPointViewState } from '@ontime/presentation-core'
+import {
+  derivePowerPointRemainingMs,
+  type PowerPointVideoTile,
+  type PowerPointViewState,
+} from '@ontime/presentation-core'
 import type { AppView } from '../shared/ipc-contract.js'
 
 /** A changed COM sample must exceed this drift before it replaces local time. */
@@ -96,7 +100,7 @@ export function clockValue(clock: VideoClock, now: number): ClockValue {
       : Math.min(clock.durationMs, rawElapsedMs)
   const remainingMs =
     clock.durationMs !== null && elapsedMs !== null
-      ? clock.durationMs - elapsedMs
+      ? derivePowerPointRemainingMs(clock.durationMs, elapsedMs)
       : clock.baseRemainingMs === null
         ? null
         : Math.max(0, clock.baseRemainingMs - advance)
@@ -113,7 +117,7 @@ export function clockFromTile(
   const elapsedMs = observedElapsed(tile) ?? fallback?.elapsedMs ?? null
   const remainingMs =
     durationMs !== null && elapsedMs !== null
-      ? durationMs - elapsedMs
+      ? derivePowerPointRemainingMs(durationMs, elapsedMs)
       : observedRemaining(tile) ?? fallback?.remainingMs ?? null
   return {
     status: tile.status,
@@ -140,7 +144,7 @@ export function clockFromFrozen(
   const elapsedMs = frozen.elapsedMs
   const remainingMs =
     durationMs !== null && elapsedMs !== null
-      ? durationMs - elapsedMs
+      ? derivePowerPointRemainingMs(durationMs, elapsedMs)
       : frozen.remainingMs
   return {
     status: tile.status,

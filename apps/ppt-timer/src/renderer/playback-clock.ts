@@ -128,7 +128,9 @@ class PlaybackClockImpl implements PlaybackClock {
         const corrected = drift !== null && drift > PLAYBACK_DRIFT_THRESHOLD_MS
         const evidence = corrected ? correctionEvidence(tile, now) : null
         if (prior.readyStartGuard) {
-          const guardAge = Math.max(0, now - prior.readyStartGuard.startedAt)
+          const guardAge = now > prior.readyStartGuard.startedAt
+            ? now - prior.readyStartGuard.startedAt
+            : 0
           if (!corrected) {
             // Fresh timing has caught the deterministic start. Keep the
             // continuous local value and release the quarantine without a

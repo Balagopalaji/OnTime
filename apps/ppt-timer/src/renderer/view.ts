@@ -12,12 +12,13 @@
  * indicator, per-video rows, multi-instance overlay, `--:--` / `00:00` time
  * rendering) plus the bounded local interpolation between helper observations.
  */
-import type {
-  PowerPointTimingMode,
-  PowerPointVideoTile,
-  PowerPointViewPresentation,
-  PowerPointViewState,
-  PowerPointViewStateBase,
+import {
+  derivePowerPointRemainingMs,
+  type PowerPointTimingMode,
+  type PowerPointVideoTile,
+  type PowerPointViewPresentation,
+  type PowerPointViewState,
+  type PowerPointViewStateBase,
 } from '@ontime/presentation-core'
 
 export type Badge = 'playing' | 'paused' | 'retry'
@@ -137,7 +138,7 @@ export function tileRemainingMs(tile: PowerPointVideoTile): number | null {
   if (observed !== null) return observed
   const duration = finite(tile.durationMs)
   const elapsed = finite(tile.elapsedMs)
-  return duration !== null && elapsed !== null ? duration - elapsed : null
+  return derivePowerPointRemainingMs(duration, elapsed)
 }
 
 /**
