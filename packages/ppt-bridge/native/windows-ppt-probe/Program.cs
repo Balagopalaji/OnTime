@@ -677,11 +677,14 @@ internal static class Program
     int? freshElapsedMs)
   {
     // Keep this deliberately narrower than generic end inference. It requires
-    // a known terminal cache, a stopped/not-ready -> playing transition, and a
-    // fresh position that is itself still at the end. A stable playing video
-    // reaching its end, and a first observation without transition history,
-    // continue through the normal immediate-ended path.
-    return cached?.Status == "ended" &&
+    // a cached stopped/not-ready -> playing transition and a fresh position
+    // that is itself still at the end. The cached row does not need to have
+    // been timing-refreshed while idle: on multi-video slides the round-robin
+    // refresh can leave Status null even though StateRaw already proves the
+    // transition. A stable playing video reaching its end, and a first
+    // observation without transition history, continue through the normal
+    // immediate-ended path.
+    return cached != null &&
       cached.StateRaw is PpPlayerStopped or PpPlayerNotReady &&
       stateRaw == PpPlayerPlaying &&
       cached.StateRaw != stateRaw &&

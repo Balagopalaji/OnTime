@@ -147,7 +147,7 @@ describe('Windows native build scripts', () => {
     expect(program).not.toContain('stateRaw.HasValue && hasElapsed');
   });
 
-  it('replaces only a cached stopped-end position when Player.State newly becomes playing', () => {
+  it('replaces a cached stopped end-position when Player.State newly becomes playing', () => {
     const program = readNativeProgram();
     const normalized = program.indexOf('var freshElapsedMs = NormalizeElapsed(effectiveDurationMs, rawElapsed);');
     const replacement = program.indexOf('if (ShouldReplaceStaleTerminalPositionWithPlayAnchor(');
@@ -162,11 +162,13 @@ describe('Windows native build scripts', () => {
     const helper = program.slice(helperStart, helperEnd);
     expect(helperStart).toBeGreaterThanOrEqual(0);
     expect(helperEnd).toBeGreaterThan(helperStart);
-    // These gates are the regression contract: a cached terminal status plus a
-    // stopped/not-ready -> playing transition and a fresh at-end position.
-    // Stable playing end samples and first observations (cached == null) must
-    // remain on the existing immediate-ended path.
-    expect(helper).toContain('cached?.Status == "ended"');
+    // These gates are the regression contract: cached transition history plus
+    // a stopped/not-ready -> playing transition and a fresh at-end position.
+    // The cached row may have no Status because idle timing refresh is
+    // round-robin on multi-video slides. Stable playing end samples and first
+    // observations (cached == null) remain on the immediate-ended path.
+    expect(helper).toContain('cached != null');
+    expect(helper).not.toContain('cached?.Status == "ended"');
     expect(helper).toContain('cached.StateRaw is PpPlayerStopped or PpPlayerNotReady');
     expect(helper).toContain('stateRaw == PpPlayerPlaying');
     expect(helper).toContain('cached.StateRaw != stateRaw');
