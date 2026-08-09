@@ -529,10 +529,14 @@ Live media results:
   normal. Source review identified a precise native sequence: a cached terminal
   video could change from stopped/not-ready to `Player.State=Playing` while its
   first fresh `CurrentPosition` still contained the previous terminal value.
-  End inference therefore emitted one false ended sample. The probe now replaces
-  only that exact transition with a zero play anchor; stable terminal and
-  uncached observations keep immediate end behavior. This correction is
-  automated but still requires live replay on slide 6.
+  End inference therefore emitted one false ended sample. The first correction
+  covered cached `ended` rows, but round-robin sampling could leave a row cached
+  as stopped/not-ready instead. Commit `f1c1b37` widens only the cached
+  stopped/not-ready-to-playing transition with a fresh terminal position to a
+  zero play anchor; stable terminal and uncached observations keep immediate
+  end behavior. The installed correction passed live replay on the affected
+  presentation on 2026-08-09: the operator reported that it now works well and
+  approved the fix for commit/closeout.
 
 The standalone shell is now frameless and single-instance. The first visual
 pass was still too large and exposed name/deck/slide metadata in the collapsed
@@ -568,12 +572,13 @@ headings, cards, and the nonfunctional remote placeholder remain absent.
 | `git diff --check` | PASS — line-ending warnings only |
 | Current M1 source rebuild and silent installer replacement | PASS |
 | Packaged staged-tray renderer review | PASS — multi-video view stayed collapsed by default; gear/caret remained bottom-right and the options strip stayed separate from hover-only top-right window controls |
-| Current installer SHA-256 | `b056bc24bd35373a120a8e4f3393ee90365a38e2c9868a959cf82462994ffe7e` |
-| Native transient-terminal correction live replay | PENDING |
+| Current installer SHA-256 | `a316e9102c748e1bfee44704952ddf3489e119082ee41ec1c58fde49d637c9fa` |
+| Native transient-terminal correction live replay | PASS — affected first-play scenario accepted on 2026-08-09 |
 | Mixed-DPI and near-work-area-edge expansion review | PENDING |
 
 The current M1 geometry and terminal-position correction are rebuilt and
 installed. Automatic collapse, manual-ownership persistence, and options-stage
 appearance remain user acceptance items even though their state and DOM paths
-are covered deterministically. Final Stage 7 acceptance still requires the
-slide 6 first-play replay and the remaining mixed-DPI/work-area-edge checks.
+are covered deterministically. The transient slide 6 first-play defect is now
+closed; final Stage 7 acceptance still requires the remaining
+mixed-DPI/work-area-edge checks.
