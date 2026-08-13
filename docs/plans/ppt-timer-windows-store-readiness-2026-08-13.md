@@ -159,13 +159,32 @@ Baseline artifact already present at the starting commit:
 | --- | --- | --- |
 | G0 Scope/baseline | Clean requested branch at `61ffab5`; exclusions and NSIS baseline recorded | PASS |
 | G1 Feasibility decision | Additive AppX target selected; identity, version, settings, signing, update and fallback contracts explicit | PASS (decision only) |
-| G2 Static/build contract | Opt-in config and scripts; deterministic tests prove NSIS remains default and both artifact contracts are unambiguous | PENDING |
-| G3 Package build | Windows creates AppX; actual archive/manifest/helper/ASAR inspection passes; exact bytes and hashes recorded | PENDING |
+| G2 Static/build contract | Opt-in config and scripts; deterministic tests prove NSIS remains default and both artifact contracts are unambiguous | PASS (`05ba0f4`, `014f428`) |
+| G3 Package build | Windows creates AppX; actual archive/manifest/helper/ASAR inspection passes; exact bytes and hashes recorded | PASS (unsigned feasibility artifact only) |
 | G4 Installed runtime | Signed/trusted local package installs; exact package identity recorded; one app/helper; helper discovery, close cleanup and single-instance pass | PENDING |
 | G5 PowerPoint COM | Installed package reports not-running/no-slideshow/live media and passes the agreed media/recovery/coexistence subset | PENDING |
 | G6 Lifecycle | Same-identity higher-version AppX updates in place with settings preserved; uninstall removes package and package-managed settings; reinstall starts with defaults | PENDING |
 | G7 Display acceptance | Edge/corner expansion plus 100/125/150% mixed-DPI, display removal, taskbar and Presenter View/AOT matrix passes | PENDING |
 | G8 Store validation | Name reserved; final identity/assets applied; WACK, Partner Center validation, restricted-capability approval, private Store install/update and certification pass | PENDING |
+
+G3 records package construction and content integrity only. The 182,111,008-byte
+unsigned feasibility artifact has SHA-256
+`eede465fb780bedf630f7c6ba9993778c124abcfaf8854d9f9bdfc498d50a824`.
+Its manifest contains provisional identity
+`OnTime.PptVideoTimer.Feasibility`, provisional publisher
+`CN=OnTime Store Feasibility`, version `1.0.0.0`, x64 architecture,
+`Windows.FullTrustApplication`, and only `runFullTrust`. The packaged helper at
+`app/resources/bin/ppt-probe.exe` exactly matches the canonical helper SHA-256
+`16110898dc0ad17ec8442ccc93a7b9908f125dbb5f792e7de73ae1b743de8135`.
+
+G4 remains PENDING. A development-signed copy was produced with Microsoft
+Windows SDK SignTool, but the managed test host could not add its certificate
+to Local Machine Trusted People. Root trust was explicitly declined. Unsigned
+developer-package experiments reached Windows deployment and were rejected as
+expected: the original publisher is outside the unsigned namespace
+(`0x80073D2C`), and the reserved unsigned namespace cannot carry the package's
+full-trust executable activation on this host (`0x80073D2B`). These results are
+environment/signing blockers, not runtime PASS or MSIX incompatibility proof.
 
 If G4 or G5 demonstrates a platform incompatibility that cannot be corrected
 without expanding product scope, stop the AppX path and document the exact

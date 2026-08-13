@@ -15,6 +15,7 @@ packages/ppt-bridge/bin/
 .electron-builder-cache/
 .npm-cache/
 .tools/
+.tmp/
 .tmp-cjs-build-*/
 .claude/settings.local.json
 packages/ppt-bridge/native/windows-ppt-probe/bin/

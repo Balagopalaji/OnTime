@@ -677,3 +677,54 @@ helper, PowerPoint, installer, MSIX, signing, Presenter View, and display/DPI
 acceptance loop. The full cloud-first proposal and platform boundary are
 recorded in
 `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`.
+
+## Store feasibility build checkpoint — 2026-08-13
+
+Commits in this checkpoint:
+
+- `3a65150` — Store-readiness gates and lifecycle decisions;
+- `05ba0f4` — opt-in AppX target with the default NSIS target preserved;
+- `014f428` — deterministic Store artifact provenance manifest.
+
+Current gate status:
+
+- PASS — G2 static/build contract. `npm run dist` remains NSIS-only; the Store
+  feasibility path is the separate `dist:store-feasibility` command.
+- PASS — G3 unsigned AppX/MSIX-family build and package-content inspection.
+- PENDING — G4 signed/trusted installation and packaged runtime. A development
+  signature was created, but this managed host cannot elevate certificate trust
+  into Local Machine Trusted People. No root certificate was accepted.
+- PENDING — G5 through G8: installed PowerPoint COM, update/uninstall lifecycle,
+  mixed-DPI/work-area acceptance, WACK, reserved identity and Partner Center.
+
+Commands and exact evidence:
+
+| Command / verification | Result |
+| --- | --- |
+| `packages/ppt-bridge/scripts/build-windows.ps1` with local .NET 10 | PASS — self-contained x64 helper rebuilt; existing NU1510 warning only |
+| `npm run dist:store-feasibility --workspace apps/ppt-timer -- --config.electronDist=..\\..\\.tools\\electron-v43.2.0-win32-x64-unpacked` with Node 22.12, `CSC_IDENTITY_AUTO_DISCOVERY=false`, and repository-local builder cache | PASS — unsigned x64 AppX produced |
+| Feasibility artifact | PASS — `OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-store-feasibility.appx`, 182,111,008 bytes, SHA-256 `eede465fb780bedf630f7c6ba9993778c124abcfaf8854d9f9bdfc498d50a824` |
+| `MakeAppx unpack` plus manifest inspection | PASS — identity `OnTime.PptVideoTimer.Feasibility`, publisher `CN=OnTime Store Feasibility`, x64, version `1.0.0.0`, `Windows.FullTrustApplication`, only `runFullTrust` |
+| Packaged helper count/path | PASS — exactly one at `app/resources/bin/ppt-probe.exe` |
+| Canonical vs packaged helper SHA-256 | PASS — both `16110898dc0ad17ec8442ccc93a7b9908f125dbb5f792e7de73ae1b743de8135` |
+| Packaged helper PE identity | PASS — ProductVersion `0.1.0-beta.1`, FileVersion `0.1.0.1` |
+| ASAR contract inspection | PASS — required bridge/core entries present; cloud/viewer/controller assets absent |
+| `npm run manifest:store-feasibility --workspace apps/ppt-timer` | PASS — deterministic `build.store-feasibility.manifest.json` and checksum generated with `unsigned-feasibility` / `not-store-ready` status |
+| Focused Store/build tests | PASS — 41 tests across builder config, Store version/config, both manifest contracts and package content |
+| Complete PPT timer suite | PASS — 416 tests |
+| PPT timer typecheck and production build | PASS |
+| Static dependency boundaries and extraction guardrails | PASS |
+| Microsoft Windows SDK Build Tools `10.0.26100.7705` NuGet acquisition | PASS — archive SHA-256 `48a81375752f9f1ff56a34062084b426bfe412a5a8072e1c99b6a4be0e774841` |
+| Current SDK SignTool on separate sideload copy | PASS — signer subject `CN=OnTime Store Feasibility`, thumbprint `42D52199816AE4D81950DABB14FC0CAE2E1F960C`; signed artifact SHA-256 `e72e823c7d1387999b98ba1102e02953c2290c861cf32fa90cc5f3b01940a483` |
+| `Add-AppxPackage` signed-copy install | PENDING — certificate trust cannot be elevated into Local Machine Trusted People on this managed host; root trust was declined |
+| `Add-AppxPackage -AllowUnsigned` original publisher | EXPECTED BLOCK — `0x80073D2C`, publisher is outside the reserved unsigned namespace |
+| Reserved-OID unsigned runtime derivative | EXPECTED BLOCK — `0x80073D2B`, this host rejects unsigned executable activation; derivative SHA-256 `7d464e2d42ddf811a9c1d6486e0ed8d466ef83c7ca432c55ad92ea49d5102cbe` |
+
+The signed sideload copy and the unsigned reserved-OID derivative are local test
+artifacts only. Neither is a Store artifact, neither is committed, and neither
+closes G4. Continue G4 on a disposable Windows test machine where the matching
+development certificate can be placed in Local Machine Trusted People without
+granting it certification-authority trust. Record package full/family names,
+AUMID, installed paths, one-app/one-helper behavior, live PowerPoint COM,
+single-instance behavior, actual `userData` location, clean shutdown, and exact
+hashes before advancing to lifecycle testing.
