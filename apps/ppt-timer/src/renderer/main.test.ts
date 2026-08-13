@@ -213,14 +213,17 @@ describe('timer-only controls', () => {
     expect(css).toMatch(/\.window-controls:hover,\s*\.window-controls:focus-within\s*\{[\s\S]*?opacity:\s*1;/)
     expect(css).toMatch(/\.window-control-button\s*\{[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;/)
     expect(css).toMatch(/\.option-strip\s*\{[\s\S]*?display:\s*flex;[\s\S]*?justify-content:\s*flex-start;/)
-    expect(css).toMatch(/\.option-button\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?width:\s*auto;/)
+    expect(css).toMatch(/\.option-button\s*\{[\s\S]*?flex:\s*0 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*auto;/)
     expect(css).not.toMatch(/\.option-strip\s*\{[\s\S]*?grid-template-columns:/)
     const optionCaps = Array.from(css.matchAll(/--option-[a-z-]+-max:\s*(\d+)px;/g), (match) => Number(match[1]))
     expect(optionCaps).toHaveLength(4)
-    // 260px tray - 8px tray padding - 45px gear/caret reserve = 207px.
-    // Four capped intrinsic controls plus three 2px gaps fit without overlap.
+    // Preferred caps remain bounded; flex-shrink/ellipsis now adapts them when
+    // the user's timer is narrower than the historical 260px tray.
     expect(optionCaps.reduce((sum, width) => sum + width, 0) + 6).toBeLessThanOrEqual(207)
     expect(css).toMatch(/\.panel-tray \.videos\s*\{[\s\S]*?overflow-y:\s*visible;/)
+    expect(css).toMatch(/#app:not\(\[data-panel-mode="closed"\]\) \.status\s*\{[\s\S]*?flex:\s*1 1 auto;/)
+    expect(css).toMatch(/\.controls:not\(\[data-panel-mode="closed"\]\)\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+    expect(css).toMatch(/\.panel-tray \.video-row-name\s*\{[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/)
   })
 
   it('renders independent window controls in every tray state', () => {

@@ -57,12 +57,7 @@ const toSnapshot = (display: Display): DisplaySnapshot => ({
   workArea: display.workArea,
 })
 
-const boundsToWindow = (bounds: Rectangle): WindowBounds => ({
-  x: bounds.x,
-  y: bounds.y,
-  width: bounds.width,
-  height: bounds.height,
-})
+const boundsToWindow = (bounds: Rectangle): WindowBounds => ({ ...bounds })
 
 const boundsEqual = (a: Rectangle, b: Rectangle): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 
@@ -188,7 +183,11 @@ async function main(): Promise<void> {
     getDisplayWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea,
     getDisplayScaleFactor: (bounds) => screen.getDisplayMatching(bounds).scaleFactor,
     setProgrammaticBounds,
-    setDetailsState: (compactBounds) => { detailsCompactBounds = compactBounds },
+    setDetailsState: (compactBounds) => {
+      detailsCompactBounds = compactBounds
+      if (!compactBounds || (currentSettings.windowBounds && boundsEqual(currentSettings.windowBounds, compactBounds))) return
+      void writeSettings({ ...currentSettings, windowBounds: boundsToWindow(compactBounds) }).catch(reportWriteError)
+    },
     pushDiagnostic: diagnostics.push.bind(diagnostics),
     overlayDebug,
     alwaysOnTopSetterMarker,

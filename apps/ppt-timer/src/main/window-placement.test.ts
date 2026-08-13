@@ -9,6 +9,7 @@ import {
   isSubstantiallyVisible,
   moveToDisplay,
   panelSize,
+  reanchorCompactBounds,
   restoreBounds,
   restoreCompactBounds,
   VISIBILITY_THRESHOLD,
@@ -128,12 +129,12 @@ describe('moveToDisplay (S-020) and applyPreset (S-018)', () => {
 
 describe('content-sized panel placement', () => {
   it('derives trusted sizes from mode and every reported video row', () => {
-    expect(panelSize('videos', 0)).toEqual({ width: 260, height: 110 })
-    expect(panelSize('videos', 1)).toEqual({ width: 260, height: 138 })
-    expect(panelSize('videos', 3)).toEqual({ width: 260, height: 194 })
-    expect(panelSize('videos', 5)).toEqual({ width: 260, height: 250 })
-    expect(panelSize('options', 0)).toEqual({ width: 260, height: 140 })
-    expect(panelSize('options', 5)).toEqual({ width: 260, height: 280 })
+    expect(panelSize('videos', 0)).toEqual({ width: 190, height: 110 })
+    expect(panelSize('videos', 1)).toEqual({ width: 190, height: 138 })
+    expect(panelSize('videos', 3)).toEqual({ width: 190, height: 194 })
+    expect(panelSize('videos', 5)).toEqual({ width: 190, height: 250 })
+    expect(panelSize('options', 0)).toEqual({ width: 190, height: 140 })
+    expect(panelSize('options', 5)).toEqual({ width: 190, height: 280 })
   })
 
   it('expands downward from the current top-left when the panel fits', () => {
@@ -141,15 +142,15 @@ describe('content-sized panel placement', () => {
     expect(expandPanelBounds(compact, primary.workArea, 'videos', 2)).toEqual({
       x: 200,
       y: 100,
-      width: 260,
+      width: 190,
       height: 166,
     })
   })
 
-  it('never narrows a wide collapsed window but still widens a narrow one to the tray minimum', () => {
+  it('preserves both narrow and wide collapsed widths while the tray is open', () => {
     expect(expandPanelBounds(rect(200, 100, 190, 80), primary.workArea, 'videos', 2)).toMatchObject({
       x: 200,
-      width: 260,
+      width: 190,
     })
     expect(expandPanelBounds(rect(200, 100, 420, 80), primary.workArea, 'videos', 2)).toEqual({
       x: 200,
@@ -160,19 +161,28 @@ describe('content-sized panel placement', () => {
     expect(panelSize('options', 2, 420)).toEqual({ width: 420, height: 196 })
   })
 
+  it('preserves a custom timer height and adds only the tray content below it', () => {
+    expect(expandPanelBounds(rect(200, 100, 320, 180), primary.workArea, 'videos', 2)).toEqual({
+      x: 200,
+      y: 100,
+      width: 320,
+      height: 266,
+    })
+  })
+
   it('expands upward near the bottom while retaining the compact bottom edge', () => {
     const compact = rect(200, 900, 190, 80)
     const expanded = expandPanelBounds(compact, primary.workArea, 'options', 2)
-    expect(expanded).toEqual({ x: 200, y: 784, width: 260, height: 196 })
+    expect(expanded).toEqual({ x: 200, y: 784, width: 190, height: 196 })
     expect(expanded.y + expanded.height).toBe(compact.y + compact.height)
   })
 
   it('edge-clamps the expanded surface on work areas smaller than the preset', () => {
     const smallWorkArea = WA(100, 50, 240, 160)
     expect(expandPanelBounds(rect(300, 150, 190, 80), smallWorkArea, 'options', 20)).toEqual({
-      x: 100,
+      x: 150,
       y: 50,
-      width: 240,
+      width: 190,
       height: 160,
     })
   })
@@ -213,5 +223,23 @@ describe('content-sized panel placement', () => {
       width: 190,
       height: 80,
     })
+  })
+
+  it('reanchors compact x/y after a user drags the open panel', () => {
+    const compact = rect(200, 100, 190, 80)
+    const requestedPanel = rect(200, 100, 190, 166)
+    const draggedPanel = rect(620, 330, 190, 166)
+    expect(reanchorCompactBounds(compact, draggedPanel, requestedPanel)).toEqual({
+      x: 620,
+      y: 330,
+      width: 190,
+      height: 80,
+    })
+  })
+
+  it('does not mistake programmatic upward expansion for a user drag', () => {
+    const compact = rect(200, 900, 190, 80)
+    const requestedPanel = rect(200, 784, 190, 196)
+    expect(reanchorCompactBounds(compact, requestedPanel, requestedPanel)).toEqual(compact)
   })
 })
