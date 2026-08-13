@@ -783,3 +783,31 @@ legacy settings with verified SHA-256
 confirmed provisional package count zero, and removed the development
 certificate from Local Machine Trusted People. The clean-profile settings were
 archived under the ignored lifecycle evidence directory.
+
+### Store-feasibility CI and local verification — 2026-08-14
+
+The isolated `ppt-timer-store-feasibility.yml` workflow now reproduces the
+unsigned AppX build and static package contract without changing the existing
+NSIS workflow. It validates the provisional identity/version/full-trust
+manifest, the one-helper layout and canonical helper hash, the ASAR allowlist
+and cloud/viewer/controller exclusions, the unsigned signature state, and the
+per-artifact checksum/provenance files. Its uploaded artifact remains marked
+`unsigned-feasibility` / `not-store-ready`; it is not a Store submission.
+
+Local verification at commit `cfbdafc`:
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace apps/ppt-timer` | PASS — 28 files, 418 tests |
+| `npm run typecheck --workspace apps/ppt-timer` | PASS |
+| `npm run guardrails` | PASS — static extraction guardrails and 294-module dependency boundaries |
+| Parse `.github/workflows/ppt-timer-store-feasibility.yml` with the repository `yaml` package | PASS |
+| `git diff --check` | PASS |
+
+The final public Downstage identity remains gated on reserving **Downstage PPT
+Video Timer** in Partner Center and copying the exact assigned Identity Name,
+Publisher value, and publisher display name into the package configuration.
+Until that gate passes, the `OnTime.PptVideoTimer.Feasibility` identity and its
+development certificate are explicitly disposable test values. The final
+Downstage build starts clean in a new Downstage settings directory and does not
+inspect or migrate `%APPDATA%/@ontime/ppt-timer`.
