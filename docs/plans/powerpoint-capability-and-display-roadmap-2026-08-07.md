@@ -2,7 +2,7 @@
 Type: Plan
 Status: current
 Owner: KDB
-Last updated: 2026-08-07
+Last updated: 2026-08-13
 Scope: Productize the extracted timer and PowerPoint capabilities into reusable local, LAN, cloud, controller, clean-output, and future NDI surfaces.
 ---
 
@@ -33,6 +33,96 @@ The standalone PowerPoint timer is the first usable product created directly fro
 9. **NDI is an output adapter and remains deferred.** Planning for deterministic fixed-resolution rendering is in scope; implementing the NDI SDK is not part of standalone or rebuild completion.
 10. **The full Show Controller remains a north star, not a dependency.** Rundowns, cues, and show-caller workflows can later compose the same PowerPoint panel, but they do not block the focused timer products.
 
+## 2026-08-13 product and handover decisions
+
+### Product naming
+
+- The suite's chosen working public name is **Downstage**. The standalone Store
+  product is **Downstage PPT Video Timer**; shorter in-product labels may use
+  **Downstage PPT**.
+- Planned product labels are **Downstage Timer** for the regular stage timer,
+  **Downstage View** for the lightweight viewer, **Downstage Control** for the
+  full rundown controller, and **Downstage Cloud** for the hosted transport.
+- Existing repository paths, package scopes, application IDs, signing identity,
+  and executable metadata are not renamed inside the standalone feature PR.
+  Reserve the Microsoft Store product name and complete domain/trade-mark
+  screening before a separately reviewed identity migration. A common theatre
+  term and an available Store title are not by themselves legal clearance.
+
+### Cloud-first remote observation
+
+- Remote PowerPoint observation is **cloud-first** so a Windows show computer
+  can be viewed from macOS, Windows, or a browser without requiring PowerPoint
+  or COM on the viewing computer. LAN remains a later transport using the same
+  contracts; local observation must continue working when the internet fails.
+- The Windows show computer remains authoritative. The native helper only reads
+  PowerPoint and emits local observations; it must not know about accounts,
+  rooms, Firebase, browser clients, or cloud retry policy.
+- A separate outer publisher/agent adapter converts the projected PowerPoint
+  state into authenticated, versioned cloud snapshots. This preserves the
+  `ppt-bridge`, `presentation-core`, and standalone dependency boundaries in
+  `docs/rebuild-extraction-rules.md`.
+- Publish state rather than animation frames. A complete snapshot carries the
+  protocol version, source/session identity, monotonic sequence, observation
+  time, availability, slide identity, all videos, selected video identity,
+  status, duration, and timing anchors. Clients count deterministically between
+  state changes and bounded corrections.
+- Start with read-only delivery. The first remote surface is a browser viewer;
+  it supplies immediate Mac/PC reach without an installer. **Downstage View**
+  then packages the same panel in a cross-platform always-on-top desktop shell.
+  **Downstage Control** embeds the same client and panel rather than duplicating
+  PowerPoint timing logic.
+- Cloud publishing is transition-driven with a bounded heartbeat/recovery
+  snapshot, not a write on every renderer tick. Reconnect begins with a full
+  snapshot, and clients reject stale sessions and duplicate/out-of-order
+  sequences.
+- Viewer authorization is distinct from later control authorization. Do not
+  transmit local file paths, process IDs, helper diagnostics, or other
+  machine-sensitive fields in ordinary viewer snapshots.
+
+### Reusable compact timer surface
+
+- Extract the accepted black frameless always-on-top window as a content-slot
+  shell. Window geometry, on-top behavior, disclosure stages, resizing, and
+  window controls belong to the shell; PowerPoint semantics do not.
+- Extract a source-neutral timer display/view model for the primary time and
+  status. The PowerPoint panel composes it with the video list. The regular
+  Downstage rundown timer supplies the same display with a stage-timer source.
+- The resulting compact viewer can therefore show local PowerPoint time,
+  remote PowerPoint time, or the active Downstage stage timer. An operator may
+  place the stage timer above PowerPoint Presenter View without using a
+  switcher key or a separate confidence-monitor computer.
+
+### Platform ownership after this PR
+
+- Windows is required for the native C# helper, PowerPoint COM behavior, live
+  PowerPoint acceptance, Windows Electron packaging, MSIX/Store packaging,
+  code-signing inspection, clean install/update/uninstall, Presenter View,
+  work-area placement, and mixed-DPI validation.
+- macOS can own the transport-neutral contracts, cloud publisher service and
+  backend, browser viewer, reusable renderer/view-model work, controller
+  embedding, documentation, and tests that do not invoke the Windows helper.
+- A Mac may build and test the macOS edition of Downstage View. It cannot
+  produce or validate the authoritative Windows helper or Windows Store
+  artifact. Those changes return to a Windows checkout for final packaging and
+  acceptance.
+
+### Microsoft Store remains a release gate
+
+- The current NSIS installer is an unsigned beta artifact for trusted testing;
+  it is not the public Store artifact.
+- Run a bounded MSIX feasibility spike for the Electron app plus packaged native
+  helper. Prove helper discovery/execution, COM access, single-instance
+  behavior, settings persistence, updates, uninstall cleanup, and Store package
+  identity on Windows.
+- If MSIX passes, use Store-managed signing and updates. If it fails for a
+  demonstrated platform reason, the MSI/EXE Store path requires a trusted
+  publisher signature for the installer and every shipped PE file and remains
+  a Windows release task.
+- Name reservation, final publisher identity, icon/assets, privacy/support
+  URLs, commerce/trial configuration, clean-machine install, upgrade/uninstall,
+  and mixed-DPI/work-area acceptance remain before public submission.
+
 ## Product composition
 
 ### PowerPoint capability
@@ -47,7 +137,7 @@ The standalone PowerPoint timer is the first usable product created directly fro
 A future shared display module accepts a small view model: primary time, mode, status, label, secondary text, urgency, connection state, and optional message. It is used by:
 
 - the PowerPoint panel;
-- a compact LAN/cloud OnTime timer viewer;
+- a compact LAN/cloud Downstage timer viewer;
 - fullscreen browser and Electron viewers;
 - clean HDMI/keying output;
 - a future offscreen NDI renderer.
@@ -58,7 +148,7 @@ PowerPoint-specific slide/video details remain in the PowerPoint panel rather th
 
 - **Standalone local PowerPoint timer:** probe plus frameless always-on-top local display.
 - **Lightweight remote PowerPoint monitor/controller:** paired LAN client using the same PowerPoint panel.
-- **Full OnTime controller:** embeds the same panel beside timers, rundowns, messages, and later cues/show-caller functions.
+- **Full Downstage controller:** embeds the same panel beside timers, rundowns, messages, and later cues/show-caller functions.
 - **Compact regular timer viewer:** LAN or cloud source; frameless always-on-top desktop mode plus fullscreen clean output.
 - **Browser viewers:** LAN/cloud read-only views through existing viewer delivery.
 - **Clean/key output:** fixed background or supported transparency for capture through HDMI/switchers.
@@ -98,22 +188,41 @@ Positive evidence from the same run:
 - Design compact single-video, multi-video, ready/paused/ended, unavailable/reconnecting, and settings states.
 - The collapsed surface is an exact minimalist contract: one status label, one
   focused countdown, and a bottom-right disclosure caret. Video/deck/slide
-  identity, warnings, secondary videos, window controls, display settings, and
-  diagnostics do not appear until expanded.
+  identity, warnings, the full video list, display settings, and diagnostics do
+  not appear until expanded.
 - Use a `190 × 80` frameless compact window and a two-stage, content-sized
-  `260`-pixel-wide tray. The first stage contains only secondary video rows and
-  shows at most three before scrolling. The second adds one compact action
-  strip for timing mode, always-on-top, diagnostics copy, minimize, and close.
-  A single-video slide skips the empty video stage. Expansion grows down when
-  space permits, otherwise grows up while retaining the compact bottom edge;
-  collapse restores the captured compact position. Tray geometry is never
-  persisted as compact geometry.
+  tray whose expanded width is `max(260 px, captured collapsed custom width)`.
+  A widened timer therefore never narrows during expansion, while a smaller
+  timer widens to the readable minimum. The first stage contains every video
+  row, including the focused video, and must size to its content without an
+  internal scrollbar or row cap.
+- A compact bottom-right gear icon opens and closes the second-stage action
+  strip in both first-stage and second-stage states. That stage contains exactly
+  four intrinsic-width, non-stretching operational controls in one row:
+  `Remaining`/`Elapsed`, `On top`, persisted `Auto open` (default off), and
+  `Diagnostics`. They use subtle borders so toggles are recognizable. Every
+  interactive control has a concise hover explanation and accessible label.
+- Minimize and close are independent top-right window chrome, available in all
+  panel states. They are invisible at rest, revealed on hover or keyboard focus,
+  and remain borderless. The whole-tray disclosure/collapse caret also remains
+  at the bottom-right in every tray state.
+- The non-invasive default is a closed tray. When the persisted `Auto open`
+  toggle is enabled, a slide with more than one video opens the first-stage list
+  without taking focus from PowerPoint. An automatically owned tray then closes
+  when the slide returns to one or zero videos. Any user expansion transfers
+  ownership to the user and is not auto-collapsed; a user dismissal is respected
+  for the rest of that slide rather than reopening on later observations. The
+  control strip remains a separate second-stage disclosure rather than appearing
+  with the automatically opened list.
+- Expansion grows down when space permits, otherwise grows up while retaining
+  the compact bottom edge; collapse restores the exact captured custom position
+  and size. Tray geometry is never persisted as compact geometry.
 - Do not show a nonfunctional remote toggle. Remote state/control appears only
   after M3 supplies an actionable authenticated transport.
-- Use an explicit drag region, retained resize affordance, accessible in-app
-  minimize/close controls, keyboard-accessible expansion/collapse, and a subtle
-  dark edge. Pre-M1 beta geometry receives one schema migration to the compact
-  surface; subsequent custom sizing is respected.
+- Use an explicit drag region, retained resize affordance, keyboard-accessible
+  window chrome and expansion/collapse, and a subtle dark edge. Pre-M1 beta
+  geometry receives one schema migration to the compact surface; subsequent
+  custom sizing is respected.
 - Do not mix renderer-clock changes into the visual implementation.
 
 **Exit:** visual review at compact/large/custom sizes, 100/125/150% scaling, light/dark slide backgrounds, and Presenter View; no regression to always-on-top or focus behavior.
@@ -133,28 +242,34 @@ Positive evidence from the same run:
 ### M3 — Versioned remote PowerPoint observation
 
 - Define complete, idempotent PowerPoint snapshots with protocol version, source/session identity, monotonic sequence, observation time, slide fields, videos, focus, availability, and timing anchors.
-- Reuse existing HTTPS/WSS, private-subnet, pairing, token, and revocation policy.
+- Implement the cloud publisher and authenticated browser viewer first. Keep the
+  publisher outside the native helper and pure presentation packages.
+- Use existing cloud authentication/room authority where it fits, but keep the
+  snapshot and source interfaces transport-neutral.
 - On reconnect, send a fresh full snapshot before deltas/events.
 - Keep the local show agent authoritative; remote deterministic display must tolerate network jitter without inventing PowerPoint state.
+- Add the later LAN adapter using the same snapshots and reuse existing
+  HTTPS/WSS, private-subnet, pairing, token, and revocation policy.
 
 **Exit:** a paired read-only remote client survives disconnect, duplicate/out-of-order messages, show-app restart, and laptop sleep/resume.
 
 ### M4 — Lightweight and full-controller composition
 
-- Add remote mode to the lightweight PowerPoint app.
-- Embed the exact same PowerPoint panel/client in the full OnTime controller.
+- Add remote mode to the lightweight PowerPoint app for macOS and Windows after
+  the browser path proves the protocol and authorization model.
+- Embed the exact same PowerPoint panel/client in the full Downstage controller.
 - Keep the full controller's rundown/timer/cue responsibilities outside the PowerPoint module.
 
 **Exit:** light and full surfaces render identical PowerPoint state from the same session without duplicated domain logic.
 
-### M5 — Compact regular OnTime timer viewer
+### M5 — Compact regular Downstage timer viewer
 
 - Reuse the generic timer display with LAN and cloud room-source adapters.
 - Provide frameless always-on-top, fullscreen, and clean-output desktop modes.
 - Keep existing full-screen browser viewers; do not require Electron where always-on-top is unnecessary.
 - Add configurable solid backgrounds suitable for switcher keying before relying on desktop alpha capture.
 
-**Exit:** the same active OnTime timer can be shown in the full browser viewer and the compact desktop viewer over LAN or cloud with deterministic timer agreement.
+**Exit:** the same active Downstage timer can be shown in the full browser viewer and the compact desktop viewer over LAN or cloud with deterministic timer agreement.
 
 ### M6 — Remote controls
 
@@ -190,10 +305,15 @@ not chat history, is the baton between the Windows and macOS workstations.
 
 ### Immediate documentation checkpoint
 
-- Commit this roadmap, its planning links, current standalone spec/conformance,
-  and the Stage 7 evidence as a documentation-only commit.
-- Push the feature branch after that commit so a macOS agent can fetch and read
-  the plans without receiving any uncommitted Windows working-tree state.
+- Commit this roadmap, competition research, planning links, and standalone
+  product specification to a docs-only branch/PR based on `main` when planning
+  must land independently.
+- Keep implementation conformance and Stage 7 evidence on the ISSUE-001 feature
+  branch until the corresponding source is included in its PR; merging those
+  claims to `main` earlier would misrepresent the code currently on `main`.
+- Push the feature branch after its own documentation checkpoint so a macOS
+  agent can inspect Windows progress without receiving uncommitted working-tree
+  state.
 - Do not claim that uncommitted source is available on the Mac merely because
   its behavior is described in a pushed document.
 

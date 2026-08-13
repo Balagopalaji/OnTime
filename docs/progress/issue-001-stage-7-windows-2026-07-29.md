@@ -582,3 +582,42 @@ appearance remain user acceptance items even though their state and DOM paths
 are covered deterministically. The transient slide 6 first-play defect is now
 closed; final Stage 7 acceptance still requires the remaining
 mixed-DPI/work-area-edge checks.
+
+## Pull-request and cross-platform handover — 2026-08-13
+
+The operator accepted the standalone countdown and compact window behavior for
+the current beta. The suite's chosen working public name is **Downstage**, with
+**Downstage PPT Video Timer** as the intended Store product name. This PR keeps
+the existing package names, application identity, executable metadata, and beta
+artifact name; product identity migration follows Store-name reservation and
+name/trade-mark screening in a separate bounded change.
+
+The ISSUE-001 branch is ready for a draft pull request so repository CI and
+review can run against the complete standalone slice. Draft status does not
+claim Microsoft Store readiness. Before public Store submission, Windows still
+owns and must complete:
+
+- the remaining mixed-DPI and near-work-area-edge expansion acceptance;
+- an MSIX feasibility spike for Electron plus the packaged native helper;
+- native helper discovery/execution and COM acceptance from the Store package;
+- Store identity, signing, install/update/uninstall, and clean-machine tests;
+- final name/icon/listing, publisher identity, privacy/support, and commerce or
+  trial configuration.
+
+The current NSIS installer is unsigned and remains a trusted-tester artifact.
+Do not publish it as a professional public download or describe it as the Store
+build.
+
+After this PR is reviewable, transport-neutral work may return to macOS:
+
+- versioned PowerPoint cloud snapshot contracts;
+- a separate outer publisher/agent adapter and cloud backend;
+- the authenticated read-only browser viewer;
+- reusable timer display and compact content-slot shell boundaries;
+- Downstage Control embedding and the regular Downstage stage-timer source.
+
+Windows remains authoritative for edits to the C# probe and for every Windows
+helper, PowerPoint, installer, MSIX, signing, Presenter View, and display/DPI
+acceptance loop. The full cloud-first proposal and platform boundary are
+recorded in
+`docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`.
