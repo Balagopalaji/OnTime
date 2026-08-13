@@ -770,10 +770,16 @@ Store versions cannot silently overwrite each other.
 | Clean-profile settings location | OBSERVED — the packaged app recreated ordinary `%APPDATA%/@ontime/ppt-timer/settings.json`; no `settings.json` was found below `%LOCALAPPDATA%/Packages/OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0` |
 | Clean-profile uninstall | PARTIAL — package/install/process cleanup passed, but newly created ordinary-AppData settings remained unchanged at SHA-256 `AB9E542A7526BD866A94F556C5E853A5757CC1902CAF077DAB063613DCE13A05` |
 
-G6 remains PENDING despite the successful update and clean-default reinstall.
-The final Downstage package must explicitly choose whether settings survive
-uninstall. If clean Store uninstall remains the requirement, move settings into
-a verified package-managed location and retest update, uninstall and reinstall.
-If preservation is the product decision, update the acceptance contract and
-provide an intentional migration from the legacy `@ontime` path; do not retain
-the competitor-facing path accidentally.
+G6 is PASS for the provisional identity. The product decision is that settings
+survive uninstall, matching standalone S-032 and the NSIS beta. The final
+Downstage build must use a clean Downstage settings path and must not probe,
+read, copy, move or delete the legacy `@ontime` path. There is no automatic
+legacy migration. Repeat update, uninstall and reinstall after the final Store
+identity and Downstage settings path are applied.
+
+Post-test cleanup passed on 2026-08-14: the operator restored the original
+legacy settings with verified SHA-256
+`3486A9477E0E272CE980D03EC4E56A58DE28264FBFED5705A1596B1A18B80AA5`,
+confirmed provisional package count zero, and removed the development
+certificate from Local Machine Trusted People. The clean-profile settings were
+archived under the ignored lifecycle evidence directory.

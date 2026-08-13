@@ -73,16 +73,18 @@ communicates over its existing standard streams. A package-content check proves
 presence and identity; installed-package tests must separately prove process
 execution and PowerPoint COM automation.
 
-Settings currently remain under Electron's `app.getPath('userData')` in ordinary
-roaming AppData. MSIX-to-MSIX update preserves them. Live clean-install testing
-proved that this path is not redirected into package-family storage on the test
-host, and normal AppX uninstall leaves the file unchanged. Therefore the
-current feasibility build does not satisfy the intended clean-uninstall model.
-Before final Downstage identity work, choose and test either a package-managed
-settings location that uninstall removes, or an explicit user-settings
-preservation contract. The existing NSIS beta retains its current
-`deleteAppDataOnUninstall: false` behavior. This is a Store-format decision, not
-a change to the NSIS artifact.
+Settings intentionally survive uninstall, matching standalone scenario S-032
+and the NSIS beta's existing `deleteAppDataOnUninstall: false` behavior.
+MSIX-to-MSIX update must preserve them, uninstall must remove the package,
+install tree and processes without modifying settings, and reinstall must
+restore preserved settings. Live feasibility testing proved this behavior for
+ordinary roaming AppData.
+
+The final Downstage build starts clean at a new Downstage settings path. It must
+not probe, read, copy, move or delete `%APPDATA%/@ontime/ppt-timer`, and it must
+not ship an OnTime-specific migration. Existing beta settings remain untouched.
+If a generic user-selected settings import is ever added, it is a separately
+specified feature and not part of Store readiness.
 
 An NSIS beta installation is not an in-place predecessor of the Store package.
 Before public Store installation, beta testers uninstall NSIS manually. No
@@ -167,7 +169,7 @@ Baseline artifact already present at the starting commit:
 | G3 Package build | Windows creates AppX; actual archive/manifest/helper/ASAR inspection passes; exact bytes and hashes recorded | PASS (unsigned feasibility artifact only) |
 | G4 Installed runtime | Signed/trusted local package installs; exact package identity recorded; one app/helper; helper discovery, close cleanup and single-instance pass | PASS (provisional identity) |
 | G5 PowerPoint COM | Installed package reports not-running/no-slideshow/live media and passes the agreed media/recovery/coexistence subset | PENDING |
-| G6 Lifecycle | Same-identity higher-version AppX updates in place with settings preserved; uninstall removes package and package-managed settings; reinstall starts with defaults | PENDING — update/reinstall PASS; ordinary-AppData uninstall contract unresolved |
+| G6 Lifecycle | Same-identity higher-version AppX updates in place with settings preserved; uninstall removes package/install tree/processes while preserving settings; clean-profile reinstall starts with defaults | PASS (provisional identity; repeat for final Downstage path) |
 | G7 Display acceptance | Edge/corner expansion plus 100/125/150% mixed-DPI, display removal, taskbar and Presenter View/AOT matrix passes | PENDING |
 | G8 Store validation | Name reserved; final identity/assets applied; WACK, Partner Center validation, restricted-capability approval, private Store install/update and certification pass | PENDING |
 
@@ -192,11 +194,11 @@ tree, and relaunch restores settings. This PASS applies only to the provisional
 identity; it must be repeated after the Partner Center identity and Downstage
 settings-path decision are applied.
 
-The package currently reads and writes the pre-existing NSIS path
+The provisional package currently reads and writes the pre-existing NSIS path
 `%APPDATA%/@ontime/ppt-timer/settings.json`. A packaged write and reload passed,
 but this is also proof that NSIS and the feasibility AppX share legacy settings.
-The final Downstage identity slice must choose an explicit one-time migration
-or a clean Downstage settings path before G8.
+The final Downstage identity slice must use a clean Downstage settings path and
+must not import from or otherwise touch the legacy path.
 
 If G4 or G5 demonstrates a platform incompatibility that cannot be corrected
 without expanding product scope, stop the AppX path and document the exact
