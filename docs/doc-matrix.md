@@ -60,5 +60,8 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Phase 3 troubleshooting log | `docs/phase-3-troubleshooting.md` | Reference | draft | n/a |  |  |  |
 | Agent handoff log | `docs/agent-handoff.md` | Reference | current | n/a |  |  |  |
 | PowerPoint video timing debug notes (Windows, dev-only) | `docs/ppt-video-debug.md` | Reference | current | `companion/src/main.ts` |  |  |  |
-| Standalone PowerPoint video timer app | `docs/phase-3-standalone-ppt-timer.md` | Plan | draft | `companion/ppt-probe/Program.cs` |  |  |  |
+| Standalone PowerPoint video timer early draft | `docs/phase-3-standalone-ppt-timer.md` | Plan | superseded | `packages/ppt-bridge/native/windows-ppt-probe/Program.cs` |  |  |  |
+| Standalone PowerPoint video timer specification | `docs/spec/standalone-powerpoint-video-timer.spec.md` | Spec | current | `apps/ppt-timer`, `packages/ppt-bridge`, `packages/presentation-core` |  |  |  |
+| PowerPoint capability and timer display productization | `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md` | Plan | current | `apps/ppt-timer`, `packages/ppt-bridge`, `packages/presentation-core`, `packages/interface-contracts` |  |  |  |
+| Competition research (PowerPoint video timer) | `docs/competition-overview.md` | Research | current | n/a |  |  |  |
 | Save/Load Sessions | `docs/phase-3-save-load-sessions.md` | Plan | draft | n/a |  |  |  |

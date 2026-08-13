@@ -34,7 +34,7 @@ if (roots.length === 0) {
 const result = spawnSync(
   depcruiseBin,
   ['--config', '.dependency-cruiser.cjs', '--output-type', 'err-long', ...roots],
-  { cwd: root, stdio: 'inherit' },
+  { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' },
 )
 
 if (result.error) {

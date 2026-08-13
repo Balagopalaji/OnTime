@@ -1,0 +1,38 @@
+{
+  "state": "foreground",
+  "instanceId": 7105,
+  "protocolVersion": 1,
+  "pptActive": true,
+  "inSlideshow": true,
+  "title": "Deck1",
+  "filename": "C:\\Fixture\\deck.pptx",
+  "totalSlides": 12,
+  "slideNumber": 5,
+  "videoDetected": true,
+  "primaryVideoId": 503,
+  "primaryVideoIndex": 1,
+  "videos": [
+    {
+      "id": 502,
+      "name": "clip-a.mp4",
+      "duration": 45000,
+      "elapsed": 5000,
+      "remaining": 40000,
+      "status": "paused",
+      "playing": false
+    },
+    {
+      "id": 503,
+      "name": "clip-b.mp4",
+      "duration": 20000,
+      "elapsed": 3000,
+      "remaining": 17000,
+      "status": "playing",
+      "playing": true
+    }
+  ],
+  "videoDuration": 20000,
+  "videoElapsed": 3000,
+  "videoPlaying": true,
+  "videoRemaining": 17000
+}

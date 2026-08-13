@@ -25,12 +25,25 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: package-lock.json
 
       - name: Install workspace deps
         run: npm ci
+
+      # Stage 6: the canonical helper now targets net10.0-windows self-contained,
+      # so both Companion and the standalone build it with the .NET 10 SDK.
+      - name: Setup .NET 10
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build PowerPoint probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./companion/scripts/build-ppt-probe.ps1
 
       # ffprobe URLs can be overridden with repo/environment variables if you host vetted LGPL-only binaries.
       - name: Fetch ffprobe
@@ -44,12 +57,44 @@ jobs:
           FFPROBE_URL_LINUX: ${{ vars.FFPROBE_URL_LINUX }}
         run: npm run fetch-ffprobe
 
+      - name: Build Companion viewer, shared packages, and application
+        working-directory: companion
+        run: |
+          npm run build:viewer
+          npm run build
+
       - name: Build installers
         working-directory: companion
         env:
           # Disable signing/notarization in CI unless explicitly configured.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --publish never
+        run: npx --no-install electron-builder --publish never
+
+      - name: Verify clean-checkout application and viewer outputs
+        working-directory: companion
+        run: >-
+          node -e "const fs=require('node:fs'); for (const file of ['dist/main.js','../frontend/dist-viewer/index.html','package.json']) { if (!fs.existsSync(file)) throw new Error('Missing clean-checkout build output: ' + file); }"
+
+      - name: Verify packaged PowerPoint probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: companion
+        run: |
+          $canonicalPath = Join-Path $env:GITHUB_WORKSPACE 'packages/ppt-bridge/bin/win-x64/ppt-probe.exe'
+          $compatibilityPath = Join-Path $env:GITHUB_WORKSPACE 'companion/bin/ppt-probe.exe'
+          $packagedPath = Join-Path $PWD 'dist_out/win-unpacked/resources/bin/ppt-probe.exe'
+          $paths = @($canonicalPath, $compatibilityPath, $packagedPath)
+          foreach ($path in $paths) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Expected PowerPoint probe artifact not found: $path"
+            }
+          }
+          $canonicalHash = (Get-FileHash -LiteralPath $canonicalPath -Algorithm SHA256).Hash
+          $compatibilityHash = (Get-FileHash -LiteralPath $compatibilityPath -Algorithm SHA256).Hash
+          $packagedHash = (Get-FileHash -LiteralPath $packagedPath -Algorithm SHA256).Hash
+          if ($canonicalHash -ne $compatibilityHash -or $compatibilityHash -ne $packagedHash) {
+            throw "PowerPoint probe hashes differ across canonical, Companion, and packaged resources"
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

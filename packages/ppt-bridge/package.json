@@ -1,0 +1,23 @@
+{
+  "name": "@ontime/ppt-bridge",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "exports": {
+    ".": {
+      "types": "./dist-cjs/index.d.ts",
+      "import": "./src/index.ts",
+      "require": "./dist-cjs/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run test",
+    "build:cjs": "node ../../scripts/build-cjs.mjs",
+    "smoke:cjs": "node test/cjs-smoke.cjs"
+  },
+  "dependencies": {
+    "@ontime/presentation-core": "0.0.0"
+  }
+}

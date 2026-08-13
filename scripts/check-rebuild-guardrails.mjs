@@ -92,6 +92,109 @@ function importAllowedForPackage(pkg, specifier) {
   return allowed.some((pattern) => pattern.test(specifier))
 }
 
+function checkPresentationCoreContract() {
+  const coreSourceFiles = [
+    'packages/presentation-core/src/index.ts',
+    'packages/presentation-core/src/powerpoint-types.ts',
+    'packages/presentation-core/src/powerpoint-normalize.ts',
+    'packages/presentation-core/src/powerpoint-machine.ts',
+    'packages/presentation-core/src/powerpoint-view.ts',
+  ]
+  const purityPatterns = [
+    /\bprocess\b/,
+    /\bDate\.now\b/,
+    /\bset(?:Interval|Timeout)\b/,
+    /(?:node:)?(?:child_process|fs|path|timers|electron)/,
+    /(?:electron|socket\.io|socket\.io-client|@ontime\/(?:interface-contracts|shared-types))/ ,
+  ]
+  for (const file of coreSourceFiles) {
+    if (!existsSync(path.join(root, file))) {
+      fail(`presentation-core production file is missing: ${file}`)
+      continue
+    }
+    const content = stripSourceComments(read(file))
+    for (const pattern of purityPatterns) {
+      if (pattern.test(content)) {
+        fail(`presentation-core production purity violation: ${file} matches ${pattern}`)
+      }
+    }
+  }
+
+  const corePackage = read('packages/presentation-core/package.json')
+  for (const required of [
+    '"types": "./dist-cjs/index.d.ts"',
+    '"require": "./dist-cjs/index.js"',
+    '"build:cjs"',
+    '"smoke:cjs"',
+    '"test": "vitest --run src"',
+  ]) {
+    if (!corePackage.includes(required)) {
+      fail(`presentation-core CJS contract missing: ${required}`)
+    }
+  }
+  if (!existsSync(path.join(root, 'packages/presentation-core/tsconfig.cjs.json'))) {
+    fail('presentation-core CJS contract missing: tsconfig.cjs.json')
+  }
+
+  const companionPackage = read('companion/package.json')
+  if (!companionPackage.includes('"prebuild": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge"')) {
+    fail('Companion must prebuild presentation-core CJS then ppt-bridge CJS before TypeScript compilation')
+  }
+  if (!companionPackage.includes('"@ontime/presentation-core": "0.0.0"')) {
+    fail('Companion must declare @ontime/presentation-core workspace dependency')
+  }
+  if (!companionPackage.includes('"@ontime/ppt-bridge": "0.0.0"')) {
+    fail('Companion must declare @ontime/ppt-bridge workspace dependency')
+  }
+  const bridgePackage = read('packages/ppt-bridge/package.json')
+  if (!bridgePackage.includes('"@ontime/presentation-core": "0.0.0"')) {
+    fail('ppt-bridge must declare @ontime/presentation-core workspace dependency')
+  }
+
+  const workflow = read('.github/workflows/rebuild-guardrails.yml')
+  const localCi = read('scripts/ci-local.mjs')
+  const workflowCommands = [
+    'run: npm run typecheck --workspace @ontime/presentation-core',
+    'run: npm run test --workspace @ontime/presentation-core',
+    'run: npm run build:cjs --workspace @ontime/presentation-core',
+    'run: npm run smoke:cjs --workspace @ontime/presentation-core',
+    'run: npm run typecheck --workspace @ontime/ppt-bridge',
+    'run: npm run test --workspace @ontime/ppt-bridge',
+    'run: npm run build:cjs --workspace @ontime/ppt-bridge',
+    'run: npm run smoke:cjs --workspace @ontime/ppt-bridge',
+  ]
+  const localCommands = [
+    "cmd: 'npm run typecheck --workspace @ontime/presentation-core'",
+    "cmd: 'npm run test --workspace @ontime/presentation-core'",
+    "cmd: 'npm run build:cjs --workspace @ontime/presentation-core'",
+    "cmd: 'npm run smoke:cjs --workspace @ontime/presentation-core'",
+    "cmd: 'npm run typecheck --workspace @ontime/ppt-bridge'",
+    "cmd: 'npm run test --workspace @ontime/ppt-bridge'",
+    "cmd: 'npm run build:cjs --workspace @ontime/ppt-bridge'",
+    "cmd: 'npm run smoke:cjs --workspace @ontime/ppt-bridge'",
+  ]
+  let cursor = -1
+  for (const command of workflowCommands) {
+    const next = workflow.indexOf(command)
+    if (next <= cursor) fail(`rebuild workflow presentation-core ordering drift: ${command}`)
+    cursor = next
+  }
+  const companionWorkflowStep = workflow.indexOf('run: npx tsc -p tsconfig.json --noEmit')
+  if (cursor >= companionWorkflowStep) {
+    fail('rebuild workflow must build and smoke presentation-core before Companion typecheck')
+  }
+  cursor = -1
+  for (const command of localCommands) {
+    const next = localCi.indexOf(command)
+    if (next <= cursor) fail(`ci-local presentation-core ordering drift: ${command}`)
+    cursor = next
+  }
+  const companionLocalStep = localCi.indexOf("cmd: 'npx tsc -p tsconfig.json --noEmit'")
+  if (cursor >= companionLocalStep) {
+    fail('ci-local must build and smoke presentation-core before Companion typecheck')
+  }
+}
+
 function checkPromptExports() {
   for (const file of trackedUnder('prompt-exports/')) {
     fail(`prompt-exports must not be tracked: ${file}`)
@@ -301,7 +404,7 @@ const TARGET_PACKAGE_NAMES = [
   'lock-view-model',
 ]
 
-const PACKAGE_POPULATION_BASELINE = 6
+const PACKAGE_POPULATION_BASELINE = 7
 let packagePopulationStatus = ''
 
 function hasPackageTest(pkg) {
@@ -421,6 +524,7 @@ function checkRebuildTargetMarkers() {
   }
 }
 
+checkPresentationCoreContract()
 checkPromptExports()
 checkPackageBoundaries()
 checkProductBoundaries()

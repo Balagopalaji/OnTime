@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -40,6 +40,42 @@ jobs:
 
       - name: Rebuild boundary and pattern checks
         run: npm run guardrails
+
+      - name: Presentation-core typecheck
+        run: npm run typecheck --workspace @ontime/presentation-core
+
+      - name: Presentation-core tests
+        run: npm run test --workspace @ontime/presentation-core
+
+      - name: Presentation-core CJS build
+        run: npm run build:cjs --workspace @ontime/presentation-core
+
+      - name: Presentation-core CJS smoke
+        run: npm run smoke:cjs --workspace @ontime/presentation-core
+
+      # Stage 1b safety net: run the FULL frontend suite (including the UnifiedDataContext
+      # characterization harness, 51 tests) so any carve-out that changes behavior turns this
+      # required check red.
+      - name: PPT bridge typecheck
+        run: npm run typecheck --workspace @ontime/ppt-bridge
+
+      - name: PPT bridge tests
+        run: npm run test --workspace @ontime/ppt-bridge
+
+      - name: PPT bridge CJS build
+        run: npm run build:cjs --workspace @ontime/ppt-bridge
+
+      - name: PPT bridge CJS smoke
+        run: npm run smoke:cjs --workspace @ontime/ppt-bridge
+
+      # Stage 6: the standalone app gate runs per-commit alongside the shared
+      # packages it consumes (typecheck + tests run on every OS; the Windows-only
+      # installer/electron-builder lane is in ppt-timer-build.yml).
+      - name: PPT timer typecheck
+        run: npm run typecheck --workspace apps/ppt-timer
+
+      - name: PPT timer tests
+        run: npm run test --workspace apps/ppt-timer
 
       - name: Companion typecheck
         working-directory: companion
@@ -86,15 +122,6 @@ jobs:
       - name: Lock-view-model tests
         run: npm run test --workspace @ontime/lock-view-model
 
-      - name: Presentation-core typecheck
-        run: npm run typecheck --workspace @ontime/presentation-core
-
-      - name: Presentation-core tests
-        run: npm run test --workspace @ontime/presentation-core
-
-      # Stage 1b safety net: run the FULL frontend suite (including the UnifiedDataContext
-      # characterization harness, 51 tests) so any carve-out that changes behavior turns this
-      # required check red.
       - name: Frontend test suite (characterization safety net)
         working-directory: frontend
         run: npx vitest run

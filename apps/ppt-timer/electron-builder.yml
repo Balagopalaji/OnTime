@@ -1,0 +1,68 @@
+# OnTime PowerPoint Video Timer — internal Windows x64 installer (ISSUE-001, Stage 6).
+#
+# Internal-only beta artifact. No code signing and no auto-update (spec Non-Goals;
+# signing is a Stage 8 public-release gate). The .NET STA COM helper is packaged
+# exactly once under resources/bin/ppt-probe.exe, copied from the canonical build
+# output (packages/ppt-bridge/bin/win-x64) — the same artifact Companion ships —
+# so both consumers share one helper source and packaged path.
+#
+# `version` is intentionally NOT set here: it flows from package.json (single
+# version source) into artifactName and the build manifest.
+appId: com.ontime.ppttimer
+productName: OnTime PowerPoint Video Timer
+artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-setup.exe
+directories:
+  output: dist_out
+
+# Production code only: the compiled main/preload/renderer (dist/) plus
+# package.json. electron-builder always copies production-dependency
+# node_modules regardless of this list (@ontime/ppt-bridge,
+# @ontime/presentation-core); `node_modules/**/*` is listed explicitly to match
+# the proven Controller/Companion packaging convention rather than rely on that
+# implicit default silently. `dist/main/build-manifest.js` is release-tooling
+# (consumed by `scripts/build-manifest.mjs` from the local build output, run
+# AFTER packaging) — it is not imported by the app and is excluded from the
+# packaged app so it isn't shipped as if it were runtime code.
+files:
+  - dist/**/*
+  - '!dist/main/build-manifest.js'
+  - node_modules/**/*
+  # The runtime bridge needs dist-cjs only; its helper publish/native build
+  # outputs are packaged separately below as the one canonical resource.
+  - '!node_modules/@ontime/ppt-bridge/bin/**'
+  - '!node_modules/@ontime/ppt-bridge/native/**'
+  - package.json
+
+# Exactly one helper, at resources/bin/ppt-probe.exe. Dir+filter mirrors the
+# proven Companion packaging pattern (companion/package.json extraResources) and
+# guarantees a single ppt-probe.exe regardless of auxiliary publish outputs.
+extraResources:
+  - from: ../../packages/ppt-bridge/bin/win-x64
+    to: bin
+    filter:
+      - ppt-probe.exe
+
+# No `icon:` override: electron-builder's default icon is used. No canonical
+# OnTime Windows .ico exists anywhere in the repo (Controller/Companion also
+# ship unbranded) — accepted internal-artifact limitation for this private
+# beta, not a gap introduced here. Do not invent branding; add a real .ico and
+# an `icon:` entry when one is provided.
+#
+# Windows x64, NSIS, assisted per-user install. Settings survive normal uninstall
+# (deleteAppDataOnUninstall: false) so a reinstall of the same line can recover
+# them (S-032); the same appId supports in-place upgrade (S-031).
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # Internal beta is unsigned; no publisherName/signingHashAlgorithms here.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+# No `publish` block: auto-update is a spec Non-Goal. Upgrade is user-initiated
+# by installing a newer installer with the same appId (S-031).

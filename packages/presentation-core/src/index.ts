@@ -1,3 +1,34 @@
+export type * from './powerpoint-types'
+export {
+  POWERPOINT_DEBOUNCE_MS,
+  POWERPOINT_PLAYING_DELTA_MS,
+  POWERPOINT_VIDEO_CLEAR_POLLS,
+  normalizePowerPointPoll,
+  snapshotsIdentityEqual,
+  snapshotsTimingEqual,
+  videoListsEqual,
+} from './powerpoint-normalize'
+export {
+  createInitialPowerPointMachineState,
+  reducePowerPointMachine,
+} from './powerpoint-machine'
+export type {
+  PowerPointMachineEvent,
+  PowerPointMachineResult,
+  PowerPointMachineState,
+  PresentationMachineAction,
+} from './powerpoint-machine'
+export { POWERPOINT_END_INFER_MS, projectPowerPointView, resolveVideoStatus } from './powerpoint-view'
+export { derivePowerPointRemainingMs } from './powerpoint-timing'
+export type {
+  PowerPointTimingMode,
+  PowerPointVideoTile,
+  PowerPointViewPresentation,
+  PowerPointViewState,
+  PowerPointViewStateBase,
+  ProjectPowerPointViewOptions,
+} from './powerpoint-view'
+
 /**
  * Per-video metadata entry inside a `LiveCue.metadata.videos[]` array.
  *

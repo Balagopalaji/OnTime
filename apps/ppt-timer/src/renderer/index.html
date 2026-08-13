@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Local content only; no remote origins are ever loaded (S-033). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <title>OnTime PowerPoint Timer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- `#app` is deliberately NOT a live region: it holds timers that repaint
+         every 250 ms, and announcing those would talk over everything else.
+         Meaningful status changes go to `#announcer`, which sits outside the
+         replaced subtree and never receives a timer value. -->
+    <main id="app"></main>
+    <div id="announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

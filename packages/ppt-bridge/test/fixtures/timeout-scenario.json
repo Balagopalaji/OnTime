@@ -1,0 +1,8 @@
+{
+  "_note": "Test-configuration fixture, NOT a native helper response. Describes the fake-helper mode used to exercise a timeout path. Kept under ppt-probe/ so Stage-0 raw evidence and future Stage-1 timeout evidence share one sanitized location.",
+  "scenario": "timeout",
+  "fakeHelperMode": "never-respond",
+  "clientPollTimeoutMs": 8000,
+  "expectedOutcome": "timeout",
+  "provenance": "synthetic-failure"
+}

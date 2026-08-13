@@ -1,0 +1,200 @@
+name: Build OnTime PowerPoint Video Timer installer
+
+# Windows-only internal artifact workflow (ISSUE-001, Stage 6). Produces the
+# unsigned NSIS installer + .sha256 + deterministic build manifest. Not run on
+# macOS/Linux: electron-builder --win and the .NET helper build require Windows.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ppt-timer-v*"
+
+jobs:
+  build:
+    name: Build installer (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # electron@43 requires Node >=22.12 (P1-08 supported-major pin); this job
+      # is the only lane that actually runs electron-builder/electron-provided
+      # tooling for the standalone, so only its Node baseline moves.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Verify standalone beta tag matches package version
+        if: startsWith(github.ref, 'refs/tags/ppt-timer-v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "const fs=require('node:fs'); const version=JSON.parse(fs.readFileSync('apps/ppt-timer/package.json','utf8')).version; if (process.env.RELEASE_TAG !== 'ppt-timer-v' + version) { throw new Error('Release tag must exactly match ppt-timer-v' + version + ', got ' + process.env.RELEASE_TAG); }"
+
+      # Stage 6: the canonical helper targets net10.0-windows self-contained
+      # (win-x64 single-file, untrimmed). .NET 10 SDK builds it; the resulting
+      # exe needs no machine-wide runtime on a clean machine (S-030).
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Presentation-core typecheck
+        run: npm run typecheck --workspace @ontime/presentation-core
+
+      - name: Presentation-core tests
+        run: npm run test --workspace @ontime/presentation-core
+
+      - name: PPT bridge typecheck
+        run: npm run typecheck --workspace @ontime/ppt-bridge
+
+      - name: PPT bridge tests
+        run: npm run test --workspace @ontime/ppt-bridge
+
+      - name: Build shared CJS packages
+        run: |
+          npm run build:cjs --workspace @ontime/presentation-core
+          npm run build:cjs --workspace @ontime/ppt-bridge
+
+      - name: PPT timer typecheck
+        run: npm run typecheck --workspace apps/ppt-timer
+
+      - name: PPT timer tests
+        run: npm run test --workspace apps/ppt-timer
+
+      - name: Build canonical PowerPoint probe helper
+        # Already running under pwsh (Core); invoking legacy `powershell.exe`
+        # from inside a pwsh step is redundant nesting. GitHub Actions runs
+        # `shell: pwsh` steps non-interactively (no execution-policy prompt),
+        # so the script can be invoked directly.
+        shell: pwsh
+        run: ./packages/ppt-bridge/scripts/build-windows.ps1
+
+      - name: Verify helper publish output is a true one-file payload (P1-01)
+        # electron-builder's extraResources filter packages ppt-probe.exe ONLY
+        # (electron-builder.yml). IncludeNativeLibrariesForSelfExtract=true
+        # (build-windows.ps1) must actually bundle native runtime DLLs into
+        # that single exe; a loose .dll here means the installer would omit a
+        # file the helper needs on a clean machine (S-030). This does not
+        # replace the still-pending clean-Windows-VM launch evidence.
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $PWD 'packages/ppt-bridge/bin/win-x64'
+          if (-not (Test-Path -LiteralPath $publishDir -PathType Container)) {
+            throw "Publish output directory not found: $publishDir"
+          }
+          $files = Get-ChildItem -LiteralPath $publishDir -File
+          if (-not ($files.Name -contains 'ppt-probe.exe')) {
+            throw "Publish output missing ppt-probe.exe: $publishDir"
+          }
+          $looseDlls = $files | Where-Object { $_.Extension -ieq '.dll' }
+          if ($looseDlls) {
+            throw "Publish output has loose native runtime DLL(s) beside the single-file exe (IncludeNativeLibrariesForSelfExtract not effective): $($looseDlls.Name -join ', ')"
+          }
+
+      - name: Verify helper PE version identity
+        # Read the actual published helper metadata rather than assuming the
+        # MSBuild properties survived packaging. The manifest consumes only this
+        # independently verified value below.
+        shell: pwsh
+        run: |
+          $expectedProductVersion = node -p "require('./apps/ppt-timer/package.json').version"
+          $expectedFileVersion = (node packages/ppt-bridge/scripts/windows-file-version.mjs $expectedProductVersion).Trim()
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($expectedFileVersion)) {
+            throw "Could not derive numeric Windows PE FileVersion from app SemVer $expectedProductVersion"
+          }
+          $helperPath = Join-Path $PWD 'packages/ppt-bridge/bin/win-x64/ppt-probe.exe'
+          if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) {
+            throw "Published helper is missing: $helperPath"
+          }
+          $versionInfo = (Get-Item -LiteralPath $helperPath).VersionInfo
+          if ($versionInfo.ProductVersion -ne $expectedProductVersion) {
+            throw "Helper PE ProductVersion must exactly match package version $expectedProductVersion; got '$($versionInfo.ProductVersion)'"
+          }
+          if ($versionInfo.FileVersion -ne $expectedFileVersion) {
+            throw "Helper PE FileVersion must exactly match derived numeric version $expectedFileVersion; got '$($versionInfo.FileVersion)'"
+          }
+          "ONTIME_PPT_TIMER_VERIFIED_HELPER_VERSION=$expectedProductVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Package installer
+        working-directory: apps/ppt-timer
+        env:
+          # Internal beta: no signing in CI.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist
+
+      - name: Generate checksum + deterministic build manifest
+        working-directory: apps/ppt-timer
+        run: npm run manifest
+
+      - name: Verify packaged app contents (helper, runtime deps, no forbidden assets)
+        shell: pwsh
+        working-directory: apps/ppt-timer
+        run: |
+          $resources = Join-Path $PWD 'dist_out/win-unpacked/resources'
+
+          # Exactly one packaged helper, at resources/bin/ppt-probe.exe.
+          $packaged = Join-Path $resources 'bin/ppt-probe.exe'
+          if (-not (Test-Path -LiteralPath $packaged -PathType Leaf)) {
+            throw "Packaged helper missing at expected path: $packaged"
+          }
+          $count = (Get-ChildItem -LiteralPath $resources -Recurse -Filter 'ppt-probe.exe').Count
+          if ($count -ne 1) {
+            throw "Expected exactly one packaged ppt-probe.exe, found $count"
+          }
+
+          # The app code (dist/ + node_modules) is packed into app.asar; list its
+          # contents to confirm the two runtime workspace deps actually resolved
+          # into the package (the latent risk this gate exists to catch) and that
+          # build-only/forbidden assets were not swept in.
+          $asarPath = Join-Path $resources 'app.asar'
+          if (-not (Test-Path -LiteralPath $asarPath -PathType Leaf)) {
+            throw "Packaged app.asar missing at: $asarPath"
+          }
+          $entries = (node ../../node_modules/@electron/asar/bin/asar.js list $asarPath) -replace '\\', '/'
+          if ($LASTEXITCODE -ne 0) {
+            throw "pinned local @electron/asar list failed with exit code $LASTEXITCODE"
+          }
+
+          $requiredRuntimeFiles = @(
+            'node_modules/@ontime/ppt-bridge/dist-cjs/index.js',
+            'node_modules/@ontime/presentation-core/dist-cjs/index.js'
+          )
+          foreach ($path in $requiredRuntimeFiles) {
+            if (-not ($entries -match [regex]::Escape($path))) {
+              throw "Packaged app.asar missing required runtime file: $path"
+            }
+          }
+
+          if ($entries -match [regex]::Escape('dist/main/build-manifest.js')) {
+            throw 'Packaged app.asar must not include build-only dist/main/build-manifest.js'
+          }
+
+          $forbidden = @('companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions')
+          foreach ($word in $forbidden) {
+            if ($entries -match [regex]::Escape($word)) {
+              throw "Packaged app.asar unexpectedly references forbidden asset: $word"
+            }
+          }
+          $resourceFiles = Get-ChildItem -LiteralPath $resources -Recurse -File |
+            ForEach-Object { $_.FullName.ToLowerInvariant() }
+          foreach ($word in $forbidden) {
+            if ($resourceFiles -match [regex]::Escape($word)) {
+              throw "Packaged resources unexpectedly reference forbidden asset: $word"
+            }
+          }
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppt-timer-win-x64
+          path: |
+            apps/ppt-timer/dist_out/*-win-x64-setup.exe
+            apps/ppt-timer/dist_out/*.sha256
+            apps/ppt-timer/dist_out/build.manifest.json

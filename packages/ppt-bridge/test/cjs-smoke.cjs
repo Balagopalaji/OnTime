@@ -1,0 +1,7 @@
+const assert = require('node:assert/strict')
+const bridge = require('../dist-cjs/index.js')
+assert.equal(typeof bridge.validatePowerPointResponse, 'function')
+assert.equal(typeof bridge.createPptBridgeClient, 'function')
+assert.equal(bridge.MAX_RESPONSE_BYTES, 1048576)
+assert.equal(bridge.validatePowerPointResponse(JSON.stringify({ state: 'none' })).kind, 'powerpoint_not_running')
+console.log('CJS smoke passed')

@@ -1,0 +1,728 @@
+{
+  "provenance": "source-derived-from-companion-characterization-tests",
+  "sanitized": true,
+  "scenarios": {
+    "firstAnnouncement": {
+      "snapshot": {
+        "instanceId": 12001,
+        "slideNumber": 2,
+        "totalSlides": 5,
+        "title": "Fixture Deck",
+        "filename": "deck.pptx",
+        "videoPlaying": false,
+        "videoDuration": 10000,
+        "videoElapsed": 1000,
+        "videoRemaining": 9000,
+        "videos": [
+          {
+            "id": 7,
+            "name": "clip",
+            "duration": 10000,
+            "elapsed": 1000,
+            "remaining": 9000,
+            "playing": false
+          }
+        ],
+        "videoTimingUnavailable": false
+      },
+      "rooms": [
+        "room-a",
+        "room-b"
+      ],
+      "timestamp": 1000000,
+      "events": [
+        [
+          "room-a",
+          "LIVE_CUE_CREATED",
+          {
+            "type": "LIVE_CUE_CREATED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Fixture Deck",
+              "startedAt": 1000000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1000000
+          }
+        ],
+        [
+          "room-a",
+          "PRESENTATION_LOADED",
+          {
+            "type": "PRESENTATION_LOADED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Fixture Deck",
+              "startedAt": 1000000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1000000
+          }
+        ],
+        [
+          "room-b",
+          "LIVE_CUE_CREATED",
+          {
+            "type": "LIVE_CUE_CREATED",
+            "roomId": "room-b",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Fixture Deck",
+              "startedAt": 1000000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1000000
+          }
+        ],
+        [
+          "room-b",
+          "PRESENTATION_LOADED",
+          {
+            "type": "PRESENTATION_LOADED",
+            "roomId": "room-b",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Fixture Deck",
+              "startedAt": 1000000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1000000
+          }
+        ]
+      ]
+    },
+    "update": {
+      "initial": {
+        "instanceId": 12001,
+        "slideNumber": 2,
+        "totalSlides": 5,
+        "title": "Fixture Deck",
+        "filename": "deck.pptx",
+        "videoPlaying": false,
+        "videoDuration": 10000,
+        "videoElapsed": 1000,
+        "videoRemaining": 9000,
+        "videos": [
+          {
+            "id": 7,
+            "name": "clip",
+            "duration": 10000,
+            "elapsed": 1000,
+            "remaining": 9000,
+            "playing": false
+          }
+        ],
+        "videoTimingUnavailable": false
+      },
+      "changed": {
+        "instanceId": 12001,
+        "slideNumber": 2,
+        "totalSlides": 5,
+        "title": "Fixture Deck",
+        "filename": "deck.pptx",
+        "videoPlaying": true,
+        "videoDuration": 10000,
+        "videoElapsed": 2000,
+        "videoRemaining": 8000,
+        "videos": [
+          {
+            "id": 7,
+            "name": "clip",
+            "duration": 10000,
+            "elapsed": 2000,
+            "remaining": 8000,
+            "playing": true
+          }
+        ],
+        "videoTimingUnavailable": false
+      },
+      "rooms": [
+        "room-a"
+      ],
+      "initialTimestamp": 1000000,
+      "timestamp": 1000500,
+      "events": [
+        [
+          "room-a",
+          "LIVE_CUE_UPDATED",
+          {
+            "type": "LIVE_CUE_UPDATED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Fixture Deck",
+              "startedAt": 1000000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": true,
+                "videoDuration": 10000,
+                "videoElapsed": 2000,
+                "videoRemaining": 8000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 2000,
+                    "remaining": 8000,
+                    "playing": true
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1000500
+          }
+        ],
+        [
+          "room-a",
+          "PRESENTATION_UPDATE",
+          {
+            "type": "PRESENTATION_UPDATE",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Fixture Deck",
+              "startedAt": 1000000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": true,
+                "videoDuration": 10000,
+                "videoElapsed": 2000,
+                "videoRemaining": 8000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 2000,
+                    "remaining": 8000,
+                    "playing": true
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1000500
+          }
+        ]
+      ]
+    },
+    "instanceSwitch": {
+      "old": {
+        "instanceId": 12001,
+        "slideNumber": 2,
+        "totalSlides": 5,
+        "title": "Old Fixture Deck",
+        "filename": "deck.pptx",
+        "videoPlaying": false,
+        "videoDuration": 10000,
+        "videoElapsed": 1000,
+        "videoRemaining": 9000,
+        "videos": [
+          {
+            "id": 7,
+            "name": "clip",
+            "duration": 10000,
+            "elapsed": 1000,
+            "remaining": 9000,
+            "playing": false
+          }
+        ],
+        "videoTimingUnavailable": false
+      },
+      "newer": {
+        "instanceId": 12002,
+        "slideNumber": 2,
+        "totalSlides": 5,
+        "title": "New Fixture Deck",
+        "filename": "deck.pptx",
+        "videoPlaying": false,
+        "videoDuration": 10000,
+        "videoElapsed": 1000,
+        "videoRemaining": 9000,
+        "videos": [
+          {
+            "id": 7,
+            "name": "clip",
+            "duration": 10000,
+            "elapsed": 1000,
+            "remaining": 9000,
+            "playing": false
+          }
+        ],
+        "videoTimingUnavailable": false
+      },
+      "rooms": [
+        "room-a",
+        "room-b"
+      ],
+      "initialTimestamp": 1000000,
+      "timestamp": 1001000,
+      "events": [
+        [
+          "room-a",
+          "LIVE_CUE_ENDED",
+          {
+            "type": "LIVE_CUE_ENDED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Old Fixture Deck",
+              "startedAt": 1000000,
+              "status": "ended",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001000
+          }
+        ],
+        [
+          "room-b",
+          "LIVE_CUE_ENDED",
+          {
+            "type": "LIVE_CUE_ENDED",
+            "roomId": "room-b",
+            "cue": {
+              "id": "powerpoint:12001",
+              "source": "powerpoint",
+              "title": "Old Fixture Deck",
+              "startedAt": 1000000,
+              "status": "ended",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12001,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001000
+          }
+        ],
+        [
+          "room-a",
+          "LIVE_CUE_CREATED",
+          {
+            "type": "LIVE_CUE_CREATED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12002",
+              "source": "powerpoint",
+              "title": "New Fixture Deck",
+              "startedAt": 1001000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12002,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001000
+          }
+        ],
+        [
+          "room-a",
+          "PRESENTATION_LOADED",
+          {
+            "type": "PRESENTATION_LOADED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12002",
+              "source": "powerpoint",
+              "title": "New Fixture Deck",
+              "startedAt": 1001000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12002,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001000
+          }
+        ],
+        [
+          "room-b",
+          "LIVE_CUE_CREATED",
+          {
+            "type": "LIVE_CUE_CREATED",
+            "roomId": "room-b",
+            "cue": {
+              "id": "powerpoint:12002",
+              "source": "powerpoint",
+              "title": "New Fixture Deck",
+              "startedAt": 1001000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12002,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001000
+          }
+        ],
+        [
+          "room-b",
+          "PRESENTATION_LOADED",
+          {
+            "type": "PRESENTATION_LOADED",
+            "roomId": "room-b",
+            "cue": {
+              "id": "powerpoint:12002",
+              "source": "powerpoint",
+              "title": "New Fixture Deck",
+              "startedAt": 1001000,
+              "status": "playing",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12002,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001000
+          }
+        ]
+      ]
+    },
+    "clear": {
+      "snapshot": {
+        "instanceId": 12002,
+        "slideNumber": 2,
+        "totalSlides": 5,
+        "title": "New Fixture Deck",
+        "filename": "deck.pptx",
+        "videoPlaying": false,
+        "videoDuration": 10000,
+        "videoElapsed": 1000,
+        "videoRemaining": 9000,
+        "videos": [
+          {
+            "id": 7,
+            "name": "clip",
+            "duration": 10000,
+            "elapsed": 1000,
+            "remaining": 9000,
+            "playing": false
+          }
+        ],
+        "videoTimingUnavailable": false
+      },
+      "rooms": [
+        "room-a",
+        "room-b"
+      ],
+      "initialTimestamp": 1001000,
+      "timestamp": 1001500,
+      "events": [
+        [
+          "room-a",
+          "LIVE_CUE_ENDED",
+          {
+            "type": "LIVE_CUE_ENDED",
+            "roomId": "room-a",
+            "cue": {
+              "id": "powerpoint:12002",
+              "source": "powerpoint",
+              "title": "New Fixture Deck",
+              "startedAt": 1001000,
+              "status": "ended",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12002,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001500
+          }
+        ],
+        [
+          "room-a",
+          "PRESENTATION_CLEAR",
+          {
+            "type": "PRESENTATION_CLEAR",
+            "roomId": "room-a",
+            "cueId": "powerpoint:12002",
+            "timestamp": 1001500
+          }
+        ],
+        [
+          "room-b",
+          "LIVE_CUE_ENDED",
+          {
+            "type": "LIVE_CUE_ENDED",
+            "roomId": "room-b",
+            "cue": {
+              "id": "powerpoint:12002",
+              "source": "powerpoint",
+              "title": "New Fixture Deck",
+              "startedAt": 1001000,
+              "status": "ended",
+              "metadata": {
+                "slideNumber": 2,
+                "totalSlides": 5,
+                "filename": "deck.pptx",
+                "player": "powerpoint",
+                "instanceId": 12002,
+                "videoPlaying": false,
+                "videoDuration": 10000,
+                "videoElapsed": 1000,
+                "videoRemaining": 9000,
+                "videos": [
+                  {
+                    "id": 7,
+                    "name": "clip",
+                    "duration": 10000,
+                    "elapsed": 1000,
+                    "remaining": 9000,
+                    "playing": false
+                  }
+                ],
+                "videoTimingUnavailable": false
+              }
+            },
+            "timestamp": 1001500
+          }
+        ],
+        [
+          "room-b",
+          "PRESENTATION_CLEAR",
+          {
+            "type": "PRESENTATION_CLEAR",
+            "roomId": "room-b",
+            "cueId": "powerpoint:12002",
+            "timestamp": 1001500
+          }
+        ]
+      ]
+    }
+  }
+}

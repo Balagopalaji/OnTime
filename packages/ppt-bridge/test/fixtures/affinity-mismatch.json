@@ -1,0 +1,17 @@
+{
+  "state": "foreground",
+  "pptActive": true,
+  "inSlideshow": true,
+  "instanceId": 1234,
+  "processCount": 2,
+  "selectedPid": 1234,
+  "comPid": 5678,
+  "affinityMismatch": true,
+  "slideNumber": 3,
+  "totalSlides": 10,
+  "title": "Deck.pptx",
+  "videoPlaying": true,
+  "videoDuration": 60000,
+  "videoElapsed": 12000,
+  "videoRemaining": 48000
+}

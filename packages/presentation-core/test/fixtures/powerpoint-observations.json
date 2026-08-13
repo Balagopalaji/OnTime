@@ -1,0 +1,136 @@
+{
+  "baselineSha": "fceb200b05c8f3bf7253ac0b3a91d613cc0bd305",
+  "provenance": {
+    "source": "Sanitized copies of the valid H1 observations from companion/src/fixtures/ppt-probe/*.json (provenance recorded in packages/ppt-bridge/test/fixtures/stage0-evidence.json).",
+    "scope": "Only the VALID observations are copied here: powerpoint-not-running, no-slideshow, playing, paused, ended, multiple-video.",
+    "exclusions": "Malformed JSON and the timeout scenario are deliberately NOT copied. presentation-core represents helper timeout / invalid output / crash uniformly through the operational_failure event and the 'unavailable' source state; malformed/timeout parsing remains a ppt-bridge test concern.",
+    "sanitization": "Raw paths use the synthetic C:\\Fixture\\deck.pptx; no user, presentation, or machine content."
+  },
+  "observations": {
+    "powerpointNotRunning": {
+      "state": "none"
+    },
+    "noSlideshow": {
+      "state": "foreground",
+      "instanceId": 7101,
+      "pptActive": true,
+      "inSlideshow": false,
+      "title": "Deck1",
+      "filename": "C:\\Fixture\\deck.pptx",
+      "totalSlides": 12
+    },
+    "playing": {
+      "state": "foreground",
+      "instanceId": 7102,
+      "pptActive": true,
+      "inSlideshow": true,
+      "title": "Deck1",
+      "filename": "C:\\Fixture\\deck.pptx",
+      "totalSlides": 12,
+      "slideNumber": 3,
+      "videoDetected": true,
+      "videos": [
+        {
+          "id": 501,
+          "name": "intro.mp4",
+          "duration": 30000,
+          "elapsed": 7000,
+          "remaining": 23000,
+          "status": "playing",
+          "playing": true
+        }
+      ],
+      "videoDuration": 30000,
+      "videoElapsed": 7000,
+      "videoPlaying": true,
+      "videoRemaining": 23000
+    },
+    "paused": {
+      "state": "foreground",
+      "instanceId": 7103,
+      "pptActive": true,
+      "inSlideshow": true,
+      "title": "Deck1",
+      "filename": "C:\\Fixture\\deck.pptx",
+      "totalSlides": 12,
+      "slideNumber": 3,
+      "videoDetected": true,
+      "videos": [
+        {
+          "id": 501,
+          "name": "intro.mp4",
+          "duration": 30000,
+          "elapsed": 7000,
+          "remaining": 23000,
+          "status": "paused",
+          "playing": false
+        }
+      ],
+      "videoDuration": 30000,
+      "videoElapsed": 7000,
+      "videoPlaying": false,
+      "videoRemaining": 23000
+    },
+    "ended": {
+      "state": "foreground",
+      "instanceId": 7104,
+      "pptActive": true,
+      "inSlideshow": true,
+      "title": "Deck1",
+      "filename": "C:\\Fixture\\deck.pptx",
+      "totalSlides": 12,
+      "slideNumber": 3,
+      "videoDetected": true,
+      "videos": [
+        {
+          "id": 501,
+          "name": "intro.mp4",
+          "duration": 30000,
+          "elapsed": 30000,
+          "remaining": 0,
+          "status": "ended",
+          "playing": false
+        }
+      ],
+      "videoDuration": 30000,
+      "videoElapsed": 30000,
+      "videoPlaying": false,
+      "videoRemaining": 0
+    },
+    "multipleVideo": {
+      "state": "foreground",
+      "instanceId": 7105,
+      "pptActive": true,
+      "inSlideshow": true,
+      "title": "Deck1",
+      "filename": "C:\\Fixture\\deck.pptx",
+      "totalSlides": 12,
+      "slideNumber": 5,
+      "videoDetected": true,
+      "videos": [
+        {
+          "id": 502,
+          "name": "clip-a.mp4",
+          "duration": 45000,
+          "elapsed": 5000,
+          "remaining": 40000,
+          "status": "paused",
+          "playing": false
+        },
+        {
+          "id": 503,
+          "name": "clip-b.mp4",
+          "duration": 20000,
+          "elapsed": 3000,
+          "remaining": 17000,
+          "status": "playing",
+          "playing": true
+        }
+      ],
+      "videoDuration": 20000,
+      "videoElapsed": 3000,
+      "videoPlaying": true,
+      "videoRemaining": 17000
+    }
+  }
+}

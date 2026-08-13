@@ -14,6 +14,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import * as readline from 'node:readline';
+import { createPptBridgeClient, type PptBridgeClient } from '@ontime/ppt-bridge';
+import type { BridgeDiagnosticEvent, BridgePollOutcome, PowerPointObservation } from '@ontime/ppt-bridge';
 import {
   appendPptLog,
   isPptDebugEnabled,
@@ -27,10 +29,59 @@ import type { PowerPointPollResult } from './presentation-snapshot';
 let pptHelperProcess: ChildProcessWithoutNullStreams | null = null;
 let pptHelperReadline: readline.Interface | null = null;
 let pptHelperPending: Array<{ resolve: (line: string | null) => void }> = [];
-let pptNativeHelperProcess: ChildProcessWithoutNullStreams | null = null;
-let pptNativeReadline: readline.Interface | null = null;
-let pptNativePending: Array<{ resolve: (line: string | null) => void }> = [];
-let pptNativeHelperLogged = false;
+
+export type PptNativeLifecycle = {
+  ensure(): Promise<PptBridgeClient | null>;
+  stop(reason: string): Promise<void>;
+};
+
+export function createPptNativeLifecycle(options: {
+  resolveProbePath: () => string | null;
+  createClient: (probePath: string) => PptBridgeClient;
+  onMissing?: () => void;
+  onStarted?: (probePath: string) => void;
+  onStopped?: (reason: string) => void;
+}): PptNativeLifecycle {
+  let client: PptBridgeClient | null = null;
+  let closing: Promise<void> = Promise.resolve();
+  let lifecycleEpoch = 0;
+  let helperLogged = false;
+
+  return {
+    stop(reason: string): Promise<void> {
+      // Every stop invalidates ensure work captured before it, even when the
+      // current client has already been detached for an in-flight close.
+      lifecycleEpoch += 1;
+      const current = client;
+      if (!current) return closing;
+      options.onStopped?.(reason);
+      client = null;
+      helperLogged = false;
+      closing = current.close().catch(() => undefined);
+      return closing;
+    },
+    async ensure(): Promise<PptBridgeClient | null> {
+      if (client) return client;
+      const capturedEpoch = lifecycleEpoch;
+      await closing;
+      if (capturedEpoch !== lifecycleEpoch) return null;
+      if (client) return client;
+      const probePath = options.resolveProbePath();
+      if (!probePath) {
+        options.onMissing?.();
+        return null;
+      }
+      if (capturedEpoch !== lifecycleEpoch) return null;
+      const next = options.createClient(probePath);
+      client = next;
+      if (!helperLogged) {
+        options.onStarted?.(probePath);
+        helperLogged = true;
+      }
+      return next;
+    },
+  };
+}
 
 function resolvePptProbePath(): string | null {
   // Windows-only native helper binary; packaged under resources/bin or local dev bin.
@@ -46,98 +97,88 @@ function resolvePptProbePath(): string | null {
   return null;
 }
 
-export function stopPptProbeHelper(reason: string) {
-  // Windows-only helper shutdown to avoid orphaned processes.
-  if (!pptNativeHelperProcess) return;
-  logPptInfo('[ppt] native helper stopped', { reason });
-  try {
-    pptNativeHelperProcess.stdin.write('exit\n');
-  } catch {
-    // ignore write failures during shutdown
-  }
-  pptNativeHelperProcess.kill();
-  pptNativeHelperProcess = null;
-  pptNativeReadline?.close();
-  pptNativeReadline = null;
-  pptNativePending = [];
+type NativeProbeAttempt =
+  | { kind: 'handled'; result: PowerPointPollResult | null }
+  | { kind: 'fallback' }
+
+function projectNativeObservation(observation: PowerPointObservation, inSlideshow?: boolean): PowerPointPollResult {
+  return {
+    state: observation.state,
+    ...(observation.inSlideshow !== undefined || inSlideshow !== undefined ? { inSlideshow: inSlideshow ?? observation.inSlideshow } : {}),
+    ...(observation.instanceId !== undefined ? { instanceId: observation.instanceId } : {}),
+    ...(observation.slideNumber !== undefined ? { slideNumber: observation.slideNumber } : {}),
+    ...(observation.totalSlides !== undefined ? { totalSlides: observation.totalSlides } : {}),
+    ...(observation.title !== undefined ? { title: observation.title } : {}),
+    ...(observation.filename !== undefined ? { filename: observation.filename } : {}),
+    ...(observation.editSlideVideos !== undefined ? { editSlideVideos: observation.editSlideVideos } : {}),
+    ...(observation.videoDetected !== undefined ? { videoDetected: observation.videoDetected } : {}),
+    ...(observation.videoPlaying !== undefined ? { videoPlaying: observation.videoPlaying } : {}),
+    ...(observation.videoDuration !== undefined ? { videoDuration: observation.videoDuration } : {}),
+    ...(observation.videoElapsed !== undefined ? { videoElapsed: observation.videoElapsed } : {}),
+    ...(observation.videoRemaining !== undefined ? { videoRemaining: observation.videoRemaining } : {}),
+    ...(observation.videos !== undefined ? { videos: observation.videos } : {}),
+    ...(observation.videoTimingUnavailable !== undefined ? { videoTimingUnavailable: observation.videoTimingUnavailable } : {}),
+  };
 }
 
-function ensurePptProbeHelper(): boolean {
+function logBridgeDiagnostic(event: BridgeDiagnosticEvent): void {
+  if (event.kind === 'validation_warning' || event.kind === 'helper_stderr') {
+    logPptVerbose('[ppt] native bridge diagnostic', event);
+  } else {
+    logPptInfo('[ppt] native bridge diagnostic', event);
+  }
+}
+
+function mapNativeOutcome(outcome: BridgePollOutcome): NativeProbeAttempt {
+  switch (outcome.kind) {
+    case 'observation':
+      return { kind: 'handled', result: projectNativeObservation(outcome.observation) };
+    case 'powerpoint_not_running':
+      return { kind: 'handled', result: { state: 'none' } };
+    case 'no_slideshow':
+      return { kind: 'handled', result: projectNativeObservation(outcome.observation, false) };
+    case 'com_unavailable':
+    case 'closed':
+      return { kind: 'handled', result: null };
+    default:
+      return { kind: 'fallback' };
+  }
+}
+
+const pptNativeLifecycle = createPptNativeLifecycle({
+  resolveProbePath: resolvePptProbePath,
+  createClient: (probePath) => createPptBridgeClient({
+    executableCandidates: [{ executablePath: probePath }],
+    diagnostics: logBridgeDiagnostic,
+  }),
+  onMissing: () => logPptInfo('[ppt] native helper missing; falling back to PowerShell'),
+  onStarted: (probePath) => logPptInfo('[ppt] native helper started', { path: probePath }),
+  onStopped: (reason) => logPptInfo('[ppt] native helper stopped', { reason }),
+});
+
+export function stopPptProbeHelper(reason: string): Promise<void> {
+  // Returns the shared in-flight close promise so app quit gates on a prior
+  // mode-change stop, while also invalidating any ensure suspended on it.
+  return pptNativeLifecycle.stop(reason);
+}
+
+async function ensurePptProbeHelper(): Promise<PptBridgeClient | null> {
   // Prefer the native STA helper to avoid COM collection issues from short-lived shells.
-  if (pptNativeHelperProcess && pptNativeHelperProcess.exitCode === null) return true;
-  stopPptProbeHelper('restart');
-  const probePath = resolvePptProbePath();
-  if (!probePath) {
-    logPptInfo('[ppt] native helper missing; falling back to PowerShell');
-    return false;
-  }
-  pptNativeHelperProcess = spawn(probePath, [], { windowsHide: true });
-  pptNativeReadline = readline.createInterface({ input: pptNativeHelperProcess.stdout });
-  pptNativeReadline.on('line', (line) => {
-    const pending = pptNativePending.shift();
-    if (pending) {
-      pending.resolve(line);
-    }
-  });
-  pptNativeHelperProcess.stderr.on('data', (buf) => {
-    logPptVerbose('[ppt] native helper stderr', buf.toString('utf8').trim());
-  });
-  pptNativeHelperProcess.on('exit', (code) => {
-    logPptInfo('[ppt] native helper exited', { code });
-    pptNativeHelperProcess = null;
-    pptNativeReadline?.close();
-    pptNativeReadline = null;
-    pptNativePending = [];
-    pptNativeHelperLogged = false;
-  });
-  if (!pptNativeHelperLogged) {
-    logPptInfo('[ppt] native helper started', { path: probePath });
-    pptNativeHelperLogged = true;
-  }
-  return true;
+  return pptNativeLifecycle.ensure();
 }
 
-async function pollPowerPointViaNativeHelper(): Promise<PowerPointPollResult | null> {
-  if (process.platform !== 'win32') return null;
-  if (!ensurePptProbeHelper()) return null;
-  const helper = pptNativeHelperProcess;
-  if (!helper || helper.exitCode !== null) return null;
-
-  return await new Promise((resolve) => {
-    const pending = {
-      resolve: (line: string | null) => {
-        clearTimeout(timeout);
-        if (!line) {
-          resolve(null);
-          return;
-        }
-        try {
-          resolve(JSON.parse(line) as PowerPointPollResult);
-        } catch (error) {
-          console.warn(`[ppt] Failed to parse native helper output: ${String(error)}`);
-          resolve(null);
-        }
-      }
-    };
-    const timeout = setTimeout(() => {
-      const index = pptNativePending.indexOf(pending);
-      if (index >= 0) {
-        pptNativePending.splice(index, 1);
-      }
-      resolve(null);
-    }, 8000);
-    pptNativePending.push(pending);
-    try {
-      helper.stdin.write('poll\n');
-    } catch {
-      clearTimeout(timeout);
-      const index = pptNativePending.indexOf(pending);
-      if (index >= 0) {
-        pptNativePending.splice(index, 1);
-      }
-      resolve(null);
-    }
-  });
+async function pollPowerPointViaNativeHelper(): Promise<NativeProbeAttempt> {
+  if (process.platform !== 'win32') return { kind: 'fallback' };
+  const client = await ensurePptProbeHelper();
+  if (!client) return { kind: 'fallback' };
+  const outcome = await client.poll();
+  const attempt = mapNativeOutcome(outcome);
+  if (attempt.kind === 'fallback') {
+    // Keep the client alive for valid responses; transport failures are allowed
+    // to invalidate its generation and the next poll will exercise fallback.
+    return attempt;
+  }
+  return attempt;
 }
 
 function buildPowerPointHelperScript(pollScript: string): string {
@@ -361,9 +402,9 @@ return output
     return { state: 'none' };
   }
 
-  const nativeResult = await pollPowerPointViaNativeHelper();
-  if (nativeResult) {
-    return nativeResult;
+  const nativeAttempt = await pollPowerPointViaNativeHelper();
+  if (nativeAttempt.kind === 'handled') {
+    return nativeAttempt.result;
   }
 
   const script = `

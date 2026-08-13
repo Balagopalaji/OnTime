@@ -32,6 +32,7 @@ import {
 import { createRoomCacheAdapter } from './room-cache';
 import { initializePptDebugLogging, logPptInfo } from './ppt-debug-log';
 import { stopPowerPointHelper, stopPptProbeHelper } from './ppt-probe';
+import { createPptQuitGate, runCompanionShutdown } from './ppt-quit-gate';
 import {
   configurePresentationCandidate,
   isPowerPointDetectionActive,
@@ -457,6 +458,7 @@ let tokenServerV6: HttpServer | null = null;
 let tokenServerTlsV4: HttpsServer | null = null;
 let tokenServerTlsV6: HttpsServer | null = null;
 export const ioServers: SocketIOServer[] = [];
+const pptQuitGate = createPptQuitGate({ exitApp: (code) => app.exit(code) });
 
 function emitToRoom(roomId: string, event: string, payload: unknown) {
   ioServers.forEach((server) => {
@@ -3090,17 +3092,14 @@ function startSocketServer() {
     console.log('[ws] Companion listening on ws://127.0.0.1:4000');
   });
 
-  app.on('before-quit', () => {
-    ioServers.forEach((server) => server.close());
-    httpServer?.close();
-    httpsServer?.close();
-    tokenServerV4?.close();
-    tokenServerV6?.close();
-    tokenServerTlsV4?.close();
-    tokenServerTlsV6?.close();
-    void flushRoomCache();
-    stopPowerPointHelper('app quit');
-    stopPptProbeHelper('app quit');
+  app.on('before-quit', (event) => {
+    // Defer quit until the persistent helper closes; the gate runs shutdown
+    // once, bounds the wait (rejection/timeout cannot hang), then app.exit().
+    event.preventDefault();
+    void pptQuitGate.intercept(() => runCompanionShutdown({
+      ioServers, httpServer, httpsServer, tokenServerV4, tokenServerV6, tokenServerTlsV4, tokenServerTlsV6,
+      flushRoomCache, stopPowerPointDetectionTimer, stopPowerPointHelper, stopPptProbeHelper,
+    }, 'app quit'));
   });
 }
 

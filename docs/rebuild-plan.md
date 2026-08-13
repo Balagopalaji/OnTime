@@ -2,7 +2,7 @@
 Type: Plan
 Status: current
 Owner: KDB
-Last updated: 2026-07-04
+Last updated: 2026-08-07
 Scope: Authoritative next-phase rebuild plan; operationalizes rebuild-architecture.md.
 ---
 
@@ -17,6 +17,16 @@ verified against the repo by the Claude orchestrator; product decisions ratified
 definition of done, sequence, decisions) → `docs/rebuild-extraction-rules.md` (constraints) →
 `docs/rebuild-progress.md` (current state) → `docs/rebuild-companion-coupling.md` (companion coupling map).
 Do not rely on chat history.
+
+> **Productization continuation (2026-08-07):** The rebuild has now produced a
+> usable standalone PowerPoint timer from `ppt-bridge` and `presentation-core`.
+> The cross-product sequence for reusing those capabilities in lightweight and
+> full controllers, LAN/cloud timer viewers, clean outputs, controls, and future
+> NDI is recorded in
+> `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`. That
+> roadmap executes product work through the boundaries defined here; it does not
+> replace this rebuild plan, reopen NDI as a rebuild-completion requirement, or
+> authorize duplicated app-local implementations.
 
 ## Decisions (ratified 2026-07-04 by the product owner)
 
