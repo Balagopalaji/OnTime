@@ -5,6 +5,7 @@
  * monotonic package ordering.
  */
 const STORE_VERSION_PATTERN = /^([1-9]\d{0,4})\.(\d{1,5})\.(\d{1,5})\.0$/
+const APP_VERSION_FILENAME_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.-]*$/
 
 export function validateStorePackageVersion(version: unknown): string {
   if (typeof version !== 'string' || !STORE_VERSION_PATTERN.test(version)) {
@@ -24,4 +25,12 @@ export function patchAppxManifestVersion(manifestText: string, version: unknown)
     throw new Error('AppxManifest.xml is missing Identity Version')
   }
   return manifestText.replace(identityPattern, `$1${validatedVersion}$2`)
+}
+
+export function buildStoreArtifactName(appVersion: unknown, storeVersion: unknown): string {
+  if (typeof appVersion !== 'string' || !APP_VERSION_FILENAME_PATTERN.test(appVersion)) {
+    throw new Error('Application version must be safe for the Store artifact filename')
+  }
+  const validatedStoreVersion = validateStorePackageVersion(storeVersion)
+  return `OnTime-PowerPoint-Video-Timer-${appVersion}-win-x64-store-v${validatedStoreVersion}.appx`
 }

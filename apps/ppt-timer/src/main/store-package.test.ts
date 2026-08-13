@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildStoreArtifactName,
   patchAppxManifestVersion,
   validateStorePackageVersion,
 } from './store-package-version'
@@ -33,6 +34,15 @@ describe('provisional Store package version', () => {
     const manifest = '<Package><Identity Name="Example" Version="0.1.0.0"/><Other Version="9.9.9.9"/></Package>'
     expect(patchAppxManifestVersion(manifest, '1.0.0.0')).toBe(
       '<Package><Identity Name="Example" Version="1.0.0.0"/><Other Version="9.9.9.9"/></Package>',
+    )
+  })
+
+  it('includes the independent Store version in the artifact filename', () => {
+    expect(buildStoreArtifactName('0.1.0-beta.1', '1.0.1.0')).toBe(
+      'OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-store-v1.0.1.0.appx',
+    )
+    expect(() => buildStoreArtifactName('../beta', '1.0.1.0')).toThrow(
+      'Application version must be safe for the Store artifact filename',
     )
   })
 

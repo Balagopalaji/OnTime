@@ -7,6 +7,10 @@ const configText = readFileSync(path.join(appRoot, 'electron-builder.yml'), 'utf
 const packageJson = JSON.parse(readFileSync(path.join(appRoot, 'package.json'), 'utf8')) as {
   scripts?: Record<string, string>
 }
+const storeBuildScript = readFileSync(
+  path.join(appRoot, 'scripts/build-store-package.mjs'),
+  'utf8',
+)
 
 const winBlock = configText.slice(configText.indexOf('\nwin:'), configText.indexOf('\nnsis:'))
 const appxBlock = configText.slice(configText.indexOf('\nappx:'), configText.indexOf('\n# Production code only'))
@@ -34,12 +38,14 @@ describe('electron-builder installer config (Stage 6 Batch A)', () => {
 
   it('adds AppX/MSIX-family packaging only through an explicit feasibility command', () => {
     expect(packageJson.scripts?.['dist:store-feasibility']).toBe(
-      'npm run build && electron-builder --win appx --x64',
+      'npm run build && node scripts/build-store-package.mjs',
     )
     expect(appxBlock).toContain(
       'artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-store-feasibility.appx',
     )
     expect(configText).toMatch(/appxManifestCreated:\s*scripts\/patch-appx-manifest\.mjs/)
+    expect(storeBuildScript).toContain("createRequire(join(appDir, 'package.json'))")
+    expect(storeBuildScript).toContain("requireFromApp.resolve('electron-builder/out/cli/cli.js')")
   })
 
   it('uses an explicit provisional identity and only the required full-trust capability', () => {

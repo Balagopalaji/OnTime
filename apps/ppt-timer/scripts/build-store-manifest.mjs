@@ -16,6 +16,8 @@ const buildManifestModule = process.env.ONTIME_PPT_TIMER_BUILD_MANIFEST_MODULE
 const inspectedManifestPath = process.env.ONTIME_PPT_TIMER_INSPECTED_APPX_MANIFEST
 const helperProductVersion = process.env.ONTIME_PPT_TIMER_VERIFIED_HELPER_VERSION
 const helperFileVersion = process.env.ONTIME_PPT_TIMER_VERIFIED_HELPER_FILE_VERSION
+const pkgText = readFileSync(join(appDir, 'package.json'), 'utf8')
+const storeConfig = JSON.parse(readFileSync(join(appDir, 'store-package.json'), 'utf8'))
 
 function fail(message) {
   console.error(`[store-build-manifest] ${message}`)
@@ -28,9 +30,11 @@ if (!inspectedManifestPath || !existsSync(inspectedManifestPath)) {
 }
 
 const artifacts = readdirSync(distOut)
-  .filter((name) => name.endsWith('-win-x64-store-feasibility.appx'))
+  .filter((name) => name.endsWith(`-win-x64-store-v${storeConfig.version}.appx`))
   .sort()
-if (artifacts.length !== 1) fail(`expected exactly one Store feasibility AppX, found ${artifacts.length}`)
+if (artifacts.length !== 1) {
+  fail(`expected exactly one Store v${storeConfig.version} feasibility AppX, found ${artifacts.length}`)
+}
 
 const {
   extractAppVersion,
@@ -43,8 +47,6 @@ const {
   verifyHelperVersion,
 } = await import(pathToFileURL(buildManifestModule).href)
 
-const pkgText = readFileSync(join(appDir, 'package.json'), 'utf8')
-const storeConfig = JSON.parse(readFileSync(join(appDir, 'store-package.json'), 'utf8'))
 const csprojText = readFileSync(
   join(repoRoot, 'packages/ppt-bridge/native/windows-ppt-probe/ppt-probe.csproj'),
   'utf8',
