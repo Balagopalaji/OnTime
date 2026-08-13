@@ -15,7 +15,7 @@ describe('provisional Store package version', () => {
       status?: unknown
     }
     expect(config.status).toBe('provisional-store-feasibility')
-    expect(validateStorePackageVersion(config.version)).toBe('1.0.0.0')
+    expect(validateStorePackageVersion(config.version)).toBe('1.0.1.0')
   })
 
   it.each([
