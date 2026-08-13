@@ -14,7 +14,8 @@
     "dev": "node electron-dev.js",
     "dist": "npm run build && electron-builder",
     "dist:store-feasibility": "npm run build && electron-builder --win appx --x64",
-    "manifest": "node scripts/build-manifest.mjs"
+    "manifest": "node scripts/build-manifest.mjs",
+    "manifest:store-feasibility": "node scripts/build-store-manifest.mjs"
   },
   "dependencies": {
     "@ontime/ppt-bridge": "0.0.0",
