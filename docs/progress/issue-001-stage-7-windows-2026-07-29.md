@@ -608,6 +608,62 @@ The current NSIS installer is unsigned and remains a trusted-tester artifact.
 Do not publish it as a professional public download or describe it as the Store
 build.
 
+## Windows Store-readiness continuation â€” 2026-08-13
+
+- Branch: `codex/downstage-windows-store-readiness`
+- Starting commit: `61ffab5cb03510cd27b8b1a7f6611c448d38c581`
+
+The bounded Store packaging decision and acceptance contract are recorded in
+`docs/plans/ppt-timer-windows-store-readiness-2026-08-13.md`. The selected
+feasibility path is electron-builder `26.11.1`'s opt-in `appx` target, which is
+the pinned toolchain's Microsoft Store/MSIX-family target. The existing default
+NSIS build remains unchanged. An `.appx` file alone will not be treated as Store
+readiness.
+
+Read-only audit results:
+
+- PASS â€” clean requested branch at the requested base.
+- PASS â€” additive AppX feasibility approach identified; final Store identity,
+  signing and assets remain gated on name reservation/Partner Center.
+- PASS â€” existing package/helper discovery and single-instance seams are
+  compatible at source; installed execution and COM remain unproven.
+- PENDING â€” opt-in AppX configuration, static tests and deterministic
+  per-artifact manifest.
+- PENDING â€” AppX build and archive inspection.
+- PENDING â€” signed local install, helper execution, PowerPoint COM,
+  single-instance and settings-path evidence.
+- PENDING â€” AppX-to-AppX update and uninstall/reinstall lifecycle.
+- PENDING â€” mixed-DPI and near-work-area-edge acceptance.
+- PENDING â€” WACK and Partner Center validation/certification.
+
+Commands/evidence at this checkpoint:
+
+| Command / verification | Result |
+| --- | --- |
+| `git status --short --branch` | PASS â€” clean branch `codex/downstage-windows-store-readiness...origin/main` before documentation edits |
+| `git rev-parse HEAD` | PASS â€” `61ffab5cb03510cd27b8b1a7f6611c448d38c581` |
+| `git rev-parse origin/main` | PASS â€” `61ffab5cb03510cd27b8b1a7f6611c448d38c581` |
+| `Get-FileHash apps/ppt-timer/dist_out/OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-setup.exe -Algorithm SHA256` | PASS â€” `a316e9102c748e1bfee44704952ddf3489e119082ee41ec1c58fde49d637c9fa` |
+| Existing NSIS artifact size | PASS â€” `126452235` bytes |
+| Packaging audit focused tests | PASS â€” 7 files, 58 tests (`builder-config`, `package-content`, `ci-parity`, `build-manifest`, `helper-discovery`, `single-instance`, `settings-store`) |
+
+Lifecycle decisions for the Store package:
+
+- Microsoft Store package version is independently recorded as a monotonic
+  `Major.Minor.Build.0`; the initial provisional version is `1.0.0.0`.
+- MSIX/AppX updates must retain package name and publisher and use a greater
+  package version. The existing `0.1.0-beta.1` application/helper SemVer remains
+  their product version and is not used as an invalid `0.x` Store version.
+- AppX-to-AppX update must preserve settings. Normal Store package uninstall is
+  expected to remove package-managed settings; the NSIS beta keeps its existing
+  settings-preserving uninstall contract.
+- NSIS-to-Store is not an in-place upgrade. Beta testers uninstall NSIS before
+  Store installation; no automatic migration or supported side-by-side mode is
+  claimed.
+- The roadmap's accepted `190 x 80` staged M1 surface is authoritative for the
+  remaining display acceptance. The older S-018/S-020/S-021 wording requires
+  reconciliation before final acceptance.
+
 After this PR is reviewable, transport-neutral work may return to macOS:
 
 - versioned PowerPoint cloud snapshot contracts;
