@@ -747,3 +747,33 @@ live-COM/end-of-media smoke result, but its broader no-PowerPoint, no-slideshow,
 multi-video, recovery, Presenter View and coexistence matrix remains PENDING.
 The settings path predates the package and is shared with the NSIS beta; final
 Downstage identity work must explicitly migrate it or start with a clean path.
+
+### Provisional package lifecycle acceptance — 2026-08-13
+
+The update artifact was built with the same provisional Name, Publisher and
+x64 architecture at the higher Store package version `1.0.1.0`. The build
+contract now includes the independent Store version in the filename so two
+Store versions cannot silently overwrite each other.
+
+| Verification | Result |
+| --- | --- |
+| Unsigned update artifact | PASS — `OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-store-v1.0.1.0.appx`, 182,111,188 bytes, SHA-256 `cee03faec1aa2e4c777c9da130cd82ddda9c926996fb1f06624b0c08d77ea797` |
+| Signed update artifact | PASS — matching development signer; SHA-256 `ce286547a615193bf714aa7e2f6bf59bb30fa41f9468e3b1149fbb84a39e8eed` |
+| Update while running | EXPECTED BLOCK — Windows returned `0x80073D02` because package resources were in use; installed version remained `1.0.0.0` with no partial update |
+| Normal close before update | PASS — zero main/helper processes |
+| Closed-app same-family update | PASS — exactly one package advanced to `1.0.1.0`; family remained `OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0`; status `Ok` |
+| Update settings retention | PASS — settings SHA-256 remained `913CD3909EC1E56152FC6579CCB0408F3E428E8B3B9F35E42BDCC504814A4F8D`; operator confirmed always-on-top state retained |
+| Updated runtime payload | PASS — main PID `1944` and helper PID `13676` loaded from the `1.0.1.0` WindowsApps package |
+| Uninstall package/process cleanup | PASS — registration count zero, install location absent and timer/helper count zero |
+| Uninstall with legacy settings | OBSERVED — pre-existing ordinary `%APPDATA%` settings remained unchanged at SHA-256 `3486A9477E0E272CE980D03EC4E56A58DE28264FBFED5705A1596B1A18B80AA5` |
+| Clean-profile reinstall | PASS — after holding the legacy file aside, `1.0.1.0` installed with status `Ok` and opened at compact size, always-on-top enabled and Remaining mode |
+| Clean-profile settings location | OBSERVED — the packaged app recreated ordinary `%APPDATA%/@ontime/ppt-timer/settings.json`; no `settings.json` was found below `%LOCALAPPDATA%/Packages/OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0` |
+| Clean-profile uninstall | PARTIAL — package/install/process cleanup passed, but newly created ordinary-AppData settings remained unchanged at SHA-256 `AB9E542A7526BD866A94F556C5E853A5757CC1902CAF077DAB063613DCE13A05` |
+
+G6 remains PENDING despite the successful update and clean-default reinstall.
+The final Downstage package must explicitly choose whether settings survive
+uninstall. If clean Store uninstall remains the requirement, move settings into
+a verified package-managed location and retest update, uninstall and reinstall.
+If preservation is the product decision, update the acceptance contract and
+provide an intentional migration from the legacy `@ontime` path; do not retain
+the competitor-facing path accidentally.

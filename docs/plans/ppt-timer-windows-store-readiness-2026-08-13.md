@@ -73,12 +73,16 @@ communicates over its existing standard streams. A package-content check proves
 presence and identity; installed-package tests must separately prove process
 execution and PowerPoint COM automation.
 
-Settings remain under Electron's `app.getPath('userData')`. MSIX-to-MSIX update
-must preserve settings. Normal Store package uninstall is expected to remove
-package-managed settings, matching Windows' clean-uninstall model. The existing
-NSIS beta retains its current `deleteAppDataOnUninstall: false` behavior. This is
-a format-specific successor to standalone scenario S-032, not a change to the
-NSIS artifact.
+Settings currently remain under Electron's `app.getPath('userData')` in ordinary
+roaming AppData. MSIX-to-MSIX update preserves them. Live clean-install testing
+proved that this path is not redirected into package-family storage on the test
+host, and normal AppX uninstall leaves the file unchanged. Therefore the
+current feasibility build does not satisfy the intended clean-uninstall model.
+Before final Downstage identity work, choose and test either a package-managed
+settings location that uninstall removes, or an explicit user-settings
+preservation contract. The existing NSIS beta retains its current
+`deleteAppDataOnUninstall: false` behavior. This is a Store-format decision, not
+a change to the NSIS artifact.
 
 An NSIS beta installation is not an in-place predecessor of the Store package.
 Before public Store installation, beta testers uninstall NSIS manually. No
@@ -163,7 +167,7 @@ Baseline artifact already present at the starting commit:
 | G3 Package build | Windows creates AppX; actual archive/manifest/helper/ASAR inspection passes; exact bytes and hashes recorded | PASS (unsigned feasibility artifact only) |
 | G4 Installed runtime | Signed/trusted local package installs; exact package identity recorded; one app/helper; helper discovery, close cleanup and single-instance pass | PASS (provisional identity) |
 | G5 PowerPoint COM | Installed package reports not-running/no-slideshow/live media and passes the agreed media/recovery/coexistence subset | PENDING |
-| G6 Lifecycle | Same-identity higher-version AppX updates in place with settings preserved; uninstall removes package and package-managed settings; reinstall starts with defaults | PENDING |
+| G6 Lifecycle | Same-identity higher-version AppX updates in place with settings preserved; uninstall removes package and package-managed settings; reinstall starts with defaults | PENDING — update/reinstall PASS; ordinary-AppData uninstall contract unresolved |
 | G7 Display acceptance | Edge/corner expansion plus 100/125/150% mixed-DPI, display removal, taskbar and Presenter View/AOT matrix passes | PENDING |
 | G8 Store validation | Name reserved; final identity/assets applied; WACK, Partner Center validation, restricted-capability approval, private Store install/update and certification pass | PENDING |
 
