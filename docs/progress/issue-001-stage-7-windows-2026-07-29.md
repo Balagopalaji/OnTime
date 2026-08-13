@@ -608,6 +608,62 @@ The current NSIS installer is unsigned and remains a trusted-tester artifact.
 Do not publish it as a professional public download or describe it as the Store
 build.
 
+## Windows Store-readiness continuation â€” 2026-08-13
+
+- Branch: `codex/downstage-windows-store-readiness`
+- Starting commit: `61ffab5cb03510cd27b8b1a7f6611c448d38c581`
+
+The bounded Store packaging decision and acceptance contract are recorded in
+`docs/plans/ppt-timer-windows-store-readiness-2026-08-13.md`. The selected
+feasibility path is electron-builder `26.11.1`'s opt-in `appx` target, which is
+the pinned toolchain's Microsoft Store/MSIX-family target. The existing default
+NSIS build remains unchanged. An `.appx` file alone will not be treated as Store
+readiness.
+
+Read-only audit results:
+
+- PASS â€” clean requested branch at the requested base.
+- PASS â€” additive AppX feasibility approach identified; final Store identity,
+  signing and assets remain gated on name reservation/Partner Center.
+- PASS â€” existing package/helper discovery and single-instance seams are
+  compatible at source; installed execution and COM remain unproven.
+- PENDING â€” opt-in AppX configuration, static tests and deterministic
+  per-artifact manifest.
+- PENDING â€” AppX build and archive inspection.
+- PENDING â€” signed local install, helper execution, PowerPoint COM,
+  single-instance and settings-path evidence.
+- PENDING â€” AppX-to-AppX update and uninstall/reinstall lifecycle.
+- PENDING â€” mixed-DPI and near-work-area-edge acceptance.
+- PENDING â€” WACK and Partner Center validation/certification.
+
+Commands/evidence at this checkpoint:
+
+| Command / verification | Result |
+| --- | --- |
+| `git status --short --branch` | PASS â€” clean branch `codex/downstage-windows-store-readiness...origin/main` before documentation edits |
+| `git rev-parse HEAD` | PASS â€” `61ffab5cb03510cd27b8b1a7f6611c448d38c581` |
+| `git rev-parse origin/main` | PASS â€” `61ffab5cb03510cd27b8b1a7f6611c448d38c581` |
+| `Get-FileHash apps/ppt-timer/dist_out/OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-setup.exe -Algorithm SHA256` | PASS â€” `a316e9102c748e1bfee44704952ddf3489e119082ee41ec1c58fde49d637c9fa` |
+| Existing NSIS artifact size | PASS â€” `126452235` bytes |
+| Packaging audit focused tests | PASS â€” 7 files, 58 tests (`builder-config`, `package-content`, `ci-parity`, `build-manifest`, `helper-discovery`, `single-instance`, `settings-store`) |
+
+Lifecycle decisions for the Store package:
+
+- Microsoft Store package version is independently recorded as a monotonic
+  `Major.Minor.Build.0`; the initial provisional version is `1.0.0.0`.
+- MSIX/AppX updates must retain package name and publisher and use a greater
+  package version. The existing `0.1.0-beta.1` application/helper SemVer remains
+  their product version and is not used as an invalid `0.x` Store version.
+- AppX-to-AppX update must preserve settings. Normal Store package uninstall is
+  expected to remove package-managed settings; the NSIS beta keeps its existing
+  settings-preserving uninstall contract.
+- NSIS-to-Store is not an in-place upgrade. Beta testers uninstall NSIS before
+  Store installation; no automatic migration or supported side-by-side mode is
+  claimed.
+- The roadmap's accepted `190 x 80` staged M1 surface is authoritative for the
+  remaining display acceptance. The older S-018/S-020/S-021 wording requires
+  reconciliation before final acceptance.
+
 After this PR is reviewable, transport-neutral work may return to macOS:
 
 - versioned PowerPoint cloud snapshot contracts;
@@ -621,3 +677,137 @@ helper, PowerPoint, installer, MSIX, signing, Presenter View, and display/DPI
 acceptance loop. The full cloud-first proposal and platform boundary are
 recorded in
 `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`.
+
+## Store feasibility build checkpoint — 2026-08-13
+
+Commits in this checkpoint:
+
+- `3a65150` — Store-readiness gates and lifecycle decisions;
+- `05ba0f4` — opt-in AppX target with the default NSIS target preserved;
+- `014f428` — deterministic Store artifact provenance manifest.
+
+Current gate status:
+
+- PASS — G2 static/build contract. `npm run dist` remains NSIS-only; the Store
+  feasibility path is the separate `dist:store-feasibility` command.
+- PASS — G3 unsigned AppX/MSIX-family build and package-content inspection.
+- PENDING — G4 signed/trusted installation and packaged runtime. A development
+  signature was created, but this managed host cannot elevate certificate trust
+  into Local Machine Trusted People. No root certificate was accepted.
+- PENDING — G5 through G8: installed PowerPoint COM, update/uninstall lifecycle,
+  mixed-DPI/work-area acceptance, WACK, reserved identity and Partner Center.
+
+Commands and exact evidence:
+
+| Command / verification | Result |
+| --- | --- |
+| `packages/ppt-bridge/scripts/build-windows.ps1` with local .NET 10 | PASS — self-contained x64 helper rebuilt; existing NU1510 warning only |
+| `npm run dist:store-feasibility --workspace apps/ppt-timer -- --config.electronDist=..\\..\\.tools\\electron-v43.2.0-win32-x64-unpacked` with Node 22.12, `CSC_IDENTITY_AUTO_DISCOVERY=false`, and repository-local builder cache | PASS — unsigned x64 AppX produced |
+| Feasibility artifact | PASS — `OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-store-feasibility.appx`, 182,111,008 bytes, SHA-256 `eede465fb780bedf630f7c6ba9993778c124abcfaf8854d9f9bdfc498d50a824` |
+| `MakeAppx unpack` plus manifest inspection | PASS — identity `OnTime.PptVideoTimer.Feasibility`, publisher `CN=OnTime Store Feasibility`, x64, version `1.0.0.0`, `Windows.FullTrustApplication`, only `runFullTrust` |
+| Packaged helper count/path | PASS — exactly one at `app/resources/bin/ppt-probe.exe` |
+| Canonical vs packaged helper SHA-256 | PASS — both `16110898dc0ad17ec8442ccc93a7b9908f125dbb5f792e7de73ae1b743de8135` |
+| Packaged helper PE identity | PASS — ProductVersion `0.1.0-beta.1`, FileVersion `0.1.0.1` |
+| ASAR contract inspection | PASS — required bridge/core entries present; cloud/viewer/controller assets absent |
+| `npm run manifest:store-feasibility --workspace apps/ppt-timer` | PASS — deterministic `build.store-feasibility.manifest.json` and checksum generated with `unsigned-feasibility` / `not-store-ready` status |
+| Focused Store/build tests | PASS — 41 tests across builder config, Store version/config, both manifest contracts and package content |
+| Complete PPT timer suite | PASS — 416 tests |
+| PPT timer typecheck and production build | PASS |
+| Static dependency boundaries and extraction guardrails | PASS |
+| Microsoft Windows SDK Build Tools `10.0.26100.7705` NuGet acquisition | PASS — archive SHA-256 `48a81375752f9f1ff56a34062084b426bfe412a5a8072e1c99b6a4be0e774841` |
+| Current SDK SignTool on separate sideload copy | PASS — signer subject `CN=OnTime Store Feasibility`, thumbprint `42D52199816AE4D81950DABB14FC0CAE2E1F960C`; signed artifact SHA-256 `e72e823c7d1387999b98ba1102e02953c2290c861cf32fa90cc5f3b01940a483` |
+| `Add-AppxPackage` signed-copy install | PENDING — certificate trust cannot be elevated into Local Machine Trusted People on this managed host; root trust was declined |
+| `Add-AppxPackage -AllowUnsigned` original publisher | EXPECTED BLOCK — `0x80073D2C`, publisher is outside the reserved unsigned namespace |
+| Reserved-OID unsigned runtime derivative | EXPECTED BLOCK — `0x80073D2B`, this host rejects unsigned executable activation; derivative SHA-256 `7d464e2d42ddf811a9c1d6486e0ed8d466ef83c7ca432c55ad92ea49d5102cbe` |
+
+The signed sideload copy and the unsigned reserved-OID derivative are local test
+artifacts only. Neither is a Store artifact or committed. At this build
+checkpoint G4 was still pending certificate trust; the operator subsequently
+completed the Trusted People install and runtime acceptance recorded below.
+
+### Installed runtime acceptance — 2026-08-13
+
+The operator imported the public development certificate into Local Machine
+Trusted People, not Trusted Root, and installed the signed sideload package.
+
+| Verification | Result |
+| --- | --- |
+| `Get-AppxPackage -Name OnTime.PptVideoTimer.Feasibility` | PASS — package full name `OnTime.PptVideoTimer.Feasibility_1.0.0.0_x64__ehycgczdr27n0`, family `OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0`, version `1.0.0.0`, publisher `CN=OnTime Store Feasibility`, `SignatureKind: Developer`, `Status: Ok` |
+| AppsFolder activation | PASS — AUMID `OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0!OnTime.PptVideoTimer.Feasibility` launched the compact timer |
+| Packaged process/helper discovery | PASS — main PID `11908`; exactly one helper PID `2720`, parent `11908`, loaded from package `app/resources/bin/ppt-probe.exe` |
+| Live installed PowerPoint COM/media smoke | PASS — operator confirmed that the installed timer tracked embedded PowerPoint videos through playback and displayed `ENDED` / `00:00` at completion |
+| Single-instance activation | PASS — before/after repeat activation retained main PID `11908` and helper PID `2720`; no duplicate window; existing timer foregrounded |
+| Normal close cleanup | PASS — packaged application/helper process count reached zero after five seconds |
+| Packaged settings write | PASS — `%APPDATA%/@ontime/ppt-timer/settings.json` timestamp advanced to 2026-08-13, hash changed to `1B4E94A167FB81A258ECEEAAC7DD5A061E76703B9574DAFC2E4ACB8EA318148E`, and `alwaysOnTop: false` plus updated bounds were persisted |
+| Relaunch/settings restore | PASS — operator confirmed not-on-top, size and position restored; exactly one new main PID `15032` and helper PID `1856` started |
+| Repeat foreground check after settings reload | PASS — exactly one main PID `15032` and helper PID `1856`; existing timer came to the front |
+
+G4 is PASS for the provisional feasibility identity. G5 has a positive installed
+live-COM/end-of-media smoke result, but its broader no-PowerPoint, no-slideshow,
+multi-video, recovery, Presenter View and coexistence matrix remains PENDING.
+The settings path predates the package and is shared with the NSIS beta; final
+Downstage identity work must explicitly migrate it or start with a clean path.
+
+### Provisional package lifecycle acceptance — 2026-08-13
+
+The update artifact was built with the same provisional Name, Publisher and
+x64 architecture at the higher Store package version `1.0.1.0`. The build
+contract now includes the independent Store version in the filename so two
+Store versions cannot silently overwrite each other.
+
+| Verification | Result |
+| --- | --- |
+| Unsigned update artifact | PASS — `OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-store-v1.0.1.0.appx`, 182,111,188 bytes, SHA-256 `cee03faec1aa2e4c777c9da130cd82ddda9c926996fb1f06624b0c08d77ea797` |
+| Signed update artifact | PASS — matching development signer; SHA-256 `ce286547a615193bf714aa7e2f6bf59bb30fa41f9468e3b1149fbb84a39e8eed` |
+| Update while running | EXPECTED BLOCK — Windows returned `0x80073D02` because package resources were in use; installed version remained `1.0.0.0` with no partial update |
+| Normal close before update | PASS — zero main/helper processes |
+| Closed-app same-family update | PASS — exactly one package advanced to `1.0.1.0`; family remained `OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0`; status `Ok` |
+| Update settings retention | PASS — settings SHA-256 remained `913CD3909EC1E56152FC6579CCB0408F3E428E8B3B9F35E42BDCC504814A4F8D`; operator confirmed always-on-top state retained |
+| Updated runtime payload | PASS — main PID `1944` and helper PID `13676` loaded from the `1.0.1.0` WindowsApps package |
+| Uninstall package/process cleanup | PASS — registration count zero, install location absent and timer/helper count zero |
+| Uninstall with legacy settings | OBSERVED — pre-existing ordinary `%APPDATA%` settings remained unchanged at SHA-256 `3486A9477E0E272CE980D03EC4E56A58DE28264FBFED5705A1596B1A18B80AA5` |
+| Clean-profile reinstall | PASS — after holding the legacy file aside, `1.0.1.0` installed with status `Ok` and opened at compact size, always-on-top enabled and Remaining mode |
+| Clean-profile settings location | OBSERVED — the packaged app recreated ordinary `%APPDATA%/@ontime/ppt-timer/settings.json`; no `settings.json` was found below `%LOCALAPPDATA%/Packages/OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0` |
+| Clean-profile uninstall | PARTIAL — package/install/process cleanup passed, but newly created ordinary-AppData settings remained unchanged at SHA-256 `AB9E542A7526BD866A94F556C5E853A5757CC1902CAF077DAB063613DCE13A05` |
+
+G6 is PASS for the provisional identity. The product decision is that settings
+survive uninstall, matching standalone S-032 and the NSIS beta. The final
+Downstage build must use a clean Downstage settings path and must not probe,
+read, copy, move or delete the legacy `@ontime` path. There is no automatic
+legacy migration. Repeat update, uninstall and reinstall after the final Store
+identity and Downstage settings path are applied.
+
+Post-test cleanup passed on 2026-08-14: the operator restored the original
+legacy settings with verified SHA-256
+`3486A9477E0E272CE980D03EC4E56A58DE28264FBFED5705A1596B1A18B80AA5`,
+confirmed provisional package count zero, and removed the development
+certificate from Local Machine Trusted People. The clean-profile settings were
+archived under the ignored lifecycle evidence directory.
+
+### Store-feasibility CI and local verification — 2026-08-14
+
+The isolated `ppt-timer-store-feasibility.yml` workflow now reproduces the
+unsigned AppX build and static package contract without changing the existing
+NSIS workflow. It validates the provisional identity/version/full-trust
+manifest, the one-helper layout and canonical helper hash, the ASAR allowlist
+and cloud/viewer/controller exclusions, the unsigned signature state, and the
+per-artifact checksum/provenance files. Its uploaded artifact remains marked
+`unsigned-feasibility` / `not-store-ready`; it is not a Store submission.
+
+Local verification at commit `cfbdafc`:
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace apps/ppt-timer` | PASS — 28 files, 418 tests |
+| `npm run typecheck --workspace apps/ppt-timer` | PASS |
+| `npm run guardrails` | PASS — static extraction guardrails and 294-module dependency boundaries |
+| Parse `.github/workflows/ppt-timer-store-feasibility.yml` with the repository `yaml` package | PASS |
+| `git diff --check` | PASS |
+
+The final public Downstage identity remains gated on reserving **Downstage PPT
+Video Timer** in Partner Center and copying the exact assigned Identity Name,
+Publisher value, and publisher display name into the package configuration.
+Until that gate passes, the `OnTime.PptVideoTimer.Feasibility` identity and its
+development certificate are explicitly disposable test values. The final
+Downstage build starts clean in a new Downstage settings directory and does not
+inspect or migrate `%APPDATA%/@ontime/ppt-timer`.

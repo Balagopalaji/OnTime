@@ -87,6 +87,31 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
 
   })
 
+  it('keeps Store feasibility packaging separate, unsigned and content-inspected', () => {
+    const nsis = readRel('.github/workflows/ppt-timer-build.yml')
+    const store = readRel('.github/workflows/ppt-timer-store-feasibility.yml')
+
+    expect(nsis).not.toContain('dist:store-feasibility')
+    expect(store).toMatch(/runs-on:\s*windows-latest/)
+    expect(store).toContain('npm run dist:store-feasibility')
+    expect(store).toContain('npm run manifest:store-feasibility')
+    expect(store).toContain('MakeAppx.exe')
+    expect(store).toContain('AppxManifest.xml')
+    expect(store).toContain('Windows.FullTrustApplication')
+    expect(store).toContain("$capabilities.Count -ne 1")
+    expect(store).toContain("$capabilities[0] -ne 'runFullTrust'")
+    expect(store).toContain('app/resources/bin/ppt-probe.exe')
+    expect(store).toContain('Packaged helper hash does not match canonical helper')
+    expect(store).toContain('node_modules/@ontime/ppt-bridge/dist-cjs/index.js')
+    expect(store).toContain('node_modules/@ontime/presentation-core/dist-cjs/index.js')
+    expect(store).toContain("$signature.Status -ne 'NotSigned'")
+    expect(store).toContain('build.store-feasibility.manifest.json')
+    expect(store).toContain('if-no-files-found: error')
+    for (const forbidden of ['companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions']) {
+      expect(store).toContain(forbidden)
+    }
+  })
+
   it('keeps every root-workspace npm ci workflow on the lockfile-supported Node policy', () => {
     const lock = JSON.parse(readRel('package-lock.json')) as {
       packages?: Record<string, { engines?: { node?: string } }>
@@ -103,6 +128,7 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
       '.github/workflows/companion-build.yml',
       '.github/workflows/controller-build.yml',
       '.github/workflows/ppt-timer-build.yml',
+      '.github/workflows/ppt-timer-store-feasibility.yml',
     ]) {
       const workflow = readRel(workflowPath)
       expect(workflow).toContain('npm ci')

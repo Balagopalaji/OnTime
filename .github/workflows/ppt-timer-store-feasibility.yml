@@ -1,0 +1,176 @@
+name: Build PowerPoint timer Store feasibility package
+
+# Separate, unsigned AppX/MSIX-family feasibility lane. This artifact is for
+# package inspection only: it is not signed, Store-certified, or publicly
+# releasable. The existing ppt-timer-build.yml NSIS beta workflow is unchanged.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ppt-timer-store-feasibility.yml"
+      - "apps/ppt-timer/**"
+      - "packages/ppt-bridge/**"
+      - "packages/presentation-core/**"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  build-store-feasibility:
+    name: Build and inspect AppX (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Static extraction and dependency guardrails
+        run: npm run guardrails
+
+      - name: Shared package and timer checks
+        run: |
+          npm run typecheck --workspace @ontime/presentation-core
+          npm run test --workspace @ontime/presentation-core
+          npm run typecheck --workspace @ontime/ppt-bridge
+          npm run test --workspace @ontime/ppt-bridge
+          npm run typecheck --workspace apps/ppt-timer
+          npm run test --workspace apps/ppt-timer
+
+      - name: Build canonical PowerPoint probe helper
+        shell: pwsh
+        run: ./packages/ppt-bridge/scripts/build-windows.ps1
+
+      - name: Verify canonical helper payload and PE identity
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $PWD 'packages/ppt-bridge/bin/win-x64'
+          $helperPath = Join-Path $publishDir 'ppt-probe.exe'
+          if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) {
+            throw "Published helper is missing: $helperPath"
+          }
+          $looseDlls = Get-ChildItem -LiteralPath $publishDir -Filter '*.dll' -File
+          if ($looseDlls) {
+            throw "Self-contained helper has loose DLLs: $($looseDlls.Name -join ', ')"
+          }
+
+          $expectedProductVersion = node -p "require('./apps/ppt-timer/package.json').version"
+          $expectedFileVersion = (node packages/ppt-bridge/scripts/windows-file-version.mjs $expectedProductVersion).Trim()
+          $versionInfo = (Get-Item -LiteralPath $helperPath).VersionInfo
+          if ($versionInfo.ProductVersion -ne $expectedProductVersion) {
+            throw "Helper ProductVersion mismatch: expected $expectedProductVersion, got $($versionInfo.ProductVersion)"
+          }
+          if ($versionInfo.FileVersion -ne $expectedFileVersion) {
+            throw "Helper FileVersion mismatch: expected $expectedFileVersion, got $($versionInfo.FileVersion)"
+          }
+          "ONTIME_PPT_TIMER_VERIFIED_HELPER_VERSION=$expectedProductVersion" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "ONTIME_PPT_TIMER_VERIFIED_HELPER_FILE_VERSION=$expectedFileVersion" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build unsigned Store feasibility package
+        working-directory: apps/ppt-timer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:store-feasibility
+
+      - name: Resolve and unpack exact Store artifact
+        shell: pwsh
+        run: |
+          $appVersion = node -p "require('./apps/ppt-timer/package.json').version"
+          $storeVersion = node -p "require('./apps/ppt-timer/store-package.json').version"
+          $artifactName = "OnTime-PowerPoint-Video-Timer-$appVersion-win-x64-store-v$storeVersion.appx"
+          $artifactPath = Join-Path $PWD "apps/ppt-timer/dist_out/$artifactName"
+          if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+            throw "Expected Store artifact is missing: $artifactPath"
+          }
+
+          $makeAppx = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter makeappx.exe -File |
+            Where-Object FullName -Match '\\x64\\makeappx\.exe$' |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx) { throw 'Windows SDK x64 MakeAppx.exe was not found' }
+
+          $inspectDir = Join-Path $env:RUNNER_TEMP 'ppt-timer-store-inspection'
+          & $makeAppx.FullName unpack /p $artifactPath /d $inspectDir /nv
+          if ($LASTEXITCODE -ne 0) { throw "MakeAppx unpack failed with exit code $LASTEXITCODE" }
+
+          "STORE_ARTIFACT_NAME=$artifactName" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "STORE_ARTIFACT_PATH=$artifactPath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "STORE_PACKAGE_VERSION=$storeVersion" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "ONTIME_PPT_TIMER_INSPECTED_APPX_MANIFEST=$(Join-Path $inspectDir 'AppxManifest.xml')" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "STORE_INSPECT_DIR=$inspectDir" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify AppX manifest, helper and ASAR contract
+        shell: pwsh
+        run: |
+          [xml]$manifest = Get-Content -LiteralPath $env:ONTIME_PPT_TIMER_INSPECTED_APPX_MANIFEST -Raw
+          $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+          $ns.AddNamespace('f', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+          $ns.AddNamespace('rescap', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities')
+          $identity = $manifest.SelectSingleNode('/f:Package/f:Identity', $ns)
+          $application = $manifest.SelectSingleNode('/f:Package/f:Applications/f:Application', $ns)
+          $capabilities = @(
+            $manifest.SelectNodes('/f:Package/f:Capabilities/*', $ns) |
+              ForEach-Object { $_.GetAttribute('Name') }
+          )
+
+          if ($identity.Name -ne 'OnTime.PptVideoTimer.Feasibility') { throw "Unexpected identity: $($identity.Name)" }
+          if ($identity.Publisher -ne 'CN=OnTime Store Feasibility') { throw "Unexpected publisher: $($identity.Publisher)" }
+          if ($identity.ProcessorArchitecture -ne 'x64') { throw "Unexpected architecture: $($identity.ProcessorArchitecture)" }
+          if ($identity.Version -ne $env:STORE_PACKAGE_VERSION) { throw "Unexpected Store version: $($identity.Version)" }
+          if ($application.EntryPoint -ne 'Windows.FullTrustApplication') { throw "Unexpected entry point: $($application.EntryPoint)" }
+          if ($capabilities.Count -ne 1 -or $capabilities[0] -ne 'runFullTrust') {
+            throw "Expected only runFullTrust, got: $($capabilities -join ', ')"
+          }
+
+          $helpers = @(Get-ChildItem -LiteralPath $env:STORE_INSPECT_DIR -Recurse -Filter ppt-probe.exe -File)
+          $expectedHelper = Join-Path $env:STORE_INSPECT_DIR 'app/resources/bin/ppt-probe.exe'
+          if ($helpers.Count -ne 1 -or $helpers[0].FullName -ne $expectedHelper) {
+            throw "Expected exactly one helper at $expectedHelper; found $($helpers.Count)"
+          }
+          $canonicalHelper = Join-Path $PWD 'packages/ppt-bridge/bin/win-x64/ppt-probe.exe'
+          $canonicalHash = (Get-FileHash -LiteralPath $canonicalHelper -Algorithm SHA256).Hash
+          $packagedHash = (Get-FileHash -LiteralPath $expectedHelper -Algorithm SHA256).Hash
+          if ($canonicalHash -ne $packagedHash) { throw 'Packaged helper hash does not match canonical helper' }
+
+          $asarPath = Join-Path $env:STORE_INSPECT_DIR 'app/resources/app.asar'
+          $entries = (node node_modules/@electron/asar/bin/asar.js list $asarPath) -replace '\\', '/'
+          if ($LASTEXITCODE -ne 0) { throw "ASAR listing failed with exit code $LASTEXITCODE" }
+          foreach ($required in @(
+            'node_modules/@ontime/ppt-bridge/dist-cjs/index.js',
+            'node_modules/@ontime/presentation-core/dist-cjs/index.js'
+          )) {
+            if (-not ($entries -match [regex]::Escape($required))) { throw "ASAR missing $required" }
+          }
+          foreach ($forbidden in @('companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions')) {
+            if ($entries -match [regex]::Escape($forbidden)) { throw "ASAR contains forbidden reference: $forbidden" }
+          }
+
+          $signature = Get-AuthenticodeSignature -LiteralPath $env:STORE_ARTIFACT_PATH
+          if ($signature.Status -ne 'NotSigned') { throw "Feasibility AppX must remain unsigned; got $($signature.Status)" }
+
+      - name: Generate and verify deterministic Store provenance
+        working-directory: apps/ppt-timer
+        run: npm run manifest:store-feasibility
+
+      - name: Upload unsigned Store feasibility artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppt-timer-store-feasibility-win-x64-v${{ env.STORE_PACKAGE_VERSION }}
+          if-no-files-found: error
+          path: |
+            apps/ppt-timer/dist_out/${{ env.STORE_ARTIFACT_NAME }}
+            apps/ppt-timer/dist_out/${{ env.STORE_ARTIFACT_NAME }}.sha256
+            apps/ppt-timer/dist_out/build.store-feasibility.manifest.json

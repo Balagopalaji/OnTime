@@ -13,7 +13,9 @@
     "build": "npm run build:cjs-deps && npm run build:main && npm run build:renderer",
     "dev": "node electron-dev.js",
     "dist": "npm run build && electron-builder",
-    "manifest": "node scripts/build-manifest.mjs"
+    "dist:store-feasibility": "npm run build && node scripts/build-store-package.mjs",
+    "manifest": "node scripts/build-manifest.mjs",
+    "manifest:store-feasibility": "node scripts/build-store-manifest.mjs"
   },
   "dependencies": {
     "@ontime/ppt-bridge": "0.0.0",
