@@ -161,7 +161,7 @@ Baseline artifact already present at the starting commit:
 | G1 Feasibility decision | Additive AppX target selected; identity, version, settings, signing, update and fallback contracts explicit | PASS (decision only) |
 | G2 Static/build contract | Opt-in config and scripts; deterministic tests prove NSIS remains default and both artifact contracts are unambiguous | PASS (`05ba0f4`, `014f428`) |
 | G3 Package build | Windows creates AppX; actual archive/manifest/helper/ASAR inspection passes; exact bytes and hashes recorded | PASS (unsigned feasibility artifact only) |
-| G4 Installed runtime | Signed/trusted local package installs; exact package identity recorded; one app/helper; helper discovery, close cleanup and single-instance pass | PENDING |
+| G4 Installed runtime | Signed/trusted local package installs; exact package identity recorded; one app/helper; helper discovery, close cleanup and single-instance pass | PASS (provisional identity) |
 | G5 PowerPoint COM | Installed package reports not-running/no-slideshow/live media and passes the agreed media/recovery/coexistence subset | PENDING |
 | G6 Lifecycle | Same-identity higher-version AppX updates in place with settings preserved; uninstall removes package and package-managed settings; reinstall starts with defaults | PENDING |
 | G7 Display acceptance | Edge/corner expansion plus 100/125/150% mixed-DPI, display removal, taskbar and Presenter View/AOT matrix passes | PENDING |
@@ -177,14 +177,22 @@ Its manifest contains provisional identity
 `app/resources/bin/ppt-probe.exe` exactly matches the canonical helper SHA-256
 `16110898dc0ad17ec8442ccc93a7b9908f125dbb5f792e7de73ae1b743de8135`.
 
-G4 remains PENDING. A development-signed copy was produced with Microsoft
-Windows SDK SignTool, but the managed test host could not add its certificate
-to Local Machine Trusted People. Root trust was explicitly declined. Unsigned
-developer-package experiments reached Windows deployment and were rejected as
-expected: the original publisher is outside the unsigned namespace
-(`0x80073D2C`), and the reserved unsigned namespace cannot carry the package's
-full-trust executable activation on this host (`0x80073D2B`). These results are
-environment/signing blockers, not runtime PASS or MSIX incompatibility proof.
+G4 passed after the operator placed only the development certificate in Local
+Machine Trusted People and installed the signed sideload copy. Root trust was
+explicitly declined. The installed provisional identity is
+`OnTime.PptVideoTimer.Feasibility_1.0.0.0_x64__ehycgczdr27n0`, and Windows
+reports `SignatureKind: Developer` and `Status: Ok`. Package activation starts
+one main process and one packaged helper, repeat activation retains both PIDs
+and foregrounds the existing window, normal close removes the entire process
+tree, and relaunch restores settings. This PASS applies only to the provisional
+identity; it must be repeated after the Partner Center identity and Downstage
+settings-path decision are applied.
+
+The package currently reads and writes the pre-existing NSIS path
+`%APPDATA%/@ontime/ppt-timer/settings.json`. A packaged write and reload passed,
+but this is also proof that NSIS and the feasibility AppX share legacy settings.
+The final Downstage identity slice must choose an explicit one-time migration
+or a clean Downstage settings path before G8.
 
 If G4 or G5 demonstrates a platform incompatibility that cannot be corrected
 without expanding product scope, stop the AppX path and document the exact

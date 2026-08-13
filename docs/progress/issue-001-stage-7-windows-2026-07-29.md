@@ -721,10 +721,29 @@ Commands and exact evidence:
 | Reserved-OID unsigned runtime derivative | EXPECTED BLOCK — `0x80073D2B`, this host rejects unsigned executable activation; derivative SHA-256 `7d464e2d42ddf811a9c1d6486e0ed8d466ef83c7ca432c55ad92ea49d5102cbe` |
 
 The signed sideload copy and the unsigned reserved-OID derivative are local test
-artifacts only. Neither is a Store artifact, neither is committed, and neither
-closes G4. Continue G4 on a disposable Windows test machine where the matching
-development certificate can be placed in Local Machine Trusted People without
-granting it certification-authority trust. Record package full/family names,
-AUMID, installed paths, one-app/one-helper behavior, live PowerPoint COM,
-single-instance behavior, actual `userData` location, clean shutdown, and exact
-hashes before advancing to lifecycle testing.
+artifacts only. Neither is a Store artifact or committed. At this build
+checkpoint G4 was still pending certificate trust; the operator subsequently
+completed the Trusted People install and runtime acceptance recorded below.
+
+### Installed runtime acceptance — 2026-08-13
+
+The operator imported the public development certificate into Local Machine
+Trusted People, not Trusted Root, and installed the signed sideload package.
+
+| Verification | Result |
+| --- | --- |
+| `Get-AppxPackage -Name OnTime.PptVideoTimer.Feasibility` | PASS — package full name `OnTime.PptVideoTimer.Feasibility_1.0.0.0_x64__ehycgczdr27n0`, family `OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0`, version `1.0.0.0`, publisher `CN=OnTime Store Feasibility`, `SignatureKind: Developer`, `Status: Ok` |
+| AppsFolder activation | PASS — AUMID `OnTime.PptVideoTimer.Feasibility_ehycgczdr27n0!OnTime.PptVideoTimer.Feasibility` launched the compact timer |
+| Packaged process/helper discovery | PASS — main PID `11908`; exactly one helper PID `2720`, parent `11908`, loaded from package `app/resources/bin/ppt-probe.exe` |
+| Live installed PowerPoint COM/media smoke | PASS — operator confirmed that the installed timer tracked embedded PowerPoint videos through playback and displayed `ENDED` / `00:00` at completion |
+| Single-instance activation | PASS — before/after repeat activation retained main PID `11908` and helper PID `2720`; no duplicate window; existing timer foregrounded |
+| Normal close cleanup | PASS — packaged application/helper process count reached zero after five seconds |
+| Packaged settings write | PASS — `%APPDATA%/@ontime/ppt-timer/settings.json` timestamp advanced to 2026-08-13, hash changed to `1B4E94A167FB81A258ECEEAAC7DD5A061E76703B9574DAFC2E4ACB8EA318148E`, and `alwaysOnTop: false` plus updated bounds were persisted |
+| Relaunch/settings restore | PASS — operator confirmed not-on-top, size and position restored; exactly one new main PID `15032` and helper PID `1856` started |
+| Repeat foreground check after settings reload | PASS — exactly one main PID `15032` and helper PID `1856`; existing timer came to the front |
+
+G4 is PASS for the provisional feasibility identity. G5 has a positive installed
+live-COM/end-of-media smoke result, but its broader no-PowerPoint, no-slideshow,
+multi-video, recovery, Presenter View and coexistence matrix remains PENDING.
+The settings path predates the package and is shared with the NSIS beta; final
+Downstage identity work must explicitly migrate it or start with a clean path.
