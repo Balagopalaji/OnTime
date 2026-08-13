@@ -14,6 +14,24 @@ artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-setup.exe
 directories:
   output: dist_out
 
+# The Store feasibility target is opt-in (`npm run dist:store-feasibility`).
+# electron-builder 26.11.1 calls its MSIX-family target `appx` and emits an
+# .appx package accepted by Partner Center. The provisional identity below is
+# only for local feasibility work; replace it with Partner Center's assigned
+# values after the Downstage product name is reserved.
+appxManifestCreated: scripts/patch-appx-manifest.mjs
+appx:
+  artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-store-feasibility.appx
+  identityName: OnTime.PptVideoTimer.Feasibility
+  applicationId: OnTime.PptVideoTimer.Feasibility
+  publisher: CN=OnTime Store Feasibility
+  publisherDisplayName: OnTime Store Feasibility
+  displayName: OnTime PowerPoint Video Timer
+  capabilities:
+    - runFullTrust
+  minVersion: 10.0.17763.0
+  maxVersionTested: 10.0.26100.0
+
 # Production code only: the compiled main/preload/renderer (dist/) plus
 # package.json. electron-builder always copies production-dependency
 # node_modules regardless of this list (@ontime/ppt-bridge,

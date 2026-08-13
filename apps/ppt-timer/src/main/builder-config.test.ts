@@ -4,6 +4,12 @@ import { describe, expect, it } from 'vitest'
 
 const appRoot = path.resolve(__dirname, '../..')
 const configText = readFileSync(path.join(appRoot, 'electron-builder.yml'), 'utf8')
+const packageJson = JSON.parse(readFileSync(path.join(appRoot, 'package.json'), 'utf8')) as {
+  scripts?: Record<string, string>
+}
+
+const winBlock = configText.slice(configText.indexOf('\nwin:'), configText.indexOf('\nnsis:'))
+const appxBlock = configText.slice(configText.indexOf('\nappx:'), configText.indexOf('\n# Production code only'))
 
 describe('electron-builder installer config (Stage 6 Batch A)', () => {
   it('pins the stable appId, productName, and exact artifact name', () => {
@@ -19,10 +25,32 @@ describe('electron-builder installer config (Stage 6 Batch A)', () => {
     expect(configText).not.toMatch(/^\s*version:/m)
   })
 
-  it('targets Windows x64 NSIS only', () => {
-    expect(configText).toMatch(/win:/)
-    expect(configText).toMatch(/target:\s*nsis\b/)
-    expect(configText).toMatch(/arch:\s*\n\s*- x64\b/)
+  it('keeps the default Windows target exactly x64 NSIS', () => {
+    expect(winBlock).toMatch(/target:\s*nsis\b/)
+    expect(winBlock).toMatch(/arch:\s*\n\s*- x64\b/)
+    expect(winBlock).not.toMatch(/target:\s*appx\b/)
+    expect(packageJson.scripts?.dist).toBe('npm run build && electron-builder')
+  })
+
+  it('adds AppX/MSIX-family packaging only through an explicit feasibility command', () => {
+    expect(packageJson.scripts?.['dist:store-feasibility']).toBe(
+      'npm run build && electron-builder --win appx --x64',
+    )
+    expect(appxBlock).toContain(
+      'artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-store-feasibility.appx',
+    )
+    expect(configText).toMatch(/appxManifestCreated:\s*scripts\/patch-appx-manifest\.mjs/)
+  })
+
+  it('uses an explicit provisional identity and only the required full-trust capability', () => {
+    expect(appxBlock).toMatch(/identityName:\s*OnTime\.PptVideoTimer\.Feasibility/)
+    expect(appxBlock).toMatch(/applicationId:\s*OnTime\.PptVideoTimer\.Feasibility/)
+    expect(appxBlock).toMatch(/publisher:\s*CN=OnTime Store Feasibility/)
+    expect(appxBlock).toMatch(/publisherDisplayName:\s*OnTime Store Feasibility/)
+    expect(appxBlock).toMatch(/displayName:\s*OnTime PowerPoint Video Timer/)
+    expect(appxBlock.match(/^\s+-\s+runFullTrust\s*$/gm)).toHaveLength(1)
+    expect(appxBlock).not.toMatch(/internetClient|privateNetwork|broadFileSystemAccess|allowElevation/)
+    expect(appxBlock).not.toMatch(/Downstage/)
   })
 
   it('is an assisted per-user install that preserves settings on uninstall', () => {
