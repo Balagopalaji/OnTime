@@ -171,30 +171,6 @@ export function reanchorCompactBounds(
 }
 
 /**
- * Windows anchors an aspect-locked single-edge resize to one corner. Recenter
- * the perpendicular axis so top/bottom drags grow evenly left/right and
- * left/right drags grow evenly up/down. Corners retain native anchoring.
- */
-export function centerCardinalEdgeResize(
-  currentBounds: Rectangle,
-  proposedBounds: Rectangle,
-  edge: string,
-): Rectangle {
-  if (edge === 'top' || edge === 'bottom') {
-    const centerX = currentBounds.x + (currentBounds.width / 2)
-    const y = edge === 'top'
-      ? currentBounds.y + currentBounds.height - proposedBounds.height
-      : currentBounds.y
-    return { ...proposedBounds, x: Math.round(centerX - (proposedBounds.width / 2)), y }
-  }
-  if (edge === 'left' || edge === 'right') {
-    const centerY = currentBounds.y + (currentBounds.height / 2)
-    return { ...proposedBounds, y: Math.round(centerY - (proposedBounds.height / 2)) }
-  }
-  return proposedBounds
-}
-
-/**
  * Closes the details drawer to the exact captured collapsed geometry, including
  * an intentional custom size. Only a changed display work area may clamp it.
  */

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   applyPreset,
   centerOf,
-  centerCardinalEdgeResize,
   clampIntoWorkArea,
   expandPanelBounds,
   findDisplay,
@@ -242,47 +241,5 @@ describe('content-sized panel placement', () => {
     const compact = rect(200, 900, 190, 80)
     const requestedPanel = rect(200, 784, 190, 196)
     expect(reanchorCompactBounds(compact, requestedPanel, requestedPanel)).toEqual(compact)
-  })
-})
-
-describe('aspect-locked vertical resize anchoring', () => {
-  const current = rect(500, 300, 190, 80)
-
-  it('keeps horizontal center and top fixed while dragging the bottom edge', () => {
-    expect(centerCardinalEdgeResize(current, rect(500, 300, 380, 160), 'bottom')).toEqual({
-      x: 405,
-      y: 300,
-      width: 380,
-      height: 160,
-    })
-  })
-
-  it('keeps horizontal center and bottom fixed while dragging the top edge', () => {
-    expect(centerCardinalEdgeResize(current, rect(500, 220, 380, 160), 'top')).toEqual({
-      x: 405,
-      y: 220,
-      width: 380,
-      height: 160,
-    })
-  })
-
-  it('keeps vertical center fixed while dragging either side edge', () => {
-    expect(centerCardinalEdgeResize(current, rect(500, 300, 380, 160), 'right')).toEqual({
-      x: 500,
-      y: 260,
-      width: 380,
-      height: 160,
-    })
-    expect(centerCardinalEdgeResize(current, rect(310, 300, 380, 160), 'left')).toEqual({
-      x: 310,
-      y: 260,
-      width: 380,
-      height: 160,
-    })
-  })
-
-  it('leaves corner proposals under native Windows anchoring', () => {
-    const proposed = rect(500, 300, 380, 160)
-    expect(centerCardinalEdgeResize(current, proposed, 'bottom-right')).toBe(proposed)
   })
 })
