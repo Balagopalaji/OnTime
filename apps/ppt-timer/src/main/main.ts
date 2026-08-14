@@ -31,7 +31,7 @@ import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
 import { acquireSingleInstanceActivation } from './single-instance.js'
 import { selectLaunchTargets } from './launch-policy.js'
-import { MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
+import { COMPACT_WINDOW_ASPECT_RATIO, MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
 import { createWindowEffects } from './window-effects.js'
@@ -158,7 +158,6 @@ async function main(): Promise<void> {
   }
 
   const upsell = resolveUpsellUrl(UPSELL_URL_CONSTANT)
-
   const launchTargets = selectLaunchTargets({
     isPackaged: app.isPackaged,
     helperOverride: process.env.PPT_PROBE_PATH,
@@ -183,6 +182,7 @@ async function main(): Promise<void> {
     getDisplayWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea,
     getDisplayScaleFactor: (bounds) => screen.getDisplayMatching(bounds).scaleFactor,
     setProgrammaticBounds,
+    setCompactAspectLock: (enabled) => mainWindow?.setAspectRatio(enabled ? COMPACT_WINDOW_ASPECT_RATIO : 0),
     setDetailsState: (compactBounds) => {
       detailsCompactBounds = compactBounds
       if (!compactBounds || (currentSettings.windowBounds && boundsEqual(currentSettings.windowBounds, compactBounds))) return
@@ -279,6 +279,7 @@ async function main(): Promise<void> {
         ...BROWSER_SECURITY,
       },
     })
+    mainWindow.setAspectRatio(COMPACT_WINDOW_ASPECT_RATIO)
 
     // The window is still hidden (`show: false`), so selecting the explicit
     // Windows AOT level here cannot flash a lower-level overlay on screen.

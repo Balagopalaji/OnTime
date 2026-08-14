@@ -28,6 +28,7 @@ export type CreateWindowEffectsDeps = {
   getDisplayWorkArea(bounds: Rectangle): Rectangle
   getDisplayScaleFactor(bounds: Rectangle): number
   setProgrammaticBounds(bounds: Rectangle, reason?: ProgrammaticBoundsReason, transient?: boolean): void
+  setCompactAspectLock(enabled: boolean): void
   setDetailsState(compactBounds: Rectangle | null): void
   pushDiagnostic(event: AppDiagEvent): void
   overlayDebug: boolean
@@ -85,6 +86,7 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
         if (!compactBounds) {
           compactBounds = window.getBounds()
           deps.setDetailsState(compactBounds)
+          deps.setCompactAspectLock(false)
         } else {
           captureOpenPanelMove(window)
         }
@@ -100,6 +102,7 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
       captureOpenPanelMove(window)
       const restore = restoreCompactBounds(compactBounds, currentWorkArea(deps, window))
       deps.setProgrammaticBounds(restore, undefined, true)
+      deps.setCompactAspectLock(true)
       compactBounds = null
       panelBounds = null
       deps.setDetailsState(null)

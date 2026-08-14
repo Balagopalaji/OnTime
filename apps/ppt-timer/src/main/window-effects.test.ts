@@ -23,6 +23,7 @@ describe('createWindowEffects', () => {
     const window = fakeWindow()
     const setProgrammaticBounds = vi.fn()
     const setDetailsState = vi.fn()
+    const setCompactAspectLock = vi.fn()
     const pushDiagnostic = vi.fn()
     const effects = createWindowEffects({
       getWindow: () => window,
@@ -31,6 +32,7 @@ describe('createWindowEffects', () => {
       getDisplayWorkArea: () => primary,
       getDisplayScaleFactor: () => 1.25,
       setProgrammaticBounds,
+      setCompactAspectLock,
       setDetailsState,
       pushDiagnostic,
       overlayDebug: false,
@@ -54,6 +56,7 @@ describe('createWindowEffects', () => {
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(5, { x: 10, y: 10, width: 320, height: 180 }, undefined, true)
     expect(setDetailsState).toHaveBeenNthCalledWith(1, { x: 10, y: 10, width: 320, height: 180 })
     expect(setDetailsState).toHaveBeenNthCalledWith(2, null)
+    expect(setCompactAspectLock.mock.calls).toEqual([[false], [true]])
     expect(pushDiagnostic).toHaveBeenCalledWith(expect.objectContaining({ kind: 'display_change', displayId: 'secondary', scaleFactor: 1.25, displayCount: 2 }))
     expect(window.minimize).toHaveBeenCalledOnce()
     expect(window.close).toHaveBeenCalledOnce()
@@ -64,6 +67,7 @@ describe('createWindowEffects', () => {
     const window = fakeWindow(compact)
     const setProgrammaticBounds = vi.fn()
     const setDetailsState = vi.fn()
+    const setCompactAspectLock = vi.fn()
     const effects = createWindowEffects({
       getWindow: () => window,
       getPrimaryWorkArea: () => primary,
@@ -71,6 +75,7 @@ describe('createWindowEffects', () => {
       getDisplayWorkArea: () => primary,
       getDisplayScaleFactor: () => 1,
       setProgrammaticBounds,
+      setCompactAspectLock,
       setDetailsState,
       pushDiagnostic: vi.fn(),
       overlayDebug: false,
@@ -81,6 +86,7 @@ describe('createWindowEffects', () => {
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(1, { x: 30, y: 40, width: 190, height: 166 }, undefined, true)
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(2, compact, undefined, true)
     expect(setDetailsState.mock.calls).toEqual([[compact], [null]])
+    expect(setCompactAspectLock.mock.calls).toEqual([[false], [true]])
   })
 
   it('restores compact size at the current position after the open panel is dragged', () => {
@@ -92,6 +98,7 @@ describe('createWindowEffects', () => {
     } as unknown as BrowserWindow
     const setProgrammaticBounds = vi.fn((bounds: Rectangle) => { liveBounds = bounds })
     const setDetailsState = vi.fn()
+    const setCompactAspectLock = vi.fn()
     const effects = createWindowEffects({
       getWindow: () => window,
       getPrimaryWorkArea: () => primary,
@@ -99,6 +106,7 @@ describe('createWindowEffects', () => {
       getDisplayWorkArea: () => primary,
       getDisplayScaleFactor: () => 1,
       setProgrammaticBounds,
+      setCompactAspectLock,
       setDetailsState,
       pushDiagnostic: vi.fn(),
       overlayDebug: false,
@@ -116,6 +124,7 @@ describe('createWindowEffects', () => {
       [{ x: 500, y: 300, width: 190, height: 80 }],
       [null],
     ])
+    expect(setCompactAspectLock.mock.calls).toEqual([[false], [true]])
   })
 
   it('does nothing when no usable main window remains', () => {
@@ -126,6 +135,7 @@ describe('createWindowEffects', () => {
       getDisplayWorkArea: () => primary,
       getDisplayScaleFactor: () => 1,
       setProgrammaticBounds: vi.fn(),
+      setCompactAspectLock: vi.fn(),
       setDetailsState: vi.fn(),
       pushDiagnostic: vi.fn(),
       overlayDebug: false,

@@ -37,6 +37,9 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Minimalist-v5 closed surface: focused timer, status, and disclosure caret. */
 export const COMPACT_WINDOW_SIZE = { width: 190, height: 80 } as const
 
+/** Manual compact-window resizing stays on the accepted timer-card shape. */
+export const COMPACT_WINDOW_ASPECT_RATIO = COMPACT_WINDOW_SIZE.width / COMPACT_WINDOW_SIZE.height
+
 /** Minimalist-v2 open surface: compact timer plus the settings/details drawer. */
 export const DETAILS_WINDOW_SIZE = { width: 360, height: 520 } as const
 

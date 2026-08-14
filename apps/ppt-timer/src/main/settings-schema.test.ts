@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
   COMPACT_WINDOW_SIZE,
+  COMPACT_WINDOW_ASPECT_RATIO,
   DETAILS_WINDOW_SIZE,
   MIN_WINDOW_SIZE,
   PRESET_SIZES,
@@ -25,6 +26,7 @@ describe('settings schema defaults (S-018/S-019)', () => {
 
   it('exposes the minimalist compact/details sizes as the minimum and presets', () => {
     expect(COMPACT_WINDOW_SIZE).toEqual({ width: 190, height: 80 })
+    expect(COMPACT_WINDOW_ASPECT_RATIO).toBe(2.375)
     expect(DETAILS_WINDOW_SIZE).toEqual({ width: 360, height: 520 })
     expect(MIN_WINDOW_SIZE).toBe(COMPACT_WINDOW_SIZE)
     expect(PRESET_SIZES.compact).toBe(COMPACT_WINDOW_SIZE)
