@@ -866,3 +866,36 @@ account and name reservation; exact Store Identity/Publisher values; final
 Downstage executable/product/settings identity and listing assets; a final
 signed-package smoke on that identity; mixed-DPI cross-display acceptance;
 current WACK; Partner Center preprocessing; and certification.
+
+## Playing-video headline selection continuation — 2026-08-14
+
+Commit `86af47816f8a63c879fc6d54914f6bc86edefb9d` adds a persisted
+playing-video headline choice without changing the native helper or its canonical
+primary identity. `longest-remaining` is the new default and shows the greatest
+remaining time among videos whose resolved status is actively playing;
+`latest-started` preserves the prior most-recently-started behavior as an option.
+Paused, ended and ready/not-yet-started videos are excluded while any video is
+playing. When none is playing, both modes deliberately return to the existing
+helper-primary next-to-play video. If any active candidate lacks usable remaining
+timing, Longest reports timing unavailable instead of a false shorter aggregate.
+
+Settings schema v6 persists the choice. The options tray adds a compact
+`Longest`/`Latest` control and wraps within the timer's current width instead of
+widening it; the content-sized options tray grows by 22 CSS pixels to hold the
+second control row. Switching policy reprojects the held stable observation and
+does not trigger another helper poll.
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace @ontime/presentation-core` | PASS — 6 files, 134 tests |
+| `npm run test --workspace @ontime/ppt-timer` | PASS — 28 files, 425 tests |
+| `npm run typecheck --workspace @ontime/presentation-core` | PASS |
+| `npm run typecheck --workspace @ontime/ppt-timer` | PASS |
+| `npm run build --workspace @ontime/ppt-timer` | PASS — presentation-core and ppt-bridge CJS builds, main TypeScript and renderer production bundle |
+| `npm run guardrails` | PASS — extraction guardrails and 292-module dependency boundaries |
+| `git diff --check` | PASS |
+| Live concurrent playback: default Longest selects time-until-all-finish; Latest selects the most recently started still-playing video | PENDING — requires rebuilt signed Windows package and live PowerPoint |
+| Live no-playing fallback: next-to-play video remains visible | PENDING — deterministic projection/host tests PASS; packaged PowerPoint confirmation pending |
+
+This slice does not change Store readiness gates, package identity, branding,
+COM behavior, cloud boundaries or the provisional signing posture.
