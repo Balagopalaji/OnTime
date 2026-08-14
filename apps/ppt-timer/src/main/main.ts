@@ -34,6 +34,7 @@ import { selectLaunchTargets } from './launch-policy.js'
 import { COMPACT_WINDOW_ASPECT_RATIO, MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
+import { attachCenteredEdgeResize } from './window-resize-anchor.js'
 import { createWindowEffects } from './window-effects.js'
 import {
   isSubstantiallyVisible,
@@ -45,7 +46,6 @@ import { resolveUpsellUrl, type DisplayInfo } from '../shared/ipc-contract.js'
 // Grace period before a hung helper close is abandoned so a stuck COM call can
 // never wedge quit (S-024). The non-Windows path resolves within a microtask.
 const SHUTDOWN_TIMEOUT_MS = 2_000
-
 const displayLabel = (display: Display): string =>
   `Display ${String(display.id)} (${display.size.width}×${display.size.height})`
 
@@ -60,7 +60,6 @@ const toSnapshot = (display: Display): DisplaySnapshot => ({
 const boundsToWindow = (bounds: Rectangle): WindowBounds => ({ ...bounds })
 
 const boundsEqual = (a: Rectangle, b: Rectangle): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
-
 async function main(): Promise<void> {
   const startupStartedAt = performance.now()
   let mainWindow: BrowserWindow | null = null
@@ -300,6 +299,7 @@ async function main(): Promise<void> {
     })
     mainWindow.on('moved', persistBounds)
     mainWindow.on('resized', () => persistBounds(!resizePolicy.consumeResize()))
+    attachCenteredEdgeResize(mainWindow, () => detailsCompactBounds === null)
     mainWindow.on('closed', () => {
       singleInstance.windowClosed(createdWindow)
       mainWindow = null
