@@ -1,6 +1,6 @@
 # Downstage PPT Video Timer — Spec–Implementation Conformance Matrix
 
-- **Spec:** `docs/spec/standalone-powerpoint-video-timer.spec.md` (scenarios S-001…S-033, Proposed Surface, Constraints, Open Questions OQ-1…OQ-4).
+- **Spec:** `docs/spec/standalone-powerpoint-video-timer.spec.md` (scenarios S-001…S-034, Proposed Surface, Constraints, Open Questions OQ-1…OQ-4).
 - **Implementation:** `apps/ppt-timer/**` (standalone Electron app); `packages/ppt-bridge/**` (native boundary + supervised client/session); `packages/presentation-core/**` (pure normalization + view projection); Companion integration in `companion/src/{presentation-candidate,presentation-snapshot,ppt-probe,ppt-quit-gate}.ts` + `companion/src/main.ts`.
 - **Audit basis:** base `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`; H1–H6 source-acceptance checkpoint `5193084be79f78c3a334e14e3b0566a2656a7cb0`. Later docs-only metadata commits do not change the audited source; the branch is not pushed. Reconciled against the current source and the 2026-07-28 audit, re-audit, and final source-acceptance records.
 - **Checkpoint commits:** `0bd69c7` canonical probe/core; `24fa596` standalone runtime/settings; `65f65d7` installer/CI/versioning; `5193084` H6 source-acceptance docs.
@@ -38,7 +38,7 @@ The original source-audit checkpoint ran on macOS; its command/evidence table is
 | **S-016** file path → basename only, never full path | H5 | ✅ | `presentation-core/src/powerpoint-view.ts:basename` (both `/` and `\`) → `filenameBasename`; `view.ts:titleLabel` uses `title || filenameBasename`. `view.test.ts` "S-016 hides the full path". |
 | **S-017** bounded local playback projection | H5 | ✅ at source; bounded live Windows evidence | `renderer/playback-clock.ts` continues confirmed-playing clocks deterministically to known-duration zero, confirmed non-playing, or actual unavailable rather than freezing after fixed silence. One numeric outlier is ignored; correction requires two advancing consistent samples beyond strict 1,500 ms drift. Accepted non-playing anchors once, repeated samples remain frozen, omitted timing preserves a usable baseline, and first usable timing is adopted only when no baseline exists. `playback-clock.test.ts` covers correction confirmation, persistent anchors, focus changes, and timing loss. The 2026-08-07 Companion-closed run recorded improved normal warm helper-poll durations and a separate user report that behavior was much better; click-to-visible start/pause latency was not instrumented or certified, and the run does not constitute the full S-017 transition/stall acceptance matrix. |
 
-## 2. Window and settings persistence (S-018…S-024) — H5
+## 2. Window, settings persistence and presentation-safe interaction (S-018…S-024, S-034) — H5
 
 | Scenario | H | Status | Evidence |
 |---|---|---|---|
@@ -49,6 +49,7 @@ The original source-audit checkpoint ran on macOS; its command/evidence table is
 | **S-022** saved bounds off-screen / display removed / DPI changed → clamp or recenter | H5 | ✅ | `window-placement.ts:restoreBounds` (substantially-visible test `VISIBILITY_THRESHOLD=80×60`, clamp-into-work-area, saved-display-then-primary fallback); `main.ts:revalidatePlacement` on `display-added|removed|metrics-changed` (registered after `app.whenReady()`). `window-placement.test.ts`. |
 | **S-023** malformed settings → rename `.corrupt-<ts>`, defaults, no crash | H5 | ✅ | `settings-store.ts:quarantine` → `${filePath}.corrupt-${now()}` on parse-fail / non-ENOENT read-fail, returns defaults; quarantine failure returns `recovered:true, quarantinedPath:null` without throwing. `settings-store.test.ts` "quarantines a malformed JSON file with .corrupt-<ts>" + "…when quarantine itself fails, without throwing". |
 | **S-024** close only window → terminate helper + exit; no tray/background | H5 | ✅ (code) | `main.ts` `before-quit` → `preventDefault()` + idempotent `quitting` + `runShutdown()` (`Promise.race([host.shutdown(), 2_000ms])`) → `app.exit(0)`; `window-all-closed` → `app.quit()`; `setWindowOpenHandler` deny. No tray code exists. `session-host.ts:shutdown` is idempotent → `client.close()`. `session-host.test.ts` "shuts down idempotently, closing the helper exactly once (S-024/S-027)". Live STA-helper close/orphan check pending (caveat). |
+| **S-034** pointer interaction does not activate away from or interrupt PowerPoint | H5 | ✅ | `presentation-safe-clicks.ts` gives Windows `BrowserWindow` `focusable:false` and `skipTaskbar:true`, while leaving non-Windows behavior unchanged. `presentation-safe-clicks.test.ts` pins the platform policy. Live Windows/PowerPoint acceptance on 2026-08-14 confirmed controls, panel expansion/collapse, dragging and resizing remain usable while the playing slideshow retains focus and continues playback. |
 
 ## 3. Diagnostics (S-025…S-026) — H5
 
@@ -92,7 +93,7 @@ The original source-audit checkpoint ran on macOS; its command/evidence table is
 |---|---|---|---|
 | UI states mutually exclusive, precedence high→low: connecting, unavailable, powerpoint-not-running, no-slideshow, no-video, timing-unavailable, playing, paused, ended, ready | H5 | ✅ | `presentation-core/src/powerpoint-view.ts:PowerPointViewState` discriminated union with the exact kinds and the §3.4 precedence; `view.ts:describeView` maps each. `powerpoint-view.test.ts` (28 tests). |
 | Orthogonal `multiple-videos` indicator + `multiple-instance-warning` overlay (can accompany any state) | H5 | ✅ | `PowerPointViewStateBase.{multipleVideos,videoCount,multipleInstanceWarning}` carried by every variant; `view.ts` renders `${videoCount} videos` and the warning overlay independent of state kind. `view.test.ts` "S-011" / "S-012". |
-| Window default 360×220, min 320×180, resizable, compact/large presets, "Move to display" | H5 | ✅ | See S-018 / S-020. |
+| Window default 360×220, min 320×180, resizable, compact/large presets, "Move to display"; Windows pointer interaction does not activate or add a taskbar entry | H5 | ✅ | See S-018 / S-020 / S-034. |
 | In-window controls: always-on-top toggle; remaining-vs-elapsed toggle | H5 | ✅ | `renderer/main.ts:renderControls` (timing toggle buttons, always-on-top checkbox). `main.test.ts`. |
 | Persisted fields: window bounds, selected display ID, size preset, always-on-top (bool), timing mode, schema version | H5 | ✅ | `settings-schema.ts:Settings` carries exactly these six fields; `SETTINGS_SCHEMA_VERSION=1`. `settings-schema.test.ts`. |
 | Diagnostics report: versions + signing; Windows/Office bitness; helper history; validation warnings; availability transitions; process count/affinity; slide/media/selected identity; display/scale; bounds — redacted per S-025 | H5 | ✅ | Structure ✅ (see S-025/S-026); **selected media identity and protocol version now populated and cleared on no-signal** (S-026 D-1/D-2 fixed); Office bitness not discovered (D-6, "when discoverable"). |
@@ -153,7 +154,7 @@ Test files were read (not just run) for the load-bearing scenarios — `view.tes
 
 ## 13. Coverage proof
 
-- **Audited** (every spec item checked): scenarios S-001, S-002, S-003, S-004, S-005, S-006, S-007, S-008, S-009, S-010, S-011, S-012, S-013, S-014, S-015, S-016, S-017, S-018, S-019, S-020, S-021, S-022, S-023, S-024, S-025, S-026, S-027, S-028, S-029, S-030, S-031, S-032, S-033; Proposed Surface (UI states + orthogonal indicators, Window, In-window controls, Persisted fields, Diagnostics report, Upsell link, Installer); Constraints; Open Questions OQ-1…OQ-4 reviewed for gating effect.
+- **Audited** (every spec item checked): scenarios S-001, S-002, S-003, S-004, S-005, S-006, S-007, S-008, S-009, S-010, S-011, S-012, S-013, S-014, S-015, S-016, S-017, S-018, S-019, S-020, S-021, S-022, S-023, S-024, S-025, S-026, S-027, S-028, S-029, S-030, S-031, S-032, S-033, S-034; Proposed Surface (UI states + orthogonal indicators, Window, In-window controls, Persisted fields, Diagnostics report, Upsell link, Installer); Constraints; Open Questions OQ-1…OQ-4 reviewed for gating effect.
 - **Unreconciled / pending execution:**
   - **Current source packaging:** rebuilt, installed, and SHA-256 verified on 2026-08-07; this does not by itself prove clean-machine, upgrade, or uninstall behavior.
   - **Partially run:** Companion-closed normal warm helper-poll duration and observed timeout/restart recovery. Click-to-visible start/pause latency was not instrumented or certified; full play/pause/end/seek/stall coverage is not claimed.

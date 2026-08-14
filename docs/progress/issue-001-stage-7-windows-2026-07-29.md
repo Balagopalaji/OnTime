@@ -957,3 +957,42 @@ info → Run anyway**, while enforced Smart App Control may block it outright.
 Do not advise disabling Smart App Control. If it is enforced, use a properly
 signed build or wait for Store/private-flight distribution instead of asking the
 tester to build the repository or weaken Windows security.
+
+## Presentation-safe pointer interaction — 2026-08-14
+
+The product owner accepted Windows non-activating pointer behavior as the normal
+timer policy. The `BrowserWindow` is `focusable:false` and `skipTaskbar:true` on
+Windows, so clicking timer controls, dragging, resizing, or using the two-stage
+panel does not take keyboard focus from PowerPoint. Other platforms retain the
+normal Electron window policy. The in-window close control remains the normal
+exit path; there is still no tray or background-process mode.
+
+The first live proof used the environment-gated experiment in commit `aea0a24`.
+Enforced Smart App Control correctly blocked its newly rebuilt unsigned packaged
+EXE, so the same compiled main/renderer code and canonical helper were launched
+through the repository Electron runtime without disabling or weakening
+Application Control. With an embedded PowerPoint video playing, the operator
+reported that controls, panel
+expansion/collapse, dragging and resizing worked perfectly and PowerPoint kept
+focus and continued playback. The accepted source now applies that proven
+Windows policy unconditionally and contains no environment switch.
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace @ontime/ppt-timer` | PASS — 30 files, 430 tests |
+| `npm run typecheck --workspace @ontime/ppt-timer` | PASS |
+| `npm run test --workspace @ontime/presentation-core` | PASS — 6 files, 134 tests |
+| `npm run typecheck --workspace @ontime/presentation-core` | PASS |
+| `npm run test --workspace @ontime/ppt-bridge` | PASS — 5 files, 72 tests |
+| `npm run typecheck --workspace @ontime/ppt-bridge` | PASS |
+| `npm run guardrails` | PASS — extraction guardrails and 305-module / 722-dependency boundary scan |
+| `npm run dist --workspace @ontime/ppt-timer` | PASS — unsigned NSIS and unpacked runtime rebuilt |
+| `npm run manifest --workspace @ontime/ppt-timer` with `ONTIME_PPT_TIMER_VERIFIED_HELPER_VERSION=0.1.0-beta.1` | PASS — deterministic manifest and adjacent checksum updated |
+| Final NSIS artifact | PASS as unsigned beta artifact — 126,455,731 bytes; SHA-256 `A44EA95516D5D9BD309292ABBE0AC814BA941540C11106DA531815C4F5460B6E` |
+| Final unpacked executable | PASS package output — 225,614,336 bytes; SHA-256 `6B961DD587905E302CB390F0F82337BF3F8918657302F74BE86E3BC709B8D717` |
+| Packaged helper integrity | PASS — packaged and canonical helper SHA-256 both `E66EF830AC0A54CBA310297CDD83532DF6B1E311D82B92C18C57F35364D1BE73` |
+| ASAR inspection | PASS — permanent Win32 `focusable:false`/`skipTaskbar:true` policy present; no `PPT_TIMER_PRESENTATION_SAFE_CLICKS` gate; required bridge/core packages present; no cloud, viewer, Companion, frontend or controller package assets |
+| Live Windows/PowerPoint non-activation acceptance | PASS — controls, panel, dragging and resizing remained usable while video playback continued |
+| Direct launch of rebuilt unsigned EXE under enforced Smart App Control | EXPECTED BLOCK — distribution/signing limitation; Application Control remained enabled |
+| Signed Downstage package, WACK and Partner Center preprocessing | PENDING — Store signing/account gates remain unchanged |
+| `git diff --check` | PASS |
