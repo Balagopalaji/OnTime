@@ -894,6 +894,11 @@ does not trigger another helper poll.
 | `npm run build --workspace @ontime/ppt-timer` | PASS — presentation-core and ppt-bridge CJS builds, main TypeScript and renderer production bundle |
 | `npm run guardrails` | PASS — extraction guardrails and 292-module dependency boundaries |
 | `git diff --check` | PASS |
+| Rebuilt unsigned feasibility AppX | PASS — 182,114,591 bytes; SHA-256 `59B89B496DEECED19F275FB852928CAA7FCB01ED8A2B5E98BD11170C53181241` |
+| `MakeAppx unpack` plus manifest/helper/ASAR inspection | PASS — provisional identity `OnTime.PptVideoTimer.Feasibility`, x64 version `1.0.1.0`, full-trust entry point, exactly one hash-matched helper, both required runtime packages and zero forbidden cloud/viewer/controller assets |
+| `npm run manifest:store-feasibility --workspace @ontime/ppt-timer` with inspected manifest and verified helper versions | PASS — deterministic unsigned/not-store-ready manifest and checksum updated |
+| Signed headline-mode sideload copy | PASS (signature created) — 182,116,075 bytes; SHA-256 `D30851990195E27AFA1B6E6A8E8D489D11DFCF130348906463493128E42C917A`; signer `CN=OnTime Store Feasibility`, thumbprint `7AB7EE82355B89251575647120ADC6998F773200` |
+| Fresh development certificate trust | PENDING — public certificate is `.electron-builder-cache/headline-mode-sideload-public.cer`; automated Local Machine Trusted People import was denied without an elevated interactive shell, so trusted verification/install has not been claimed |
 | Live concurrent playback: default Longest selects time-until-all-finish; Latest selects the most recently started still-playing video | PENDING — requires rebuilt signed Windows package and live PowerPoint |
 | Live no-playing fallback: next-to-play video remains visible | PENDING — deterministic projection/host tests PASS; packaged PowerPoint confirmation pending |
 
