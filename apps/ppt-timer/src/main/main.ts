@@ -167,10 +167,10 @@ async function main(): Promise<void> {
     resourcesPath: process.resourcesPath,
     envPath: launchTargets.helperOverride,
   })
-
   const host = createSessionHost({
     candidates,
     timingMode: currentSettings.timingMode,
+    headlineMode: currentSettings.headlineMode,
     diagnostics,
     onView: () => pushView(),
   })

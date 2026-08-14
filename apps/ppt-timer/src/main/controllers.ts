@@ -51,6 +51,7 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       ctaAvailable: deps.upsell.ctaAvailable,
       state: hostView.state,
       timingMode: settings.timingMode,
+      headlineMode: settings.headlineMode,
       alwaysOnTop: settings.alwaysOnTop,
       autoOpenVideoList: settings.autoOpenVideoList,
       preset: settings.sizePreset,
@@ -69,6 +70,11 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       case 'setTimingMode': {
         deps.host.setTimingMode(action.mode)
         persist(withSettingsField(settings, { timingMode: action.mode }))
+        return
+      }
+      case 'setHeadlineMode': {
+        deps.host.setHeadlineMode(action.mode)
+        persist(withSettingsField(settings, { headlineMode: action.mode }))
         return
       }
       case 'setAlwaysOnTop': {

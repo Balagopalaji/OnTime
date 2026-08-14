@@ -24,6 +24,7 @@ const appView: AppView = {
   ctaAvailable: false,
   state: { kind: 'connecting', multipleVideos: false, videoCount: 0, multipleInstanceWarning: false },
   timingMode: 'remaining',
+  headlineMode: 'longest-remaining',
   alwaysOnTop: true,
   autoOpenVideoList: false,
   preset: 'compact',

@@ -24,6 +24,7 @@ const view = (slideNumber: number, title = 'Deck.pptx'): AppView => ({
     durationMs: null,
   },
   timingMode: 'remaining',
+  headlineMode: 'longest-remaining',
   alwaysOnTop: true,
   autoOpenVideoList: false,
   preset: 'compact',

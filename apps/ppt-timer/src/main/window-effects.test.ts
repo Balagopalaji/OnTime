@@ -52,7 +52,7 @@ describe('createWindowEffects', () => {
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(1, expect.any(Object), 'preset')
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(2, { x: 2400, y: 270, width: 320, height: 180 }, 'moveToDisplay')
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(3, { x: 10, y: 10, width: 320, height: 266 }, undefined, true)
-    expect(setProgrammaticBounds).toHaveBeenNthCalledWith(4, { x: 10, y: 10, width: 320, height: 296 }, undefined, true)
+    expect(setProgrammaticBounds).toHaveBeenNthCalledWith(4, { x: 10, y: 10, width: 320, height: 318 }, undefined, true)
     expect(setProgrammaticBounds).toHaveBeenNthCalledWith(5, { x: 10, y: 10, width: 320, height: 180 }, undefined, true)
     expect(setDetailsState).toHaveBeenNthCalledWith(1, { x: 10, y: 10, width: 320, height: 180 })
     expect(setDetailsState).toHaveBeenNthCalledWith(2, null)

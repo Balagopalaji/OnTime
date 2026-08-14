@@ -539,6 +539,7 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       filename: 'Deck.pptx',
       protocolVersion: 1,
       videoDetected: true,
+      primaryVideoId: videos[0]?.id,
       videos: videos.map((v) => ({ ...v, remaining: v.duration - v.elapsed })),
     },
   })
@@ -563,6 +564,22 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
     expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
   })
 
+  it('defaults to longest remaining and toggles to latest without polling', async () => {
+    const fake = makeFakeClient([videoOutcome(1234, 3, [
+      { id: 10, name: 'long', duration: 20_000, elapsed: 5_000, status: 'playing', playing: true },
+      { id: 20, name: 'latest', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
+    ])])
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    host.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(10)
+    expect(fake.calls.poll).toBe(1)
+
+    host.setHeadlineMode('latest-started')
+    expect((host.getView().state as { selectedVideoId?: number }).selectedVideoId).toBe(20)
+    expect(fake.calls.poll).toBe(1)
+  })
+
   it('focus advances to the next still-playing video when the focus video ends', async () => {
     const poll1 = videoOutcome(1234, 3, [
       { id: 10, name: 'a', duration: 10_000, elapsed: 9_000, status: 'playing', playing: true },
@@ -583,12 +600,12 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
     expect(state.timeMs).toBe(8_000)
   })
 
-  it('retains the most-recently-started paused video when nothing is playing', async () => {
+  it('returns to the helper-primary next-to-play video when nothing is playing', async () => {
     const poll1 = videoOutcome(1234, 3, [
       { id: 10, name: 'a', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
     ])
-    // Both paused now; id 10 was the more-recently-started focus, so it is retained.
+    // Both paused now; the helper-primary id 10 is the next-to-play fallback.
     const poll2 = videoOutcome(1234, 3, [
       { id: 10, name: 'a', duration: 10_000, elapsed: 2_000, status: 'paused', playing: false },
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
@@ -598,7 +615,7 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       { id: 20, name: 'b', duration: 10_000, elapsed: 500, status: 'paused', playing: false },
     ])
     const fake = makeFakeClient([poll1, poll2, poll3])
-    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000, headlineMode: 'latest-started' })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(1_000)
@@ -618,7 +635,7 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       { id: 20, name: 'b', duration: 10_000, elapsed: 1_000, status: 'playing', playing: true },
     ])
     const fake = makeFakeClient([slide3, slide4])
-    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000, headlineMode: 'latest-started' })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(1_000)
@@ -839,7 +856,12 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       { id: 30, name: 'c', duration: 10_000, elapsed: 1_500, status: 'playing', playing: true },
     ])
     const fake = makeFakeClient([poll1, poll2, poll3])
-    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    const host = createSessionHost({
+      candidates: [],
+      createClient: fake.create,
+      pollIntervalMs: 1_000,
+      headlineMode: 'latest-started',
+    })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(focusId(host)).toBe(20)
@@ -869,7 +891,12 @@ describe('createSessionHost multi-video focus (ISSUE-001)', () => {
       ]),
     ]
     const fake = makeFakeClient(polls)
-    const host = createSessionHost({ candidates: [], createClient: fake.create, pollIntervalMs: 1_000 })
+    const host = createSessionHost({
+      candidates: [],
+      createClient: fake.create,
+      pollIntervalMs: 1_000,
+      headlineMode: 'latest-started',
+    })
     host.start()
     await vi.advanceTimersByTimeAsync(0)
     expect(focusId(host)).toBe(10)

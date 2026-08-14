@@ -8,19 +8,22 @@
  * explicit primary identity; legacy protocol-v0 observations retain the
  * historical active-playing/first-candidate fallback.
  *
- * ISSUE-001 multi-video focus: the projection also carries a resolved row for
- * every slide video (`videos[]`) and, when the host supplies a `playOrder`
- * map (host-owned recency metadata, NOT a clock), selects the focus as the
- * most-recently-started video still playing. The projection remains pure:
- * `playOrder` is an opaque input ranking, every emitted value is still the
- * observed measurement, and no time is ever extrapolated here.
+ * The projection also carries a resolved row for every slide video (`videos[]`).
+ * Standalone callers may choose longest-remaining or latest-started among only
+ * currently playing rows; with none playing, helper-primary selection keeps the
+ * established next-to-play behavior. Start order is opaque input metadata and
+ * no time is extrapolated here.
  */
 import type { PresentationSourceState, PresentationVideo } from './powerpoint-types'
+import { selectPlayingHeadline, type PowerPointHeadlineMode } from './powerpoint-headline'
+import { POWERPOINT_END_INFER_MS, resolveVideoStatus } from './powerpoint-status'
 
 export type PowerPointTimingMode = 'remaining' | 'elapsed'
 
 export type ProjectPowerPointViewOptions = {
   timingMode: PowerPointTimingMode
+  /** Standalone playing-video selection; absent preserves legacy consumers. */
+  headlineMode?: PowerPointHeadlineMode
   /** Optional explicit primary-video id (projection metadata, not a wire field). */
   primaryVideoId?: number
   /** Optional explicit primary-video zero-based index. */
@@ -94,32 +97,6 @@ export type PowerPointViewState = PowerPointViewStateBase &
     | PowerPointViewPresentation
   )
 
-/** End-inference threshold (spec "one canonical capability" constraint). */
-export const POWERPOINT_END_INFER_MS = 250
-
-/**
- * Resolve a video's display status to exactly one of four states (ISSUE-001).
- * Precedence: ended > playing > paused > ready. An `ended` signal (explicit
- * status, zero/negative remaining, or duration-elapsed within the 250 ms end
- * threshold) outranks a contradictory `playing` flag. A video with positive
- * elapsed that is neither playing nor ended is `paused`; otherwise `ready`.
- *
- * This is the ONE canonical resolver for the standalone path: both the view
- * projection and the host focus tracker (`focus-tracker.ts`) import it so the
- * end-inference rule and threshold cannot drift between layers (P2-1).
- */
-export function resolveVideoStatus(v: PresentationVideo): 'ready' | 'playing' | 'paused' | 'ended' {
-  const inferredEnded =
-    v.status === 'ended' ||
-    (v.remaining !== undefined && v.remaining <= 0) ||
-    (v.duration !== undefined && v.elapsed !== undefined && v.duration - v.elapsed <= POWERPOINT_END_INFER_MS)
-  if (inferredEnded) return 'ended'
-  if (v.status === 'playing' || v.playing === true) return 'playing'
-  if (v.status === 'paused') return 'paused'
-  if (v.elapsed !== undefined && v.elapsed > 0) return 'paused'
-  return 'ready'
-}
-
 /** Pure separator-based basename supporting both `/` and `\` (no Node `path`). */
 function basename(filename: string | undefined): string | undefined {
   if (filename === undefined) return undefined
@@ -139,7 +116,9 @@ function displayTitle(title: string, filename: string | undefined): string {
 
 /**
  * Deterministic primary-video resolution (§3.4), with standalone multi-video
- * focus layered on top (ISSUE-001). Resolution order:
+ * headline selection layered on top (S-011). Resolution order:
+ *  - explicit headline mode selects only a playing candidate according to its
+ *    policy; with none playing, resolution continues to helper-primary.
  *   0. (focus) when `playOrder` ranks ≥1 video, the focus is the
  *      most-recently-started video still playing; if none is playing, the
  *      most-recently-started paused/ended video is retained. Unranked videos
@@ -152,17 +131,27 @@ function displayTitle(title: string, filename: string | undefined): string {
  *   4. first video in the canonical array (legacy heuristic)
  * An invalid explicit reference falls through rather than suppressing the list.
  *
- * `playOrder` is host-owned recency metadata (id -> monotonic start rank), not
- * a clock; the projection stays pure and deterministic. When `playOrder` is
- * empty/absent, behavior is byte-identical to the historical resolution.
+ * The retained-rank branch remains for legacy callers that omit headlineMode.
+ * `playOrder` is host-owned metadata, not a clock; projection stays pure.
  */
 function selectPrimaryVideo(
   videos: readonly PresentationVideo[],
-  options: Pick<ProjectPowerPointViewOptions, 'primaryVideoId' | 'primaryVideoIndex' | 'playOrder'>,
+  options: Pick<ProjectPowerPointViewOptions, 'primaryVideoId' | 'primaryVideoIndex' | 'playOrder' | 'headlineMode'>,
   allowHeuristicFallback: boolean,
-): { video: PresentationVideo | undefined; index: number; fromFocus: boolean } {
+): { video: PresentationVideo | undefined; index: number; fromFocus: boolean; timingUnavailable?: boolean } {
+  if (options.headlineMode !== undefined) {
+    const headline = selectPlayingHeadline(videos, options.headlineMode, options.playOrder)
+    if (headline.kind === 'selected') {
+      return { video: videos[headline.index], index: headline.index, fromFocus: true }
+    }
+    if (headline.kind === 'timing-unavailable') {
+      return { video: undefined, index: -1, fromFocus: true, timingUnavailable: true }
+    }
+    // With nothing playing, continue into the existing helper-primary / next-
+    // to-play resolution below. Retained start ranks must not override it.
+  }
   // Focus branch (0): only when the host has ranked at least one present video.
-  if (options.playOrder !== undefined && options.playOrder.size > 0) {
+  if (options.headlineMode === undefined && options.playOrder !== undefined && options.playOrder.size > 0) {
     let bestPlayingIndex = -1
     let bestPlayingRank = -1
     let bestRetainedIndex = -1
@@ -265,6 +254,7 @@ export function projectPowerPointView(
       primaryVideoId: snap.primaryVideoId ?? options.primaryVideoId,
       primaryVideoIndex: snap.primaryVideoIndex ?? options.primaryVideoIndex,
       playOrder: options.playOrder,
+      headlineMode: options.headlineMode,
     },
     snap.protocolVersion === undefined || snap.protocolVersion === 0,
   )
@@ -337,7 +327,7 @@ export function projectPowerPointView(
     return { kind: 'no_video', ...common, timeMs: null, durationMs: null, multipleVideos, videoCount, ...ortho }
   }
   // 3. videoTimingUnavailable, or media with no timing and no playback signal -> timing_unavailable
-  if (snap.videoTimingUnavailable === true || (!hasTiming && !hasPlaybackSignal)) {
+  if (selection.timingUnavailable === true || snap.videoTimingUnavailable === true || (!hasTiming && !hasPlaybackSignal)) {
     return { kind: 'timing_unavailable', ...common, timeMs: null, durationMs: null, multipleVideos, videoCount, ...ortho }
   }
   // 4-6. Resolve the headline kind/status. When the focus row was selected by

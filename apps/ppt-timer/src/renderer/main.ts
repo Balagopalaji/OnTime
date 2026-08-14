@@ -134,6 +134,16 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
     timing.title = `Show ${nextMode} time`
     timing.setAttribute('aria-label', `Switch to ${nextMode} timing`)
   }
+  const headline = section.querySelector<HTMLButtonElement>('#headline-mode')
+  if (headline !== null) {
+    const nextMode = view.headlineMode === 'longest-remaining' ? 'latest-started' : 'longest-remaining'
+    headline.dataset.mode = view.headlineMode
+    headline.textContent = view.headlineMode === 'longest-remaining' ? 'Longest' : 'Latest'
+    headline.title = nextMode === 'latest-started'
+      ? 'Follow the latest-started playing video'
+      : 'Show time until all playing videos finish'
+    headline.setAttribute('aria-label', headline.title)
+  }
   section.querySelector('#always-on-top')?.setAttribute('aria-pressed', String(view.alwaysOnTop))
   section.querySelector('#auto-open-video-list')?.setAttribute('aria-pressed', String(view.autoOpenVideoList))
   const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')

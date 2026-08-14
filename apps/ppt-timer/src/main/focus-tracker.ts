@@ -24,8 +24,8 @@
  *    stop/restart, a transient COM failure, helper crash/recovery). The host
  *    covers those by discarding the tracker outright on any non-presentation
  *    transition — see `session-host.ts` `onTransition` (P0-1).
- *  - when nothing is playing, retained paused/ended ranks stay alive so the
- *    projection can keep the most-recently-started paused/ended focus.
+ *  - ranks may remain after playback stops, but standalone headline selection
+ *    ignores them until playback resumes and returns to helper next-to-play.
  *
  * This module imports no Electron/Node builtins and performs no I/O; it is safe
  * to unit-test in isolation with plain data.
@@ -129,9 +129,8 @@ export function applyFocusTransition(
         playOrder.set(v.id, seq)
       }
     }
-    // Preserve ranks for ids still present even if they stopped playing; the
-    // projection retains the most-recently-started paused/ended one when
-    // nothing is playing. No rank mutation happens here for non-playing ids.
+    // Preserve ranks so a genuine resume is detected and ranked once. The
+    // standalone projector ignores retained ranks while nothing is playing.
   }
 
   return {

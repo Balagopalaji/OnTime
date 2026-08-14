@@ -5,11 +5,12 @@
  * dropping, and partial-data recovery.
  *
  * Persisted under `app.getPath('userData')` as schema-versioned JSON: window
- * bounds, selected display id, size preset, always-on-top, auto-open, and timing mode.
+ * bounds, selected display id, size preset, always-on-top, auto-open, timing
+ * mode, and playing-video headline mode.
  */
-import type { SizePreset, TimingMode } from '../shared/ipc-contract.js'
+import type { HeadlineMode, SizePreset, TimingMode } from '../shared/ipc-contract.js'
 
-export const SETTINGS_SCHEMA_VERSION = 5
+export const SETTINGS_SCHEMA_VERSION = 6
 
 export type WindowBounds = { x: number; y: number; width: number; height: number }
 
@@ -21,6 +22,7 @@ export type Settings = {
   alwaysOnTop: boolean
   autoOpenVideoList: boolean
   timingMode: TimingMode
+  headlineMode: HeadlineMode
 }
 
 /** S-018: compact window by default; S-019: always-on-top defaults on; timing remaining. */
@@ -32,9 +34,10 @@ export const DEFAULT_SETTINGS: Settings = {
   alwaysOnTop: true,
   autoOpenVideoList: false,
   timingMode: 'remaining',
+  headlineMode: 'longest-remaining',
 }
 
-/** Minimalist-v5 closed surface: focused timer, status, and disclosure caret. */
+/** Minimalist-v6 closed surface: focused timer, status, and disclosure caret. */
 export const COMPACT_WINDOW_SIZE = { width: 190, height: 80 } as const
 
 /** Manual compact-window resizing stays on the accepted timer-card shape. */
@@ -73,6 +76,11 @@ function readTimingMode(raw: unknown): TimingMode {
   return 'remaining'
 }
 
+function readHeadlineMode(raw: unknown): HeadlineMode {
+  if (raw === 'longest-remaining' || raw === 'latest-started') return raw
+  return 'longest-remaining'
+}
+
 function readString(raw: unknown): string | null {
   return typeof raw === 'string' && raw.length > 0 ? raw : null
 }
@@ -109,6 +117,7 @@ export function validateSettings(raw: unknown): Settings {
     alwaysOnTop: typeof raw.alwaysOnTop === 'boolean' ? raw.alwaysOnTop : true,
     autoOpenVideoList: typeof raw.autoOpenVideoList === 'boolean' ? raw.autoOpenVideoList : false,
     timingMode: readTimingMode(raw.timingMode),
+    headlineMode: readHeadlineMode(raw.headlineMode),
   }
 }
 
