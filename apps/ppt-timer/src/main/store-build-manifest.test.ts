@@ -7,26 +7,26 @@ import {
 
 const MANIFEST = `<?xml version="1.0"?>
 <Package xmlns:rescap="urn:test">
-  <Identity Name="OnTime.PptVideoTimer.Feasibility" ProcessorArchitecture="x64"
-    Publisher='CN=OnTime Store Feasibility' Version="1.0.0.0" />
+  <Identity Name="Downstage.PptVideoTimer.Feasibility" ProcessorArchitecture="x64"
+    Publisher='CN=Downstage Store Feasibility' Version="1.0.0.0" />
   <Properties>
-    <DisplayName>OnTime PowerPoint Video Timer</DisplayName>
-    <PublisherDisplayName>OnTime Store Feasibility</PublisherDisplayName>
+    <DisplayName>Downstage PPT Video Timer</DisplayName>
+    <PublisherDisplayName>Downstage Store Feasibility</PublisherDisplayName>
   </Properties>
   <Capabilities><rescap:Capability Name="runFullTrust"/></Capabilities>
-  <Applications><Application Id="OnTime.PptVideoTimer.Feasibility" /></Applications>
+  <Applications><Application Id="Downstage.PptVideoTimer.Feasibility" /></Applications>
 </Package>`
 
 describe('Store feasibility build manifest', () => {
   it('extracts exact identity and the one allowed capability from the real manifest shape', () => {
     expect(extractStorePackageIdentity(MANIFEST)).toEqual({
-      name: 'OnTime.PptVideoTimer.Feasibility',
-      publisher: 'CN=OnTime Store Feasibility',
+      name: 'Downstage.PptVideoTimer.Feasibility',
+      publisher: 'CN=Downstage Store Feasibility',
       version: '1.0.0.0',
       architecture: 'x64',
-      applicationId: 'OnTime.PptVideoTimer.Feasibility',
-      displayName: 'OnTime PowerPoint Video Timer',
-      publisherDisplayName: 'OnTime Store Feasibility',
+      applicationId: 'Downstage.PptVideoTimer.Feasibility',
+      displayName: 'Downstage PPT Video Timer',
+      publisherDisplayName: 'Downstage Store Feasibility',
       capabilities: ['runFullTrust'],
     })
   })

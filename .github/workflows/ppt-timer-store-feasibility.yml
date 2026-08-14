@@ -90,7 +90,7 @@ jobs:
         run: |
           $appVersion = node -p "require('./apps/ppt-timer/package.json').version"
           $storeVersion = node -p "require('./apps/ppt-timer/store-package.json').version"
-          $artifactName = "OnTime-PowerPoint-Video-Timer-$appVersion-win-x64-store-v$storeVersion.appx"
+          $artifactName = "Downstage-PPT-Video-Timer-$appVersion-win-x64-store-v$storeVersion.appx"
           $artifactPath = Join-Path $PWD "apps/ppt-timer/dist_out/$artifactName"
           if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
             throw "Expected Store artifact is missing: $artifactPath"
@@ -126,8 +126,8 @@ jobs:
               ForEach-Object { $_.GetAttribute('Name') }
           )
 
-          if ($identity.Name -ne 'OnTime.PptVideoTimer.Feasibility') { throw "Unexpected identity: $($identity.Name)" }
-          if ($identity.Publisher -ne 'CN=OnTime Store Feasibility') { throw "Unexpected publisher: $($identity.Publisher)" }
+          if ($identity.Name -ne 'Downstage.PptVideoTimer.Feasibility') { throw "Unexpected identity: $($identity.Name)" }
+          if ($identity.Publisher -ne 'CN=Downstage Store Feasibility') { throw "Unexpected publisher: $($identity.Publisher)" }
           if ($identity.ProcessorArchitecture -ne 'x64') { throw "Unexpected architecture: $($identity.ProcessorArchitecture)" }
           if ($identity.Version -ne $env:STORE_PACKAGE_VERSION) { throw "Unexpected Store version: $($identity.Version)" }
           if ($application.EntryPoint -ne 'Windows.FullTrustApplication') { throw "Unexpected entry point: $($application.EntryPoint)" }

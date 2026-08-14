@@ -1,4 +1,4 @@
-# OnTime PowerPoint Video Timer — internal Windows x64 installer (ISSUE-001, Stage 6).
+# Downstage PPT Video Timer — private Windows x64 installer (ISSUE-001, Stage 7).
 #
 # Internal-only beta artifact. No code signing and no auto-update (spec Non-Goals;
 # signing is a Stage 8 public-release gate). The .NET STA COM helper is packaged
@@ -8,9 +8,9 @@
 #
 # `version` is intentionally NOT set here: it flows from package.json (single
 # version source) into artifactName and the build manifest.
-appId: com.ontime.ppttimer
-productName: OnTime PowerPoint Video Timer
-artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-setup.exe
+appId: com.downstage.ppttimer
+productName: Downstage PPT Video Timer
+artifactName: Downstage-PPT-Video-Timer-${version}-win-x64-setup.exe
 directories:
   output: dist_out
 
@@ -21,12 +21,12 @@ directories:
 # values after the Downstage product name is reserved.
 appxManifestCreated: scripts/patch-appx-manifest.mjs
 appx:
-  artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-store-feasibility.appx
-  identityName: OnTime.PptVideoTimer.Feasibility
-  applicationId: OnTime.PptVideoTimer.Feasibility
-  publisher: CN=OnTime Store Feasibility
-  publisherDisplayName: OnTime Store Feasibility
-  displayName: OnTime PowerPoint Video Timer
+  artifactName: Downstage-PPT-Video-Timer-${version}-win-x64-store-feasibility.appx
+  identityName: Downstage.PptVideoTimer.Feasibility
+  applicationId: Downstage.PptVideoTimer.Feasibility
+  publisher: CN=Downstage Store Feasibility
+  publisherDisplayName: Downstage Store Feasibility
+  displayName: Downstage PPT Video Timer
   capabilities:
     - runFullTrust
   minVersion: 10.0.17763.0
@@ -61,7 +61,7 @@ extraResources:
       - ppt-probe.exe
 
 # No `icon:` override: electron-builder's default icon is used. No canonical
-# OnTime Windows .ico exists anywhere in the repo (Controller/Companion also
+# Downstage Windows .ico exists anywhere in the repo (Controller/Companion also
 # ship unbranded) — accepted internal-artifact limitation for this private
 # beta, not a gap introduced here. Do not invent branding; add a real .ico and
 # an `icon:` entry when one is provided.

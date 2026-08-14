@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -29,13 +29,6 @@ if (!inspectedManifestPath || !existsSync(inspectedManifestPath)) {
   fail('ONTIME_PPT_TIMER_INSPECTED_APPX_MANIFEST must name the unpacked, inspected AppxManifest.xml')
 }
 
-const artifacts = readdirSync(distOut)
-  .filter((name) => name.endsWith(`-win-x64-store-v${storeConfig.version}.appx`))
-  .sort()
-if (artifacts.length !== 1) {
-  fail(`expected exactly one Store v${storeConfig.version} feasibility AppX, found ${artifacts.length}`)
-}
-
 const {
   extractAppVersion,
   extractHelperTarget,
@@ -46,15 +39,19 @@ const {
   sha256Hex,
   verifyHelperVersion,
 } = await import(pathToFileURL(buildManifestModule).href)
+const { buildStoreArtifactName } = await import(
+  pathToFileURL(join(appDir, 'dist/main/store-package-version.js')).href
+)
 
 const csprojText = readFileSync(
   join(repoRoot, 'packages/ppt-bridge/native/windows-ppt-probe/ppt-probe.csproj'),
   'utf8',
 )
-const artifactPath = join(distOut, artifacts[0])
+const appVersion = extractAppVersion(pkgText)
+const artifactPath = join(distOut, buildStoreArtifactName(appVersion, storeConfig.version))
+if (!existsSync(artifactPath)) fail(`expected Store feasibility AppX not found: ${artifactPath}`)
 const artifactBytes = readFileSync(artifactPath)
 const identity = extractStorePackageIdentity(readFileSync(inspectedManifestPath, 'utf8'))
-const appVersion = extractAppVersion(pkgText)
 
 if (identity.version !== storeConfig.version) {
   fail(`inspected package version ${identity.version} does not match store-package.json ${storeConfig.version}`)

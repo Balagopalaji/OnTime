@@ -2,7 +2,7 @@
 Type: Plan
 Status: current
 Owner: KDB
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 Scope: Windows Store packaging and acceptance for the existing standalone PowerPoint timer.
 ---
 
@@ -12,9 +12,10 @@ Scope: Windows Store packaging and acceptance for the existing standalone PowerP
 
 This phase adds a Microsoft Store package and the evidence needed to decide
 whether the accepted standalone timer can ship through the Store. It does not
-change PowerPoint timing behavior, add remote viewing or control, extract the
-shared viewer, or rename repository/package identities to Downstage before the
-Store name is reserved.
+change PowerPoint timing behavior, add remote viewing or control, or extract the
+shared viewer. On 2026-08-14 the product owner explicitly approved the bounded
+public/install rename to **Downstage PPT Video Timer** before Store reservation;
+shared repository and npm package scopes remain unchanged.
 
 The existing unsigned NSIS installer remains the trusted-beta artifact until a
 Store-installed package passes the runtime and lifecycle gates below. Producing
@@ -35,11 +36,12 @@ artifact, manifest and, after local proof, CI lane. Both targets share the
 existing production-file allowlist and the one canonical helper at runtime path
 `resources/bin/ppt-probe.exe`.
 
-The first package uses an explicitly provisional identity. Final
+The feasibility package uses an explicitly provisional Downstage identity. Final
 `Identity.Name`, `Publisher`, publisher display name, product/display name and
 listing assets are supplied only after **Downstage PPT Video Timer** is reserved
 and Partner Center exposes the assigned product identity. The provisional
-package is never described as signed, Store-certified or publicly releasable.
+`Downstage.PptVideoTimer.Feasibility` package is never described as
+Store-certified or publicly releasable.
 
 ## Store package version contract
 
@@ -80,7 +82,8 @@ install tree and processes without modifying settings, and reinstall must
 restore preserved settings. Live feasibility testing proved this behavior for
 ordinary roaming AppData.
 
-The final Downstage build starts clean at a new Downstage settings path. It must
+The Downstage build starts clean at
+`%APPDATA%/Downstage/PPT Video Timer/settings.json`. It must
 not probe, read, copy, move or delete `%APPDATA%/@ontime/ppt-timer`, and it must
 not ship an OnTime-specific migration. Existing beta settings remain untouched.
 If a generic user-selected settings import is ever added, it is a separately
@@ -124,7 +127,7 @@ reintroduce the removed display selector.
 ### NSIS trusted beta (preserved)
 
 - Default command: `npm run dist --workspace apps/ppt-timer`.
-- Artifact: `OnTime-PowerPoint-Video-Timer-<app-version>-win-x64-setup.exe`.
+- Artifact: `Downstage-PPT-Video-Timer-<app-version>-win-x64-setup.exe`.
 - Installer: assisted, per-user NSIS; unsigned; settings preserved on normal
   uninstall; no auto-update.
 - Existing checksum, deterministic manifest, helper/ASAR allowlist and forbidden
@@ -143,7 +146,7 @@ Baseline artifact already present at the starting commit:
 ### AppX/MSIX-family feasibility artifact
 
 - Explicit command only; it is not added to the default `win.target`.
-- Artifact: separately named `.appx`, x64, provisional identity, Store package
+- Artifact: separately named `.appx`, x64, provisional Downstage identity, Store package
   version `1.0.0.0`.
 - Archive must contain `AppxManifest.xml`, the Electron executable under `app/`,
   `app/resources/app.asar`, and exactly one
@@ -237,3 +240,25 @@ disconnect/reconnect, taskbar edges/auto-hide, and PowerPoint Presenter View.
 - [Test an MSIX package](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-debug)
 - [Microsoft Store onboarding](https://learn.microsoft.com/en-us/windows/apps/publish/get-started)
 - [electron-builder AppX target](https://www.electron.build/docs/appx/)
+
+## Downstage identity checkpoint — 2026-08-14
+
+The product owner approved the public/install rename before Partner Center
+onboarding completed. The bounded identity is now:
+
+- public, executable and installer name: **Downstage PPT Video Timer**;
+- NSIS app ID: `com.downstage.ppttimer`;
+- settings: `%APPDATA%/Downstage/PPT Video Timer/settings.json`;
+- provisional AppX identity: `Downstage.PptVideoTimer.Feasibility` with
+  publisher `CN=Downstage Store Feasibility`;
+- internal source paths and `@ontime/*` npm package scopes remain unchanged.
+
+The build never probes, reads, copies, moves or deletes the retired
+`%APPDATA%/@ontime/ppt-timer` settings. Historical OnTime beta installations
+are separate products and should be manually removed before installing the
+Downstage beta. Partner Center's final Identity Name and Publisher values still
+replace the provisional AppX values after reservation.
+
+The private-test distribution remains the unsigned NSIS installer. The AppX is
+an unsigned, non-submittable feasibility artifact; generating it does not make
+the app Store-ready.

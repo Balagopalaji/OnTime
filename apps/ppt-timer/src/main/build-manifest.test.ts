@@ -66,12 +66,12 @@ describe('build manifest + checksum helpers', () => {
       helperVersion: '0.1.0',
       electronVersion: '^31.7.4',
       helperTarget: 'net10.0-windows',
-      artifact: 'OnTime-PowerPoint-Video-Timer-0.1.0-win-x64-setup.exe',
+      artifact: 'Downstage-PPT-Video-Timer-0.1.0-win-x64-setup.exe',
       artifactSha256: 'cafebabe',
     }
     const manifest = generateInstallerManifest(input)
     expect(manifest).toEqual({
-      product: 'OnTime PowerPoint Video Timer',
+      product: 'Downstage PPT Video Timer',
       version: '0.1.0',
       helperVersion: '0.1.0',
       artifact: input.artifact,
@@ -123,15 +123,21 @@ describe('build manifest + checksum helpers', () => {
   })
 
   it('executes the real manifest entrypoint with a filesystem module path', () => {
-    const tempRoot = mkdtempSync(path.join(tmpdir(), 'ontime-manifest-'))
+    const tempRoot = mkdtempSync(path.join(tmpdir(), 'downstage-manifest-'))
     try {
       const distOut = path.join(tempRoot, 'dist_out')
       mkdirSync(distOut)
       const pkg = JSON.parse(readFileSync(path.join(appRoot, 'package.json'), 'utf8')) as {
         version: string
       }
-      const installer = 'OnTime-PowerPoint-Video-Timer-' + pkg.version + '-win-x64-setup.exe'
+      const installer = 'Downstage-PPT-Video-Timer-' + pkg.version + '-win-x64-setup.exe'
       writeFileSync(path.join(distOut, installer), Buffer.from('manifest integration smoke', 'utf8'))
+      // Historical artifacts may share the output directory. The entrypoint
+      // must select the exact reviewed Downstage filename, not a broad suffix.
+      writeFileSync(
+        path.join(distOut, 'OnTime-PowerPoint-Video-Timer-' + pkg.version + '-win-x64-setup.exe'),
+        Buffer.from('retired artifact', 'utf8'),
+      )
 
       const modulePath = path.join(tempRoot, 'build-manifest.js')
       writeFileSync(
@@ -143,7 +149,7 @@ describe('build manifest + checksum helpers', () => {
           "export const extractHelperTarget = (text) => text.match(/<TargetFramework>\\s*([^<\\s]+)\\s*<\\/TargetFramework>/)[1]",
           "export const sha256Hex = (bytes) => createHash('sha256').update(bytes).digest('hex')",
           "export const formatSha256File = (name, hash) => hash + ' *' + name + '\\n'",
-          "export const generateInstallerManifest = (input) => ({ product: 'OnTime PowerPoint Video Timer', version: input.version, helperVersion: input.helperVersion, artifact: input.artifact, artifactSha256: input.artifactSha256, architecture: 'win-x64', installer: 'nsis-assisted-per-user', electronVersion: input.electronVersion, helperTarget: input.helperTarget, helperArtifact: 'ppt-probe.exe', helperPath: 'resources/bin/ppt-probe.exe', signingState: 'unsigned' })",
+          "export const generateInstallerManifest = (input) => ({ product: 'Downstage PPT Video Timer', version: input.version, helperVersion: input.helperVersion, artifact: input.artifact, artifactSha256: input.artifactSha256, architecture: 'win-x64', installer: 'nsis-assisted-per-user', electronVersion: input.electronVersion, helperTarget: input.helperTarget, helperArtifact: 'ppt-probe.exe', helperPath: 'resources/bin/ppt-probe.exe', signingState: 'unsigned' })",
           "export const verifyHelperVersion = (expected, verified) => { if (!verified) throw new Error('verified helper version is required'); if (expected !== verified) throw new Error('does not match'); return verified }",
           "export const formatManifestJson = (manifest) => JSON.stringify(manifest, Object.keys(manifest).sort(), 2) + '\\n'",
           '',

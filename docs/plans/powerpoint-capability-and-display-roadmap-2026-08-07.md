@@ -2,7 +2,7 @@
 Type: Plan
 Status: current
 Owner: KDB
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 Scope: Productize the extracted timer and PowerPoint capabilities into reusable local, LAN, cloud, controller, clean-output, and future NDI surfaces.
 ---
 
@@ -43,11 +43,14 @@ The standalone PowerPoint timer is the first usable product created directly fro
 - Planned product labels are **Downstage Timer** for the regular stage timer,
   **Downstage View** for the lightweight viewer, **Downstage Control** for the
   full rundown controller, and **Downstage Cloud** for the hosted transport.
-- Existing repository paths, package scopes, application IDs, signing identity,
-  and executable metadata are not renamed inside the standalone feature PR.
-  Reserve the Microsoft Store product name and complete domain/trade-mark
-  screening before a separately reviewed identity migration. A common theatre
-  term and an available Store title are not by themselves legal clearance.
+- On 2026-08-14 the product owner approved the standalone public/install
+  identity migration before Partner Center became available. The executable,
+  installer, window title, diagnostics heading and clean settings path use
+  **Downstage PPT Video Timer**. Shared repository paths and internal
+  `@ontime/*` package scopes remain unchanged; the AppX package identity remains
+  explicitly provisional until Partner Center supplies the reserved values.
+- Store availability and a common theatre term are not by themselves legal
+  clearance; domain and trade-mark screening remain a business gate.
 
 ### Cloud-first remote observation
 

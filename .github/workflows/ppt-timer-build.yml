@@ -1,4 +1,4 @@
-name: Build OnTime PowerPoint Video Timer installer
+name: Build Downstage PPT Video Timer installer
 
 # Windows-only internal artifact workflow (ISSUE-001, Stage 6). Produces the
 # unsigned NSIS installer + .sha256 + deterministic build manifest. Not run on
