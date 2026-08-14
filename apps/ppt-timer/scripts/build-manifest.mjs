@@ -13,7 +13,7 @@
  * Windows/packaging-only (macOS hosts do not produce an installer); the pure
  * functions it calls are unit-tested in src/main/build-manifest.test.ts.
  */
-import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, basename, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -49,21 +49,18 @@ function fail(message) {
 
 if (!existsSync(distOut)) fail(`dist_out not found: ${distOut}. Run "npm run dist" first.`)
 
-const installer = readdirSync(distOut)
-  .filter((name) => name.endsWith('-win-x64-setup.exe'))
-  .sort()
-if (installer.length === 0) fail(`no *-win-x64-setup.exe found in ${distOut}`)
-if (installer.length > 1) fail(`ambiguous installer count in ${distOut}: ${installer.join(', ')}`)
-const installerPath = join(distOut, installer[0])
-
 const pkgText = readFileSync(join(appDir, 'package.json'), 'utf8')
+const appVersion = extractAppVersion(pkgText)
+const installer = `Downstage-PPT-Video-Timer-${appVersion}-win-x64-setup.exe`
+const installerPath = join(distOut, installer)
+if (!existsSync(installerPath)) fail(`expected installer not found: ${installerPath}`)
+
 const csprojText = readFileSync(
   join(repoRoot, 'packages/ppt-bridge/native/windows-ppt-probe/ppt-probe.csproj'),
   'utf8',
 )
 const installerBytes = readFileSync(installerPath)
 
-const appVersion = extractAppVersion(pkgText)
 const helperVersion = verifyHelperVersion(
   appVersion,
   process.env.ONTIME_PPT_TIMER_VERIFIED_HELPER_VERSION,

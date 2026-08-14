@@ -2,7 +2,7 @@
   "name": "@ontime/ppt-timer",
   "private": true,
   "version": "0.1.0-beta.1",
-  "description": "OnTime standalone PowerPoint video timer (ISSUE-001, Windows-only beta).",
+  "description": "Downstage standalone PowerPoint video timer (ISSUE-001, Windows-only beta).",
   "main": "dist/main/main.js",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

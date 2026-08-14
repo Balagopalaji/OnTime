@@ -202,7 +202,7 @@ export class DiagnosticsBuffer {
 
   buildReport(meta: DiagMeta): string {
     const lines: string[] = [
-      'OnTime PPT Timer diagnostics',
+      'Downstage PPT Video Timer diagnostics',
       `appVersion: ${meta.appVersion}`,
       `helperVersion: ${meta.helperVersion}`,
       `protocolVersion: ${meta.protocolVersion ?? '--'}`,

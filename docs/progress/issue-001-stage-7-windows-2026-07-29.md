@@ -909,3 +909,51 @@ does not trigger another helper poll.
 
 This slice does not change Store readiness gates, package identity, branding,
 COM behavior, cloud boundaries or the provisional signing posture.
+
+## Downstage public/install identity — 2026-08-14
+
+The product owner explicitly approved proceeding with **Downstage PPT Video
+Timer** before Partner Center account and name reservation were available. This
+slice changes only the standalone app's public/install identity. Shared
+`@ontime/ppt-bridge` and `@ontime/presentation-core` package scopes remain
+internal implementation names and no cloud, room, viewer or controller code was
+added.
+
+The new settings path is
+`%APPDATA%/Downstage/PPT Video Timer/settings.json`. Runtime smoke evidence
+confirmed the old `%APPDATA%/@ontime/ppt-timer/settings.json` hash remained
+unchanged. There is deliberately no automatic migration from the competitor-
+named path. The retired OnTime beta and Downstage use different NSIS app IDs and
+are not an in-place upgrade pair.
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace @ontime/ppt-timer` | PASS — 29 files, 428 tests |
+| `npm run typecheck --workspace @ontime/ppt-timer` | PASS |
+| `npm run test --workspace @ontime/presentation-core` | PASS — 6 files, 134 tests |
+| `npm run typecheck --workspace @ontime/presentation-core` | PASS |
+| `npm run test --workspace @ontime/ppt-bridge` | PASS — 5 files, 72 tests |
+| `npm run typecheck --workspace @ontime/ppt-bridge` | PASS |
+| `packages/ppt-bridge/scripts/build-windows.ps1` | PASS — canonical self-contained helper rebuilt |
+| `npm run dist --workspace @ontime/ppt-timer` | PASS — final unsigned x64 NSIS package |
+| `npm run manifest --workspace @ontime/ppt-timer` | PASS — exact-name deterministic manifest and checksum; historical artifacts do not cause ambiguity |
+| Final NSIS artifact | PASS — `Downstage-PPT-Video-Timer-0.1.0-beta.1-win-x64-setup.exe`; 126,455,522 bytes; SHA-256 `FE1BB4006E346CF7302E30F63991C82C3F5E777928002DFDD7E6185ADAB24A21`; `NotSigned` |
+| NSIS unpacked content inspection | PASS — executable metadata and title are `Downstage PPT Video Timer`; exactly one helper; packaged helper hash equals canonical helper; required runtime packages present; forbidden cloud/viewer/controller assets absent |
+| Final unpacked runtime smoke | PASS — one main process, one helper, Downstage window title and settings directory, zero processes after normal close; legacy settings hash unchanged |
+| `npm run dist:store-feasibility --workspace @ontime/ppt-timer` | PASS — final unsigned provisional AppX built separately from NSIS |
+| `MakeAppx unpack` plus manifest/helper/ASAR inspection | PASS — `Downstage.PptVideoTimer.Feasibility`, publisher `CN=Downstage Store Feasibility`, x64 `1.0.1.0`, `Windows.FullTrustApplication`, only `runFullTrust`, exactly one hash-matched helper, required dependencies and no forbidden assets |
+| Final AppX artifact | PASS as unsigned feasibility only — `Downstage-PPT-Video-Timer-0.1.0-beta.1-win-x64-store-v1.0.1.0.appx`; 182,029,053 bytes; SHA-256 `D2D435B5AC767562F3BEB0C55D472FB169D754B2DB0FEF084617D09D62FC967B`; `NotSigned`; manifest says `not-store-ready` |
+| `npm run guardrails` | PASS — static extraction guardrails and 303-module / 720-dependency boundary scan |
+| `git diff --check` | PASS |
+| Signed/install lifecycle and live COM on the provisional Downstage AppX identity | PENDING — do not inherit the previous OnTime provisional identity result |
+| Final Partner Center identity, listing assets, WACK, preprocessing and certification | PENDING |
+
+### Private tester handoff
+
+Send the NSIS `.exe` and its adjacent `.sha256` file, not the repository. The
+tester verifies SHA-256 before running it. Windows may show **Unknown publisher**
+because this private beta is unsigned; SmartScreen commonly offers **More
+info → Run anyway**, while enforced Smart App Control may block it outright.
+Do not advise disabling Smart App Control. If it is enforced, use a properly
+signed build or wait for Store/private-flight distribution instead of asking the
+tester to build the repository or weaken Windows security.

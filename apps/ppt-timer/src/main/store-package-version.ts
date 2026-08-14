@@ -32,5 +32,5 @@ export function buildStoreArtifactName(appVersion: unknown, storeVersion: unknow
     throw new Error('Application version must be safe for the Store artifact filename')
   }
   const validatedStoreVersion = validateStorePackageVersion(storeVersion)
-  return `OnTime-PowerPoint-Video-Timer-${appVersion}-win-x64-store-v${validatedStoreVersion}.appx`
+  return `Downstage-PPT-Video-Timer-${appVersion}-win-x64-store-v${validatedStoreVersion}.appx`
 }

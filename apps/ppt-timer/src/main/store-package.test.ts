@@ -39,7 +39,7 @@ describe('provisional Store package version', () => {
 
   it('includes the independent Store version in the artifact filename', () => {
     expect(buildStoreArtifactName('0.1.0-beta.1', '1.0.1.0')).toBe(
-      'OnTime-PowerPoint-Video-Timer-0.1.0-beta.1-win-x64-store-v1.0.1.0.appx',
+      'Downstage-PPT-Video-Timer-0.1.0-beta.1-win-x64-store-v1.0.1.0.appx',
     )
     expect(() => buildStoreArtifactName('../beta', '1.0.1.0')).toThrow(
       'Application version must be safe for the Store artifact filename',

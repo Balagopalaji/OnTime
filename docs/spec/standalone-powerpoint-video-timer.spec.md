@@ -1,11 +1,11 @@
-# Standalone PowerPoint Video Timer — Spec
+# Downstage PPT Video Timer — Standalone Spec
 
 Tracking: `ISSUE-001`. Branch `backlog/ISSUE-001-standalone-ppt-timer`. Base SHA `fceb200b05c8f3bf7253ac0b3a91d613cc0bd305`.
 Deep Plan: `docs/plans/standalone-powerpoint-video-timer-2026-07-23.md`. Product draft: `docs/phase-3-standalone-ppt-timer.md`.
 
 ## Problem
 
-Church and theater presenters running a PowerPoint slideshow with embedded video need to see slide position and video remaining/elapsed time without running the full OnTime app or a Companion room. Today the only proven, working way to read that information is Companion's native Windows STA COM helper (`ppt-probe.exe`) feeding the Controller's presentation panel — a path that requires rooms, sockets, and the rest of OnTime. There is no lightweight, free, Windows-only viewer of that same PowerPoint state, and no upsell funnel into OnTime for presenters who only need a timer.
+Church and theater presenters running a PowerPoint slideshow with embedded video need to see slide position and video remaining/elapsed time without running the full controller suite or a Companion room. Today the only proven, working way to read that information is Companion's native Windows STA COM helper (`ppt-probe.exe`) feeding the Controller's presentation panel — a path that requires rooms, sockets, and the rest of the suite. There is no lightweight, free, Windows-only viewer of that same PowerPoint state, and no upsell funnel into Downstage for presenters who only need a timer.
 
 ## Goals
 
@@ -15,7 +15,7 @@ Church and theater presenters running a PowerPoint slideshow with embedded video
 - **G4** — Provide a one-click, redacted diagnostics report suitable for user support without leaking presentation content, file paths, or personal data.
 - **G5** — Recover automatically from helper failures (crash, timeout, missing executable) without ever displaying stale numeric timing.
 - **G6** — Ship as a Windows installer that supports fresh install, in-place upgrade, and uninstall while preserving user settings.
-- **G7** — Provide a one-click upsell path to the OnTime website without requiring Companion, cloud, or local-server connectivity.
+- **G7** — Provide a one-click upsell path to the Downstage website without requiring Companion, cloud, or local-server connectivity.
 
 ## Non-Goals
 
@@ -28,7 +28,7 @@ Church and theater presenters running a PowerPoint slideshow with embedded video
 - Tray or background-process mode (the app has exactly one window and no persistent background presence).
 - Microsoft Store / MSIX distribution.
 - Deterministic selection among multiple concurrently running PowerPoint instances (the app surfaces a warning only; see S-012).
-- General-purpose or run-of-show timers, rundowns, or any other OnTime feature outside PowerPoint slide/video timing.
+- General-purpose or run-of-show timers, rundowns, or any other Downstage suite feature outside PowerPoint slide/video timing.
 - Code signing and public-release distribution mechanics for this beta (private beta may ship unsigned with checksums; see Open Questions for the public-release gate).
 
 ## Constraints

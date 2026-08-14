@@ -38,7 +38,7 @@ export type StorePackageIdentity = {
 }
 
 export type StorePackageManifest = {
-  product: 'OnTime PowerPoint Video Timer'
+  product: 'Downstage PPT Video Timer'
   appVersion: string
   storePackageVersion: string
   artifact: string
@@ -126,7 +126,7 @@ export function generateInstallerManifest(input: {
   artifactSha256: string
 }): InstallerManifest {
   return {
-    product: 'OnTime PowerPoint Video Timer',
+    product: 'Downstage PPT Video Timer',
     version: input.version,
     helperVersion: input.helperVersion,
     artifact: input.artifact,
@@ -192,7 +192,7 @@ export function generateStorePackageManifest(input: {
     throw new Error('Store package version must match inspected manifest identity')
   }
   return {
-    product: 'OnTime PowerPoint Video Timer',
+    product: 'Downstage PPT Video Timer',
     appVersion: input.appVersion,
     storePackageVersion: input.storePackageVersion,
     artifact: input.artifact,

@@ -1,11 +1,5 @@
-/**
- * Electron main-process composition root (ISSUE-001 H5, S-019/S-020/S-022/
- * S-024/S-025/S-033). Effectful glue ONLY: it wires the pure modules (settings
- * store, session host, controllers, placement, diagnostics, security policy) to
- * real Electron APIs (BrowserWindow, screen, clipboard, shell) and the
- * before-quit shutdown gate. All timing math, projection, validation, and
- * geometry live in the imported modules; this file computes nothing on its own.
- */
+/** Electron main-process composition root (ISSUE-001 H5). Effectful glue only:
+ * pure modules own settings, timing, projection, validation and geometry. */
 import { app, BrowserWindow, clipboard, Menu, screen, shell, type Display } from 'electron'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -35,6 +29,7 @@ import { COMPACT_WINDOW_ASPECT_RATIO, MIN_WINDOW_SIZE, type Settings, type Windo
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
 import { createWindowEffects } from './window-effects.js'
+import { configureProductIdentity, PRODUCT_NAME } from './product-identity.js'
 import {
   isSubstantiallyVisible,
   restoreBounds,
@@ -65,6 +60,8 @@ async function main(): Promise<void> {
   const startupStartedAt = performance.now()
   let mainWindow: BrowserWindow | null = null
   let quitting = false
+
+  await configureProductIdentity(app)
 
   const diagnostics = new DiagnosticsBuffer()
   diagnostics.push({ kind: 'app_launch' })
@@ -271,7 +268,7 @@ async function main(): Promise<void> {
       // the renderer's explicit `-webkit-app-region: drag` surface and window
       // controls have `no-drag`, so no invisible native title bar remains.
       frame: false,
-      title: 'OnTime PowerPoint Timer',
+      title: PRODUCT_NAME,
       backgroundColor: '#0b0b0f',
       show: false,
       webPreferences: {

@@ -11,17 +11,21 @@ const storeBuildScript = readFileSync(
   path.join(appRoot, 'scripts/build-store-package.mjs'),
   'utf8',
 )
+const storeManifestScript = readFileSync(
+  path.join(appRoot, 'scripts/build-store-manifest.mjs'),
+  'utf8',
+)
 
 const winBlock = configText.slice(configText.indexOf('\nwin:'), configText.indexOf('\nnsis:'))
 const appxBlock = configText.slice(configText.indexOf('\nappx:'), configText.indexOf('\n# Production code only'))
 
 describe('electron-builder installer config (Stage 6 Batch A)', () => {
   it('pins the stable appId, productName, and exact artifact name', () => {
-    expect(configText).toMatch(/appId:\s*com\.ontime\.ppttimer\b/)
-    expect(configText).toMatch(/productName:\s*OnTime PowerPoint Video Timer\b/)
+    expect(configText).toMatch(/appId:\s*com\.downstage\.ppttimer\b/)
+    expect(configText).toMatch(/productName:\s*Downstage PPT Video Timer\b/)
     // Artifact name is fixed and version-parameterized (version flows from package.json).
     expect(configText).toContain(
-      'artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-setup.exe',
+      'artifactName: Downstage-PPT-Video-Timer-${version}-win-x64-setup.exe',
     )
   })
 
@@ -41,22 +45,24 @@ describe('electron-builder installer config (Stage 6 Batch A)', () => {
       'npm run build && node scripts/build-store-package.mjs',
     )
     expect(appxBlock).toContain(
-      'artifactName: OnTime-PowerPoint-Video-Timer-${version}-win-x64-store-feasibility.appx',
+      'artifactName: Downstage-PPT-Video-Timer-${version}-win-x64-store-feasibility.appx',
     )
     expect(configText).toMatch(/appxManifestCreated:\s*scripts\/patch-appx-manifest\.mjs/)
     expect(storeBuildScript).toContain("createRequire(join(appDir, 'package.json'))")
     expect(storeBuildScript).toContain("requireFromApp.resolve('electron-builder/out/cli/cli.js')")
+    expect(storeManifestScript).toContain('buildStoreArtifactName(appVersion, storeConfig.version)')
+    expect(storeManifestScript).not.toContain('readdirSync')
   })
 
   it('uses an explicit provisional identity and only the required full-trust capability', () => {
-    expect(appxBlock).toMatch(/identityName:\s*OnTime\.PptVideoTimer\.Feasibility/)
-    expect(appxBlock).toMatch(/applicationId:\s*OnTime\.PptVideoTimer\.Feasibility/)
-    expect(appxBlock).toMatch(/publisher:\s*CN=OnTime Store Feasibility/)
-    expect(appxBlock).toMatch(/publisherDisplayName:\s*OnTime Store Feasibility/)
-    expect(appxBlock).toMatch(/displayName:\s*OnTime PowerPoint Video Timer/)
+    expect(appxBlock).toMatch(/identityName:\s*Downstage\.PptVideoTimer\.Feasibility/)
+    expect(appxBlock).toMatch(/applicationId:\s*Downstage\.PptVideoTimer\.Feasibility/)
+    expect(appxBlock).toMatch(/publisher:\s*CN=Downstage Store Feasibility/)
+    expect(appxBlock).toMatch(/publisherDisplayName:\s*Downstage Store Feasibility/)
+    expect(appxBlock).toMatch(/displayName:\s*Downstage PPT Video Timer/)
     expect(appxBlock.match(/^\s+-\s+runFullTrust\s*$/gm)).toHaveLength(1)
     expect(appxBlock).not.toMatch(/internetClient|privateNetwork|broadFileSystemAccess|allowElevation/)
-    expect(appxBlock).not.toMatch(/Downstage/)
+    expect(appxBlock).not.toMatch(/OnTime/)
   })
 
   it('is an assisted per-user install that preserves settings on uninstall', () => {

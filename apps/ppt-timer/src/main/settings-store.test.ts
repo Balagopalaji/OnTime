@@ -33,7 +33,7 @@ class FakeFs {
   }
 }
 
-const PATH = '/userData/ontime-ppt-timer/settings.json'
+const PATH = '/userData/downstage-ppt-video-timer/settings.json'
 
 describe('load (S-023 corrupt recovery, first-run)', () => {
   it('returns defaults with recovered=false when the file does not exist (first run)', async () => {
