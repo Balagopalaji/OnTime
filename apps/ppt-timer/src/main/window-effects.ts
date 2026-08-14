@@ -15,6 +15,7 @@ import {
   applyPreset as placePreset,
   expandPanelBounds,
   moveToDisplay as placeMoveToDisplay,
+  reanchorCompactBounds,
   restoreCompactBounds,
   type DisplaySnapshot,
   type Rectangle,
@@ -27,6 +28,7 @@ export type CreateWindowEffectsDeps = {
   getDisplayWorkArea(bounds: Rectangle): Rectangle
   getDisplayScaleFactor(bounds: Rectangle): number
   setProgrammaticBounds(bounds: Rectangle, reason?: ProgrammaticBoundsReason, transient?: boolean): void
+  setCompactAspectLock(enabled: boolean): void
   setDetailsState(compactBounds: Rectangle | null): void
   pushDiagnostic(event: AppDiagEvent): void
   overlayDebug: boolean
@@ -40,9 +42,17 @@ function currentWorkArea(deps: CreateWindowEffectsDeps, window: BrowserWindow): 
 /** Creates the small imperative adapter consumed by application controllers. */
 export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffects {
   let compactBounds: Rectangle | null = null
+  let panelBounds: Rectangle | null = null
   const usableWindow = (): BrowserWindow | null => {
     const window = deps.getWindow()
     return window && !window.isDestroyed() ? window : null
+  }
+  const captureOpenPanelMove = (window: BrowserWindow): void => {
+    if (!compactBounds) return
+    const nextCompactBounds = reanchorCompactBounds(compactBounds, window.getBounds(), panelBounds)
+    if (nextCompactBounds.x === compactBounds.x && nextCompactBounds.y === compactBounds.y) return
+    compactBounds = nextCompactBounds
+    deps.setDetailsState(compactBounds)
   }
   return {
     setAlwaysOnTop: (enabled) => {
@@ -76,18 +86,25 @@ export function createWindowEffects(deps: CreateWindowEffectsDeps): WindowEffect
         if (!compactBounds) {
           compactBounds = window.getBounds()
           deps.setDetailsState(compactBounds)
+          deps.setCompactAspectLock(false)
+        } else {
+          captureOpenPanelMove(window)
         }
+        panelBounds = expandPanelBounds(compactBounds, currentWorkArea(deps, window), mode, totalVideoCount)
         deps.setProgrammaticBounds(
-          expandPanelBounds(compactBounds, currentWorkArea(deps, window), mode, totalVideoCount),
+          panelBounds,
           undefined,
           true,
         )
         return
       }
       if (!compactBounds) return
+      captureOpenPanelMove(window)
       const restore = restoreCompactBounds(compactBounds, currentWorkArea(deps, window))
       deps.setProgrammaticBounds(restore, undefined, true)
+      deps.setCompactAspectLock(true)
       compactBounds = null
+      panelBounds = null
       deps.setDetailsState(null)
     },
     minimizeWindow: () => usableWindow()?.minimize(),

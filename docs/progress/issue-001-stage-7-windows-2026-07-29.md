@@ -811,3 +811,58 @@ Until that gate passes, the `OnTime.PptVideoTimer.Feasibility` identity and its
 development certificate are explicitly disposable test values. The final
 Downstage build starts clean in a new Downstage settings directory and does not
 inspect or migrate `%APPDATA%/@ontime/ppt-timer`.
+
+## Compact geometry and edge acceptance continuation — 2026-08-14
+
+Live Windows review found three tray-geometry defects: collapsing after moving
+an expanded tray restored its old position; opening the tray changed the timer
+surface/numeral size; and narrow timers widened to the former 260-pixel tray
+minimum. Commit `58eaf6f` fixes those cases by preserving the exact compact
+width and timer-surface height, retaining a drag performed while expanded, and
+ellipsizing video titles within the available width. Commit `fcf4733` applies
+the native `190:80` aspect lock while compact and releases it while the
+content-sized tray is open.
+
+A follow-up experiment (`7189620`) intercepted native single-edge resize events
+to recenter the perpendicular axis. Live Windows testing rejected it: top,
+bottom, left and right drags entered a growing-only feedback cycle and lost the
+expected aspect behavior, while corner drags remained correct. Commit `8993f50`
+removes that interception and restores the previously accepted native Windows
+edge anchoring. The product accepts the native behavior (for example, a bottom
+drag may grow toward the right) rather than introducing a custom resize system
+during Store readiness.
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace @ontime/ppt-timer` after rollback | PASS — 28 files, 422 tests |
+| `npm run typecheck --workspace @ontime/ppt-timer` | PASS |
+| `npm run build --workspace @ontime/ppt-timer` | PASS |
+| `npm run guardrails` | PASS — extraction guardrails and 294-module dependency boundaries |
+| `git diff --check` | PASS |
+| Drawer open/collapse live review | PASS — countdown size is stable; narrow width is retained with title truncation; collapse after an expanded-window drag retains the new position |
+| Compact proportional resize live review | PASS — grow and shrink retain the compact aspect; minor native Electron/Windows live-resize animation artifacts accepted |
+| Native top/bottom/left/right and corner resize live review | PASS — no growing-only feedback after `8993f50`; native individual-edge anchoring and proportional corners accepted |
+| Single-display near-work-area-edge review | PASS — compact and expanded states remained operable at the reviewed top/left/right placements |
+| Mixed-DPI cross-display transition (different scale factors) | PENDING — no authoritative two-display, different-scale-factor run was recorded |
+
+Smart App Control correctly blocked the newly rebuilt unsigned NSIS executable
+under enforced policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` (Code Integrity
+events 3033/3077). Smart App Control was not disabled. The accepted rollback was
+instead rebuilt as the provisional AppX, signed with the existing development
+certificate, installed, and exercised through its AppsFolder identity:
+
+| Artifact / lifecycle verification | Result |
+| --- | --- |
+| Unsigned rollback AppX SHA-256 | PASS — `4EEDEA1654D768B00D8F6840E91F51FC67399A3E2811E09E4F2AD7FF0A1F24A7` |
+| Packaged and unpacked `app/resources/app.asar` SHA-256 | PASS — both `1D61992C761DBEFB284C42DC4115F5160D6C0E2D309B05CE5F1E2736AE5FC1D7` |
+| Signed local-test AppX SHA-256 | PASS — `A3DB7401C4A38A94DC157E9B048A57628B51C3E6209B4DAF745CA14018A6E51F` |
+| Signed package identity | PASS — `OnTime.PptVideoTimer.Feasibility_1.0.1.0_x64__ehycgczdr27n0`, `SignatureKind: Developer`, `Status: Ok` |
+| Settings backup and replacement install | PASS — `%APPDATA%/@ontime/ppt-timer/settings.json` SHA-256 remained `5A469177F83D05820CDB3AB77EA9AB7ED8445448F851431E750602C45B7DF858` |
+| Smart App Control posture | PASS — enforcement remained enabled; only the disposable development certificate was trusted for the signed feasibility package |
+
+This closes the accepted single-display compact geometry and near-edge slice,
+not Store submission readiness. Remaining release gates are the Partner Center
+account and name reservation; exact Store Identity/Publisher values; final
+Downstage executable/product/settings identity and listing assets; a final
+signed-package smoke on that identity; mixed-DPI cross-display acceptance;
+current WACK; Partner Center preprocessing; and certification.

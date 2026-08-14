@@ -191,11 +191,12 @@ Positive evidence from the same run:
   identity, warnings, the full video list, display settings, and diagnostics do
   not appear until expanded.
 - Use a `190 × 80` frameless compact window and a two-stage, content-sized
-  tray whose expanded width is `max(260 px, captured collapsed custom width)`.
-  A widened timer therefore never narrows during expansion, while a smaller
-  timer widens to the readable minimum. The first stage contains every video
-  row, including the focused video, and must size to its content without an
-  internal scrollbar or row cap.
+  tray. Expansion preserves the captured compact width and timer-surface
+  height exactly, adding only the tray's vertical content. A narrow custom
+  timer therefore stays narrow; video titles shrink and ellipsize rather than
+  widening the window or changing the countdown numeral size. The first stage
+  contains every video row, including the focused video, and must size to its
+  content without an internal scrollbar or row cap.
 - A compact bottom-right gear icon opens and closes the second-stage action
   strip in both first-stage and second-stage states. That stage contains exactly
   four intrinsic-width, non-stretching operational controls in one row:
@@ -216,13 +217,17 @@ Positive evidence from the same run:
   with the automatically opened list.
 - Expansion grows down when space permits, otherwise grows up while retaining
   the compact bottom edge; collapse restores the exact captured custom position
-  and size. Tray geometry is never persisted as compact geometry.
+  and size. If the user drags the expanded tray, collapse retains that new
+  position. Tray geometry is never persisted as compact geometry.
 - Do not show a nonfunctional remote toggle. Remote state/control appears only
   after M3 supplies an actionable authenticated transport.
 - Use an explicit drag region, retained resize affordance, keyboard-accessible
   window chrome and expansion/collapse, and a subtle dark edge. Pre-M1 beta
   geometry receives one schema migration to the compact surface; subsequent
-  custom sizing is respected.
+  custom sizing is respected. Compact manual resizing keeps the `190:80`
+  aspect ratio. Native Windows anchoring is accepted for individual edge drags;
+  corners remain native, and no programmatic recentering may feed corrected
+  bounds back into an active resize gesture.
 - Do not mix renderer-clock changes into the visual implementation.
 
 **Exit:** visual review at compact/large/custom sizes, 100/125/150% scaling, light/dark slide backgrounds, and Presenter View; no regression to always-on-top or focus behavior.
