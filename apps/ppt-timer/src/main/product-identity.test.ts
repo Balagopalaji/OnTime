@@ -8,10 +8,9 @@ describe('Downstage product identity', () => {
   })
 
   it('uses a clean suite-owned settings path without the retired brand', () => {
-    const resolved = resolveUserDataPath('C:\\Users\\tester\\AppData\\Roaming')
-    expect(path.normalize(resolved)).toBe(
-      path.normalize('C:\\Users\\tester\\AppData\\Roaming\\Downstage\\PPT Video Timer'),
-    )
+    const appData = path.join('test-root', 'AppData', 'Roaming')
+    const resolved = resolveUserDataPath(appData)
+    expect(resolved).toBe(path.join(appData, 'Downstage', 'PPT Video Timer'))
     expect(resolved.toLowerCase()).not.toContain('ontime')
   })
 
