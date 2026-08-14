@@ -534,6 +534,63 @@ describe('ISSUE-001 multi-video focus', () => {
     expect(v.selectedVideoName).toBe('second')
   })
 
+  it('S-011 longest mode selects the greatest remaining active video', () => {
+    const v = projectPowerPointView(presentationFrom(twoPlaying), {
+      ...remaining,
+      headlineMode: 'longest-remaining',
+      playOrder: new Map([[10, 2], [20, 1]]),
+    }) as PowerPointViewState & { selectedVideoId?: number; timeMs: number | null }
+    expect(v).toMatchObject({ kind: 'playing', selectedVideoId: 20, timeMs: 6_000 })
+  })
+
+  it('S-011 latest mode keeps the most recently started active video as an option', () => {
+    const v = projectPowerPointView(presentationFrom(twoPlaying), {
+      ...remaining,
+      headlineMode: 'latest-started',
+      playOrder: new Map([[10, 2], [20, 1]]),
+    }) as PowerPointViewState & { selectedVideoId?: number; timeMs: number | null }
+    expect(v).toMatchObject({ kind: 'playing', selectedVideoId: 10, timeMs: 4_000 })
+  })
+
+  it('S-011 no-playing state preserves helper-primary next-to-play fallback', () => {
+    const nonePlaying: PowerPointPollResult = {
+      ...twoPlaying,
+      primaryVideoId: 10,
+      videoPlaying: false,
+      videoDuration: 5_000,
+      videoElapsed: 0,
+      videoRemaining: 5_000,
+      videos: [
+        { id: 10, name: 'next', duration: 5_000, elapsed: 0, remaining: 5_000, playing: false },
+        { id: 20, name: 'previous', duration: 8_000, elapsed: 2_000, remaining: 6_000, status: 'paused', playing: false },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(nonePlaying), {
+      ...remaining,
+      headlineMode: 'longest-remaining',
+      playOrder: new Map([[20, 9]]),
+    }) as PowerPointViewState & { selectedVideoId?: number }
+    expect(v).toMatchObject({ kind: 'ready', selectedVideoId: 10 })
+  })
+
+  it('S-011 longest mode suppresses a false aggregate if any active timing is incomplete', () => {
+    const incomplete: PowerPointPollResult = {
+      ...twoPlaying,
+      videos: [
+        { id: 10, name: 'known', duration: 5_000, elapsed: 1_000, remaining: 4_000, status: 'playing', playing: true },
+        { id: 20, name: 'unknown', status: 'playing', playing: true },
+      ],
+    }
+    const v = projectPowerPointView(presentationFrom(incomplete), {
+      ...remaining,
+      headlineMode: 'longest-remaining',
+      playOrder: new Map([[10, 1], [20, 2]]),
+    }) as PowerPointViewState & { timeMs: number | null; videos: PowerPointVideoTile[] }
+    expect(v.kind).toBe('timing_unavailable')
+    expect(v.timeMs).toBeNull()
+    expect(v.videos.every((tile) => !tile.isFocus)).toBe(true)
+  })
+
   it('uses the focus row own observed values for the large-timer scalar, not the helper scalar', () => {
     // Helper scalar (video*) names id 10 (remaining 4_000). Focus is id 20
     // (remaining 6_000). The projected scalar must be id 20's value.

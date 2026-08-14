@@ -26,8 +26,8 @@ import {
   type PowerPointSessionTransport,
 } from '@ontime/ppt-bridge'
 import { projectPowerPointView } from '@ontime/presentation-core'
-import type { PresentationSourceState, PowerPointViewState } from '@ontime/presentation-core'
-import type { TimingMode } from '../shared/ipc-contract.js'
+import type { PowerPointHeadlineMode, PresentationSourceState, PowerPointViewState } from '@ontime/presentation-core'
+import type { HeadlineMode, TimingMode } from '../shared/ipc-contract.js'
 import type { DiagnosticsBuffer } from './diagnostics.js'
 import { applyFocusTransition, initFocusTracker } from './focus-tracker.js'
 import { createPlaybackPollPolicy, POWERPOINT_STARTUP_PAUSE_GATE_MS } from './playback-poll-policy.js'
@@ -42,6 +42,8 @@ export type SessionHostOptions = {
   adaptivePolling?: boolean
   /** Persisted setting applied before the first connecting projection or poll. */
   timingMode?: TimingMode
+  /** Playing-video headline policy; defaults to longest remaining. */
+  headlineMode?: HeadlineMode
   diagnostics?: DiagnosticsBuffer
   createClient?: (options: PptBridgeClientOptions) => PptBridgeClient
   onView?: (view: HostView) => void
@@ -51,6 +53,7 @@ export type SessionHost = {
   start(): void
   getView(): HostView
   setTimingMode(mode: TimingMode): void
+  setHeadlineMode(mode: HeadlineMode): void
   /** Validated helper protocol version from the latest observation (S-026, D-2); null until one arrives or after a terminal / no-signal outcome. */
   getProtocolVersion(): number | null
   /** Helper product version emitted by the native payload; null until observed. */
@@ -111,8 +114,9 @@ export function projectHostView(
   timingMode: TimingMode,
   multipleInstanceWarning: boolean,
   playOrder?: ReadonlyMap<number, number>,
+  headlineMode: PowerPointHeadlineMode = 'longest-remaining',
 ): PowerPointViewState {
-  return projectPowerPointView(source, { timingMode, multipleInstanceWarning, playOrder })
+  return projectPowerPointView(source, { timingMode, headlineMode, multipleInstanceWarning, playOrder })
 }
 
 // Standalone multi-video focus tracker (ISSUE-001): the pure recency rules live
@@ -130,6 +134,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
   let revision = 0
   let timingMode: TimingMode = options.timingMode ?? 'remaining'
+  let headlineMode: HeadlineMode = options.headlineMode ?? 'longest-remaining'
   let multipleInstanceWarning = false
   let currentView: HostView = { revision, state: projectHostView({ kind: 'connecting' }, timingMode, false) }
   let lastKind: PresentationSourceState['kind'] | null = null
@@ -270,7 +275,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       } else {
         focus = initFocusTracker()
       }
-      const nextView = projectHostView(source, timingMode, multipleInstanceWarning, focus.playOrder)
+      const nextView = projectHostView(source, timingMode, multipleInstanceWarning, focus.playOrder, headlineMode)
       const nextIsAmbiguousStartupPause = nextView.kind === 'paused' &&
         (currentView.state.kind === 'connecting' || currentView.state.kind === 'ready' || startupPausedSinceMs !== null)
       if (nextIsAmbiguousStartupPause) {
@@ -307,7 +312,14 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     startupPausedSinceMs = null
     // Reproject from the CURRENT session state without requesting a poll (S-014).
     // Focus history is reused so the selected video stays stable across a toggle.
-    publish(projectHostView(stableSource, timingMode, multipleInstanceWarning, focus.playOrder))
+    publish(projectHostView(stableSource, timingMode, multipleInstanceWarning, focus.playOrder, headlineMode))
+  }
+
+  const setHeadlineMode = (mode: HeadlineMode): void => {
+    if (mode === headlineMode) return
+    headlineMode = mode
+    startupPausedSinceMs = null
+    publish(projectHostView(stableSource, timingMode, multipleInstanceWarning, focus.playOrder, headlineMode))
   }
 
   const shutdown = (): Promise<void> => {
@@ -320,5 +332,5 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     return shutdownPromise
   }
 
-  return { start, getView, setTimingMode, getProtocolVersion, getHelperVersion, shutdown }
+  return { start, getView, setTimingMode, setHeadlineMode, getProtocolVersion, getHelperVersion, shutdown }
 }

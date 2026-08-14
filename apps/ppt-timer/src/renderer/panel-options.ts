@@ -38,6 +38,18 @@ export function renderOptionStrip(view: AppView, dispatch: Dispatch): HTMLElemen
   const timing = button('timing-mode', 'option-button timing-mode', view.timingMode === 'remaining' ? 'Remaining' : 'Elapsed', `Show ${nextMode} time`)
   timing.dataset.mode = view.timingMode
   timing.addEventListener('click', () => dispatch({ type: 'setTimingMode', mode: timing.dataset.mode === 'elapsed' ? 'remaining' : 'elapsed' }))
+  const nextHeadline = view.headlineMode === 'longest-remaining' ? 'latest-started' : 'longest-remaining'
+  const headline = button(
+    'headline-mode',
+    'option-button headline-mode',
+    view.headlineMode === 'longest-remaining' ? 'Longest' : 'Latest',
+    nextHeadline === 'latest-started' ? 'Follow the latest-started playing video' : 'Show time until all playing videos finish',
+  )
+  headline.dataset.mode = view.headlineMode
+  headline.addEventListener('click', () => dispatch({
+    type: 'setHeadlineMode',
+    mode: headline.dataset.mode === 'latest-started' ? 'longest-remaining' : 'latest-started',
+  }))
   const onTop = pressedToggle('always-on-top', 'On top', 'Always on top', view.alwaysOnTop, (enabled) => dispatch({ type: 'setAlwaysOnTop', enabled }))
   onTop.classList.add('always-on-top')
   const autoOpen = pressedToggle(
@@ -49,7 +61,7 @@ export function renderOptionStrip(view: AppView, dispatch: Dispatch): HTMLElemen
   )
   const diagnostics = button('copy-diagnostics', 'option-button', 'Diagnostics', 'Copy diagnostics')
   diagnostics.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
-  strip.append(timing, onTop, autoOpen, diagnostics)
+  strip.append(timing, headline, onTop, autoOpen, diagnostics)
   return strip
 }
 

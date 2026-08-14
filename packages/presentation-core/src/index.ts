@@ -18,7 +18,9 @@ export type {
   PowerPointMachineState,
   PresentationMachineAction,
 } from './powerpoint-machine'
-export { POWERPOINT_END_INFER_MS, projectPowerPointView, resolveVideoStatus } from './powerpoint-view'
+export { projectPowerPointView } from './powerpoint-view'
+export { POWERPOINT_END_INFER_MS, resolveVideoStatus } from './powerpoint-status'
+export { selectPlayingHeadline } from './powerpoint-headline'
 export { derivePowerPointRemainingMs } from './powerpoint-timing'
 export type {
   PowerPointTimingMode,
@@ -28,6 +30,7 @@ export type {
   PowerPointViewStateBase,
   ProjectPowerPointViewOptions,
 } from './powerpoint-view'
+export type { PowerPointHeadlineMode, PlayingHeadlineSelection } from './powerpoint-headline'
 
 /**
  * Per-video metadata entry inside a `LiveCue.metadata.videos[]` array.

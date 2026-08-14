@@ -198,11 +198,13 @@ Positive evidence from the same run:
   contains every video row, including the focused video, and must size to its
   content without an internal scrollbar or row cap.
 - A compact bottom-right gear icon opens and closes the second-stage action
-  strip in both first-stage and second-stage states. That stage contains exactly
-  four intrinsic-width, non-stretching operational controls in one row:
-  `Remaining`/`Elapsed`, `On top`, persisted `Auto open` (default off), and
-  `Diagnostics`. They use subtle borders so toggles are recognizable. Every
-  interactive control has a concise hover explanation and accessible label.
+  strip in both first-stage and second-stage states. That stage contains five
+  compact, intrinsic-width operational controls: `Remaining`/`Elapsed`,
+  persisted `Longest`/`Latest` headline selection (default `Longest`), `On top`,
+  persisted `Auto open` (default off), and `Diagnostics`. The controls may wrap
+  within the preserved custom width rather than widening the timer. They use
+  subtle borders so toggles are recognizable. Every interactive control has a
+  concise hover explanation and accessible label.
 - Minimize and close are independent top-right window chrome, available in all
   panel states. They are invisible at rest, revealed on hover or keyboard focus,
   and remain borderless. The whole-tray disclosure/collapse caret also remains

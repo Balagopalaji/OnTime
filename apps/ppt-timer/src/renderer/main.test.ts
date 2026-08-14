@@ -28,6 +28,7 @@ const baseView: AppView = {
   ctaAvailable: false,
   state: playing,
   timingMode: 'remaining',
+  headlineMode: 'longest-remaining',
   alwaysOnTop: true,
   autoOpenVideoList: false,
   preset: 'compact',
@@ -147,15 +148,18 @@ describe('timer-only controls', () => {
     renderApp(root, twoVideoView([focusPlaying, secondPaused]), vi.fn(), 0, openDrawer)
     expect(root.querySelector('#panel-tray')).not.toBeNull()
     expect(root.querySelector('#timing-mode')?.textContent).toBe('Remaining')
+    expect(root.querySelector('#headline-mode')?.textContent).toBe('Longest')
+    expect(root.querySelector('#headline-mode')?.getAttribute('title')).toContain('latest-started')
     expect(root.querySelector('#always-on-top')?.textContent).toBe('On top')
     expect(root.querySelector('#always-on-top')?.getAttribute('aria-pressed')).toBe('true')
     expect(root.querySelector('#auto-open-video-list')?.textContent).toBe('Auto open')
     expect(root.querySelector('#auto-open-video-list')?.getAttribute('aria-pressed')).toBe('false')
     expect(root.querySelector('#auto-open-video-list')?.getAttribute('title')).toContain('Automatically open')
     expect(root.querySelector('#copy-diagnostics')?.textContent).toBe('Diagnostics')
-    expect(root.querySelector('.option-strip')?.children).toHaveLength(4)
+    expect(root.querySelector('.option-strip')?.children).toHaveLength(5)
     expect(Array.from(root.querySelectorAll('.option-strip > button')).map((node) => node.id)).toEqual([
       'timing-mode',
+      'headline-mode',
       'always-on-top',
       'auto-open-video-list',
       'copy-diagnostics',
@@ -167,7 +171,7 @@ describe('timer-only controls', () => {
     expect(root.querySelector('.window-controls')?.getAttribute('role')).toBe('group')
     expect(root.querySelector('.window-controls')?.getAttribute('aria-label')).toBe('Window controls')
     expect(root.querySelector('#remote-access')).toBeNull()
-    for (const id of ['panel-collapse', 'panel-switch', 'timing-mode', 'always-on-top', 'auto-open-video-list', 'copy-diagnostics', 'minimize-window', 'close-window']) {
+    for (const id of ['panel-collapse', 'panel-switch', 'timing-mode', 'headline-mode', 'always-on-top', 'auto-open-video-list', 'copy-diagnostics', 'minimize-window', 'close-window']) {
       const button = root.querySelector(`#${id}`)
       expect(button?.getAttribute('title'), id).toBeTruthy()
       expect(button?.getAttribute('aria-label'), id).toBeTruthy()
@@ -213,13 +217,12 @@ describe('timer-only controls', () => {
     expect(css).toMatch(/\.window-controls:hover,\s*\.window-controls:focus-within\s*\{[\s\S]*?opacity:\s*1;/)
     expect(css).toMatch(/\.window-control-button\s*\{[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;/)
     expect(css).toMatch(/\.option-strip\s*\{[\s\S]*?display:\s*flex;[\s\S]*?justify-content:\s*flex-start;/)
+    expect(css).toMatch(/\.option-strip\s*\{[\s\S]*?flex-wrap:\s*wrap;/)
     expect(css).toMatch(/\.option-button\s*\{[\s\S]*?flex:\s*0 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*auto;/)
     expect(css).not.toMatch(/\.option-strip\s*\{[\s\S]*?grid-template-columns:/)
     const optionCaps = Array.from(css.matchAll(/--option-[a-z-]+-max:\s*(\d+)px;/g), (match) => Number(match[1]))
-    expect(optionCaps).toHaveLength(4)
-    // Preferred caps remain bounded; flex-shrink/ellipsis now adapts them when
-    // the user's timer is narrower than the historical 260px tray.
-    expect(optionCaps.reduce((sum, width) => sum + width, 0) + 6).toBeLessThanOrEqual(207)
+    expect(optionCaps).toHaveLength(5)
+    expect(Math.max(...optionCaps)).toBeLessThanOrEqual(61)
     expect(css).toMatch(/\.panel-tray \.videos\s*\{[\s\S]*?overflow-y:\s*visible;/)
     expect(css).toMatch(/#app:not\(\[data-panel-mode="closed"\]\) \.status\s*\{[\s\S]*?flex:\s*1 1 auto;/)
     expect(css).toMatch(/\.controls:not\(\[data-panel-mode="closed"\]\)\s*\{[\s\S]*?flex:\s*0 0 auto;/)
@@ -868,7 +871,7 @@ describe('control stability across pushes', () => {
     }
   })
 
-  it('dispatches the timing toggle, always-on-top, and diagnostics from settings', () => {
+  it('dispatches timing/headline toggles, always-on-top, and diagnostics from settings', () => {
     vi.useFakeTimers()
     try {
       let listener: ((view: AppView) => void) | undefined
@@ -891,6 +894,7 @@ describe('control stability across pushes', () => {
       listener?.(autoOpening(twoVideoView([focusPlaying, secondPaused])))
       ;(root.querySelector('#panel-switch') as HTMLButtonElement).click()
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
+      ;(root.querySelector('#headline-mode') as HTMLButtonElement).click()
       listener?.({ ...autoOpening(twoVideoView([focusPlaying, secondPaused])), revision: 6, timingMode: 'elapsed' })
       ;(root.querySelector('#timing-mode') as HTMLButtonElement).click()
       ;(root.querySelector('#always-on-top') as HTMLButtonElement).click()
@@ -902,6 +906,7 @@ describe('control stability across pushes', () => {
         { type: 'setPanelMode', mode: 'videos', totalVideoCount: 2 },
         { type: 'setPanelMode', mode: 'options', totalVideoCount: 2 },
         { type: 'setTimingMode', mode: 'elapsed' },
+        { type: 'setHeadlineMode', mode: 'latest-started' },
         { type: 'setTimingMode', mode: 'remaining' },
         { type: 'setAlwaysOnTop', enabled: false },
         { type: 'setAutoOpenVideoList', enabled: false },

@@ -12,6 +12,7 @@ function makeDeps(overrides: Partial<AppControllersDeps> = {}): AppControllersDe
     start: vi.fn(),
     getView: vi.fn(() => ({ revision: 3, state: connectingState })),
     setTimingMode: vi.fn(),
+    setHeadlineMode: vi.fn(),
     getProtocolVersion: vi.fn(() => null),
     getHelperVersion: vi.fn(() => null),
     shutdown: vi.fn(async () => undefined),
@@ -46,6 +47,7 @@ describe('getView composes the AppView (S-014/S-033)', () => {
     expect(view.state.kind).toBe('connecting')
     expect(view.ctaAvailable).toBe(true)
     expect(view.timingMode).toBe('remaining')
+    expect(view.headlineMode).toBe('longest-remaining')
     expect(view.alwaysOnTop).toBe(true)
     expect(view.autoOpenVideoList).toBe(false)
     expect(view.preset).toBe('compact')
@@ -64,6 +66,13 @@ describe('dispatch routes actions to effects + persistence', () => {
     await createAppControllers(deps).dispatch({ type: 'setTimingMode', mode: 'elapsed' })
     expect(deps.host.setTimingMode).toHaveBeenCalledWith('elapsed')
     expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ timingMode: 'elapsed' }))
+  })
+
+  it('setHeadlineMode reprojects the host and persists', async () => {
+    const deps = makeDeps()
+    await createAppControllers(deps).dispatch({ type: 'setHeadlineMode', mode: 'latest-started' })
+    expect(deps.host.setHeadlineMode).toHaveBeenCalledWith('latest-started')
+    expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ headlineMode: 'latest-started' }))
   })
 
   it('setAlwaysOnTop applies the effect and persists', async () => {

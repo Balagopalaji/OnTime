@@ -21,6 +21,7 @@ describe('settings schema defaults (S-018/S-019)', () => {
       alwaysOnTop: true,
       autoOpenVideoList: false,
       timingMode: 'remaining',
+      headlineMode: 'longest-remaining',
     })
   })
 
@@ -46,10 +47,16 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
   })
 
   it('keeps valid fields and defaults the rest', () => {
-    const result = validateSettings({ alwaysOnTop: false, autoOpenVideoList: true, timingMode: 'elapsed' })
+    const result = validateSettings({
+      alwaysOnTop: false,
+      autoOpenVideoList: true,
+      timingMode: 'elapsed',
+      headlineMode: 'latest-started',
+    })
     expect(result.alwaysOnTop).toBe(false)
     expect(result.autoOpenVideoList).toBe(true)
     expect(result.timingMode).toBe('elapsed')
+    expect(result.headlineMode).toBe('latest-started')
     expect(result.windowBounds).toBeNull()
     expect(result.selectedDisplayId).toBeNull()
     expect(result.sizePreset).toBe('compact')
@@ -70,6 +77,7 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
       alwaysOnTop: 'yes',
       autoOpenVideoList: 'yes',
       timingMode: 'sideways',
+      headlineMode: 'shortest',
     })
     expect(result.windowBounds).toBeNull()
     expect(result.selectedDisplayId).toBeNull()
@@ -77,6 +85,7 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
     expect(result.alwaysOnTop).toBe(true)
     expect(result.autoOpenVideoList).toBe(false)
     expect(result.timingMode).toBe('remaining')
+    expect(result.headlineMode).toBe('longest-remaining')
   })
 
   it('accepts a valid windowBounds and string display id and preserves custom/large presets', () => {
@@ -166,7 +175,15 @@ describe('validateSettings (S-021/S-023 partial + unknown recovery)', () => {
       sizePreset: 'compact',
       windowBounds: v4Bounds,
       autoOpenVideoList: false,
+      headlineMode: 'longest-remaining',
     })
+  })
+
+  it('migrates v5 to the new longest-playing default and preserves an explicit latest choice', () => {
+    expect(validateSettings({ schemaVersion: 5, timingMode: 'remaining' }).headlineMode)
+      .toBe('longest-remaining')
+    expect(validateSettings({ schemaVersion: 6, headlineMode: 'latest-started' }).headlineMode)
+      .toBe('latest-started')
   })
 
   it('always stamps the current schema version even if the file carried another', () => {

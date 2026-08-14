@@ -21,7 +21,7 @@ export type DisplaySnapshot = { id: string; label: string; workArea: Rectangle }
 export const VISIBILITY_THRESHOLD = 80 * 60
 export const PANEL_ROW_HEIGHT = 28
 export const PANEL_NAV_HEIGHT = 22
-export const PANEL_OPTIONS_HEIGHT = 28
+export const PANEL_OPTIONS_HEIGHT = 50
 export const PANEL_TRAY_PADDING = 8
 export const PANEL_OPTIONS_GAP = 2
 

@@ -133,8 +133,8 @@ describe('content-sized panel placement', () => {
     expect(panelSize('videos', 1)).toEqual({ width: 190, height: 138 })
     expect(panelSize('videos', 3)).toEqual({ width: 190, height: 194 })
     expect(panelSize('videos', 5)).toEqual({ width: 190, height: 250 })
-    expect(panelSize('options', 0)).toEqual({ width: 190, height: 140 })
-    expect(panelSize('options', 5)).toEqual({ width: 190, height: 280 })
+    expect(panelSize('options', 0)).toEqual({ width: 190, height: 162 })
+    expect(panelSize('options', 5)).toEqual({ width: 190, height: 302 })
   })
 
   it('expands downward from the current top-left when the panel fits', () => {
@@ -158,7 +158,7 @@ describe('content-sized panel placement', () => {
       width: 420,
       height: 166,
     })
-    expect(panelSize('options', 2, 420)).toEqual({ width: 420, height: 196 })
+    expect(panelSize('options', 2, 420)).toEqual({ width: 420, height: 218 })
   })
 
   it('preserves a custom timer height and adds only the tray content below it', () => {
@@ -173,7 +173,7 @@ describe('content-sized panel placement', () => {
   it('expands upward near the bottom while retaining the compact bottom edge', () => {
     const compact = rect(200, 900, 190, 80)
     const expanded = expandPanelBounds(compact, primary.workArea, 'options', 2)
-    expect(expanded).toEqual({ x: 200, y: 784, width: 190, height: 196 })
+    expect(expanded).toEqual({ x: 200, y: 762, width: 190, height: 218 })
     expect(expanded.y + expanded.height).toBe(compact.y + compact.height)
   })
 

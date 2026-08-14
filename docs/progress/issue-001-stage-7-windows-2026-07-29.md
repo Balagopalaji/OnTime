@@ -866,3 +866,46 @@ account and name reservation; exact Store Identity/Publisher values; final
 Downstage executable/product/settings identity and listing assets; a final
 signed-package smoke on that identity; mixed-DPI cross-display acceptance;
 current WACK; Partner Center preprocessing; and certification.
+
+## Playing-video headline selection continuation — 2026-08-14
+
+Commit `86af47816f8a63c879fc6d54914f6bc86edefb9d` adds a persisted
+playing-video headline choice without changing the native helper or its canonical
+primary identity. `longest-remaining` is the new default and shows the greatest
+remaining time among videos whose resolved status is actively playing;
+`latest-started` preserves the prior most-recently-started behavior as an option.
+Paused, ended and ready/not-yet-started videos are excluded while any video is
+playing. When none is playing, both modes deliberately return to the existing
+helper-primary next-to-play video. If any active candidate lacks usable remaining
+timing, Longest reports timing unavailable instead of a false shorter aggregate.
+
+Settings schema v6 persists the choice. The options tray adds a compact
+`Longest`/`Latest` control and wraps within the timer's current width instead of
+widening it; the content-sized options tray grows by 22 CSS pixels to hold the
+second control row. Switching policy reprojects the held stable observation and
+does not trigger another helper poll.
+
+| Command / verification | Result |
+| --- | --- |
+| `npm run test --workspace @ontime/presentation-core` | PASS — 6 files, 134 tests |
+| `npm run test --workspace @ontime/ppt-timer` | PASS — 28 files, 425 tests |
+| `npm run typecheck --workspace @ontime/presentation-core` | PASS |
+| `npm run typecheck --workspace @ontime/ppt-timer` | PASS |
+| `npm run build --workspace @ontime/ppt-timer` | PASS — presentation-core and ppt-bridge CJS builds, main TypeScript and renderer production bundle |
+| `npm run guardrails` | PASS — extraction guardrails and 292-module dependency boundaries |
+| `git diff --check` | PASS |
+| Rebuilt unsigned feasibility AppX | PASS — 182,114,591 bytes; SHA-256 `59B89B496DEECED19F275FB852928CAA7FCB01ED8A2B5E98BD11170C53181241` |
+| `MakeAppx unpack` plus manifest/helper/ASAR inspection | PASS — provisional identity `OnTime.PptVideoTimer.Feasibility`, x64 version `1.0.1.0`, full-trust entry point, exactly one hash-matched helper, both required runtime packages and zero forbidden cloud/viewer/controller assets |
+| `npm run manifest:store-feasibility --workspace @ontime/ppt-timer` with inspected manifest and verified helper versions | PASS — deterministic unsigned/not-store-ready manifest and checksum updated |
+| Signed headline-mode sideload copy | PASS (signature created) — 182,116,075 bytes; SHA-256 `D30851990195E27AFA1B6E6A8E8D489D11DFCF130348906463493128E42C917A`; signer `CN=OnTime Store Feasibility`, thumbprint `7AB7EE82355B89251575647120ADC6998F773200` |
+| Fresh development certificate trust | NOT USED / CLEANED — thumbprint `7AB7EE82355B89251575647120ADC6998F773200` was imported only to Current User and did not satisfy trusted AppX verification; it was removed from Current User Personal and Trusted People after the existing-trust package succeeded |
+| Existing-trust signed sideload copy | PASS — signed with already machine-trusted thumbprint `42D52199816AE4D81950DABB14FC0CAE2E1F960C`; 182,116,059 bytes; SHA-256 `274D26422502267743F2210093B1CAEBBF46964A3BDEE170F250260960A54247`; SignTool trusted verification PASS |
+| Exact same-version package replacement | PASS — idle `OnTime.PptVideoTimer.Feasibility_1.0.1.0_x64__ehycgczdr27n0` was removed and replaced; `SignatureKind: Developer`, `Status: Ok`; settings SHA-256 remained `6F0F9BCCA2BC622F7D3D06D996D529F90EE660AFBA7E434F09B968D385DDA8DB` |
+| Installed process/helper layout | PASS — main PID `4384`; exactly one helper PID `13392` loaded from package `app/resources/bin/ppt-probe.exe` |
+| Live concurrent playback: default Longest selects time-until-all-finish; Latest selects the most recently started still-playing video | PASS — operator exercised the signed installed package with live PowerPoint and confirmed both modes |
+| Live active-candidate exclusions | PASS — operator confirmed paused/ended/not-yet-started videos do not displace an actively playing headline candidate |
+| Live no-playing fallback: next-to-play video remains visible | PASS — operator confirmed the established next-to-play behavior remains after all active playback stops |
+| Live compact options tray | PASS — operator accepted the wrapped five-control tray and Longest/Latest toggle behavior at compact width |
+
+This slice does not change Store readiness gates, package identity, branding,
+COM behavior, cloud boundaries or the provisional signing posture.

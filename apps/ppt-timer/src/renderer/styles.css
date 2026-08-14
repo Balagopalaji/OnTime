@@ -449,16 +449,19 @@ input:focus-visible {
 
 .option-strip {
   --option-timing-max: 50px;
+  --option-headline-max: 44px;
   --option-top-max: 40px;
   --option-auto-max: 50px;
   --option-diagnostics-max: 61px;
-  flex: 0 0 28px;
-  height: 28px;
+  flex: 0 0 50px;
+  height: 50px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  align-content: center;
   justify-content: flex-start;
   gap: 2px;
-  padding: 2px 45px 0 0;
+  padding: 2px 25px 0 0;
   box-shadow: inset 0 1px var(--line);
 }
 
@@ -479,6 +482,10 @@ input:focus-visible {
 
 #timing-mode {
   max-width: var(--option-timing-max);
+}
+
+#headline-mode {
+  max-width: var(--option-headline-max);
 }
 
 #always-on-top {

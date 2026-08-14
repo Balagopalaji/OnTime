@@ -10,10 +10,11 @@
  * HTTPS URL (S-033). When no canonical URL is configured, `ctaAvailable` is
  * false and the CTA is hidden/disabled (no placeholder or wildcard destination).
  */
-import type { PowerPointTimingMode, PowerPointViewState } from '@ontime/presentation-core'
+import type { PowerPointHeadlineMode, PowerPointTimingMode, PowerPointViewState } from '@ontime/presentation-core'
 
 export type SizePreset = 'compact' | 'large' | 'custom'
 export type TimingMode = PowerPointTimingMode
+export type HeadlineMode = PowerPointHeadlineMode
 export type PanelMode = 'closed' | 'videos' | 'options'
 
 /** Persisted display reference (Electron display id stringified at the boundary). */
@@ -32,6 +33,7 @@ export type AppView = {
   ctaAvailable: boolean
   state: PowerPointViewState
   timingMode: TimingMode
+  headlineMode: HeadlineMode
   alwaysOnTop: boolean
   autoOpenVideoList: boolean
   preset: SizePreset
@@ -42,6 +44,7 @@ export type AppView = {
 /** Closed union of renderer -> main actions. `openUpsell` takes no URL. */
 export type RendererAction =
   | { type: 'setTimingMode'; mode: TimingMode }
+  | { type: 'setHeadlineMode'; mode: HeadlineMode }
   | { type: 'setAlwaysOnTop'; enabled: boolean }
   | { type: 'setAutoOpenVideoList'; enabled: boolean }
   | { type: 'applyPreset'; preset: Exclude<SizePreset, 'custom'> }
@@ -116,6 +119,11 @@ export function parseRendererAction(raw: unknown): ParseResult {
   switch (raw.type) {
     case 'setTimingMode':
       if (raw.mode === 'remaining' || raw.mode === 'elapsed') return { ok: true, action: { type: 'setTimingMode', mode: raw.mode } }
+      return { ok: false }
+    case 'setHeadlineMode':
+      if (raw.mode === 'longest-remaining' || raw.mode === 'latest-started') {
+        return { ok: true, action: { type: 'setHeadlineMode', mode: raw.mode } }
+      }
       return { ok: false }
     case 'setAlwaysOnTop':
       if (typeof raw.enabled === 'boolean') return { ok: true, action: { type: 'setAlwaysOnTop', enabled: raw.enabled } }
