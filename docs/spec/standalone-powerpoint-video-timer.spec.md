@@ -75,6 +75,7 @@ Church and theater presenters running a PowerPoint slideshow with embedded video
 - **S-022** — Given saved window bounds are no longer substantially inside any current display's work area (e.g., after a display is disconnected or resolution/DPI changes), when the app launches, then the window is clamped or recentered onto the saved display if still present, or the primary display otherwise.
 - **S-023** — Given the settings file on disk is malformed or unreadable, when the app launches, then it renames the file with a `.corrupt-<timestamp>` suffix, starts with default settings, and does not crash.
 - **S-024** — Given the app's single window is open, when the user closes it, then the app terminates the canonical helper process and exits; no window, tray icon, or background process remains.
+- **S-034** — Given a PowerPoint slideshow video is playing, when the user clicks, drags, resizes, expands, collapses, or changes a control on the Windows timer overlay, then the timer remains pointer-interactive without taking keyboard focus from PowerPoint or interrupting its playback. The overlay does not appear in the Windows taskbar; its in-window close control remains the normal exit path.
 
 ### Diagnostics
 
@@ -103,7 +104,7 @@ Church and theater presenters running a PowerPoint slideshow with embedded video
 ## Proposed Surface
 
 - **UI states** (mutually exclusive per current poll result, precedence high-to-low): `connecting`, `unavailable`, `powerpoint-not-running`, `no-slideshow`, `no-video`, `timing-unavailable`, `playing`, `paused`, `ended`, `ready`; plus the orthogonal `multiple-videos` indicator and `multiple-instance-warning` overlay, both of which can accompany any of the above states.
-- **Window**: default 360×220 CSS px, minimum 320×180, resizable, compact/large presets, "Move to display" action.
+- **Window**: default 360×220 CSS px, minimum 320×180, resizable, compact/large presets, "Move to display" action; on Windows the pointer-interactive overlay does not activate or appear in the taskbar.
 - **In-window controls**: always-on-top on/off toggle; remaining-vs-elapsed timing-mode toggle; longest-remaining-vs-latest-started headline-selection toggle.
 - **Persisted settings fields**: window bounds, selected display ID, size preset, always-on-top (boolean), timing mode (remaining/elapsed), headline-selection mode (longest-remaining/latest-started), schema version.
 - **Diagnostics report** ("Copy diagnostics"): app/helper/protocol versions and signing status; Windows/Office bitness/version when discoverable; helper start/exit/timeout/restart/close history; validation warnings and availability transitions; PowerPoint process count/affinity; current slide number, media count, selected media identity; display ID/scale factor and window bounds — all subject to the redaction rules in S-025.

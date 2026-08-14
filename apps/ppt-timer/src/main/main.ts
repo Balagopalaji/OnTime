@@ -25,6 +25,7 @@ import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
 import { acquireSingleInstanceActivation } from './single-instance.js'
 import { selectLaunchTargets } from './launch-policy.js'
+import { presentationSafeWindowOptions } from './presentation-safe-clicks.js'
 import { COMPACT_WINDOW_ASPECT_RATIO, MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
@@ -260,6 +261,7 @@ async function main(): Promise<void> {
       height: bounds.height,
       minWidth: MIN_WINDOW_SIZE.width,
       minHeight: MIN_WINDOW_SIZE.height,
+      ...presentationSafeWindowOptions(),
       // Apply the saved AOT setting synchronously below with the timer's
       // explicit `pop-up-menu` level. Starting false prevents Electron from
       // briefly selecting its default `floating` level before that policy runs.
