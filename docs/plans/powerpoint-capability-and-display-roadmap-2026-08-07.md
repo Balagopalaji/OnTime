@@ -2,7 +2,7 @@
 Type: Plan
 Status: current
 Owner: KDB
-Last updated: 2026-08-14
+Last updated: 2026-08-22
 Scope: Productize the extracted timer and PowerPoint capabilities into reusable local, LAN, cloud, controller, clean-output, and future NDI surfaces.
 ---
 
@@ -17,6 +17,14 @@ This is the productization continuation of the rebuild, not a replacement for it
 - `docs/spec/standalone-powerpoint-video-timer.spec.md` remains the release contract for the local standalone PowerPoint timer.
 - `docs/local-offline-lan-plan.md` and `docs/interface.md` remain authoritative for LAN security, pairing, roles, and wire contracts.
 - This roadmap owns the product sequence that reuses the extracted capabilities across the standalone app, a lightweight remote surface, the full OnTime controller, general timer viewers, clean outputs, and future NDI.
+
+The concrete follow-on brief for the remote PowerPoint viewer is now
+`docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md`, with its
+contract-level scenarios in
+`docs/spec/downstage-remote-powerpoint-viewer.spec.md`. That brief captures the
+Mac and Windows desktop viewers, the cloud URL viewer, Windows Remote host mode,
+LAN/cloud reuse, read-only permissions, and the clean Presenter View requirement
+without expanding ISSUE-001.
 
 The standalone PowerPoint timer is the first usable product created directly from the extraction work. A new app or view is a composition of shared capabilities, not a new implementation of timer or PowerPoint logic.
 
