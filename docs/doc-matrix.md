@@ -63,5 +63,6 @@ Fill in Owner Verified / Verified Date after manual review checklists are comple
 | Standalone PowerPoint video timer early draft | `docs/phase-3-standalone-ppt-timer.md` | Plan | superseded | `packages/ppt-bridge/native/windows-ppt-probe/Program.cs` |  |  |  |
 | Standalone PowerPoint video timer specification | `docs/spec/standalone-powerpoint-video-timer.spec.md` | Spec | current | `apps/ppt-timer`, `packages/ppt-bridge`, `packages/presentation-core` |  |  |  |
 | PowerPoint capability and timer display productization | `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md` | Plan | current | `apps/ppt-timer`, `packages/ppt-bridge`, `packages/presentation-core`, `packages/interface-contracts` |  |  |  |
+| Downstage remote PowerPoint viewer | `docs/spec/downstage-remote-powerpoint-viewer.spec.md`, `docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md` | Spec/Plan | planned | `apps/ppt-timer`, `companion`, `frontend`, `packages/presentation-core` |  |  |  |
 | Competition research (PowerPoint video timer) | `docs/competition-overview.md` | Research | current | n/a |  |  |  |
 | Save/Load Sessions | `docs/phase-3-save-load-sessions.md` | Plan | draft | n/a |  |  |  |

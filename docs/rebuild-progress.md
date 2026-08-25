@@ -2,19 +2,20 @@
 Type: Tasklist
 Status: current
 Owner: KDB
-Last updated: 2026-07-18
+Last updated: 2026-08-22
 Scope: Rebuild state ledger, updated at the end of each rebuild PR.
 ---
 
 # OnTime Rebuild Progress
 
-_Updated: 2026-07-18._
+_Updated: 2026-08-22._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
 ## Contents
 
 - [Current Stage](#current-stage)
+- [Remote PowerPoint viewer follow-on — 2026-08-22](#remote-powerpoint-viewer-follow-on--2026-08-22)
 - [Baton Policy — updated 2026-06-13 (faster cadence for inert work)](#baton-policy--updated-2026-06-13-faster-cadence-for-inert-work)
 - [Landed (on `main`)](#landed-on-main)
 - [Session sync — 2026-07-06 (Claude solo-orchestrated; Codex/GLM token-blocked)](#session-sync--2026-07-06-claude-solo-orchestrated-codexglm-token-blocked)
@@ -111,6 +112,51 @@ Written for a fresh-context Claude session picking this up cold. **Start by read
 5. **Later (with companion build/packaging work):** package CJS builds (#29) → graduate the three staged companion modules (`presentation-snapshot.ts`, `presentation-candidate.ts` → `presentation-core`; delete the timer CJS mirror) — this is what finally moves companion package population.
 
 **Owner's coordinator/orchestrator experiment (worth trying):** delegate the *mechanical* loop (spawn builder → gate → commit → push → PR → poll CI → merge) for a batch of homogeneous, low-risk carves to an **orchestrator sub-agent**, while the coordinator keeps strategy + final review. Reviewing is irreducibly context-heavy (you must load the diff), so **don't delegate review** — delegate mechanics. Lane A localStorage adapters (item 2) are the natural first trial; Lane B LiveCue is too risky for it.
+
+## Remote PowerPoint viewer follow-on — 2026-08-22
+
+**ISSUE-002 is a draft follow-on planning item, separate from ISSUE-001.** The
+standalone Windows host, native helper, packaging, and real PowerPoint acceptance
+remain owned by ISSUE-001. This item captures the next product surface so a new
+solo agent can plan it without reopening or mixing the accepted host work.
+
+The prior Windows-builder handoff already established the direction in commit
+`10ec8b3` and the current productization roadmap: one PowerPoint capability with
+multiple shells; the Windows show computer remains authoritative; the helper
+does not know about accounts, rooms, Firebase, or browser clients; cloud-first
+observation; browser viewer first; cross-platform Downstage View afterward; and
+LAN as a later transport using the same snapshot and permission contract.
+
+### Current planning artifacts
+
+- Tracking item: `.agents/issues/ISSUE-002.md`
+- Contract/spec: `docs/spec/downstage-remote-powerpoint-viewer.spec.md`
+- Solo-agent planning brief: `docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md`
+- Product roadmap: `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`
+- Transport/pairing sources: `docs/interface.md`, `docs/local-offline-lan-plan.md`,
+  `docs/phase-3-pairing-ux.md`, `docs/phase-3-cert-trust-ux.md`
+
+### Handoff contract
+
+- Windows host Remote mode may hide, minimize, or place the local timer below
+  Presenter View while continuing to publish observations.
+- macOS and Windows Downstage View clients are read-only and do not install or
+  run PowerPoint, COM, or the native helper.
+- A cloud browser URL and a desktop viewer render the same canonical
+  presentation state; LAN pairing reuses the same semantics and permissions.
+- Remote payloads are complete, versioned snapshots with freshness/reconnect
+  behavior. Viewers must never continue a stale countdown silently.
+- Viewer credentials cannot control timers, slides, media, files, or pairing.
+
+### Next agent instruction
+
+Start with the remote-viewer spec and planning brief, then map the existing
+`ppt-bridge`, `presentation-core`, Companion, cloud, browser viewer, and desktop
+surfaces. Return a scenario-to-code matrix, smallest buildable slice sequence,
+Mac-owned versus Windows-owned work, verification checkpoints, and
+recommendations for the open questions. Do not implement source until the plan
+passes its readiness gate. Do not merge remote work into ISSUE-001 without an
+explicit baton handoff.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 
