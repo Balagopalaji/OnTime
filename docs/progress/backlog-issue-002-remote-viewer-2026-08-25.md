@@ -52,6 +52,11 @@ Run the RepoPrompt CE Community Edition planning workflow using:
 
 `docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md`
 
+On the Mac, fetch and create a separate worktree from
+`origin/codex/issue-002-remote-viewer`, then bind RepoPrompt CE to the Mac
+worktree's real path. The Windows path above is evidence for this machine, not a
+portable path to copy literally.
+
 The run must produce a Deep Plan, endpoint/data/rules contract, scenario-to-code
 matrix, RPV conformance matrix, bounded slice sequence, and Mac/Windows ownership
 handoff. It must not implement source code. After independent review, run

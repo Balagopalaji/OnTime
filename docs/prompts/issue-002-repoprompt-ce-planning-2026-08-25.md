@@ -18,6 +18,12 @@ is a bounded planning and readiness pass, not permission to implement source.
 - Base SHA: `d1ff0770ec5449fb3fce4a28665b5d84f41f4f50`
 - Tracking item: `.agents/issues/ISSUE-002.md`
 
+On macOS, fetch `origin/codex/issue-002-remote-viewer` into a new isolated
+worktree and bind RepoPrompt CE to that actual Mac path. Do not reuse the
+Windows path literally. Verify that the branch contains the recorded base and
+this handoff prompt before planning; do not start from a machine's stale local
+`main`.
+
 Confirm the branch, clean/dirty state, HEAD, and base SHA before analysis. Do not
 create or switch worktrees, change issue status/labels, implement source, push,
 open a PR, or merge.
