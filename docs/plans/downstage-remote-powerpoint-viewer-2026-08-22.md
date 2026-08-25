@@ -26,6 +26,8 @@ The previous Windows-builder handoff already established the key direction in
   cloud retry policy;
 - cloud-first remote observation;
 - browser viewer first, then cross-platform Downstage View;
+- one source-neutral compact timer face and content-slot shell, with
+  PowerPoint-specific and later stage-timer adapters;
 - state snapshots rather than screen pixels;
 - LAN as a later transport using the same contracts and security policy.
 
@@ -81,6 +83,22 @@ Reuse the existing:
 - Firebase/cloud room transport and existing viewer delivery;
 - shared Downstage presentation panel and read-only viewer semantics.
 
+The accepted compact `ppt-timer` renderer is the visual and interaction
+reference, not a package to import wholesale. The extraction map must separate:
+
+- a source-neutral timer display model and timer face;
+- reusable viewer chrome/content slots and connection-state presentation;
+- Electron-only always-on-top, window geometry, resizing, and native controls;
+- PowerPoint-only playback smoothing, headline/focus selection, video rows,
+  disclosure behavior, and presentation copy.
+
+The first implementation adapts the remote PowerPoint snapshot into the shared
+display model. A later Downstage rundown publisher or simple standalone timer
+controller adapts its canonical active-timer state into the same model. It must
+reuse the session envelope, freshness reducer, and shell without putting
+rundown fields into the PowerPoint payload. Any future timer commands remain a
+separate authenticated capability; they are not part of this viewer issue.
+
 Reuse of existing transport foundations does not authorize reuse of their
 payloads. Existing room state, `LiveCue`, `LIVE_CUE_*`, `PRESENTATION_*`, and
 room viewer routes must not carry the new remote presentation snapshot. Socket
@@ -124,8 +142,11 @@ These are planning lanes, not permission to implement them in this pass:
 
 ### Lane C — Cross-platform Downstage View
 
-- Reuse the accepted PowerPoint panel and view model in a viewer-only desktop
-  shell for macOS and Windows.
+- Extract the accepted compact timer face and content-slot chrome into a
+  source-neutral viewer-only shell for macOS, Windows, and browser use.
+- Compose the PowerPoint adapter/panel on that shell for v1. Define, but do not
+  implement in this issue, the adapter seam for the active rundown timer or a
+  standalone simple timer-controller publisher.
 - Keep viewer builds free of the native Windows helper and PowerPoint runtime.
 - Support both cloud and later LAN sources through the same viewer contract.
 
@@ -159,11 +180,13 @@ These are planning lanes, not permission to implement them in this pass:
 ## Proposed delivery order
 
 1. Ratify the remote snapshot and permission contract.
-2. Prove the cloud browser viewer with fixtures and a real host-to-viewer path.
-3. Add the cross-platform Downstage View shell.
-4. Add Windows Remote host behavior and validate Presenter View cleanliness.
-5. Add or finish LAN delivery using the same snapshot contract.
-6. Add remote viewer acceptance evidence and only then consider control commands.
+2. Ratify the source-neutral display model, shell boundary, and PowerPoint
+   adapter without implementing the later stage-timer source.
+3. Prove the cloud browser viewer with fixtures and a real host-to-viewer path.
+4. Add the cross-platform Downstage View shell.
+5. Add Windows Remote host behavior and validate Presenter View cleanliness.
+6. Add or finish LAN delivery using the same snapshot contract.
+7. Add remote viewer acceptance evidence and only then consider control commands.
 
 ## Stop conditions
 
@@ -192,5 +215,9 @@ The next planning pass should return:
 - a field-by-field helper -> canonical state -> remote allowlist map proving that
   every required viewer field exists and every machine-sensitive field is
   excluded;
+- an extraction map for the current compact renderer showing the source-neutral
+  timer face/shell, Electron-only window behavior, and PowerPoint-only adapter/
+  panel, plus the exact future adapter point for rundown and standalone timer
+  publishers;
 - a Deep Plan and RPV-001..RPV-010 conformance matrix suitable for the
   `spec-plan-readiness` gate.

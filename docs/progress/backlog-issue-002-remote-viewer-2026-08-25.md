@@ -37,6 +37,7 @@ Scope: ISSUE-002 RepoPrompt CE planning handoff and readiness evidence.
 | Single authoritative publisher | NOT BUILT | Add a per-session publisher lease/epoch and reject foreign/stale writes. |
 | Remote host mode | NOT BUILT | Current local window may minimize but close exits the app/helper; define explicit background/stop behavior and validate Presenter View cleanliness on Windows. |
 | Browser/Windows/macOS viewer surfaces | NOT BUILT | Browser first; desktop builds share the same viewer model and contain no helper/COM dependency. |
+| Reusable compact timer surface | PLANNING CONTRACT ADDED | The Deep Plan must extract a source-neutral timer face/content-slot shell, Electron-only window wrapper, and PowerPoint adapter/panel. PowerPoint remains the only ISSUE-002 source; later rundown and standalone timer publishers reuse the seam through their own contracts. |
 | Firebase emulator parity | BLOCKED FOR AUTHORITATIVE CLOUD TESTS | `firebase.json` uses 8081/5002; frontend uses 8080/5001. Resolve in the first cloud-environment slice. |
 | Deep Plan and conformance matrix | PENDING | RepoPrompt CE planning prompt is the exact resume point below. |
 
@@ -59,5 +60,7 @@ portable path to copy literally.
 
 The run must produce a Deep Plan, endpoint/data/rules contract, scenario-to-code
 matrix, RPV conformance matrix, bounded slice sequence, and Mac/Windows ownership
-handoff. It must not implement source code. After independent review, run
+handoff. It must also return a reusable-surface extraction map and future
+stage-timer adapter seam without implementing the later sender or controls. It
+must not implement source code. After independent review, run
 `spec-plan-readiness`; implementation may begin only if that gate passes.

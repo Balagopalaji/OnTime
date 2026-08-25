@@ -61,6 +61,10 @@ Use RepoPrompt CE Community Edition, not the discontinued legacy integration:
   the existing 20-device cap; recommend and justify a cloud service limit.
 - First surfaces: cloud browser viewer, then one shared Downstage View product
   with Windows and macOS builds. LAN follows using the same contract.
+- Treat the accepted compact always-on-top design as a reusable viewer shell.
+  PowerPoint is the only v1 source, but a later Downstage rundown publisher or
+  simple standalone timer controller must be able to drive the same timer face
+  through a source adapter rather than a copied UI.
 - Viewer access is an opaque, unguessable, session-scoped read-only link.
   Publisher and viewer credentials are distinct.
 - Active viewer access lasts 24 hours. Publisher startup may offer to resume and
@@ -90,6 +94,15 @@ Use RepoPrompt CE Community Edition, not the discontinued legacy integration:
   sensitive paths/notes.
 - Do not duplicate PowerPoint selection/countdown logic in browser or desktop
   viewers. Publish the host-resolved headline/focus semantics.
+- Do not make the generic timer face depend on PowerPoint videos, slides,
+  Electron, Firebase, rooms, or rundown editing. Keep PowerPoint video rows and
+  smoothing in a PowerPoint adapter/panel; keep window geometry and
+  always-on-top behavior in the desktop shell.
+- Do not make the PowerPoint wire payload masquerade as a universal timer
+  payload. Design a source-extensible session envelope, a strict PowerPoint v1
+  payload, and a small renderer-facing timer display model. Unknown source
+  kinds must fail safely. A later stage-timer source gets its own contract and
+  adapter while reusing authorization, freshness, transport, and shell.
 - Name a new outer publisher executable/process, lifecycle, and secure-storage
   boundary. Do not add Firebase, HTTP/WSS, viewer-token, or retry code to
   `apps/ppt-timer`, and do not change that package's content boundary, unless the
@@ -160,6 +173,28 @@ validator warnings/extensions, diagnostics, window/display data, credentials,
 and control actions. Sanitized labels are optional in v1; recommend their
 default during UX planning.
 
+## Reusable viewer-surface audit
+
+Map the accepted renderer at `apps/ppt-timer/src/renderer/`, especially
+`view.ts`, `powerpoint-panel.ts`, `playback-clock.ts`,
+`playback-clock-model.ts`, `panel-state.ts`, `main.ts`, and `styles.css`.
+Classify each responsibility as:
+
+- source-neutral timer display model and timer face;
+- shared viewer shell/chrome, disclosure/content slots, and connection states;
+- desktop/Electron-only window geometry, always-on-top, resize, and controls;
+- PowerPoint-only playback smoothing, headline/focus semantics, slide/video
+  details, labels, and rows.
+
+Propose the smallest package/component boundary that can render the same skin
+from (a) the v1 PowerPoint adapter, (b) a future canonical Downstage rundown
+timer adapter, and (c) a future simple standalone timer-controller publisher.
+The latter two are architecture fixtures only in ISSUE-002: do not implement
+their sender UI, commands, or rundown integration. Define a minimal fixture for
+the source-neutral display model so the seam is proven without inventing a
+generic wire schema or duplicating the timer formulas governed by
+`docs/timer-logic.md`.
+
 ## Endpoint and transport audit
 
 Do not assume existing room viewer endpoints are sufficient. Map current code
@@ -213,17 +248,25 @@ not edit the repository or implement runtime source in this pass:
    Windows packaging. Shared files must have one owner per slice.
 7. A readiness verdict: `READY`, `READY WITH NAMED PREREQUISITES`, or `BLOCKED`,
    with every unresolved decision and evidence gap listed.
+8. A reusable-surface extraction map and proposed public API showing the
+   source-neutral timer face/shell, PowerPoint adapter/panel, desktop wrapper,
+   and the future stage-timer adapter seam. Include deterministic component/
+   fixture tests that prove source switching cannot leak stale state.
 
 Recommended delivery dependency:
 
 1. Remote snapshot schema, pure validator/reducer, golden fixtures, endpoint
    contract, emulator parity.
 2. Cloud session/auth/publish/read model and rules.
-3. Browser viewer using fixtures, then a real Windows publisher.
-4. Windows Remote host behavior and live PowerPoint acceptance.
-5. Shared Downstage View shell and platform-specific Windows/macOS validation.
-6. LAN adapter/pairing using the proven contract.
-7. Controls only in a future separately authorized issue.
+3. Source-neutral timer face/shell plus the PowerPoint adapter, proven with
+   fixtures; no stage-timer sender implementation yet.
+4. Browser viewer using fixtures, then a real Windows publisher.
+5. Windows Remote host behavior and live PowerPoint acceptance.
+6. Shared Downstage View desktop wrapper and platform-specific Windows/macOS
+   validation.
+7. LAN adapter/pairing using the proven contract.
+8. Stage-timer publication and controls only in future separately authorized
+   issues.
 
 ## Verification and return format
 

@@ -25,6 +25,9 @@ viewing computer.
 - Reuse the existing LAN Companion and cloud viewer/pairing structures.
 - Keep one canonical PowerPoint observation and countdown behavior across the
   Windows host, desktop viewers, browser viewers, and future controller views.
+- Reuse one source-neutral compact timer face and viewer shell so a later
+  Downstage rundown publisher or standalone timer controller can drive the
+  same visual surface without inheriting PowerPoint-specific behavior.
 - Make connection loss, stale state, and PowerPoint failure visible rather than
   silently continuing an untrustworthy countdown.
 
@@ -60,6 +63,28 @@ It can be opened on a Mac, Windows PC, tablet, or other supported browser
 without installing the helper. The URL must identify or authorize a specific
 show session and must not grant control.
 
+### Reusable compact timer surface
+
+The accepted frameless always-on-top design is a reusable display surface, not
+a PowerPoint-specific application skin. Its visual chrome, primary timer,
+status, optional label/message area, connection state, disclosure slot, and
+compact/fullscreen presentation belong to a source-neutral viewer shell.
+Desktop-only window geometry, always-on-top behavior, and native window
+controls remain in the Electron wrapper rather than the shared renderer.
+
+PowerPoint supplies that shell through a PowerPoint adapter and composes the
+generic timer face with its video list and presentation-specific status. A
+future active rundown timer or standalone timer controller supplies the same
+timer face through a stage-timer adapter. Those senders remain authoritative
+for their own timer math and transitions; the viewer only projects and safely
+interpolates their published state.
+
+This issue implements the PowerPoint source first. It must nevertheless leave
+an explicit, tested source-adapter boundary so adding a `stage-timer` source
+does not require cloning the skin, importing PowerPoint types into a generic
+timer component, or changing viewer transport/security semantics. It must not
+add rundown editing or timer controls to this read-only issue.
+
 ## Ratified first-release decisions
 
 - A remote presentation session is standalone first. It has an optional
@@ -85,6 +110,12 @@ show session and must not grant control.
 - Cloud is the first transport. LAN later implements the same snapshot,
   freshness, permission, and reconnect semantics through existing Companion
   HTTPS/WSS pairing foundations.
+- The remote envelope and viewer session lifecycle are source-extensible, but
+  the v1 allowlist accepts only the PowerPoint payload. The shared timer display
+  model is a renderer projection, not a replacement for source-specific wire
+  contracts. A future stage-timer payload receives its own validated contract
+  and adapter while reusing the envelope, freshness reducer, authorization,
+  and visual shell.
 - Ordinary remote payloads use an explicit allowlist. Sanitized display titles
   and media labels may be present, but full paths, deck paths, process IDs,
   window handles, affinity data, raw helper diagnostics, and credentials are
@@ -225,6 +256,22 @@ Existing room viewer documents/routes and `LIVE_CUE_*` / `PRESENTATION_*`
 payloads must not temporarily carry the new presentation-session snapshot. They
 are broader, differently authorized contracts. Reuse transport mechanics only
 after an independently typed, privacy-filtered snapshot and replay path exists.
+
+The Deep Plan must distinguish three layers:
+
+1. a source-extensible viewer envelope for session, source kind, epoch,
+   sequence, timestamps, freshness, and authorization;
+2. a strict PowerPoint snapshot payload for slide/video/headline semantics;
+3. a small source-neutral timer display model produced by an adapter for the
+   shared renderer.
+
+The first implementation recognizes only the PowerPoint source kind. Unknown
+source kinds or incompatible payload versions fail visibly and safely. A later
+stage-timer contract may be published by the Downstage rundown app or a
+standalone timer controller, but must reuse the envelope and renderer through a
+new adapter rather than expanding the PowerPoint payload or duplicating timer
+math. Observation credentials remain read-only; future control commands use a
+separate capability and authorization contract.
 
 ## Security and permissions
 

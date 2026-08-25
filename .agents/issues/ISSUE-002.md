@@ -35,6 +35,10 @@ new host-side sanitized snapshot adapter outside `ppt-bridge` and
 - [ ] The Windows host remains authoritative and Presenter View/confidence
       monitor output stays clean in Remote host mode.
 - [ ] Viewers do not require PowerPoint, COM, or the native Windows helper.
+- [ ] The Deep Plan defines one source-neutral compact timer face/viewer shell
+      and an adapter boundary: PowerPoint is the only v1 source, while a later
+      rundown or standalone timer publisher can reuse the same surface without
+      PowerPoint types, duplicated timer math, or viewer control authority.
 - [ ] Exactly one Windows publisher owns a presentation session; multiple
       read-only viewers may consume it without receiving write/control access.
       LAN remains subject to the existing 20-device limit; the Deep Plan must
