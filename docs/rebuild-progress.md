@@ -2,13 +2,13 @@
 Type: Tasklist
 Status: current
 Owner: KDB
-Last updated: 2026-08-22
+Last updated: 2026-08-25
 Scope: Rebuild state ledger, updated at the end of each rebuild PR.
 ---
 
 # OnTime Rebuild Progress
 
-_Updated: 2026-08-22._
+_Updated: 2026-08-25._
 
 This ledger keeps rebuild state outside chat context. Update it at the end of each rebuild PR.
 
@@ -132,6 +132,10 @@ LAN as a later transport using the same snapshot and permission contract.
 - Tracking item: `.agents/issues/ISSUE-002.md`
 - Contract/spec: `docs/spec/downstage-remote-powerpoint-viewer.spec.md`
 - Solo-agent planning brief: `docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md`
+- RepoPrompt CE planning prompt:
+  `docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md`
+- Exact base/worktree/readiness evidence:
+  `docs/progress/backlog-issue-002-remote-viewer-2026-08-25.md`
 - Product roadmap: `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`
 - Transport/pairing sources: `docs/interface.md`, `docs/local-offline-lan-plan.md`,
   `docs/phase-3-pairing-ux.md`, `docs/phase-3-cert-trust-ux.md`
@@ -157,6 +161,26 @@ Mac-owned versus Windows-owned work, verification checkpoints, and
 recommendations for the open questions. Do not implement source until the plan
 passes its readiness gate. Do not merge remote work into ISSUE-001 without an
 explicit baton handoff.
+
+### 2026-08-25 planning handoff checkpoint
+
+- PR #145 is merged on `origin/main` as
+  `d1ff0770ec5449fb3fce4a28665b5d84f41f4f50`.
+- The isolated Windows planning worktree is
+  `C:\Dev\OnTime-worktrees\issue-002-remote-viewer` on branch
+  `codex/issue-002-remote-viewer` at that exact base.
+- Deterministic local source readiness is PASS: `ppt-bridge` 72 tests,
+  `presentation-core` 134 tests, standalone timer 430 tests, and all three
+  targeted typechecks passed. The helper already emits the required local
+  PowerPoint observations through `poll`/`exit`; it is not a network endpoint.
+- These tests do not prove ISSUE-002 live Windows readiness. Remote host,
+  Presenter View, sleep/reconnect, packaged publisher, and cross-machine viewer
+  acceptance remain PENDING because those surfaces are not built.
+- Remote readiness remains PENDING: the outer sanitized snapshot contract,
+  session/epoch/sequence/freshness reducer, cloud session/token endpoints,
+  protected read model, Remote host mode, and viewer surfaces are not built.
+- The exact resume point is the RepoPrompt CE planning prompt above. Its output
+  must pass `spec-plan-readiness` before any runtime implementation starts.
 
 ## Baton Policy — updated 2026-06-13 (faster cadence for inert work)
 

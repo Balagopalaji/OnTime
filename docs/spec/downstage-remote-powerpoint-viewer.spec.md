@@ -2,7 +2,7 @@
 Type: Spec
 Status: draft
 Owner: KDB
-Last updated: 2026-08-22
+Last updated: 2026-08-25
 Scope: Read-only remote observation of live PowerPoint video timing from a Windows show computer.
 ---
 
@@ -59,6 +59,39 @@ A viewer-only URL provides the same read-only presentation view in a browser.
 It can be opened on a Mac, Windows PC, tablet, or other supported browser
 without installing the helper. The URL must identify or authorize a specific
 show session and must not grant control.
+
+## Ratified first-release decisions
+
+- A remote presentation session is standalone first. It has an optional
+  `roomId` attachment point for later embedding in Downstage Control, but the
+  browser and desktop viewers consume the presentation-session contract rather
+  than requiring a room.
+- Exactly one Windows show-laptop publisher is authoritative for a session.
+  Multiple read-only viewers are allowed. LAN retains its existing 20-device
+  limit; the Deep Plan must define an explicit cloud service limit. A second
+  publisher must be rejected unless an explicit future transfer flow is
+  designed.
+- Publisher authorization and viewer authorization are separate. Possession of
+  a viewer URL must never authorize publication, control, token issuance, file
+  access, or room mutation.
+- The first cloud viewer uses an opaque, unguessable, session-scoped read-only
+  link. Its active window is 24 hours. When the publisher returns, it may offer
+  to resume and extend the prior session; the operator may instead end it or
+  create a new link. Inactive session data is deleted after seven days.
+- Publication is transition-driven. A changed PowerPoint observation publishes
+  immediately, while a 10-second heartbeat proves liveness even when no video
+  is playing. A viewer becomes stale after 25 seconds without contact and
+  disconnected after 60 seconds; neither state may keep advancing time.
+- Cloud is the first transport. LAN later implements the same snapshot,
+  freshness, permission, and reconnect semantics through existing Companion
+  HTTPS/WSS pairing foundations.
+- Ordinary remote payloads use an explicit allowlist. Sanitized display titles
+  and media labels may be present, but full paths, deck paths, process IDs,
+  window handles, affinity data, raw helper diagnostics, and credentials are
+  forbidden.
+- Website, privacy/support pages, Store identity/signing, and macOS
+  notarization are public-release gates, not blockers for contract work,
+  emulator development, or named-tester builds.
 
 ## Scenarios
 
@@ -174,6 +207,25 @@ The viewer may interpolate between observations only within an explicit
 freshness and correction policy. A missing, stale, contradictory, or unavailable
 observation must be represented as a visible non-running state.
 
+The helper is not a network endpoint. It retains the existing local `poll` and
+`exit` stdin commands and newline-delimited JSON response. A new outer publisher
+maps the canonical local observation into the remote allowlist and adds the
+remote-only envelope: schema version, session identity, publisher/session
+epoch, monotonic sequence, observation/publish timestamps, expected heartbeat,
+freshness deadline, and sanitized availability/presentation state.
+
+The endpoint contract must cover, without prescribing implementation names in
+this feature spec: create session, authorize or resume the single publisher,
+issue/resolve a viewer-only link, publish a complete current snapshot, subscribe
+or read the current snapshot, rotate/revoke viewer access, end a session, and
+delete expired session data. It must provide exact cloud callable/HTTP,
+Firestore/rules, browser route, and later LAN HTTP/WSS mappings.
+
+Existing room viewer documents/routes and `LIVE_CUE_*` / `PRESENTATION_*`
+payloads must not temporarily carry the new presentation-session snapshot. They
+are broader, differently authorized contracts. Reuse transport mechanics only
+after an independently typed, privacy-filtered snapshot and replay path exists.
+
 ## Security and permissions
 
 - Cloud links and LAN pairing must identify a session and grant viewer-only
@@ -188,18 +240,17 @@ observation must be represented as a visible non-running state.
 
 ## Open questions
 
-1. **Cloud link privacy:** retain the existing public viewer-link behavior or
-   require an expiring viewer token for PowerPoint sessions? **Recommendation:**
-   use an explicit session-scoped viewer token for the first remote PowerPoint
-   surface, even if ordinary timer viewers remain public.
-2. **Desktop packaging:** ship one cross-platform Downstage View installer or
+1. **Desktop packaging:** ship one cross-platform Downstage View installer or
    separate Mac/Windows viewer packages? **Recommendation:** one shared viewer
    product with platform-specific builds; keep the Windows helper dependency out
    of viewer packages.
-3. **LAN delivery:** use the existing Companion-served browser bundle first or
+2. **LAN delivery:** use the existing Companion-served browser bundle first or
    ship the viewer-only Electron app first? **Recommendation:** browser viewer
    proves the protocol and pairing path; desktop viewer reduces certificate
    friction for production use.
-4. **Remote controls:** when should slide navigation or media control begin?
+3. **Remote controls:** when should slide navigation or media control begin?
    **Recommendation:** keep the first release read-only; add commands only
    after observation, authorization, and failure semantics are proven.
+4. **Media labels:** should sanitized video labels be shared by default or only
+   after an operator enables them? **Recommendation:** make the field optional
+   in v1 and settle the default during the viewer UX planning gate.

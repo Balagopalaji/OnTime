@@ -2,7 +2,7 @@
 Type: Plan
 Status: draft
 Owner: KDB
-Last updated: 2026-08-22
+Last updated: 2026-08-25
 Scope: Follow-on planning brief for read-only Downstage PowerPoint remote observation.
 ---
 
@@ -32,6 +32,44 @@ The previous Windows-builder handoff already established the key direction in
 The feature contract is in
 `docs/spec/downstage-remote-powerpoint-viewer.spec.md`.
 
+## 2026-08-25 handoff baseline and readiness
+
+- Authoritative merged base:
+  `d1ff0770ec5449fb3fce4a28665b5d84f41f4f50` (PR #145).
+- Planning branch: `codex/issue-002-remote-viewer`.
+- Planning worktree:
+  `C:\Dev\OnTime-worktrees\issue-002-remote-viewer` on the Windows machine.
+- The local Windows observation chain is a deterministically tested source
+  boundary:
+  `ppt-bridge` tests 72/72, `presentation-core` tests 134/134, standalone timer
+  tests 430/430, and all three targeted typechecks passed on 2026-08-25.
+- Live ISSUE-002 Remote host publication, Presenter View cleanliness, sleep/
+  reconnect, and cross-machine viewer acceptance remain unverified because the
+  remote path and host mode do not exist yet.
+- This does not mean remote viewing is implemented. There is no remote snapshot
+  type, publisher, cloud presentation-session data model, session-scoped cloud
+  viewer credential, remote reducer, Remote host mode, or desktop viewer yet.
+- The helper already reports the necessary local slide/video observations. Do
+  not add network endpoints to it. The missing boundary is a sanitized outer
+  publisher that adds session/epoch/sequence/time/freshness metadata and emits
+  the host-resolved headline state.
+- The Deep Plan must name the new outer publisher executable/process and its
+  lifecycle. Do not put Firebase, HTTP/WSS, viewer-token, or retry code into the
+  accepted `apps/ppt-timer` package unless a separate boundary decision is
+  explicitly ratified first.
+- Existing cloud room viewers are public-by-room-ID and are not acceptable as
+  the PowerPoint session authorization model without a dedicated protected read
+  path. Existing LAN pairing/token foundations are reusable only after their
+  room/role ownership checks are mapped and tested.
+- Firebase emulator configuration currently disagrees: `firebase.json` uses
+  Firestore 8081 and Functions 5002, while the frontend connects to 8080 and
+  5001. Resolve this before cloud endpoint tests are considered authoritative.
+
+The next pass is planning only. Use
+`docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md` to produce the
+Deep Plan, endpoint contract, conformance matrix, and implementation slices.
+No source implementation starts until `spec-plan-readiness` passes.
+
 ## Reuse boundary
 
 Reuse the existing:
@@ -42,6 +80,13 @@ Reuse the existing:
   revocation foundations;
 - Firebase/cloud room transport and existing viewer delivery;
 - shared Downstage presentation panel and read-only viewer semantics.
+
+Reuse of existing transport foundations does not authorize reuse of their
+payloads. Existing room state, `LiveCue`, `LIVE_CUE_*`, `PRESENTATION_*`, and
+room viewer routes must not carry the new remote presentation snapshot. Socket
+bootstrap ordering and authenticated viewer connection are reuse candidates;
+the snapshot and replay event require a new independently typed, filtered
+contract.
 
 Add only the missing remote composition layer:
 
@@ -141,3 +186,11 @@ The next planning pass should return:
 - explicit Mac-owned versus Windows-owned work;
 - unresolved choices from the spec's Open Questions with a recommendation;
 - no source implementation until the plan passes its readiness gate.
+- an exact endpoint/data/rules matrix for cloud and later LAN, including
+  publisher authorization, single-publisher enforcement, viewer-link lifecycle,
+  snapshot publication/subscription, resume, revocation, expiry, and cleanup;
+- a field-by-field helper -> canonical state -> remote allowlist map proving that
+  every required viewer field exists and every machine-sensitive field is
+  excluded;
+- a Deep Plan and RPV-001..RPV-010 conformance matrix suitable for the
+  `spec-plan-readiness` gate.
