@@ -65,6 +65,8 @@ new host-side sanitized snapshot adapter outside `ppt-bridge` and
 - Plan: `docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md`
 - RepoPrompt CE kickoff:
   `docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md`
+- Deep Plan revision prompt:
+  `docs/prompts/issue-002-deep-plan-revision-2026-08-26.md`
 - Worktree/progress handoff:
   `docs/progress/backlog-issue-002-remote-viewer-2026-08-25.md`
 - Existing roadmap: `docs/plans/powerpoint-capability-and-display-roadmap-2026-08-07.md`
@@ -76,10 +78,11 @@ new host-side sanitized snapshot adapter outside `ppt-bridge` and
 
 ## Blocked
 
-The 2026-08-25 spec/Deep-Plan readiness gate does not authorize
-implementation. Owner ratification is still required for the new publisher's
-package boundary and the cloud viewer concurrency limit. The media-label
-decision is clarified: follow the existing `apps/ppt-timer` compact panel—a
-small status label remains visible above the time, while sanitized video titles
-appear only in the hover disclosure/list. See the backlog readiness evidence
-linked above.
+The 2026-08-25 spec/Deep-Plan readiness gate does not yet authorize
+implementation. On 2026-08-26 the owner ratified one visible Downstage PPT
+Video Timer with a separately bounded background publisher sidecar, plus an
+advisory cloud support target of 50 concurrent viewers per session without hard
+viewer leases in v1. LAN remains capped at 20. The canonical Deep Plan,
+endpoint contract, conformance matrix, and readiness result must now be revised
+and independently reviewed using the linked revision prompt. Issue status
+remains blocked until that documentation gate passes.

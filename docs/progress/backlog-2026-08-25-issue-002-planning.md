@@ -157,19 +157,22 @@ session cleanup or worktree removal is required, and no branch was deleted.
 
 ## Exact resume instruction
 
-Resume from this file and the two planning exports. The media-label behavior is
-now clarified from the existing `apps/ppt-timer` implementation: keep the
-compact charcoal face to status plus time, and reveal sanitized video titles
-only in the hover disclosure/list. Obtain and record the two remaining owner
-decisions (publisher boundary and cloud viewer limit). Then explicitly
-authorize a documentation-only pass to materialize
-and independently review:
+On 2026-08-26 the owner ratified the remaining product decisions:
 
-1. `docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-25.md`
-2. `docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`
-3. `docs/spec/downstage-remote-powerpoint-viewer.conformance.md`
+- keep Downstage PPT Video Timer as the only visible PowerPoint host and launch
+  a separately bounded publisher sidecar for authentication, cloud/LAN
+  transport, credentials, links, heartbeat, and retry;
+- support 50 concurrent cloud viewers per session as an advisory/load-tested v1
+  target, without renewable hard-admission leases; retain the LAN cap of 20.
 
-After linking those canonical artifacts from `.agents/issues/ISSUE-002.md`,
-rerun `spec-plan-readiness`. Only an `implementable` verdict may allocate
-`backlog/ISSUE-002-add-downstage-remote-powerpoint-viewer-surfaces` and dispatch
-a Loop agent.
+Resume the documentation-only Deep Plan correction from:
+
+`docs/prompts/issue-002-deep-plan-revision-2026-08-26.md`
+
+The pass must revise the canonical Deep Plan, materialize the endpoint contract
+and RPV conformance matrix, reconcile the existing critique, split oversized
+slices, and rerun readiness. The issue remains blocked until those artifacts
+and the readiness result are independently reviewed. These owner decisions do
+not authorize runtime source implementation by themselves. Only an
+`implementable` verdict may identify and authorize the first bounded source
+slice.
