@@ -30,11 +30,11 @@ first_safe_task: S0 — align frontend emulator configuration with firebase.json
 
 | Issue | Worktree | Branch | Base SHA | Status |
 |---|---|---|---|---|
-| ISSUE-002 | allocation pending | `backlog/ISSUE-002-downstage-remote-viewer` | pending | planned; keep through open PR |
+| ISSUE-002 | `/Users/radhabalagopala/Dev/onTime2/.repoprompt-worktrees/OnTime/rp-agent-176d035b-backlog-issue-002-downstage-remo-f2ad72f2` | `backlog/ISSUE-002-downstage-remote-viewer` | `7533c67bfeaea1fc41288e63ea6182feea3dbcda` | Loop session `176D035B-3F92-4E16-B33E-C49FC150E1ED`; active; keep through open PR |
 
 ## Loop evidence
 
-Pending. Link the Loop progress document rather than duplicating it here.
+Loop evidence is maintained in [the dedicated Loop progress document](downstage-remote-powerpoint-viewer-loop.md); do not duplicate it here.
 
 ## Outer verification
 
