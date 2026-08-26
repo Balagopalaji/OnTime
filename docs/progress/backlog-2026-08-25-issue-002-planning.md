@@ -86,7 +86,7 @@ current repository documents. The two remaining product decisions are the
 publisher boundary and cloud viewer cap. The canonical Deep Plan, endpoint
 contract, and conformance matrix also remain draft-only readiness inputs.
 
-## Spec-plan-readiness result
+## Historical 2026-08-25 spec-plan-readiness result
 
 ```text
 verdict: blocked
@@ -130,21 +130,82 @@ task_to_scenario_map:
     notes: Frozen placeholder; explicitly out of ISSUE-002 scope.
 ```
 
-Because the verdict is blocked, the readiness skill authorizes **no tests,
+At that historical checkpoint the verdict was blocked, so the readiness skill authorized **no tests,
 production code, implementation worktree, or Loop delegation**, even where the
 planning draft describes slices that could later be independently authorized.
 There is no `first_safe_task` while this gate is blocked.
 
+## 2026-08-26 Deep Plan revision and readiness rerun
+
+The documentation-only revision consumed the owner decisions and closed the
+remaining technical planning gaps. Canonical artifacts now are:
+
+- Deep Plan:
+  `docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-26.md`
+- Endpoint/private-process contract:
+  `docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`
+- Initial conformance matrix:
+  `docs/spec/downstage-remote-powerpoint-viewer.conformance.md`
+- Critique resolution ledger:
+  `docs/reviews/downstage-remote-powerpoint-viewer-deep-plan-critique-2026-08-26.md`
+- RepoPrompt planning export:
+  `prompt-exports/oracle-plan-2026-08-26-145749-issue-002-d1-d2-revi-ecf2.md`
+
+Decision and correction outcome:
+
+- D1: `apps/ppt-timer` remains the only visible app and sole helper/COM/host
+  owner. A hidden `utilityProcess` receives reconstructed allowlisted snapshots
+  over a validated inherited message port and owns Firebase/auth/session/link/
+  heartbeat/retry/later-LAN publication. The old visible publisher,
+  `packages/powerpoint-host`, duplicated helper, and COM lock are superseded.
+- D2: 50 cloud viewers/session is advisory/load-tested. All viewer lease,
+  renewal/release, active-count, lease-claim/rule, and reconciliation branches
+  are removed. LAN remains hard-capped at 20.
+- Timing values are anchored to the host observation. `observationAgeMs` is a
+  same-host-clock duration; `publishedAtMs` is server freshness time only.
+  Material transitions publish immediately and heartbeats use the latest host
+  observation.
+- Cloud endpoints use server allowlist reconstruction, durable request results,
+  transactional ownership/epoch/sequence/generation, top-level cleanup docs,
+  and Firestore-backed distributed rate-limit buckets.
+- Every old XL/multi-owner slice is split into bounded S0/S1a...S9b checkpoints
+  with exclusive paths, dependencies, tests, manual gates, rollback, and stop
+  conditions.
+
+```text
+verdict: implementable
+blocking_gaps: []
+scenario_to_test_map: docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-26.md#readiness-traceability
+task_to_scenario_map: docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-26.md#readiness-traceability
+first_safe_task: S0 — align frontend emulator configuration with firebase.json
+staging_release_gates:
+  - production publisher-device Auth refresh/revocation and browser callback
+  - production distributed rate-limit fallback, Firestore indexes/TTL and cost
+  - staged 50-viewer/30-minute load and p95 transition-to-render evidence
+  - packaged Windows sidecar lifecycle and Presenter View/confidence acceptance
+  - macOS/Windows viewer packaging and user testing
+```
+
+The staging/release gates do not block S0. All runtime, emulator, staging, and
+user tests remain **NOT RUN (documentation-only)**. The issue's status/labels
+remain untouched because the outer backlog orchestrator owns that transition.
+
 ## Outcome and track-work update
 
-- Outcome: **blocked** at readiness gate; implementation skipped.
+- Historical outcome: **blocked** at the 2026-08-25 readiness gate;
+  implementation was skipped.
+- Current documentation outcome: **implementable**, with S0 as the first safe
+  slice; no runtime implementation was started in this revision.
 - File-backed tracking status changed from `draft` to `blocked` by the outer
   Backlog layer; `.agents/issues/README.md` was synchronized.
 - Close policy was evidence-only, so the item was not closed.
 - Tests/CI/user-testing: not run; no runtime implementation exists in this run.
-- Conformance matrix: canonical file not yet created; all RPV scenarios remain
-  Not-built.
-- Review findings: none generated because no implementation diff was produced.
+- Conformance matrix: canonical and audited at
+  `docs/spec/downstage-remote-powerpoint-viewer.conformance.md`; all ten RPV
+  scenarios remain Not-built pending runtime evidence.
+- Implementation review findings: none, because no implementation diff was
+  produced. The planning critique C-001 through C-018 is fully reconciled in
+  the linked critique ledger.
 
 ## Worktree ledger
 
@@ -165,14 +226,10 @@ On 2026-08-26 the owner ratified the remaining product decisions:
 - support 50 concurrent cloud viewers per session as an advisory/load-tested v1
   target, without renewable hard-admission leases; retain the LAN cap of 20.
 
-Resume the documentation-only Deep Plan correction from:
-
-`docs/prompts/issue-002-deep-plan-revision-2026-08-26.md`
-
-The pass must revise the canonical Deep Plan, materialize the endpoint contract
-and RPV conformance matrix, reconcile the existing critique, split oversized
-slices, and rerun readiness. The issue remains blocked until those artifacts
-and the readiness result are independently reviewed. These owner decisions do
-not authorize runtime source implementation by themselves. Only an
-`implementable` verdict may identify and authorize the first bounded source
-slice.
+The documentation correction is complete. Resume implementation from this
+progress document and the linked worktree ledger, re-check the required
+ancestor and clean/dirty state, run `spec-plan-readiness` against the current
+Spec and Deep Plan, and execute **S0 only** if it still returns
+`implementable`. Do not skip directly to cloud, sidecar, or UI slices. Track
+runtime evidence in the conformance matrix and keep issue status changes in the
+outer backlog layer.

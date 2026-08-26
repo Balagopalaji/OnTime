@@ -1,6 +1,6 @@
 ---
 Type: Plan Critique
-Status: draft
+Status: current
 Owner: KDB
 Last updated: 2026-08-26
 Scope: Critique of docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-26.md against the
@@ -237,3 +237,35 @@ authentication (C-014), and the now-unspecified remote interpolation contract le
 stated architecture is the PowerPoint-specific `availability` enum living in the "source-neutral" envelope
 (C-004), with the reconnect/epoch contradiction (C-005) close behind. Resolving C-001, C-004, C-005,
 C-013, and C-014 before rerunning `spec-plan-readiness` would prevent the largest downstream rework.
+
+---
+
+## 2026-08-26 revision resolution ledger
+
+This table records the disposition after the D1/D2 documentation revision. The
+historical findings above remain unchanged evidence; obsolete proposals were
+not copied back into the canonical plan.
+
+| ID | Disposition | Canonical location | Resolution / rationale |
+|---|---|---|---|
+| C-001 | **resolved** | Deep Plan, `Wire contract / Observation-truth timing` | Uses `elapsedMsAtObservation`, `remainingMsAtObservation`, same-host-clock `observationAgeMs`, server freshness time, exact formula/clamps, skew handling, and latest-observation heartbeat rules. Local COM clocks remain excluded. |
+| C-002 | **resolved** | Endpoint spec, `Create session`; Deep Plan D2 | Configurable maximum three active sessions per owner is transactional and distinct from the advisory 50-viewer target. |
+| C-003 | **resolved** | Deep Plan sidecar security; S6d | S-033 exact-`WebContents` validation remains. The sidecar uses a private utility-process channel, not renderer IPC. |
+| C-004 | **resolved** | Deep Plan generic envelope/payload | Wire availability is connecting/active/source-unavailable; PowerPoint reasons are discriminated payloads; freshness/end states are reducer/UI only. |
+| C-005 | **resolved** | Deep Plan ordering/epoch | Transient network/port recovery keeps epoch; main/sidecar restart or device replacement increments sealed durable epoch and resets sequence. No lease terminology remains. |
+| C-006 | **resolved** | Endpoint data model/callables | `/presentationRequestResults/{uid_requestId}` stores operation, normalized request hash, result/error, and 24-hour TTL. |
+| C-007 | **resolved** | Endpoint data model | `viewerGeneration` is the single document/claim/response name. |
+| C-008 | **resolved** | Deep Plan `RemoteSnapshotV1` | Timing policy values are numeric fields rather than literal types. |
+| C-009 | **accepted** | Endpoint publish row; S3c/S3d | Callable/server reconstruction remains; cold/warm latency, p95 paint, reads, cost, and 50-viewer staging evidence are explicit. |
+| C-010 | **accepted** | S0; endpoint emulator parity | Browser uses Vite-configurable ports defaulting to `firebase.json`; Node Hub discovery stays out of browser runtime. |
+| C-011 | **accepted** | Deep Plan wire contract | Integer milliseconds remain the pure wire; Firebase conversion stays in adapters. |
+| C-012 | **accepted** | Endpoint data model | Snapshot is top-level with its own TTL/scheduled deletion; no TTL cascade dependency. |
+| C-013 | **resolved** | D1/architecture | One `apps/ppt-timer` host owns one helper/COM observer. The sidecar cannot import/spawn/control it; the second host/COM lock are superseded. |
+| C-014 | **resolved** | Deep Plan credential lifecycle; endpoint auth | System-browser PKCE/state approval, dedicated device principal, refresh, opaque safeStorage, sign-out, revoke/lost-device recovery, and storage-unavailable behavior are specified. |
+| C-015 | **superseded** | D2; endpoint introduction | Advisory 50-viewer support removes all viewer leases/counts/renewal/reconciliation and viewer-51 denial. |
+| C-016 | **resolved** | Endpoint browser matrix; S5b | Teardown detaches listeners, cancels monotonic/freshness clocks, clears credentials, and has no lease timer. |
+| C-017 | **resolved** | Endpoint LAN matrix; S9 | Sidecar loopback-publishes; Companion validates/caches/broadcasts the new typed snapshot without cloud mirroring or viewer publish. |
+| C-018 | **accepted** | Endpoint rules | One session-document `get()` remains; the lease lookup is gone and the billed read is load/cost tested. |
+
+**Still open findings:** none. Named production/platform checks are staged
+verification gates, not unresolved architecture or implementation-start blocks.

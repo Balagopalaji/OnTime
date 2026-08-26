@@ -1,8 +1,8 @@
 ---
 Type: Spec
-Status: draft
+Status: current
 Owner: KDB
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 Scope: Read-only remote observation of live PowerPoint video timing from a Windows show computer.
 ---
 
@@ -45,9 +45,14 @@ viewing computer.
 
 ### Windows show host
 
-The host runs PowerPoint and the native helper. In **Remote host** mode it may
-be hidden, minimized, or otherwise placed below the show output. It continues
-to observe PowerPoint and publish remote state. The host remains authoritative.
+Downstage PPT Video Timer remains the only visible PowerPoint host. It runs
+PowerPoint observation and the native helper exactly as the local baseline does.
+When the operator explicitly shares remotely, main launches a separately
+bounded hidden publisher sidecar inside the same installed product. The visible
+timer may be hidden, minimized, or placed below the show output while the one
+existing host and sidecar continue. The sidecar owns authentication, cloud/LAN
+publication, heartbeat, and retry; it has no window, helper/COM access,
+presentation-selection logic, or viewer-to-PowerPoint command channel.
 
 ### Desktop remote viewer
 
@@ -98,15 +103,26 @@ add rundown editing or timer controls to this read-only issue.
 
 ## Ratified first-release decisions
 
+- **One visible product:** `apps/ppt-timer` is the sole owner of the helper,
+  COM, `SessionHost`/`HostView`, local face, and share UI. A hidden Electron
+  utility-process sidecar receives only strict reconstructed privacy-filtered
+  snapshot candidates over a private inherited process channel. It never
+  receives raw host objects, paths, process identity, diagnostics, renderer
+  actions, or credentials. A sidecar/network failure must not stop the local
+  countdown.
+- **Cloud support target:** v1 supports and load-tests 50 concurrent cloud
+  viewers per session as an advisory service/cost target. It does not hard-admit
+  viewers, count active viewers, or use renewable viewer leases. LAN retains
+  the existing enforced 20-device cap.
+
 - A remote presentation session is standalone first. It has an optional
   `roomId` attachment point for later embedding in Downstage Control, but the
   browser and desktop viewers consume the presentation-session contract rather
   than requiring a room.
-- Exactly one Windows show-laptop publisher is authoritative for a session.
-  Multiple read-only viewers are allowed. LAN retains its existing 20-device
-  limit; the Deep Plan must define an explicit cloud service limit. A second
-  publisher must be rejected unless an explicit future transfer flow is
-  designed.
+- Exactly one publisher-device identity from the Windows show laptop is
+  authoritative for a session. Multiple read-only viewers are allowed. A
+  second publisher is transactionally rejected unless an explicit future
+  transfer flow is designed.
 - Publisher authorization and viewer authorization are separate. Possession of
   a viewer URL must never authorize publication, control, token issuance, file
   access, or room mutation.
@@ -243,30 +259,35 @@ room locks, PowerPoint state, or the confidence-monitor output.
 ## Remote observation contract
 
 The remote observation must be a complete, versioned state snapshot rather than
-animation frames. It must carry enough information for a viewer to identify the
-source/session, reject stale or duplicate updates, display availability, show
-slide identity, list videos, identify the selected video, display status and
-duration, and count down from timing anchors. Machine-sensitive fields such as
-local paths, process identifiers, and raw helper diagnostics are excluded from
-ordinary viewer payloads.
+animation frames. Its source-neutral envelope carries only
+`connecting | active | source-unavailable`; stale, disconnected, ended, and
+access-ended are viewer states. Its discriminated PowerPoint payload carries
+either presentation slide/headline/video timing or an unavailable reason with
+no stale numeric timing. It must carry enough information for a viewer to
+identify the source/session, reject stale or duplicate updates, list videos,
+identify the host-resolved focus, display status/duration, and count down from
+the host observation moment. Machine-sensitive fields such as local paths,
+process identifiers, and raw helper diagnostics are excluded.
 
 The viewer may interpolate between observations only within an explicit
 freshness and correction policy. A missing, stale, contradictory, or unavailable
 observation must be represented as a visible non-running state.
 
 The helper is not a network endpoint. It retains the existing local `poll` and
-`exit` stdin commands and newline-delimited JSON response. A new outer publisher
-maps the canonical local observation into the remote allowlist and adds the
-remote-only envelope: schema version, session identity, publisher/session
-epoch, monotonic sequence, observation/publish timestamps, expected heartbeat,
-freshness deadline, and sanitized availability/presentation state.
+`exit` stdin commands and newline-delimited JSON response. A pure main-process
+allowlist adapter maps the canonical local observation into a strict full
+snapshot candidate. The hidden sidecar adds session epoch/sequence and sends it
+to a server-reconstructing callable. Host observation time remains the timing
+anchor; server commit time is used for freshness and must not be mislabeled as
+the measurement instant. Every 10-second heartbeat uses the latest host
+observation rather than restamping prior cloud numbers.
 
-The endpoint contract must cover, without prescribing implementation names in
-this feature spec: create session, authorize or resume the single publisher,
-issue/resolve a viewer-only link, publish a complete current snapshot, subscribe
-or read the current snapshot, rotate/revoke viewer access, end a session, and
-delete expired session data. It must provide exact cloud callable/HTTP,
-Firestore/rules, browser route, and later LAN HTTP/WSS mappings.
+The endpoint contract must cover create session, authorize or resume the single
+publisher device, issue/resolve a viewer-only link, publish a complete current
+snapshot, subscribe/read, rotate/revoke generation, end, distributed rate
+limits, and cleanup. The exact cloud callable/HTTP, Firestore/rules, private
+sidecar IPC, browser, and later LAN matrices are canonical in
+`docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`.
 
 Existing room viewer documents/routes and `LIVE_CUE_*` / `PRESENTATION_*`
 payloads must not temporarily carry the new presentation-session snapshot. They
@@ -301,7 +322,7 @@ separate capability and authorization contract.
   internal helper diagnostics unless a separately authorized diagnostics flow
   is designed.
 
-## Open questions
+## Deferred release choices (not implementation-start blockers)
 
 1. **Desktop packaging:** ship one cross-platform Downstage View installer or
    separate Mac/Windows viewer packages? **Recommendation:** one shared viewer

@@ -1,8 +1,8 @@
 ---
 Type: Plan
-Status: draft
+Status: current
 Owner: KDB
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 Scope: Follow-on planning brief for read-only Downstage PowerPoint remote observation.
 ---
 
@@ -55,10 +55,15 @@ The feature contract is in
   not add network endpoints to it. The missing boundary is a sanitized outer
   publisher that adds session/epoch/sequence/time/freshness metadata and emits
   the host-resolved headline state.
-- The Deep Plan must name the new outer publisher executable/process and its
-  lifecycle. Do not put Firebase, HTTP/WSS, viewer-token, or retry code into the
-  accepted `apps/ppt-timer` package unless a separate boundary decision is
-  explicitly ratified first.
+- The owner has ratified one visible `apps/ppt-timer` product with an isolated
+  hidden Electron utility-process publisher sidecar. The existing main process
+  remains the sole helper/COM/`SessionHost` owner. Firebase, credentials,
+  session/link calls, HTTP/WSS, heartbeat, and retry live inside the sidecar,
+  not in the helper, presentation packages, renderer, or local timer logic.
+- The sidecar receives only strict reconstructed privacy-filtered full snapshot
+  candidates over a validated private inherited channel. It has no window,
+  Start-menu identity, helper access, presentation-selection logic, or remote
+  control path. Sidecar/network failure never stops the local countdown.
 - Existing cloud room viewers are public-by-room-ID and are not acceptable as
   the PowerPoint session authorization model without a dedicated protected read
   path. Existing LAN pairing/token foundations are reusable only after their
@@ -67,10 +72,11 @@ The feature contract is in
   Firestore 8081 and Functions 5002, while the frontend connects to 8080 and
   5001. Resolve this before cloud endpoint tests are considered authoritative.
 
-The next pass is planning only. Use
-`docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md` to produce the
-Deep Plan, endpoint contract, conformance matrix, and implementation slices.
-No source implementation starts until `spec-plan-readiness` passes.
+The planning pass is complete. The canonical Deep Plan, endpoint contract, and
+conformance matrix are linked from `.agents/issues/ISSUE-002.md`; the current
+`spec-plan-readiness` verdict is `implementable`. S0 emulator parity is the
+first safe bounded implementation slice; no later slice starts before its
+declared dependencies and gates pass.
 
 ## Reuse boundary
 
@@ -123,8 +129,9 @@ contract.
 
 Add only the missing remote composition layer:
 
-- a host-side publisher/adapter that converts canonical presentation state to a
-  transport-neutral remote snapshot;
+- a pure host-side allowlist adapter plus an app-internal hidden publisher
+  sidecar that converts canonical presentation state to the strict remote
+  snapshot and owns auth/publication/retry;
 - cloud and LAN transport adapters for that snapshot;
 - a browser viewer surface and cross-platform desktop viewer surface;
 - remote-host window behavior that does not force the local surface above
@@ -151,7 +158,9 @@ These are planning lanes, not permission to implement them in this pass:
 ### Lane B — Cloud-first browser path
 
 - Define the authenticated/session-scoped read-only cloud delivery path.
-- Reuse the existing viewer route and room/session authorization where safe.
+- Reuse Firebase listener/auth mechanics where safe, but add the dedicated
+  `/session/:sessionId/view` route and presentation-session authorization;
+  never reuse the public room route as the security boundary.
 - Prove full-snapshot reconnect, sequence rejection, stale-state display, and
   host-disconnect behavior with deterministic fixtures.
 
@@ -165,10 +174,13 @@ These are planning lanes, not permission to implement them in this pass:
 - Keep viewer builds free of the native Windows helper and PowerPoint runtime.
 - Support both cloud and later LAN sources through the same viewer contract.
 
-### Lane D — Windows remote-host mode
+### Lane D — Windows sharing sidecar and remote-host behavior
 
-- On the Windows-owned branch, add a Remote host mode that keeps observation
-  active while the local window is hidden, minimized, or below the show output.
+- On the Windows-owned branch, add the hidden sidecar lifecycle and Share
+  Remotely workflow while keeping the existing one host active when the local
+  window is hidden, minimized, or below the show output.
+- Preserve the one existing helper/COM owner; do not add a second visible app,
+  helper, `packages/powerpoint-host`, or cross-process COM lock.
 - Validate that Presenter View and the confidence monitor remain unaffected.
 - Keep this work separate from viewer packaging and from the ISSUE-001 release
   acceptance evidence.
@@ -194,12 +206,14 @@ These are planning lanes, not permission to implement them in this pass:
 
 ## Proposed delivery order
 
-1. Ratify the remote snapshot and permission contract.
-2. Ratify the source-neutral display model, shell boundary, and PowerPoint
+1. Implement the remote snapshot and permission contract after S0 emulator
+   parity.
+2. Implement the source-neutral display model, shell boundary, and PowerPoint
    adapter without implementing the later stage-timer source.
 3. Prove the cloud browser viewer with fixtures and a real host-to-viewer path.
-4. Add the cross-platform Downstage View shell.
-5. Add Windows Remote host behavior and validate Presenter View cleanliness.
+4. Add the app-internal Windows publisher sidecar and validate its lifecycle.
+5. Add the cross-platform Downstage View shell and validate Windows Remote host
+   behavior/Presenter View cleanliness.
 6. Add or finish LAN delivery using the same snapshot contract.
 7. Add remote viewer acceptance evidence and only then consider control commands.
 
@@ -210,20 +224,24 @@ These are planning lanes, not permission to implement them in this pass:
   pairing, or browser clients.
 - Do not treat a frozen last snapshot as a live countdown after freshness expiry.
 - Do not grant control permissions to a viewer token.
+- Do not add hard cloud viewer leases or an active-viewer admission counter;
+  50 cloud viewers is an advisory staged support target. LAN remains capped at
+  20 devices.
 - Do not merge remote work into ISSUE-001 before the Windows host release gate is
   explicitly complete or a baton handoff is recorded.
 
-## Planning output expected from the next solo agent
+## Canonical planning output
 
-The next planning pass should return:
+The Deep Plan and companion specifications provide:
 
 - a contract-to-scenario matrix for `RPV-001` through `RPV-010`;
 - an existing-code map for host, presentation-core, Companion, cloud, browser,
   and desktop-viewer surfaces;
 - a smallest-slice file/task sequence with verification checkpoints;
 - explicit Mac-owned versus Windows-owned work;
-- unresolved choices from the spec's Open Questions with a recommendation;
-- no source implementation until the plan passes its readiness gate.
+- deferred release choices from the Spec, explicitly marked non-blocking;
+- source implementation begins only at the readiness gate's named first-safe
+  slice and follows the Deep Plan dependency order.
 - an exact endpoint/data/rules matrix for cloud and later LAN, including
   publisher authorization, single-publisher enforcement, viewer-link lifecycle,
   snapshot publication/subscription, resume, revocation, expiry, and cleanup;

@@ -1,100 +1,131 @@
 ---
 Type: Deep Plan
-Status: draft
+Status: current
 Owner: KDB
 Last updated: 2026-08-26
 Scope: ISSUE-002 remote PowerPoint publisher and read-only viewer surfaces.
 ---
 
-# Downstage Remote PowerPoint Viewer: Deep Plan
+# Downstage Remote PowerPoint Viewer — Deep Plan
 
 ## Goal
 
-Extend the existing `apps/ppt-timer` PowerPoint countdown baseline into read-only cloud browser, shared desktop, and later LAN viewer surfaces without recreating its timer UX or changing its local Windows/PowerPoint behavior. The implementation adds a privacy-filtered remote session contract, a separately authorized publisher boundary, and a source-neutral timer face that preserves the existing compact charcoal face, canonical status label, hover controls, and disclosed video list.
+Extend the existing `apps/ppt-timer` PowerPoint countdown into read-only cloud
+browser, shared desktop, and later LAN viewers without recreating its compact
+charcoal timer UX or changing its local Windows/PowerPoint behavior. The single
+visible timer remains the sole PowerPoint/COM/helper host; a hidden publisher
+sidecar owns credentials, cloud/LAN publication, retry, links, and liveness.
 
-This plan is implementation-ready except for the two owner decisions in [Open questions and readiness](#open-questions-and-readiness). No code may begin until those decisions are recorded and `spec-plan-readiness` returns `implementable`.
+The implementation contract is ready for bounded execution. All remote
+surfaces remain Not-built; production Auth, TTL, rate-limit, 50-viewer load,
+packaging, and real PowerPoint checks remain staging/release gates rather than
+blockers to the first implementation slice.
 
-## Settled constraints
+## Ratified decisions
 
-- `apps/ppt-timer` is the behavioral and visual baseline. Remote surfaces reuse its compact/expanded behavior; they do not introduce another timer design or permanently visible media-label panel.
-- The helper remains local and transport-agnostic. Its stdin protocol stays `poll`/`exit`; no Firebase, HTTP/WSS, account, room, credential, or retry policy enters `ppt-probe`, `ppt-bridge`, or `presentation-core`.
-- `SessionHostOptions.onView(view: HostView)` is the canonical publication seam. Remote code publishes the already host-resolved `PowerPointViewState`; it never recomputes focus, headline, status, or timer meaning.
-- The ordinary viewer payload excludes paths, process/COM identity, helper diagnostics, window/display state, credentials, and control actions.
-- Viewer links are opaque, session-scoped, read-only, active for 24 hours, rotatable/revocable, and independent from publisher credentials. Inactive session data is removed after seven days.
-- Every publish is a complete current snapshot. Material PowerPoint transitions publish immediately; liveness republishes the complete snapshot every 10 seconds. Viewers become stale after 25 seconds and disconnected after 60 seconds.
-- PowerPoint is the only v1 source. A later stage-timer source receives its own payload and adapter; it reuses the envelope, authorization, freshness reducer, and timer face.
-- Existing room routes/documents and `LIVE_CUE_*` / `PRESENTATION_*` events never carry the new snapshot, even temporarily.
-- Media-label behavior is settled: the collapsed face is status plus time; sanitized video titles are available only in the disclosure list.
+### D1 — one visible PPT Timer and one hidden publisher sidecar
 
-## Background
+- `apps/ppt-timer` is the only user-facing host and owns `ppt-probe`, COM,
+  `PowerPointSession`, canonical `SessionHost`/`HostView`, local face, window,
+  and explicit Share Remotely UI.
+- An app-internal Electron `utilityProcess` owns Firebase authentication,
+  publisher-device credentials, session/link callables, publication,
+  heartbeat, retry/backoff, and later loopback Companion publication.
+- The sidecar has no window, Start-menu identity, helper/COM access,
+  presentation-selection logic, renderer action, or remote-control channel.
+- Main sends only strict reconstructed snapshot candidates over a private
+  inherited `MessagePort`; it never sends raw `HostView`, paths, process/COM
+  identity, diagnostics, or credentials.
+- This supersedes the proposed visible `apps/downstage-publisher`,
+  `packages/powerpoint-host`, duplicated helper, cross-process COM lock, and
+  mutually exclusive timer/publisher workflow.
 
-### Existing PowerPoint host and renderer seams
+### D2 — advisory cloud support target of 50 viewers
 
-- The Windows helper is a persistent STA process with only `poll`/`exit` commands and newline-delimited JSON responses (`packages/ppt-bridge/native/windows-ppt-probe/Program.cs:68-151`). `PptBridgeClientImpl` owns helper discovery, hidden child-process stdio, poll timeout, restart, and termination (`packages/ppt-bridge/src/process-client.ts:22-194,224-240`).
-- `PowerPointSession` owns polling and state reduction; `createSessionHost()` adds status stabilization, focus history, settings reprojection, and immutable host-view publication (`packages/ppt-bridge/src/powerpoint-session.ts:36-208`; `apps/ppt-timer/src/main/session-host.ts:119-166,214-334`).
-- The publish-ready seam is `SessionHostOptions.onView(view: HostView)`, called after `currentView` is replaced and the revision is incremented (`apps/ppt-timer/src/main/session-host.ts:30-45,276-321`).
-- Main currently expands `HostView` into renderer-facing `AppView`, sends it over the `ppt-timer:view` IPC channel, and exposes only `getView`, `subscribe`, and validated `dispatch` through preload (`apps/ppt-timer/src/main/main.ts:217-240`; `apps/ppt-timer/src/preload/preload.ts:8-22`). `mountApp()` rejects revisions older than the last applied view (`apps/ppt-timer/src/renderer/main.ts:220-259,317-360`).
-- Shutdown ends the host, polling, and helper; there is no tray/background publisher lifecycle (`apps/ppt-timer/src/main/main.ts:353-375`; `apps/ppt-timer/src/main/session-host.ts:323-334`). Persisted state is ordinary JSON window/UI settings, not secret storage (`apps/ppt-timer/src/main/settings-store.ts:15-61`).
-- Packaging is Windows x64 and includes one helper at `resources/bin/ppt-probe.exe`; sandboxing, context isolation, blocked navigation/popups, and the narrow preload API are load-bearing (`apps/ppt-timer/electron-builder.yml:15-86`; `apps/ppt-timer/src/main/security.ts:13-43`).
-- Canonical status labels and timer DOM live in `apps/ppt-timer/src/renderer/powerpoint-panel.ts:8-93`; the compact charcoal surface and quiet disclosure are defined in `apps/ppt-timer/src/renderer/styles.css:1-167`. Timer-only patches preserve keyboard focus and open controls (`apps/ppt-timer/src/renderer/main.ts:104-175,193-213,289-339`).
+- V1 supports and load-tests 50 concurrent cloud viewers per presentation
+  session. It does not reject viewer 51 through leases or admission counts.
+- There are no `presentationViewerLeases`, viewer lease claims, renew/release
+  calls, `activeViewerCount`, or lease reconciliation/rule lookups.
+- The opaque link, separate viewer identity, `viewerGeneration`, 24-hour access
+  window, seven-day cleanup, per-owner active-session cap, distributed abuse
+  controls, monitoring, and staged cost/latency measurement remain.
+- LAN retains its enforced 20-device limit.
 
-### Cloud, LAN, and authorization seams
+## Current-state evidence
 
-- `/room/:roomId/view` is a public, timer-only route. It reads room/state/timer documents through `useRoom` and `useTimers`, then drives `useTimerEngine`; it has no PowerPoint session credential or snapshot (`frontend/src/routes/AppRouter.tsx:73-98`; `frontend/src/routes/ViewerPage.tsx:62-111,174-225`; `frontend/src/hooks/useRoom.ts:94-169`; `frontend/src/hooks/useTimers.ts:49-79`).
-- Firestore rules make room, timer, v2 state, and lock reads public while `/liveCues` is authenticated and show-control-tier gated. Neither model is suitable for an opaque session viewer (`firebase/firestore.rules:50-125`).
-- Cloud Functions export lock arbitration and operator joining only (`functions/src/index.ts:1-23`).
-- Frontend emulator ports diverge from `firebase.json`: Firestore 8080 vs 8081 and Functions 5001 vs 5002 (`frontend/src/lib/firebase.ts:44-60`; `firebase.json:22-35`). Node emulator tests discover endpoints through the Emulator Hub, but the browser runtime does not (`firebase/tests/joinAsOperator.emu.js:25-49,92-131`).
-- Companion provides reusable HTTPS/WSS, bundle serving, pairing, and socket admission seams, but its credentials and replay are room-scoped (`companion/src/main.ts:1280-1420,1422-1695,3072-3125,3626-3950`). Pairing codes last 10 minutes, viewer JWTs eight hours, and LAN remains capped at 20 devices (`companion/src/main.ts:140-143`).
-- Existing `PRESENTATION_*` envelopes carry `LiveCue`, omit session epoch/sequence, and are applied without stale-generation rejection (`packages/interface-contracts/src/live-cue-envelopes.ts:20-59`; `packages/shared-types/src/index.ts:173-210`; `frontend/src/context/UnifiedDataContext.tsx:3778-3853`).
+### Local host and security seams
 
-### External Firebase constraints
+- The helper is a persistent hidden child process with only `poll` and `exit`,
+  bounded newline JSON, validation, single in-flight polling, timeout/restart,
+  and bounded shutdown (`packages/ppt-bridge/src/process-client.ts:84-94,
+  127-147,174-188,230-320,378-394`).
+- `createSessionHost()` owns normalized PowerPoint polling and host projection;
+  `SessionHostOptions.onView` fires only after replacing the immutable current
+  view and revision (`apps/ppt-timer/src/main/session-host.ts:35-50,214-230,
+  292-294`). This is the semantic publication seam, not a privacy boundary.
+- Main discovers the one helper and creates the one host
+  (`apps/ppt-timer/src/main/main.ts:160-174`), then sends renderer projections
+  (`main.ts:217-219`). Current close behavior shuts down the host and quits
+  (`main.ts:346-367`); sharing therefore needs an explicit hide-versus-quit
+  lifecycle.
+- Renderer IPC is locked to the exact expected `WebContents`, runtime-validates
+  a closed action union, and exposes only get/subscribe/dispatch
+  (`apps/ppt-timer/src/main/ipc.ts:14-28`; `shared/ipc-contract.ts:43-56,
+  100-166`; `preload/preload.ts:1-22`). S-033 remains load-bearing.
+- Current persistence is ordinary JSON (`settings-store.ts:51-86`) and cannot
+  store credentials. Electron and electron-builder are exactly pinned at
+  `43.2.0` and `26.11.1` (`apps/ppt-timer/package.json:24-29`). The packaged
+  helper remains exactly `resources/bin/ppt-probe.exe`
+  (`apps/ppt-timer/electron-builder.yml:35-61`).
 
-- Firestore documents no simple concurrent-listener ceiling appropriate as a product cap. The cloud limit is a support/cost/load-test policy, not a platform constant. One listener on one current-snapshot document minimizes fan-out and reads ([realtime queries at scale](https://firebase.google.com/docs/firestore/real-time_queries_at_scale)).
-- A 10-second heartbeat is 0.1 writes/second/session. Sustainable update rate depends on contention and index fan-out rather than a current fixed one-write/second rule ([Firestore best practices](https://firebase.google.com/docs/firestore/best-practices)).
-- A custom token is a sign-in credential. Its expiry does not terminate the resulting Firebase Auth session; custom-claim changes arrive on reauthentication/refresh. Immediate revocation therefore depends on mutable server state checked by rules, not token expiry alone ([custom tokens](https://firebase.google.com/docs/auth/admin/create-custom-tokens); [custom claims](https://firebase.google.com/docs/auth/admin/custom-claims)).
-- Security Rules can compare one proposed write with the existing document, but Admin SDK writes bypass rules and rules are not a general sequencing engine. Server-side `{epoch, sequence}` enforcement must be transactional, and viewers still reject regressions ([rules conditions](https://firebase.google.com/docs/firestore/security/rules-conditions)).
-- TTL deletion is asynchronous, commonly within 24 hours, does not cascade into subcollections, and is not an authorization boundary ([Firestore TTL](https://firebase.google.com/docs/firestore/ttl)).
-- Emulator tests cover rules and realtime behavior but not production token expiry/signature validation, production rate limits, every transaction/index behavior, or proven TTL execution ([Firestore Emulator](https://firebase.google.com/docs/emulator-suite/connect_firestore)).
+### Viewer, cloud, and LAN gaps
 
-## Architecture overview
+- The existing `/room/:roomId/view` route uses room/timer contexts and the
+  ordinary timer engine; it has no presentation-session credential or snapshot
+  (`frontend/src/routes/AppRouter.tsx:74-98`; `ViewerPage.tsx:1-17,89-104,
+  169-180`). A new session route must be independent.
+- Current Functions export lock/operator operations only, and current public
+  rules are room-scoped; no presentation session/link/publish/read contract
+  exists (`functions/src/index.ts:1-23`; `firebase/firestore.rules:54-68,
+  117-138`).
+- Frontend emulator ports currently differ from `firebase.json`: 8080/5001 vs
+  8081/5002 (`frontend/src/lib/firebase.ts:44-60`; `firebase.json:22-35`).
+- Companion already enforces private-LAN pairing, role-bound JWTs, revocation,
+  and a 20-device cap, but current `PRESENTATION_*` envelopes carry `LiveCue`
+  without epoch/sequence/privacy isolation (`companion/src/main.ts:140-145,
+  1632-1676,3727-3764`; `interface-contracts/src/live-cue-envelopes.ts:31-57`).
+
+## Architecture and dependency boundaries
 
 ```text
-ppt-probe
-  -> @ontime/ppt-bridge
-  -> @ontime/presentation-core
-  -> shared PowerPoint host coordinator
-  -> HostView / PowerPointViewState
-  -> publisher allowlist adapter
-  -> publishPresentationSnapshot callable transaction
-  -> presentationSessionSnapshots/{sessionId}
-  -> Firestore listener OR LAN REMOTE_SNAPSHOT
-  -> validate/reduce epoch + sequence + freshness
-  -> PowerPoint display adapter
-  -> source-neutral TimerFace
+ppt-probe -> ppt-bridge -> presentation-core -> createSessionHost()/HostView
+  -> pure allowlist candidate adapter in ppt-timer main
+  -> private MessagePort -> hidden publisher utilityProcess
+  -> publishPresentationSnapshot callable -> top-level current snapshot
+     OR later loopback REMOTE_SNAPSHOT_PUBLISH -> Companion
+  -> strict viewer reducer -> PowerPoint display adapter -> TimerDisplayModel
+  -> shared timer face in browser / Downstage View
 ```
 
-The architecture has three contracts:
+The three contracts are:
 
-1. **Transport-neutral envelope** — session identity, source kind/version, server ordering, liveness policy, and availability.
-2. **Strict PowerPoint v1 payload** — host-resolved slide, headline, video, and timing fields only.
-3. **Source-neutral display model** — renderer input, never a wire payload.
+1. `RemoteSnapshotV1`: source-extensible transport envelope and strict
+   PowerPoint v1 payload, owned by pure `packages/remote-viewer-contracts`.
+2. Pure viewer reducer/clock policy, in the same package.
+3. Renderer-only `TimerDisplayModel`/DOM/CSS, owned by pure
+   `packages/timer-face`; a PowerPoint adapter is the only bridge between wire
+   payload and display model.
 
-`packages/remote-viewer-contracts` owns the first two plus pure validation/reduction. `packages/timer-face` owns the third plus framework-free DOM/CSS rendering. The PowerPoint adapter is the only module allowed to import both contracts.
+Pure packages import no Firebase, Electron, React, Socket.IO, app source,
+`local-sync-arbitration`, denylisted contexts, or `companion/src/main.ts`
+(`docs/rebuild-extraction-rules.md:61-84`). The sidecar is app-internal and may
+use Firebase/network APIs but cannot import helper/host modules. Companion's
+current CJS constraint means its later adapter remains app-internal until a
+compatible contract build is available (`docs/rebuild-progress.md:91-95`).
 
-## Corrections applied to the planning baseline
+## Wire contract
 
-These changes replace earlier proposals because current code or Firebase behavior makes the replacement safer and simpler without losing coverage:
-
-- The pure wire contract uses integer milliseconds, not Firebase `Timestamp` objects. Firebase conversion belongs in transport adapters.
-- `publishPresentationSnapshot` is an authenticated callable, not a direct client write. The callable reconstructs the allowlist, sets authoritative server time, and checks epoch/sequence in one transaction; rules deny client writes.
-- Browser emulator configuration uses Vite environment values with defaults matching `firebase.json`; Node-only Emulator Hub discovery is not copied into browser runtime code.
-- Current snapshot/status/link/lease documents are top-level one-document-per-session records with their own cleanup fields. This avoids relying on TTL to cascade through subcollections.
-- `localAdvanceMs()` remains local PowerPoint behavior because its two-second bound is tuned to the one-second COM poll cycle (`apps/ppt-timer/src/renderer/view.ts:108-114`). Remote interpolation uses a separate 25-second freshness-aware reducer.
-- A separate publisher does not import an app-internal file or duplicate host selection logic. The pure host coordinator and its policies are extracted with characterization tests into `packages/powerpoint-host`, then both `apps/ppt-timer` and the publisher consume it.
-
-## Remote contract
-
-### Envelope
+### Generic envelope and discriminated payload
 
 ```typescript
 type RemoteSnapshotV1 = {
@@ -105,6 +136,8 @@ type RemoteSnapshotV1 = {
   epoch: number
   sequence: number
   observedAtMs: number
+  observationAgeMs: number
+  preCommitTransitMs: number
   publishedAtMs: number
   heartbeatIntervalMs: number
   staleAfterMs: number
@@ -112,175 +145,300 @@ type RemoteSnapshotV1 = {
   availability: 'connecting' | 'active' | 'source-unavailable'
   payload: PowerPointPayloadV1 | null
 }
-```
 
-`publishedAtMs` is assigned inside the publish transaction. `observedAtMs` is advisory provenance only. The server writes the current policy values (10,000/25,000/60,000 ms); they remain numeric fields so a later policy retune is not a schema-major change. Every accepted transition or heartbeat increments `sequence` and writes a complete snapshot. `availability` remains source-neutral; PowerPoint-specific absence/failure reasons live in its payload. A source-unavailable snapshot may carry a reason-only payload but never stale numeric timing.
-
-The validator rejects unknown top-level keys, incompatible majors, an unknown `sourceKind`, non-finite/negative timing, inconsistent availability/payload combinations, and nested unknown keys. It constructs a new allowlisted object rather than forwarding the input object.
-
-### PowerPoint payload
-
-```typescript
-type PowerPointPayloadV1 = {
-  reason:
-    | 'presentation'
-    | 'powerpoint-not-running'
-    | 'no-slideshow'
-    | 'helper-unavailable'
-  slideNumber: number | null
-  slideCount: number | null
-  displayTitle?: string
-  headline: {
-    focusedOrdinal: number | null
-    mode: 'longest-remaining' | 'latest-started'
-    timingMode: 'remaining' | 'elapsed'
-  }
-  videos: RemoteVideoRowV1[]
-}
+type PowerPointPayloadV1 =
+  | {
+      reason: 'presentation'
+      presentationState:
+        | 'no-video'
+        | 'timing-unavailable'
+        | 'ready'
+        | 'playing'
+        | 'paused'
+        | 'ended'
+      slideNumber: number | null
+      slideCount: number | null
+      displayTitle?: string
+      headline: {
+        focusedOrdinal: number | null
+        mode: 'longest-remaining' | 'latest-started'
+        timingMode: 'remaining' | 'elapsed'
+      }
+      videos: RemoteVideoRowV1[]
+    }
+  | { reason: 'no-presentation' | 'no-slideshow' | 'helper-unavailable' }
 
 type RemoteVideoRowV1 = {
   ordinal: number
   label?: string
   status: 'ready' | 'playing' | 'paused' | 'ended'
   durationMs: number | null
-  elapsedMs: number | null
-  remainingMs: number | null
-  measuredAtPublishedMs: number
+  elapsedMsAtObservation: number | null
+  remainingMsAtObservation: number | null
   isFocus: boolean
 }
 ```
 
-The callable stamps each row's `measuredAtPublishedMs` with the same authoritative `publishedAtMs` after reconstructing the payload. For a `playing` row, the viewer computes `advanceMs = min(max(0, estimatedServerNowMs - measuredAtPublishedMs), staleAfterMs)`; elapsed increases by `advanceMs` but never beyond finite duration, and remaining decreases by `advanceMs` but never below zero. Ready, paused, ended, stale, disconnected, and source-unavailable rows never advance. This is the explicit remote replacement for the baseline export's `runningAnchor`; it is separate from the local two-second `localAdvanceMs()` and `PlaybackClock` policies.
+The process-boundary candidate is deliberately smaller than the stored wire
+snapshot:
 
-On cold bootstrap, link resolution supplies `serverNowMs`; the transport estimates server offset and rejects an already-old current snapshot. Subsequent receipt/renewal responses refine that estimate. `publishedAtMs` is never compared directly with an uncorrected client clock.
+```typescript
+type RemoteSnapshotCandidateV1 = {
+  schemaMajor: 1
+  sourceKind: 'powerpoint'
+  sourceMajor: 1
+  observedAtMs: number
+  availability: 'connecting' | 'active' | 'source-unavailable'
+  payload: PowerPointPayloadV1 | null
+}
+```
 
-### Pure reducer contract
+Main reconstructs this candidate. The sidecar adds `sessionId`, durable
+`epoch`, next `sequence`, `observationAgeMs`, and
+`sentAtEstimatedServerMs` to the callable request. The server verifies and
+reconstructs the candidate, assigns `publishedAtMs`, calculates bounded
+`preCommitTransitMs`, and writes heartbeat/stale/disconnect policy values.
+Separate candidate, request, and stored-snapshot parsers prevent any layer from
+forwarding its input object.
 
-`reduceRemoteViewer(previous, event, clock)` accepts either a validated snapshot, a transport error, or a clock tick. `clock` supplies monotonic local time and estimated server time. It:
+`connecting` carries `payload: null`. `active` requires the presentation
+variant. `source-unavailable` requires an unavailable reason and carries no
+slide/headline/video/numeric timing. `stale`, `disconnected`, `ended`, and
+`access-ended` are reducer/display states only. The strict parser reconstructs
+a new object and rejects unknown keys, incompatible majors/source, invalid
+numbers, and every invalid discriminant combination.
 
-- accepts a higher epoch and clears all prior source/display state;
-- rejects a lower epoch or a sequence less than or equal to the last sequence in the same epoch;
-- refuses a non-full first snapshot after connect/reconnect;
-- derives `live`, `stale`, and `disconnected` locally;
-- applies the bounded playing-row interpolation formula above while live;
-- stops interpolation and clears primary numeric time at stale;
-- preserves only safe connection/status copy after disconnect;
-- fails visibly on unknown schema/source major rather than using the PowerPoint adapter.
+Exact host-state mapping is:
 
-## Remote allowlist audit
+| `PowerPointViewState.kind` | Envelope | Payload |
+|---|---|---|
+| `connecting` | `connecting` | `null` |
+| `unavailable` | `source-unavailable` | `{reason:'helper-unavailable'}` |
+| `powerpoint_not_running` | `source-unavailable` | `{reason:'no-presentation'}` |
+| `no_slideshow` | `source-unavailable` | `{reason:'no-slideshow'}` |
+| `no_video` | `active` | presentation variant, `presentationState:'no-video'`, empty rows and no timing |
+| `timing_unavailable` | `active` | presentation variant, `presentationState:'timing-unavailable'`; media identity may remain but numeric timing is `null` |
+| `ready` / `playing` / `paused` / `ended` | `active` | matching `presentationState` and canonical host-resolved rows |
 
-| Viewer field | Raw/helper source | Validated/normalized source | Host-resolved source | Decision and rationale |
-|---|---|---|---|---|
-| envelope `availability` | none | none | publisher mapping | Emit only `connecting`, `active`, or `source-unavailable`; viewer alone derives stale/disconnected. |
-| PowerPoint `reason` | helper outcome/state | `BridgePollOutcome`; `PresentationSourceState` | `PowerPointViewState.kind` | Map to PowerPoint-specific presentation/not-running/no-slideshow/helper-unavailable reasons inside the v1 payload. |
-| `slideNumber`, `slideCount` | `slideNumber`, `totalSlides` | `PresentationSnapshot` | `PowerPointViewPresentation` | Include as nullable integers. |
-| `displayTitle` | `title`, `filename` | normalized title/filename | `displayTitle()` / `filenameBasename` | Include only after separator/control-character/length sanitization; disclosure only. |
-| video `ordinal` | video array order / raw id | normalized videos | `PowerPointVideoTile.ordinal` | Include ordinal; exclude raw COM id. |
-| video `label` | video name | validated string | tile/display row | Include sanitized label in disclosure only. |
-| video `status` | raw `status`/`playing` | `resolveVideoStatus()` | tile status | Include canonical status. |
-| duration/elapsed/remaining | helper milliseconds | normalized/scalar fallback | tile milliseconds | Include finite non-negative values or null. |
-| focus/headline | raw primary id/index | focus/status history | host-selected tile and headline mode | Include resolved ordinal/modes; never let viewers reselect. |
-| envelope epoch/sequence/time | none | none | none | Publisher/server generated; never added to helper/core. |
-| full `filename` / paths | helper | retained internally | basename/display helpers | Exclude. Sanitization creates a new optional label; it never forwards path fields. |
-| `instanceId` | helper | retained internally | internal only | Exclude COM/process identity. |
-| `processCount`, `selectedPid`, `comPid`, `affinityMismatch` | helper | diagnostics | multiple-instance warning | Exclude machine/affinity data. |
-| `protocolVersion`, `productVersion`, `selectedMediaId`, observation metadata | helper/validator | diagnostics | `deriveObservationMeta()` | Exclude local diagnostics. |
-| warnings/extensions/edit-slide videos | validator/helper | validation/fallback data | not required by view | Exclude. |
-| window/display geometry and Electron actions | Electron main/IPC | n/a | renderer controls | Exclude. |
-| credentials, link tokens, publisher lease | session services | n/a | n/a | Never enter a snapshot or logs. |
+This makes timing unavailability explicit without falsely declaring the
+slideshow unavailable. The remote adapter never reselects a headline or status
+from raw video fields.
 
-S1 golden fixtures must include every excluded field and prove that validation fails rather than silently forwarding it. Adversarial title fixtures cover `/`, `\\`, UNC prefixes, control characters, excessive length, and misleading extensions.
+The parser requires every `playing` row to have finite non-negative duration,
+elapsed, and remaining values; ready/paused/ended rows may use `null` only when
+the host did not measure that scalar. `presentationState:'timing-unavailable'`
+requires every numeric row field to be `null`, and `no-video` requires an empty
+row list. These invariants make the interpolation formula total rather than
+relying on nullable arithmetic.
 
-## Cloud data model
+### Observation-truth timing
 
-All paths are additive and separate from public room data:
+The numeric rows are measured by the Windows host before the sidecar invokes a
+callable. The plan never labels them as measured at server commit:
 
-| Path | Client access | Key fields | Cleanup |
+- `observedAtMs`: host-clock observation instant, provenance only.
+- `observationAgeMs`: `hostClockAtPublishHandoff - observedAtMs`, clamped to
+  `>= 0`; a same-clock-domain duration covering observation-to-handoff delay.
+- `preCommitTransitMs`: server-calculated duration from the sidecar's
+  `sentAtEstimatedServerMs` to `publishedAtMs`, clamped to
+  `[0, staleAfterMs]`; covers network ingress and function/transaction time.
+- `publishedAtMs`: server time assigned inside the epoch/sequence transaction;
+  used for freshness, not as the measurement anchor.
+
+Link resolve returns `serverNowMs`. At receipt, the viewer records a server
+offset against its monotonic clock and computes:
+
+```text
+estimatedServerNowMs = monotonicNowMs + serverOffsetMs
+sinceCommitMs = clamp(estimatedServerNowMs - publishedAtMs, 0, staleAfterMs)
+advanceMs = max(0, observationAgeMs + preCommitTransitMs + sinceCommitMs)
+elapsedNow = min(durationMs, elapsedMsAtObservation + advanceMs)
+remainingNow = max(0, remainingMsAtObservation - advanceMs)
+```
+
+Only playing rows advance while the connection is live. Ready, paused, ended,
+unavailable, stale, and disconnected rows do not. Local interpolation reaching
+zero does not invent an `ended` status; a fresh host observation does. Client
+wall time is never cross-subtracted from host/server instants. ±5-minute wall
+skew fixtures must produce the same result.
+
+The sidecar recomputes `observationAgeMs` and
+`sentAtEstimatedServerMs` immediately before every material and heartbeat
+call. It refreshes its server offset from midpoint measurements on successful
+callable responses. The server rejects a future estimate beyond bounded clock
+uncertainty and clamps excessive transit. If no reliable offset exists, it sets
+`preCommitTransitMs = 0`, emits a metric, and conservatively under-advances
+until the next acknowledged publish rather than inventing time.
+
+### Material transitions, polls, heartbeat, and budget
+
+The main allowlist adapter emits the newest host candidate at normal host poll
+cadence. The sidecar keeps one latest candidate and publishes immediately when
+availability/reason, slide identity/count, video set/order, focus/headline,
+row status/duration, or sanitized label changes. A playing timing correction is
+material when observed elapsed differs from its host-domain prediction by more
+than `MATERIAL_TIMING_DELTA_MS = 750`.
+
+Non-material polls replace the pending candidate but are not published. If no
+material publish occurs within 10 seconds, the heartbeat publishes that latest
+host observation with its real observed values and newly computed age/transit
+inputs; it never restamps the last cloud-sent numbers. Every
+accepted transition/heartbeat increments sequence.
+
+Staging target: p95 host-observation-to-viewer-DOM paint ≤1,500 ms, including
+poll edge, port, callable, Firestore, reducer, and paint. This is a measurement
+gate, not a claimed result. Viewers become stale at 25 seconds and disconnected
+at 60 seconds without a fresh publish; interpolation stops at stale.
+
+Remote interpolation does not use `localAdvanceMs`, `PlaybackClock`,
+`VideoClock`, or `PLAYBACK_DRIFT_THRESHOLD_MS`; those remain PowerPoint/local
+poll policies (`renderer/view.ts:72,108-114`; `playback-clock-model.ts`).
+
+### Ordering and epoch
+
+- Same-epoch snapshots require `sequence == serverLastSequence + 1`; viewers
+  independently reject `sequence <= lastAppliedSequence`.
+- A transient network reconnect or reattached intact port keeps epoch and next
+  sequence, then republishes the latest full snapshot.
+- `apps/ppt-timer` main restart, sidecar crash/re-spawn, or server-declared
+  publisher-device replacement increments the sealed durable epoch and resets
+  sequence to one before publishing.
+- A higher epoch clears all prior source/display state; a lower epoch is
+  rejected. The first event after connect/reconnect must be a full snapshot.
+
+## Privacy allowlist
+
+| Viewer field | Canonical source | Decision |
+|---|---|---|
+| generic availability | map `PowerPointViewState.kind` | include only connecting/active/source-unavailable |
+| PowerPoint reason | `BridgePollOutcome` → `PresentationSourceState` → `PowerPointViewState` | include discriminated reason |
+| slide number/count | validated observation → `PresentationSnapshot` → `PowerPointViewPresentation` | include nullable integers |
+| display title | `displayTitle()` / basename projection | sanitize separators/control characters/length; disclosure only |
+| video ordinal | host tile order | include; raw COM/media ID excluded |
+| video label | host-resolved tile label | sanitize; disclosure only |
+| status/timing | `resolveVideoStatus()` and projected tile | include canonical finite values/null only |
+| focus/headline | host focus tracker and `selectPlayingHeadline()` | include resolved ordinal/modes; viewers never reselect |
+| epoch/sequence/times | publisher/server | include; never add to helper/core |
+| full filename/deck path | helper/core internal | exclude |
+| `instanceId`, process counts/PIDs/COM affinity | helper diagnostics | exclude |
+| protocol/product/helper path/warnings/extensions/observation metadata | validator/host diagnostics | exclude |
+| edit-slide videos, raw selected media ID | local internals | exclude |
+| window/display geometry and renderer actions | Electron | exclude |
+| credentials, link tokens/hashes | sidecar/cloud | never enter snapshot/logs |
+
+Golden fixtures seed every forbidden field and prove reconstruction rather
+than forwarding. Title/label adversarial cases include `/`, `\\`, UNC prefix,
+control characters, misleading extensions, and over-length values.
+
+## Sidecar process, protocol, and secure storage
+
+### Process and channel
+
+Electron's documented `utilityProcess.fork()` provides a Node child and
+transferable `MessagePortMain`; it is available from main after `app.ready`.
+The compiled sidecar entry is explicitly included by electron-builder inside
+the existing product, without another installer identity. Implementation must
+verify the exact pinned 43.2.0 behavior and packaged path before S6a exits.
+
+Main creates a per-spawn nonce and channel. `HELLO/READY` negotiates protocol
+major, capabilities, maximum message size, and nonce before other messages.
+Both ends reject unknown kinds/keys, wrong nonce, incompatible major, and
+oversize payloads. Lifecycle messages are `SHARE_START`, `SHARE_STOP`,
+`END_SESSION`, `SHUTDOWN`; data is `SNAPSHOT_CANDIDATE`; safe outputs are
+`AUTH_REQUIRED`, `SHARE_STATE`, `PUBLISH_STATUS`, `VIEWER_LINK`, `SAFE_ERROR`,
+`ACK/NACK`, and `SHUTDOWN_COMPLETE`. Storage brokerage uses opaque
+`SEAL_REQUEST`, `UNSEAL_REQUEST`, `CLEAR_SEALED`, and response bytes.
+
+One publish may be in flight and one latest candidate may wait. New candidates
+replace the waiting candidate. Port teardown cancels timers, retries, and
+pending state. The protocol contains no viewer-to-PowerPoint or helper-control
+message. Import/bundle tests deny sidecar access to `ppt-bridge`, helper
+discovery, presentation host, renderer IPC, and `child_process`.
+
+### Credential lifecycle
+
+Publisher approval uses the system browser and a registered app callback URI.
+`beginPresentationPublisherAuth` creates a five-minute PKCE/state challenge;
+the authenticated owner approves in the web app; completion verifies callback
+scheme, state, verifier, expiry, owner binding, and one-time consumption.
+Success mints a dedicated publisher-device principal, not the owner's normal
+session.
+
+The sidecar owns credential meaning. Electron main is the only `safeStorage`
+broker and seals/unseals versioned opaque bytes stored in a dedicated atomic
+credential file under user data. It never interprets secret fields. Bytes do
+not enter JSON settings, preload/renderer IPC, logs, snapshots, approval URLs,
+or viewer links. Electron's `safeStorage` encrypt/decrypt calls are synchronous,
+so the broker bounds payload size and keeps them off the host polling path;
+credential-file replacement remains asynchronous and atomic. On Windows the
+encryption is DPAPI-backed. If encryption is unavailable, corrupted, or
+temporarily unavailable, sharing is disabled with a redacted actionable error;
+there is no plaintext fallback and the local countdown remains operational.
+
+Refresh updates sealed state atomically. Sign-out ends active sharing, revokes
+the device's refresh tokens, clears sealed bytes, and leaves other owner
+sessions untouched. The account UI lists/revokes devices for lost-device
+recovery; server-side device status/generation blocks further session calls.
+
+### Lifecycle table
+
+| Event | Host/main | Sidecar/cloud | Viewer |
 |---|---|---|---|
-| `/presentationSessions/{sessionId}` | deny viewer; owner reads through callables | `publisherUid`, `publisherLeaseHash`, `epoch`, `lastSequence`, `status`, `sourceKind`, `roomId?`, `viewerGeneration`, `activeWindowExpiresAtMs`, `lastPublishAtMs`, `activeViewerCount`, `cleanupAfterMs` | TTL on `cleanupAfterMs`; scheduled reconciler handles dependent top-level docs. |
-| `/presentationSessionSnapshots/{sessionId}` | viewer read only; no client writes | validated `RemoteSnapshotV1`, `cleanupAfterMs` | TTL on `cleanupAfterMs`. |
-| `/presentationSessionViewerStates/{sessionId}` | matching viewer generation read only | `status`, `sourceKind`, `viewerGeneration`, `activeWindowExpiresAtMs`, `lastPublishAtMs`, `cleanupAfterMs` | TTL on `cleanupAfterMs`. |
-| `/presentationViewerLinks/{tokenHash}` | deny all clients; callable only | `sessionId`, `viewerGeneration`, `status`, `expiresAtMs`, `cleanupAfterMs` | TTL. Plain token never stored. |
-| `/presentationViewerLeases/{leaseId}` | rules may `get`; no direct client read/write | `sessionId`, `viewerGeneration`, `status`, `expiresAtMs`, `cleanupAfterMs` | TTL plus scheduled count reconciliation. Created only if S2 ratifies hard-cap enforcement. |
-| `/presentationRequestResults/{uid_requestId}` | deny all clients; callable only | operation, request hash, completed result/error, `cleanupAfterMs` | 24h TTL; durable idempotency for lost responses. |
-| `/presentationPublisherAuthChallenges/{challengeId}` | deny all clients; auth callables only | hashed verifier, status, approved uid, expiresAtMs, `cleanupAfterMs` | Five-minute TTL; one-time system-browser sign-in exchange. |
+| share start | keep existing host; spawn/handshake sidecar; send latest candidate | authenticate/create or resume; publish full snapshot | resolves link and bootstraps |
+| hide/minimize | keep host and sidecar running; never cover show output | unchanged | remains live |
+| explicit stop sharing | local host/countdown continues | stop heartbeat/retry, end or pause remote session per explicit UI choice, ACK then idle/exit | ended/access-ended or stales only if network failure |
+| sidecar/network failure | show safe retry state; never stop host | latest-only retry; crash re-spawn increments epoch | live→stale→disconnected until recovery |
+| app quit/OS shutdown | stop UI actions; request sidecar shutdown; always close host/helper within bounded shutdown | bounded final semantic publish, cancel retry, flush sealed state, ACK; killed after deadline | ended when final end succeeds, otherwise freshness states |
+| app update | stop sharing and sidecar before installer handoff | revoke no credentials unless sign-out; resume explicitly after update | ended/disconnected as declared by UI |
 
-No composite query is required for steady-state publish/read. Cleanup/reconciliation queries require single-field indexes on `cleanupAfterMs`, `sessionId`, `status`, and `expiresAtMs`; high-churn `sequence` and timestamp fields are exempted from unnecessary indexing. Callable idempotency is backed by `/presentationRequestResults`: the first transaction stores the normalized request hash and result, retries with the same request return that result, and reuse with a different request fails. Publisher authentication uses a system-browser approval route because embedded Google OAuth is not an accepted Electron boundary; the one-time challenge binds the browser-authenticated owner to the desktop app without exposing the refresh credential to the browser URL.
+Existing single-instance behavior, context isolation, blocked navigation/
+popups, S-033 sender identity, package-content tests, helper cleanup, and Store
+boundaries must remain green. Hiding is distinct from close/quit; any expansion
+of `window-all-closed` is narrow, explicit, and covered by S6d/S7.
 
-### Viewer-generation revocation
+## Cloud, browser, and LAN contracts
 
-The opaque link resolves to a custom token with claims `{ role: 'presentation-viewer', sessionId, viewerGeneration, leaseId? }`. The field name `viewerGeneration` is identical in session, link, lease, claim, and response documents. Rules compare it to the live session document. Rotation or revocation increments the session generation, immediately invalidating existing claims on the next rules evaluation even though Firebase Auth remains signed in. Ending a session keeps the generation, writes viewer state `ended`, and denies snapshot reads; connected viewers can render the safe ended state. Link revocation increments generation, so the revoked viewer loses both snapshot and viewer-state access.
+The exact data, callable, rate-limit, rule, IPC, browser, and LAN matrices are
+canonical in
+`docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`.
 
-## Endpoint contract
+Key invariants:
 
-All public secrets are accepted only over HTTPS. Viewer links use `/session/:sessionId/view#token=<opaque>` so the token is not sent in the HTTP path, query string, access logs, or referrer. Logs contain session ID, UID, epoch, sequence, error code, and latency only—never opaque tokens, hashes, display titles, or video labels.
+- callables reconstruct the allowlist and atomically enforce device ownership,
+  epoch, exact next sequence, `viewerGeneration`, status, and 24-hour window;
+- publish stores a canonical last-request hash/result in the session; because
+  the sidecar allows one in-flight sequence, an identical lost-response retry
+  returns the stored result while a mismatched same-sequence retry fails;
+- durable `/presentationRequestResults` makes lost-response retries for the
+  other `clientRequestId` operations safe; publish uses its session-local
+  sequence/hash/result transaction instead;
+- Firestore-backed fixed-window buckets provide distributed rate limits;
+- sensitive auth/link resolution fails closed on limiter failure, while active
+  publication may proceed with an alert so infrastructure failure does not
+  disconnect a show;
+- all snapshot/client writes are denied; matching viewers read only safe state
+  and current snapshot through one session-document rules lookup;
+- top-level TTL documents plus scheduled cleanup avoid cascade assumptions;
+- `/session/:sessionId/view#token=...` uses a dedicated hook/reducer and never
+  imports current room/timer contexts;
+- route teardown detaches state then snapshot listeners, cancels all clocks,
+  clears credentials, and has no lease timer/release;
+- later LAN adds independently typed `REMOTE_SNAPSHOT_PUBLISH` and
+  `REMOTE_SNAPSHOT`, with a loopback-only publisher role and the existing
+  private-LAN trust/pairing/revocation/20-device policy.
 
-| Operation | Route and authorization | Request → response | Transaction/data effects | Idempotency, limits, errors, retry | Verification |
-|---|---|---|---|---|---|
-| Begin publisher sign-in | callable `beginPresentationPublisherAuth`; unauthenticated publisher app with PKCE verifier | `{challenge,codeChallenge,callbackUri}` → `{challengeId,approvalUrl,expiresAtMs}` | Store five-minute one-time challenge hash. Publisher opens approval URL in the system browser. | 10/min/device/IP; `resource-exhausted`; retry creates a new challenge. | Emulator covers expiry/replay; desktop test proves system-browser launch and deep-link/loopback callback. |
-| Approve/complete publisher sign-in | authenticated browser route approves; callable `completePresentationPublisherAuth` exchanges verifier | `{challengeId,codeVerifier,deviceId}` → `{customToken,serverNowMs}` | Bind challenge to signed-in owner, consume once, mint a dedicated publisher-device Firebase principal with claims `{role:'presentation-publisher',ownerUid,deviceId}`. Publisher signs in through a `safeStorage`-backed Auth persistence adapter. | One-time; `permission-denied`, `deadline-exceeded`, `already-exists`; never retry consumed exchange. | Staging uses real Google/Firebase approval, device-token refresh, sign-out, and refresh-token revocation scoped to the device principal rather than the owner's normal sessions. |
-| Create session | callable `createPresentationSession`; authenticated publisher-device principal | `{clientRequestId, roomId?}` → `{sessionId, publisherLease, viewerUrl, epoch:1}` | Create session, viewer state, link hash; initialize viewer generation and 24h active window. Enforce max three active sessions/owner as a configurable abuse guardrail. | Idempotent through `/presentationRequestResults`; 5/min/uid; `unauthenticated`, `resource-exhausted`, `already-exists`; retry only with same request ID. | Emulator asserts active-session cap, durable idempotency, hashed-at-rest secrets, and distinct publisher/viewer credentials. |
-| Resume/replace publisher | callable `resumeOrReplacePresentationPublisher`; owner auth + prior lease or explicit takeover confirmation | `{sessionId, clientRequestId, takeover}` → `{publisherLease, epoch, viewerUrl}` | Transaction checks owner/current lease, rotates lease, increments epoch, resets sequence, extends active window. | Idempotent by request ID; 10/min/uid; `permission-denied`, `not-found`, `failed-precondition`; retry same ID. Foreign/second publisher is rejected. | Concurrent emulator test proves one winner and stale lease rejection. |
-| Issue/rotate link | callables `issuePresentationViewerLink`, `rotatePresentationViewerLink`; owner + publisher lease | `{sessionId, clientRequestId}` → `{viewerUrl, viewerGeneration, expiresAtMs}` | Store new token hash; rotate increments `viewerGeneration` and invalidates prior link/leases. | 10/min/session; `permission-denied`, `failed-precondition`; non-repeat request creates a new secret, so retry same ID. | Old link and established old generation lose read access after rotation. |
-| Revoke link | callable `revokePresentationViewerLink`; owner + lease | `{sessionId, clientRequestId}` → `{revoked:true,viewerGeneration}` | Revoke link, increment `viewerGeneration`, mark leases revoked, update safe viewer state. | Idempotent; 10/min/session; safe retry. | Existing listener receives permission denial; resolving old token fails. |
-| Resolve/admit viewer | HTTPS callable `resolvePresentationViewerLink`; unauthenticated opaque token | `{sessionId, token}` → `{customToken, leaseId?, serverNowMs, activeWindowExpiresAtMs}` | Hash token; verify active link/window/session. If hard cap, transactionally admit/renew a 90s lease and count. | 30/min/IP plus session cap; `permission-denied`, `resource-exhausted`, `not-found`; exponential backoff only for transient errors. | Production test covers real custom-token sign-in; emulator covers claims and denial paths but not signature/expiry. |
-| Renew viewer lease | callable `renewPresentationViewerLease`; authenticated matching viewer | `{leaseId}` → `{expiresAtMs,serverNowMs}` | Extend 90s lease; reconcile count/status. Client renews every 30s. | 6/min/lease; idempotent per lease; stop retry after revoked/ended. | Hard-cap mode only: expiry/revocation removes access and count. |
-| Publish snapshot | callable `publishPresentationSnapshot`; owner auth + publisher lease | `{sessionId,epoch,sequence,observedAtMs,availability,payload}` → `{acceptedSequence,publishedAtMs}` | Reconstruct strict allowlist; transaction checks active session, lease, epoch, and `sequence == lastSequence + 1`; set server time; write full snapshot, viewer state, last publish/cleanup. | Server cap 5 writes/sec/session; `invalid-argument`, `permission-denied`, `failed-precondition`, `aborted`; retry same sequence only on unknown outcome, treating already-accepted as success. | Emulator covers forbidden fields, foreign/stale publisher, duplicate/out-of-order, transition + heartbeat. |
-| Bootstrap/subscribe | Firestore reads of viewer state + snapshot; custom-token claims and optional lease | no request body → two document listeners | No writes. Attach viewer-state listener first, then current snapshot; reducer requires a full snapshot before live. | SDK reconnects; permission loss is terminal until link is resolved again. | Rules tests deny unauthenticated/wrong-generation/expired/ended/lease-expired reads. |
-| End session | callable `endPresentationSession`; owner + lease | `{sessionId,clientRequestId}` → `{ended:true}` | Transaction writes viewer state `ended`, session `ended`, revokes publisher lease, sets cleanup +7d. Snapshot reads become denied. | Idempotent; 10/min/session; safe retry. | Viewer renders ended from safe state; subsequent publish/read denied. |
-| Cleanup | scheduled `cleanupExpiredPresentationSessions`; service account | internal batch → metrics | Reconcile expired leases/counts; delete dependent top-level docs; TTL remains a safety net. | Retry-safe by document ID; bounded batches; alarms on backlog. | Unit-test eligibility boundaries; staging verifies TTL/scheduler because emulator is insufficient. |
-| Attach/detach room | callables `attachPresentationSessionRoom` / `detachPresentationSessionRoom`; owner | `{sessionId,roomId?,clientRequestId}` → `{roomId}` | Update optional room only; no link/claim/snapshot semantics change. | Idempotent; 10/min/session. Future slice, disabled in v1 UI. | Emulator proves room attachment grants no extra viewer/publisher authority. |
-| LAN snapshot | Socket.IO server event `REMOTE_SNAPSHOT`; admitted LAN viewer JWT | full `RemoteSnapshotV1` | No cloud writes; Companion emits validated snapshots and bootstrap replay. | Same epoch/sequence reducer; existing 20-device cap, 10m pairing code, 8h JWT. | Contract parity fixtures produce identical display state over cloud and LAN. |
+## Source-neutral face extraction
 
-Routing every transition and heartbeat through a callable adds invocation and cold-start latency. Session creation/resume occurs before first publish and should warm the deployment; S3 also measures cold and warm `publishPresentationSnapshot` latency and records whether a production `minInstances` setting is required. That cost is included in the S2 service policy and staging load-test budget rather than hidden behind a Firestore-only p95 target.
-
-### Rules predicates
-
-Client writes to all five collections are denied. Callable/Admin writes must enforce their own transactions. Viewer reads require:
-
-- authenticated claim role `presentation-viewer`;
-- claim `sessionId` equals requested document ID;
-- claim `viewerGeneration` equals the current private session generation;
-- session is active and `request.time` is before the active window for snapshot reads;
-- if hard-cap mode is ratified, the claim's lease exists, matches `sessionId` and `viewerGeneration`, is active, and has not expired.
-
-The safe viewer-state document may remain readable to the matching current generation after `status: ended` so the UI can render an explicit end state. Rotation/revocation changes generation and removes that access. Existing public `/rooms` rules remain unchanged and never authorize these collections.
-
-### Cloud viewer-cap decision
-
-S2 must record both a number and enforcement mode:
-
-- **Recommended:** support and hard-admit at most 50 concurrent viewer **leases**/session; lease 90 seconds, renew every 30 seconds. The number is a product/cost/load-test guardrail, not a Firestore limit or a count of unique humans.
-- **Alternative:** a documented 50-viewer support target with monitoring only. This is simpler but cannot truthfully reject the 51st viewer.
-
-If hard-cap mode is chosen, S3 implements leases, transactional `activeViewerCount`, expiry reconciliation, and rules checks. `sessionStorage` reuses a lease across same-tab reloads, but a closed tab or new tab may transiently consume another lease until the old 90-second lease expires; this bounded over-count is accepted and the cap is explicitly on active leases, not people. Acceptance requires a staged load test with 50 admitted leases receiving snapshots for 30 minutes, a p95 transition-to-render target recorded before the run, zero sequence regressions, and deterministic denial of lease 51 after bounded stale-lease reconciliation. A higher cap requires a new load-test result, not a constant-only edit. Each snapshot read performs one rules `get()` for session state and, in hard-cap mode, one for the lease; this read amplification is included in cost/load measurements.
-
-## Publisher boundary and lifecycle
-
-### Decision gate
-
-1. **Separate `apps/downstage-publisher` (recommended).** Keeps Firebase, credentials, background lifecycle, link management, and retry policy out of `apps/ppt-timer`. A shared `packages/powerpoint-host` preserves the exact host-resolved semantics for both applications.
-2. **Extend `apps/ppt-timer`.** Requires explicit approval to cross its content boundary, change `window-all-closed` behavior, add tray/background lifecycle, add Firebase dependencies, and broaden the S-033 IPC/security review (`apps/ppt-timer/src/main/ipc.ts:1-35`).
-3. **Companion-hosted publisher (rejected).** It expands the denylisted `companion/src/main.ts` composition root and couples cloud session ownership to LAN room infrastructure.
-
-The recommendation is Option 1 because it meets the explicit outer-publisher requirement, preserves the local app's packaging/security surface, and avoids inventing an out-of-process tap into IPC that is intentionally restricted to `mainWindow.webContents` (`apps/ppt-timer/src/main/ipc.ts:10-35`).
-
-### Option 1 implementation shape
-
-- Extract the app-neutral coordinator, focus tracker, status stabilizer, and adaptive poll policy into `packages/powerpoint-host`. Preserve public behavior with characterization tests before moving code. `apps/ppt-timer/src/main/session-host.ts` becomes a thin compatibility import/wrapper.
-- `apps/downstage-publisher` imports `@ontime/powerpoint-host`, `@ontime/remote-viewer-contracts`, Firebase client auth/callables, and Electron. It owns no presentation normalization or focus logic.
-- **One observer per show machine:** standalone `apps/ppt-timer` and Remote publisher mode are mutually exclusive. Both acquire the same Windows host lock from `packages/powerpoint-host` before spawning `ppt-probe`; the second process shows a deterministic "PowerPoint already in use by another Downstage host" state and does not start another helper/COM client. Remote publisher mode renders the shared compact timer face locally, so the operator does not need both apps running. Cross-process tests cover clean exit and stale-lock recovery after a crash.
-- Owner sign-in uses the system-browser challenge flow in the endpoint table, reusing the existing web Google/Firebase authentication rather than embedding OAuth. Approval mints a dedicated publisher-device Firebase principal containing `ownerUid`, so revoking that device's refresh tokens does not sign the owner out elsewhere. The publisher uses a `safeStorage`-backed Firebase Auth persistence adapter and separately encrypts the publisher lease; only atomic non-secret metadata is stored beside them. Sign-out clears persistence and revokes the device principal. `settings-store.ts` is not reused.
-- Startup loads encrypted state, authenticates or refreshes the owner, offers resume/replace or new session, obtains a new lease/epoch, acquires the single-host lock, then starts the shared PowerPoint host. Process restart or lost/taken lease increments epoch; a transient network reconnect with the same valid lease keeps the epoch and next sequence.
-- Each `onView` event maps to an allowlisted full snapshot and publishes immediately. A 10-second scheduler republishes the latest complete snapshot with the next sequence.
-- Network loss queues only the latest complete snapshot, never an unbounded delta log. A transient reconnect with the still-valid lease keeps the epoch and next sequence, then publishes the latest full state. Only process restart, lease replacement/takeover, or server-declared lease loss increments epoch and resets sequence to one.
-- Shutdown stops new publishes, attempts one final unavailable/ended status only when semantically correct, waits a bounded network drain, then closes the shared host/helper. A failed final publish never delays helper shutdown indefinitely.
-
-## Source-neutral timer-face extraction
-
-### Boundary
-
-`packages/timer-face` is a framework-free DOM/CSS package. It accepts only `TimerDisplayModel`; it imports no PowerPoint, Firebase, React, Electron, room, or control types. `apps/ppt-timer` supplies its existing PowerPoint adapter, the browser wraps the DOM mount in a React lifecycle component, and `apps/downstage-view` loads the same viewer bundle.
+| Current symbol/surface | Destination | Rule |
+|---|---|---|
+| `formatTime`, timer-fit DOM, accessibility announcement, compact palette/stack/time CSS | `packages/timer-face` | pure display-model input; exact output/DOM characterization |
+| `RenderModel`/`VideoRowModel` | reshape to `TimerDisplayModel`/`DisclosureRow` | no PowerPoint/Firebase/Electron types |
+| `describeView`, PowerPoint status/badge/disclosure-row mapping | PowerPoint adapter | maps host/remote PowerPoint state only |
+| `renderPowerPointPanel`/`renderVideoList` | split shared face mount from adapter rows | preserve compact face and list behavior |
+| `localAdvanceMs`, `PlaybackClock`, `VideoClock`, `clockValue` | local PowerPoint adapter | never remote/generic timing |
+| `PanelSessionState`, auto-open/Escape | PowerPoint disclosure UX | characterize before any shared state |
+| PowerPoint options/diagnostics | local PowerPoint UI | absent from read-only viewers |
+| native window controls, `mountApp`, preload/actions | Electron wrapper | absent from browser shell |
 
 ```typescript
 type TimerDisplayModel = {
@@ -291,7 +449,6 @@ type TimerDisplayModel = {
   badge?: 'playing' | 'paused' | 'retry' | 'warning'
   disclosureRows: DisclosureRow[]
 }
-
 type DisclosureRow = {
   key: string
   nameText: string
@@ -301,315 +458,167 @@ type DisclosureRow = {
 }
 ```
 
-### Extraction map
+The local app is adapted only after characterization and must retain the
+existing status copy, compact geometry, hover controls, disclosure ownership,
+focus restoration, and timing. A future stage-timer fixture proves the shell
+has no PowerPoint dependency but does not implement a sender.
 
-| Symbol/surface | Current location | Destination/classification | Rule |
+## Bounded execution index
+
+S0–S10 remain immutable parent IDs. The old S2 owner gate is complete and the
+old lease/independent-publisher definitions are superseded. Suffixes split
+multi-owner/XL work into exclusive checkpoints.
+
+| ID | Goal / done when | Owner and exclusive paths | Dependencies | Size |
+|---|---|---|---|---|
+| S0 | Emulator ports configurable and default to `firebase.json`; focused tests green | Mac: `frontend/src/lib/firebase.ts`, `.env.example`, config test | none | S |
+| S1a | Strict envelope/payload/sanitizer/parser package | Mac: `packages/remote-viewer-contracts` schema/parser/fixtures | S0 | M |
+| S1b | Reducer, observation timing, comparator, skew, freshness fixtures | Mac: same package reducer/clock tests; serialized after S1a | S1a | M |
+| S2 | **Complete:** D1/D2 recorded; old gate superseded | docs only | none | — |
+| S3a | Publisher-device auth, challenges, device lifecycle, active-session cap, idempotency | Mac: Functions presentation auth/session modules and tests | S1a | M |
+| S3b | Viewer links, generation, read authorization/rules | Mac: link Functions, rules, emulator tests | S3a | M |
+| S3c | Publish transaction/current snapshot/viewer state | Mac: publish Function and focused tests | S1b,S3b | M |
+| S3d | Cleanup, TTL/indexes, rate limits, monitoring and 50-viewer load plan | Mac: cleanup/limiter/config/tests | S3c | M |
+| S4a | Characterize and create source-neutral timer face | Mac: `packages/timer-face`; no local app edit | S1a | M |
+| S4b | Adapt existing ppt-timer and remote PowerPoint fixtures without UX change | Windows: `apps/ppt-timer/src/renderer/{view.ts,powerpoint-panel.ts,styles.css,main.ts}` and focused tests | S4a,S1b | M |
+| S5a | Browser session route/link resolve/subscription/reducer | Mac: new session route/hook/link helper | S3c,S4a | M |
+| S5b | Browser teardown/access states/user testing/build | Mac: session-viewer components/tests | S5a | S |
+| S6a | Utility-process protocol, broker interface, lifecycle harness; no cloud | Windows: `apps/ppt-timer/src/main/publisher-sidecar/{protocol.ts,launcher.ts,lifecycle.ts,*.test.ts}` and `apps/ppt-timer/src/main/main.ts` | S1b | M |
+| S6b | System-browser device auth and encrypted persistence | Windows: `apps/ppt-timer/src/main/publisher-sidecar/{auth.ts,credential-store.ts,*.test.ts}` | S6a,S3a | M |
+| S6c | Cloud publication, heartbeat, retry, epoch and session UI state | Windows: `apps/ppt-timer/src/main/publisher-sidecar/{publisher.ts,retry.ts,heartbeat.ts,*.test.ts}`, `apps/ppt-timer/src/{main/main.ts,shared/ipc-contract.ts,preload/preload.ts,renderer/main.ts,renderer/panel-options.ts}` | S6b,S3c,S4b | M |
+| S6d | Packaged worker, close/hide/update/shutdown/crash behavior and S-033 audit | Windows: `apps/ppt-timer/{electron-builder.yml,package.json}`, `src/main/{main.ts,package-content.test.ts,main.lifecycle.test.ts}` | S6c | M |
+| S7 | Live Windows/PowerPoint/Presenter View acceptance | Windows: evidence docs only after packaged build | S6d | M |
+| S8a | Shared desktop viewer wrapper and renderer integration | Mac: `apps/downstage-view/src/{main,preload,renderer,shared}/**`, `package.json`, tests | S5b | M |
+| S8b | macOS packaging/notarization-ready named tester build | Mac: `apps/downstage-view/electron-builder.yml` macOS block and macOS package tests | S8a | S |
+| S8c | Windows viewer packaging and no-helper bundle audit | Windows: `apps/downstage-view/electron-builder.yml` Windows block and Windows package tests, serialized after S8b | S8a,S8b | S |
+| S9a | Independent LAN envelopes and loopback publisher admission | Mac: `packages/interface-contracts/src/remote-snapshot-envelopes.ts`, barrel/tests; `companion/src/remote-snapshot.ts` and registration tests | S1b,S6c | M |
+| S9b | LAN cache/bootstrap/broadcast/viewer integration and 20-device proof | Mac: `companion/src/remote-snapshot.ts`, focused Companion tests, and viewer LAN adapter/tests | S9a,S5b | M |
+| S10 | Frozen future stage-timer sender/control | none | future issue | — |
+
+## Slice verification, rollback, and stop rules
+
+| Slice group | Automated commands / PASS definition | Manual gate | Rollback / stop |
 |---|---|---|---|
-| `formatTime()` | `renderer/view.ts:91-102` | `timer-face` pure formatting | Preserve exact output and tests. |
-| `RenderModel`, `VideoRowModel` | `renderer/view.ts:27-51` | reshape into display model/row | Remove PowerPoint state types from public surface. |
-| `announcementFor()` | `renderer/view.ts:312+` | timer-face accessibility | Input is display model only. |
-| `timerFitWidthCqw()`, `setTimerText()` | `renderer/powerpoint-panel.ts:38-52` | timer-face DOM utility | Preserve fit behavior. |
-| compact `.status`, `.time`, palette, timer stack | `renderer/styles.css:1-167` | timer-face CSS | Preserve charcoal face and visual tokens. |
-| `describeView()` | `renderer/view.ts:228+` | PowerPoint adapter | Converts host/remote PowerPoint semantics into display model. |
-| `renderPowerPointPanel()`, `renderVideoList()` | `renderer/powerpoint-panel.ts:58-93` | split generic face mount from PowerPoint disclosure adapter | Rows stay adapter-provided; DOM is shared. |
-| `localAdvanceMs()` | `renderer/view.ts:108-114` | remains local PowerPoint adapter | Two-second COM-poll bound is not remote freshness. |
-| `PlaybackClock`, `VideoClock`, `clockValue()` | `renderer/playback-clock*.ts` | remains local PowerPoint-only | Never used for remote interpolation. |
-| `PanelSessionState`, `reconcilePanelState()` | `renderer/panel-state.ts` | PowerPoint disclosure UX | Characterize auto-open/Escape behavior before deciding what shell state is shared. |
-| `renderOptionStrip()` | `renderer/panel-options.ts` | PowerPoint-only options | Timing/headline/diagnostic controls do not enter read-only viewers. |
-| `renderWindowControls()` | `renderer/panel-options.ts` | Electron wrapper | Not in browser shell. |
-| `mountApp()`, `renderApp()`, `PreloadApi`, `RendererAction` | renderer main / IPC contract | Electron-only | Remain app wrappers. |
+| S0 | frontend config test; frontend lint/typecheck/test; rules/join emulator suites | none | revert config; stop if production connects to emulator without flag |
+| S1a–b | remote-contract tests/typecheck + guardrails | none | delete unused package; stop on permissive parser/forbidden import/unknown-key pass |
+| S3a–d | Functions build; presentation emulator/rules tests; guardrails | staging Auth, TTL, limiter, cold/warm latency, 50 viewers for 30 minutes with p95/reads/cost | disable exports/rules; revoke generations; stop on direct write or non-transactional ordering |
+| S4a–b | timer-face tests/typecheck; full ppt-timer suite/typecheck; DOM before/after; guardrails | local visual regression smoke | retain old local renderer shim; stop on timing/UX change or generic PowerPoint import |
+| S5a–b | frontend test/lint/typecheck/build; listener/timer leak assertions | Chrome/Safari/Firefox screenshots plus console/network audit | remove route; stop on token in URL/log or room-context import |
+| S6a–d | ppt-timer tests/typecheck/build; protocol/import/package-content/lifecycle/crash tests; guardrails | live Windows auth/share/stop/crash/update/quit | feature flag/remove sidecar; stop if second helper, plaintext secret, local countdown interruption, or S-033 regression |
+| S7 | targeted host/bridge/core/timer suites rerun on exact source plus packaged manual matrix | PowerPoint/Presenter View/confidence monitor, sleep/wake/network loss | do not release; local app remains authoritative |
+| S8a–c | desktop tests/typecheck/build/package-content | macOS and Windows compact/disclosure/access-ended workflows | withdraw viewer package; cloud browser remains |
+| S9a–b | interface-contract and Companion tests/build; cloud/LAN parity; unauthorized publish/device-21 denial | private LAN HTTPS/WSS pairing/trust | disable LAN registration; cloud remains |
 
-Characterization precedes extraction. `apps/ppt-timer` must pass its existing 430-test baseline plus targeted DOM snapshots before and after the move. Remote adapters get new fixtures for connecting, ready, playing, paused, ended, helper unavailable, stale, disconnected, multi-video disclosure, and source switching. Switching source/epoch recreates adapter state so no prior rows, clocks, titles, or focus leak.
+All commands are **NOT RUN (documentation-only)** in this revision. Every new
+production file stays below 400 lines unless the documented pure-wiring
+exception applies. No two concurrent slices own the same rules, package,
+renderer, sidecar, packaging, or Companion file.
 
-## Surface flows
+## Scenario and conformance mapping
 
-### Cloud browser
+`docs/spec/downstage-remote-powerpoint-viewer.conformance.md` is canonical and
+marks RPV-001 through RPV-010 Not-built. Closing mappings are:
 
-1. Publisher creates or resumes a session and receives a lease/epoch.
-2. `onView` publishes a full snapshot; the 10-second heartbeat republishes full state.
-3. Operator shares `/session/:sessionId/view#token=<opaque>`.
-4. Viewer resolves the fragment token, receives a custom token/server time/optional lease, removes the token from browser history state, and signs in.
-5. Viewer subscribes to safe viewer state, then current snapshot; it validates and reduces before adapting to `TimerDisplayModel`.
-6. The existing timer face renders status/time; the disclosure reveals sanitized rows.
-7. On route change/unmount, teardown detaches viewer-state then snapshot listeners, cancels the monotonic interpolation/freshness clock, stops lease renewal, and best-effort releases the lease. Tab visibility may reduce paint frequency but never renew after teardown.
-8. Permission loss, stale/disconnect, end, and reconnect follow the failure table below.
+- RPV-001: S6a–S7; RPV-002: S4a–S4b/S8; RPV-003: S3/S5;
+- RPV-004: S9; RPV-005: S4/S5/S8; RPV-006: S1/S4/S6;
+- RPV-007: S1/S3c/S5/S6c/S9; RPV-008: S1/S4/S5/S6;
+- RPV-009: S5/S9; RPV-010: S3/S5/S6a/S9.
 
-`SessionViewerPage` is a new route. It does not import `useRoom`, `useTimers`, `useTimerEngine`, `UnifiedDataContext`, or `FirebaseDataContext`.
+The matrix names exact automated and manual evidence. No row changes on an
+agent report alone.
 
-### Downstage View desktop
+### Readiness traceability
 
-`apps/downstage-view` is a thin Electron wrapper around the same viewer-only frontend bundle. It adds platform window geometry, always-on-top, tray, deep-link handling, and secure storage for viewer credentials; it contains no helper, COM, PowerPoint observation, publisher, room editing, or timer-control dependency. Cloud and LAN adapters produce the same reducer events.
-
-### LAN
-
-S9 reuses Companion HTTPS/WSS, certificate trust, pairing-code/JWT lifecycle, and 20-device cap. It adds independently typed `REMOTE_SNAPSHOT_PUBLISH` and `REMOTE_SNAPSHOT` events in `packages/interface-contracts`, both carrying `RemoteSnapshotV1`. The Windows publisher connects to Companion over loopback as a new `presentation-publisher` role using a one-time, loopback-only token minted by Companion; Companion validates and caches the latest full snapshot by session, then bootstraps/broadcasts `REMOTE_SNAPSHOT` to admitted viewer roles. It never mirrors cloud state back into LAN and never accepts publication from a LAN viewer. A narrow Companion adapter imports the contract; pure packages never import `companion/src/main.ts`. Pairing remains room-scoped in the first LAN slice, while the event includes presentation `sessionId`. Existing `PRESENTATION_*` replay is untouched.
-
-## Failure, expiry, and recovery
-
-| Condition | Publisher/server behavior | Viewer behavior | Required proof |
-|---|---|---|---|
-| PowerPoint absent | Publish envelope `source-unavailable` with PowerPoint reason `powerpoint-not-running` and no slide/video timing. | Show explicit unavailable copy; no numeric timing. | Contract + adapter fixtures. |
-| No slideshow | Publish envelope `source-unavailable` with reason `no-slideshow` and no slide/video timing. | Show canonical no-slideshow copy. | Fixture. |
-| Helper failure | Publish envelope `source-unavailable` with reason `helper-unavailable` when host reports it. | Stop timing immediately. | Host/publisher integration. |
-| Network loss | Keep only latest full local state; no delta queue. Reconnect with the same lease/epoch and next sequence; bump epoch only after process restart or lease loss. | Live until 25s, stale until 60s, then disconnected; same-epoch recovery avoids a full UI reset. | Fake-clock reducer + integration. |
-| Publisher restart/sleep | Resume rotates lease and increments epoch; sequence restarts at one. | Higher epoch resets all state; lower epoch ignored. | Concurrent/ordering tests. |
-| Duplicate/out-of-order | Transaction rejects non-next sequence; retry can confirm prior acceptance. | Reducer independently drops duplicates/regressions. | Function + pure tests. |
-| Old bootstrap doc | `resolve` supplies server time; current snapshot carries server publish time. | Compute age using estimated server offset; start stale/disconnected if already old. | Skew fixtures. |
-| Link rotation/revocation | Increment viewer generation and revoke leases. | Existing listener loses access; show access-ended, not stale PowerPoint. | Rules + real Auth staging. |
-| Session end | Write safe state `ended`, then deny snapshot/publish. | Render ended from safe state and stop reconnecting. | Emulator ordering test + UI. |
-| 24h window expiry | Rules/callables compare live session deadline. | Access-ended; token expiry is irrelevant. | Fake-time rules where possible + staging. |
-| Seven-day inactivity | Set cleanup fields; scheduled cleanup and TTL remove top-level docs. | No access long before deletion. | Cleanup unit + staging TTL observation. |
-| Unknown source/schema | Reject before adapter. | Visible unsupported state; never use PowerPoint fallback. | Validator/route tests. |
-| Clock skew | Server assigns publish time; resolve returns server time. | Freshness uses estimated server time and local monotonic receipt time. | ±5-minute skew fixtures. |
-
-## File-by-file impact
-
-| Slice | Path | Operation/owner | Purpose |
-|---|---|---|---|
-| S0 | `frontend/src/lib/firebase.ts`, `frontend/.env.example`, focused config test | modify / Mac | Parameterize emulator ports; defaults match `firebase.json`. |
-| S1 | `packages/remote-viewer-contracts/{package.json,tsconfig.json,src/**}` | create / Mac | Envelope, payload, sanitizer, reducer, fixtures. |
-| S1 | `package.json`, dependency guardrails | modify / Mac | Register package and boundary checks. |
-| S2 | `.agents/issues/ISSUE-002.md`, current spec and this plan | modify / owner | Record publisher/cap decisions and unblock conditions. |
-| S3 | `functions/src/presentation-sessions.ts`, `functions/src/index.ts` | create/modify / Mac | Callables, rate limits, transactions, cleanup. |
-| S3 | `firebase/firestore.rules`, `firebase/tests/presentationSessions.emu.js`, `firebase/package.json` | modify/create / Mac | Viewer reads, deny writes, auth/revocation tests and scripts. |
-| S3 | Firestore indexes/TTL configuration | create/modify / Mac | Cleanup/reconciliation fields; exempt high-churn fields. |
-| S4 | `packages/timer-face/**` | create / Mac | Source-neutral model, DOM renderer, CSS, accessibility. |
-| S4 | `apps/ppt-timer/src/renderer/{view.ts,powerpoint-panel.ts,styles.css,main.ts}` and tests | modify / Windows owner | Characterize/extract shared surface with no behavior change. |
-| S5 | `frontend/src/routes/SessionViewerPage.tsx`, `frontend/src/hooks/usePresentationSession.ts`, `frontend/src/components/session-viewer/**`, `AppRouter.tsx` | create/modify / Mac | Viewer link resolve, subscriptions, reducer adapter, route/UI. |
-| S5 | `frontend/src/lib/viewer-links.ts` | modify / Mac | Generate session fragment URLs separately from room URLs. |
-| S6 | `packages/powerpoint-host/**` and app-local host-policy files | create/move / Windows | Shared host-resolved publication semantics. |
-| S6 | `apps/ppt-timer/src/main/session-host.ts` and tests | modify / Windows | Compatibility wrapper and regression proof. |
-| S6 | `apps/downstage-publisher/**` | create / Windows | Remote publisher, secure state, lifecycle, packaging. |
-| S7 | publisher Windows integration/manual evidence docs | modify/create / Windows | Remote host/Presenter View/sleep/reconnect acceptance. |
-| S8 | `apps/downstage-view/**`, viewer-only frontend build wiring | create/modify / Mac+Windows | Shared desktop wrapper and packaging. |
-| S9 | `packages/interface-contracts/src/remote-snapshot-envelopes.ts`, barrel/tests | create/modify / Mac | Typed publisher-ingest and viewer-delivery event wrappers around the remote contract. |
-| S9 | `companion/src/remote-snapshot.ts`, bounded `main.ts` registration, tests | create/modify / Mac | Loopback publisher admission, latest-snapshot cache, LAN bootstrap/broadcast without LiveCue reuse. |
-| S10 | none | frozen | Future stage-timer sender remains out of scope. |
-
-## Stop conditions
-
-Stop the active slice and return to planning if any of these occurs:
-
-- a pure package imports Firebase, Socket.IO, React, Electron, Node process APIs, `local-sync-arbitration`, `UnifiedDataContext`, `FirebaseDataContext`, or `companion/src/main.ts`;
-- a new production file under `packages/` or `apps/` exceeds 400 lines without the repository's explicit exception;
-- remote code duplicates elapsed/headline/focus/status formulas instead of consuming the host-resolved contract;
-- `apps/ppt-timer` visible behavior, helper lifecycle, S-033 IPC restriction, or packaging changes outside the characterized compatibility work;
-- any cloud or LAN path carries `LiveCue`, full filenames/paths, process/COM identity, diagnostics, credentials, or control actions;
-- a test/manual gate is reported PASS without being run and its evidence read;
-- two concurrent slices need the same rules, package, interface-contract, packaging, or viewer file.
-
-## Execution index
-
-Stable IDs are identifiers, not execution order. S2 is a global decision gate and executes before any implementation despite its retained ID.
-
-| ID | Goal | Done when | Key files | Dependencies | Size |
-|---|---|---|---|---|---|
-| S2 | Ratify publisher boundary and cloud cap/value/enforcement. | Decisions recorded in issue, spec, and plan; readiness rerun is implementable. | Issue/spec/plan | none | S |
-| S0 | Make browser/emulator configuration authoritative. | Frontend ports are configurable and default to checked-in emulator ports; existing emulator suites pass. | Firebase config files | S2 | S |
-| S1 | Create strict transport contract and reducer. | Allowlist, versioning, ordering, freshness, skew, and adversarial fixtures pass with clean boundaries. | remote-viewer-contracts | S0 | M |
-| S3 | Build cloud session/auth/publish/read/cleanup plane. | All callables/rules/cleanup tests pass; production-only auth/TTL gaps are named. | Functions/rules/tests | S1 | XL |
-| S4 | Extract and reuse the exact timer face. | Local app behavior is unchanged; browser-ready model/DOM/CSS and source-switch tests pass. | timer-face + ppt-timer renderer | S1 | L |
-| S5 | Deliver browser viewer using fixtures then cloud. | New session route resolves link, subscribes, renders, stales, ends, and reconnects correctly. | frontend session viewer | S3,S4 | L |
-| S6 | Deliver separate Windows publisher if recommended boundary is ratified. | Shared host semantics, secure persistence, create/resume/publish/heartbeat/reconnect work with live PowerPoint. | powerpoint-host + publisher | S3,S1 | XL |
-| S7 | Validate Remote host behavior on show hardware. | Presenter View/confidence output stays clean through sleep/reconnect/end; evidence recorded. | publisher/manual evidence | S6 | M |
-| S8 | Package Downstage View for macOS and Windows. | Same viewer bundle works over cloud and has no helper/COM dependency; platform user tests pass. | downstage-view | S5,S6 | XL |
-| S9 | Add LAN transport after the contract/viewer are proven. | Same snapshot/reducer passes pairing, bootstrap, stale, revoke, and 20-device checks. | interface-contracts/Companion | S1,S4,S6 | L |
-| S10 | Reserve future stage-timer publication. | No ISSUE-002 implementation; only the adapter seam is proven by S1/S4 fixtures. | none | future issue | — |
-
-## Detailed work items and verification
-
-### S2 — Owner decisions and readiness
-
-- Record the publisher boundary, cloud cap number, and hard-vs-advisory enforcement.
-- Update the endpoint/data sections if the selected cap changes lease documents or callables.
-- Rerun `spec-plan-readiness`; a blocked verdict authorizes no test/code delegation.
-
-### S0 — Emulator parity
-
-- Add Vite emulator host/port variables and defaults matching Auth 9099, Firestore 8081, Functions 5002.
-- Preserve production initialization and single-connect guards.
-- Add a focused configuration test; do not attempt browser-side Emulator Hub discovery.
-- Run:
-  - `npm run test --workspace frontend`
-  - `npm run test:rules --workspace ontime-firebase-rules`
-  - `npm run test:join-operator --workspace ontime-firebase-rules`
-  - `npm run lint --workspace frontend && npm run typecheck --workspace frontend`
-- PASS: frontend and `firebase.json` agree, Node hub-discovery tests still pass, and no production emulator connection occurs without the flag.
-
-### S1 — Contract, sanitizer, and reducer
-
-- Create package scripts for `test`, `typecheck`, and CJS/ESM build only if consumers require both.
-- Implement types, strict parsers, sanitizers, fake-clock reducer, golden fixtures, and import-boundary checks.
-- Run:
-  - `npm run test --workspace @ontime/remote-viewer-contracts`
-  - `npm run typecheck --workspace @ontime/remote-viewer-contracts`
-  - `npm run guardrails`
-- PASS: every allowed/excluded field is covered, unknown keys fail, schema/source majors fail safely, epoch/sequence/freshness/skew cases pass, and the package imports no transport/UI/runtime framework.
-
-### S3 — Cloud plane
-
-- Implement the endpoint table exactly, including system-browser publisher authentication, durable request-result idempotency, hashing, transactions, viewer-generation revocation, safe viewer state, optional hard-cap leases, active-session cap, and cleanup metrics.
-- Deny all client writes; permit only scoped viewer reads.
-- Keep existing room rules unchanged.
-- Run:
-  - `npm run build --workspace functions`
-  - `npm run test:rules --workspace ontime-firebase-rules`
-  - new `npm run test:presentation-sessions --workspace ontime-firebase-rules`
-  - `npm run guardrails`
-- PASS: unauthenticated/wrong-session/wrong-generation/viewer writes fail; publisher conflicts, stale leases, duplicate/out-of-order sequences, idempotent lost-response retries, active-session cap, link rotation, revocation, end, expiry, and cleanup boundaries pass. A staging checklist remains required for real custom-token refresh/revocation, system-browser sign-in, rule re-evaluation, callable cold/warm latency, rate limits, and TTL.
-
-### S4 — Timer-face extraction
-
-- Add characterization tests before moving `formatTime`, display-model shapes, timer-fit DOM, accessibility text, and compact CSS.
-- Keep PowerPoint selection, status stabilization, `localAdvanceMs`, `PlaybackClock`, options, and Electron actions outside the shared package.
-- Adapt `apps/ppt-timer` through a compatibility layer; do not change visible copy, layout, disclosure, focus restoration, or timing.
-- Run:
-  - `npm run test --workspace @ontime/ppt-timer`
-  - `npm run typecheck --workspace @ontime/ppt-timer`
-  - `npm run test --workspace @ontime/timer-face`
-  - `npm run typecheck --workspace @ontime/timer-face`
-  - `npm run guardrails`
-- PASS: the existing 430-test baseline remains green, before/after DOM fixtures match, the shared face has no PowerPoint/Electron/Firebase imports, and source/epoch switches leak no state.
-
-### S5 — Browser viewer
-
-- Build fixture-first route/component tests before connecting Firebase.
-- Resolve fragment token, remove it from visible/history URL state, sign in, then attach safe-state and snapshot listeners in order.
-- Treat rules denial/access end differently from stale publisher data.
-- On unmount/route change, detach both listeners, cancel interpolation/freshness ticks, stop lease renewal, and best-effort release the lease; same-tab reload reuses the session-stored lease.
-- Run:
-  - `npm run test --workspace frontend`
-  - `npm run lint --workspace frontend`
-  - `npm run typecheck --workspace frontend`
-  - `npm run build:viewer --workspace frontend`
-- PASS: RPV-003/007/008/010 browser cases pass; teardown tests show zero remaining listeners/timers/renewals; no forbidden contexts/hooks are imported; stale time stops; compact/disclosure behavior matches the baseline; console/network contain no secrets.
-- User-testing gate: exercise share-link resolve, compact/disclosure, publisher stop→stale/disconnected, reconnect, rotation, and end in current Chrome, Safari, and Firefox; capture screenshots plus console/network checks.
-
-### S6 — Shared host and publisher
-
-- Characterize app-local focus/status/poll policies, extract them with the coordinator, and keep `ppt-timer` behavior unchanged.
-- Implement the shared single-host lock before helper spawn; deterministic second-host rejection and stale-lock recovery prevent dual COM observers.
-- Implement system-browser owner authentication, `safeStorage` refresh-token/lease persistence, server revocation on sign-out, and atomic non-secret metadata.
-- Implement latest-state-only retry, same-epoch transient reconnect, epoch reset only on restart/lease loss, bounded shutdown, and publish cadence.
-- Run on Windows:
-  - `npm run test --workspace @ontime/powerpoint-host`
-  - `npm run typecheck --workspace @ontime/powerpoint-host`
-  - `npm run test --workspace @ontime/ppt-timer`
-  - `npm run typecheck --workspace @ontime/ppt-timer`
-  - publisher `test`, `typecheck`, and `build` scripts added by the slice
-  - `npm run guardrails`
-- PASS: source-equivalent local tests stay green; a second local host cannot spawn a helper; live publish contains no excluded field; one publisher lease wins; heartbeat is 10s; transient reconnect preserves epoch/sequence continuity; restart or lease loss produces a new epoch/full snapshot; owner refresh and sign-out/revocation work; secrets never appear in JSON/logs.
-
-### S7 — Windows acceptance
-
-- Exercise real Remote host mode with slideshow and Presenter View, multiple videos, helper failure, PowerPoint close/reopen, network loss, sleep/wake, app close, session end, and packaged publisher.
-- PASS: show and confidence outputs are never covered; local timer behavior stays intact; reconnect/end semantics match the plan; screenshots/log redaction evidence is attached.
-
-### S8 — Downstage View
-
-- Wrap the viewer-only bundle; keep geometry/always-on-top/deep-link/tray logic in Electron main/preload.
-- Do not package `ppt-probe`, COM bindings, publisher code, controller code, or Firebase secrets.
-- Run platform `test`, `typecheck`, `build`, and packaging scripts added by the slice plus `npm run guardrails`.
-- PASS: cloud fixtures and live cloud work on macOS/Windows; user-testing screenshots prove compact/disclosure/access-ended states; bundles contain no helper/COM dependency.
-
-### S9 — LAN adapter
-
-- Add a new remote-snapshot envelope/event and narrow Companion registration; never wrap `LiveCue`.
-- Admit `REMOTE_SNAPSHOT_PUBLISH` only from the loopback `presentation-publisher` role, validate/cache the full snapshot, then bootstrap `REMOTE_SNAPSHOT` to viewer roles; use the same reducer and freshness thresholds.
-- Run:
-  - `npm run test --workspace @ontime/interface-contracts`
-  - `npm run test --workspace companion`
-  - `npm run build --workspace ontime-companion`
-  - `npm run guardrails`
-- PASS: cloud/LAN fixtures reduce identically; non-loopback or viewer-role publication is rejected; viewer role cannot control; old/revoked tokens fail; device 21 is rejected; reconnect bootstraps full current state.
-
-## RPV conformance plan
-
-| Scenario | Closing slices | Required evidence before `Conformed` |
+| Scenario | Lowest faithful test layer | Why |
 |---|---|---|
-| RPV-001 | S6,S7 | Live Windows publisher plus Presenter View/confidence-monitor evidence. |
-| RPV-002 | S4,S6,S8 | Shared face fixtures and desktop live countdown on both platforms. |
-| RPV-003 | S3,S5 | Rules/callable emulator evidence and browser viewer workflow. |
-| RPV-004 | S9 | LAN pairing/JWT/read-only/device-cap integration. |
-| RPV-005 | S4,S5,S8 | Import/bundle proof that viewer surfaces contain no helper/COM dependency. |
-| RPV-006 | S1,S4,S6 | Host-resolved headline fixture and adapter/disclosure rendering. |
-| RPV-007 | S1,S3,S5,S9 | Higher-epoch reset, duplicate rejection, and full bootstrap over both transports. |
-| RPV-008 | S1,S4,S5 | Fake-clock stale/disconnected tests and no-advance UI proof. |
-| RPV-009 | S5,S9 | Identical snapshot fixtures yield identical display models over cloud/LAN. |
-| RPV-010 | S3,S5,S9 | Rules/socket denial of all viewer writes/control and unchanged show authority. |
+| RPV-001 | provider/entrypoint integration + Windows smoke | process ownership and show-output behavior cross Electron/COM boundaries |
+| RPV-002 | component + desktop integration | shared face is deterministic; platform window behavior is not |
+| RPV-003 | service/database integration + browser smoke | callables/rules/listeners plus rendered URL journey |
+| RPV-004 | wire-format/adapter integration + LAN smoke | pairing, JWT role, socket admission and HTTPS trust are transport behavior |
+| RPV-005 | dependency/package audit + platform smoke | absence from imports/bundles plus launch without PowerPoint |
+| RPV-006 | unit/core + component | headline/focus mapping and disclosure are pure deterministic behavior |
+| RPV-007 | unit reducer + database/wire integration + Windows smoke | epoch/sequence is pure; bootstrap/restart spans transports/processes |
+| RPV-008 | unit fake-clock + component | availability/freshness/no-advance outcomes are deterministic |
+| RPV-009 | wire integration + component parity | identical validated events must reduce/render identically |
+| RPV-010 | rules/socket integration + live smoke | server permissions and absence of show-side effects both matter |
 
-The implementation pass creates `docs/spec/downstage-remote-powerpoint-viewer.conformance.md` with every row initially `Not-built`. A row changes only after the named evidence is independently read; plan text or a delegated report is not evidence.
+| Task | Scenarios / explicit rationale |
+|---|---|
+| S0 | infrastructure prerequisite; claims no scenario behavior |
+| S1a | RPV-003–RPV-010 |
+| S1b | RPV-002, RPV-003, RPV-006–RPV-009 |
+| S2 | completed documentation decision gate; no runtime behavior |
+| S3a | RPV-003, RPV-007, RPV-010 |
+| S3b | RPV-003, RPV-007, RPV-010 |
+| S3c | RPV-001, RPV-003, RPV-006–RPV-010 |
+| S3d | RPV-003, RPV-007, RPV-008, RPV-010 |
+| S4a | RPV-002, RPV-003, RPV-005, RPV-008, RPV-009 |
+| S4b | RPV-001, RPV-002, RPV-006, RPV-008 |
+| S5a–S5b | RPV-003, RPV-007–RPV-010 |
+| S6a | RPV-001, RPV-005, RPV-008, RPV-010 |
+| S6b | RPV-001, RPV-003, RPV-010 |
+| S6c | RPV-001–RPV-003, RPV-006–RPV-010 |
+| S6d–S7 | RPV-001, RPV-005, RPV-007, RPV-008, RPV-010 |
+| S8a–S8c | RPV-002, RPV-005, RPV-009 |
+| S9a–S9b | RPV-004, RPV-005, RPV-007–RPV-010 |
+| S10 | frozen future issue; no ISSUE-002 implementation |
 
-## Platform ownership
-
-| Area | Mac owner | Windows owner | Shared-file rule |
-|---|---|---|---|
-| Remote contract/reducer | S1 | review fixtures | Mac owns package files. |
-| Cloud Functions/rules/browser | S0,S3,S5 | Windows consumes contract | Mac owns cloud files. |
-| Timer face | S4 package/browser | S4 local-app adapter | One owner per file; characterize before extraction. |
-| PowerPoint host/publisher | contract review | S6,S7 | Windows owns host/local/publisher files. |
-| Downstage View | shared renderer/macOS package | Windows package | Mac owns renderer; Windows owns platform packaging. |
-| LAN adapter | S9 contract/Companion | live Windows LAN validation | Mac owns event/adapter files. |
-
-No two concurrent slices edit packaging, rules, interface-contract, timer-face, or viewer files. Windows owns all changes that could alter local PowerPoint behavior.
-
-## Risk and rollback register
+## Risks and rollback
 
 | Risk | Prevention/detection | Rollback |
 |---|---|---|
-| Privacy field leakage | Reconstruct allowlist server-side; adversarial fixtures; redact logs. | Disable publisher callable/session route; no existing data touched. |
-| Auth session survives token expiry | Live generation/status/window/lease checks in rules; staging revocation test. | Revoke generation and disable link resolution. |
-| Hard-cap count drift/over-count | Short leases, same-tab reuse, transactional count, bounded expiry reconciliation, and lease-not-human semantics in UX/support docs. | Switch to documented advisory mode only through S2 decision update. |
-| Rules read amplification | Measure session plus optional lease `get()` costs at the ratified cap; exempt unused indexes. | Use advisory cap/remove lease rule only through S2 decision update. |
-| Emulator differs from production | Explicit staging gates for Auth refresh, rate limiting, rule re-evaluation, TTL. | Keep feature unavailable publicly. |
-| Publisher epoch collision | Server increments epoch transactionally; durable state is advisory; transient reconnect does not bump. | Replace lease/epoch and force full snapshot. |
-| Dual local COM observers | Shared cross-process host lock acquired before helper spawn; crash/stale-lock tests. | Stop second host; preserve the first observer. |
-| Publisher owner/device credential leakage | System-browser one-time challenge, dedicated device principal, `safeStorage` Auth persistence, redacted logs, device-scoped refresh-token revocation. | Revoke the device principal and session lease; clear encrypted local state without signing out the owner's other clients. |
-| Lost callable response duplicates work | Durable request-result documents keyed by owner/request ID and normalized request hash. | Return cached result; reject mismatched request reuse. |
-| Host extraction regresses local app | Characterization-first extraction and full ppt-timer suite/manual smoke. | Revert extraction; publisher cannot ship until shared seam is restored. |
-| Timer face drifts visually | DOM fixtures, screenshots, and local app reuse of shared package. | Keep old adapter/shim while correcting package. |
-| Companion god-file growth | New narrow adapter; `main.ts` only registers it; review line budget. | Defer LAN or design separate relay; cloud remains unaffected. |
-| TTL leaves orphaned data | Top-level TTL documents plus scheduled reconciler. | Scheduled delete by session ID; authorization already denies access. |
-| Network retry storm | 5 writes/sec limit, latest-state-only queue, same-sequence acknowledgement. | Back off and render stale; never replay unbounded deltas. |
+| privacy leakage | reconstruct in main and callable; adversarial fixtures; redacted logs | disable publish/link resolution; revoke generations |
+| sidecar crosses helper boundary | import/package tests and no control message | remove/feature-disable sidecar; local host unchanged |
+| credential leakage/storage failure | opaque bounded safeStorage broker kept off the host polling path; atomic file replacement; no JSON/renderer/log fallback | revoke device, delete sealed file, disable remote sharing |
+| observation/commit timing drift | observationAge duration + server freshness + skew fixtures | stop interpolation at stale; retain step snapshots while corrected |
+| retry storm/lost response | one in-flight+latest, durable idempotency, fixed-window limiter | back off and render stale; never replay deltas |
+| generation/expiry survives Auth token | live rules checks on session generation/status/window | increment generation/revoke session |
+| TTL/orphan data | top-level TTL plus scheduled cleanup/metrics | bounded delete by session ID |
+| callable latency/cost at 50 viewers | warm/cold and 30-minute load/cost gate | named-tester limit/disable remote; no hard lease retrofit |
+| local UI/host regression | characterization, full timer suite, S-033/package tests, live Windows acceptance | revert adapter/sidecar; local baseline stays |
+| Companion god-file growth | narrow adapter/registration and 400-line/denylist review | defer LAN; cloud unaffected |
 
-Cloud rollback is additive: disable new Function exports and viewer route, restore the rules block, revoke all generations, and delete presentation-session collections. Existing rooms, timers, locks, local app data, and helper behavior remain untouched.
-
-## Open questions and readiness
-
-### B1 — Publisher boundary
-
-Owner must ratify either the recommended separate `apps/downstage-publisher` plus shared `packages/powerpoint-host` and mutually exclusive single-observer runtime, or an explicit extension of `apps/ppt-timer`. Companion-hosted publication is rejected. This decision changes S4/S6 file ownership, packaging, S-033 review, local-host locking, and rollback.
-
-### B2 — Cloud viewer cap
-
-Owner must ratify the cloud number and whether it is hard-admitted or advisory. Recommendation: hard cap 50 concurrent 90-second **leases**/session with 30-second renewals, accepting bounded reload/close over-count and validating 50 leases for 30 minutes in staging. LAN remains 20.
+## Readiness verdict
 
 ```text
-verdict: BLOCKED
-blocking_gaps:
-  - B1 publisher boundary not ratified
-  - B2 cloud viewer cap and enforcement not ratified
-scenario_to_test_map: intentionally deferred until the decisions are recorded and spec-plan-readiness reruns
-task_to_scenario_map: see RPV conformance plan
-first_safe_task: omitted because blocked authorizes no implementation
+verdict: implementable
+owner_decisions:
+  D1: resolved — one visible ppt-timer plus hidden utility-process sidecar
+  D2: resolved — advisory 50-viewer cloud target, no viewer leases
+implementation_start_blockers: []
+staging_or_release_gates:
+  - production publisher-device Auth refresh/revocation and browser callback
+  - production Firestore TTL, distributed rate-limit fallback, indexes and cost
+  - staged 50-viewer/30-minute load with p95 transition-to-render/read/cost evidence
+  - packaged Windows sidecar lifecycle and Presenter View/confidence-monitor evidence
+  - macOS/Windows viewer packaging, signing/notarization and user testing
+scenario_to_test_map: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
+task_to_scenario_map: this plan, Bounded execution index
+first_safe_task: S0 — align browser emulator configuration with checked-in firebase.json
 ```
 
-After B1/B2 are recorded, materialize the endpoint and conformance companion specs from this plan, link them from ISSUE-002, rerun `spec-plan-readiness`, and begin with S0 only if the verdict is `implementable`.
+S0 is infrastructure-only and claims no RPV conformance. S1a begins the first
+behavior contract only after S0 passes. ISSUE-002's tracked status remains
+unchanged because only the outer orchestrator may alter it.
 
 ## References
 
 - `docs/spec/downstage-remote-powerpoint-viewer.spec.md`
+- `docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`
+- `docs/spec/downstage-remote-powerpoint-viewer.conformance.md`
 - `docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md`
-- `docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md`
-- `.agents/issues/ISSUE-002.md`
-- `docs/progress/backlog-2026-08-25-issue-002-planning.md`
+- `docs/prompts/issue-002-deep-plan-revision-2026-08-26.md`
+- `docs/rebuild-extraction-rules.md`
+- `docs/timer-logic.md`
 - `docs/interface.md`
 - `docs/local-offline-lan-plan.md`
-- `docs/rebuild-extraction-rules.md`
+- [Electron utilityProcess](https://www.electronjs.org/docs/latest/api/utility-process)
+- [Electron parentPort](https://www.electronjs.org/docs/latest/api/parent-port)
+- [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage)
+- [electron-builder application contents](https://www.electron.build/docs/contents/)
+- [Firestore transactions](https://firebase.google.com/docs/firestore/manage-data/transactions)
+- [Firestore Security Rules](https://firebase.google.com/docs/rules/)
 - [Firestore realtime queries at scale](https://firebase.google.com/docs/firestore/real-time_queries_at_scale)
-- [Firestore best practices](https://firebase.google.com/docs/firestore/best-practices)
+- [Firestore TTL](https://firebase.google.com/docs/firestore/ttl)
 - [Firebase custom tokens](https://firebase.google.com/docs/auth/admin/create-custom-tokens)
 - [Firebase custom claims](https://firebase.google.com/docs/auth/admin/custom-claims)
-- [Firestore Security Rules conditions](https://firebase.google.com/docs/firestore/security/rules-conditions)
-- [Firestore TTL](https://firebase.google.com/docs/firestore/ttl)
-- [Firestore Emulator](https://firebase.google.com/docs/emulator-suite/connect_firestore)

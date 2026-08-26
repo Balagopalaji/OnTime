@@ -2,7 +2,7 @@
 Type: Progress
 Status: current
 Owner: KDB
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 Scope: ISSUE-002 RepoPrompt CE planning handoff and readiness evidence.
 ---
 
@@ -19,6 +19,9 @@ Scope: ISSUE-002 RepoPrompt CE planning handoff and readiness evidence.
   checkout was not switched or modified.
 
 ## Readiness results
+
+This table records the 2026-08-25 pre-revision state. The 2026-08-26 addendum
+below supersedes its publisher-lease and pending-plan entries.
 
 | Gate | Result | Evidence / next action |
 | --- | --- | --- |
@@ -64,3 +67,20 @@ handoff. It must also return a reusable-surface extraction map and future
 stage-timer adapter seam without implementing the later sender or controls. It
 must not implement source code. After independent review, run
 `spec-plan-readiness`; implementation may begin only if that gate passes.
+
+## 2026-08-26 revision addendum
+
+The planning pass is now materialized in:
+
+- `docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-26.md`
+- `docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`
+- `docs/spec/downstage-remote-powerpoint-viewer.conformance.md`
+- `docs/reviews/downstage-remote-powerpoint-viewer-deep-plan-critique-2026-08-26.md`
+
+The owner ratified one visible `apps/ppt-timer` host with a hidden publisher
+utility process, and an advisory/load-tested cloud target of 50 viewers without
+hard leases. The revised readiness verdict is `implementable`; the first safe
+slice is S0 emulator parity. All remote surfaces remain Not-built and all
+runtime/emulator/staging/manual checks are NOT RUN in the documentation pass.
+The issue frontmatter status/labels remain unchanged for the outer backlog
+orchestrator.

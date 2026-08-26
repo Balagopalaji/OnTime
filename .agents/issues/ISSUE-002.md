@@ -1,7 +1,7 @@
 ---
 id: ISSUE-002
 title: "Add Downstage remote PowerPoint viewer surfaces"
-status: blocked
+status: in-progress
 type: feature
 priority: p1
 labels: [area:presentation,area:desktop,area:remote]
@@ -63,6 +63,14 @@ new host-side sanitized snapshot adapter outside `ppt-bridge` and
 ## Detail / links
 - Spec: `docs/spec/downstage-remote-powerpoint-viewer.spec.md`
 - Plan: `docs/plans/downstage-remote-powerpoint-viewer-2026-08-22.md`
+- Deep Plan:
+  `docs/plans/downstage-remote-powerpoint-viewer-deep-plan-2026-08-26.md`
+- Endpoint/process contract:
+  `docs/spec/downstage-remote-powerpoint-viewer.endpoints.md`
+- Conformance matrix:
+  `docs/spec/downstage-remote-powerpoint-viewer.conformance.md`
+- Deep Plan critique and resolution ledger:
+  `docs/reviews/downstage-remote-powerpoint-viewer-deep-plan-critique-2026-08-26.md`
 - RepoPrompt CE kickoff:
   `docs/prompts/issue-002-repoprompt-ce-planning-2026-08-25.md`
 - Deep Plan revision prompt:
@@ -76,13 +84,25 @@ new host-side sanitized snapshot adapter outside `ppt-bridge` and
 - Backlog readiness evidence:
   `docs/progress/backlog-2026-08-25-issue-002-planning.md`
 
-## Blocked
+## Readiness decision
 
-The 2026-08-25 spec/Deep-Plan readiness gate does not yet authorize
-implementation. On 2026-08-26 the owner ratified one visible Downstage PPT
-Video Timer with a separately bounded background publisher sidecar, plus an
-advisory cloud support target of 50 concurrent viewers per session without hard
-viewer leases in v1. LAN remains capped at 20. The canonical Deep Plan,
-endpoint contract, conformance matrix, and readiness result must now be revised
-and independently reviewed using the linked revision prompt. Issue status
-remains blocked until that documentation gate passes.
+The 2026-08-26 documentation revision records the settled architecture:
+
+- one visible Downstage PPT Video Timer remains the sole helper/COM/host owner;
+  a hidden app-internal utility-process sidecar owns publisher authentication,
+  credentials, cloud/LAN publication, heartbeat, links, and retry;
+- cloud v1 supports and load-tests 50 concurrent viewers per session as an
+  advisory target, without viewer leases or active-viewer admission counts;
+  LAN remains capped at 20 devices.
+
+The canonical Deep Plan, endpoint contract, and initial Not-built conformance
+matrix are linked above. The rerun readiness verdict is `implementable`; S0
+(Firebase emulator parity) is the first safe bounded implementation slice.
+Production Auth, rate-limit, TTL, 50-viewer load/cost/latency, packaging, and
+real Windows Presenter View checks remain staging/release gates rather than
+implementation-start blockers.
+
+The outer backlog orchestrator moved the item to `in-progress` after the
+2026-08-26 readiness rerun returned `implementable`. Implementation begins with
+S0 in a dedicated `backlog/ISSUE-002-*` worktree; status/closure remains owned
+by that outer layer.
