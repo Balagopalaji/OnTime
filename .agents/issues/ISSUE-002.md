@@ -1,7 +1,7 @@
 ---
 id: ISSUE-002
 title: "Add Downstage remote PowerPoint viewer surfaces"
-status: draft
+status: blocked
 type: feature
 priority: p1
 labels: [area:presentation,area:desktop,area:remote]
@@ -20,7 +20,11 @@ a standalone Windows show-laptop publisher plus read-only browser viewing. A
 presentation session may later attach to a Downstage room, but the initial
 contract must not require a room or the main controller.
 
-The Windows helper is already authoritative for local PowerPoint observation.
+The standalone PowerPoint countdown app in `apps/ppt-timer` already provides
+the local timer panel, video disclosure list, and presentation status
+semantics. ISSUE-002 builds around that shipped baseline; it does not replace
+the local app or recreate its timer UI. The Windows helper is already
+authoritative for local PowerPoint observation.
 It exposes only the local `poll`/`exit` stdin protocol and must not gain cloud,
 LAN, account, room, or viewer responsibilities. Remote publication begins at a
 new host-side sanitized snapshot adapter outside `ppt-bridge` and
@@ -67,3 +71,15 @@ new host-side sanitized snapshot adapter outside `ppt-bridge` and
 - Existing transport/pairing references: `docs/local-offline-lan-plan.md`,
   `docs/interface.md`, `docs/phase-3-pairing-ux.md`,
   `docs/phase-3-cert-trust-ux.md`
+- Backlog readiness evidence:
+  `docs/progress/backlog-2026-08-25-issue-002-planning.md`
+
+## Blocked
+
+The 2026-08-25 spec/Deep-Plan readiness gate does not authorize
+implementation. Owner ratification is still required for the new publisher's
+package boundary and the cloud viewer concurrency limit. The media-label
+decision is clarified: follow the existing `apps/ppt-timer` compact panel—a
+small status label remains visible above the time, while sanitized video titles
+appear only in the hover disclosure/list. See the backlog readiness evidence
+linked above.

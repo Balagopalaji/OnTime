@@ -83,14 +83,29 @@ Reuse the existing:
 - Firebase/cloud room transport and existing viewer delivery;
 - shared Downstage presentation panel and read-only viewer semantics.
 
-The accepted compact `ppt-timer` renderer is the visual and interaction
-reference, not a package to import wholesale. The extraction map must separate:
+The standalone PowerPoint countdown app already exists in `apps/ppt-timer` and
+is the starting point for this work. The accepted compact `ppt-timer` renderer
+is the visual and interaction reference; the remote feature builds on its
+existing behavior and must not replace it with a new timer skin. The extraction
+map must separate:
 
 - a source-neutral timer display model and timer face;
 - reusable viewer chrome/content slots and connection-state presentation;
 - Electron-only always-on-top, window geometry, resizing, and native controls;
 - PowerPoint-only playback smoothing, headline/focus selection, video rows,
   disclosure behavior, and presentation copy.
+
+The current implementation reference is the existing panel contract in
+`apps/ppt-timer/src/renderer/powerpoint-panel.ts`,
+`apps/ppt-timer/src/renderer/view.ts`, and
+`apps/ppt-timer/src/renderer/panel-options.ts`. Preserve its user-facing
+behavior in the remote surfaces: the collapsed charcoal rounded face shows the
+large time and the small `Ready`/`Playing`/`Paused`/`Ended` status at the top;
+video titles are revealed only by the unobtrusive hover disclosure. The
+expanded list may show sanitized video title, status, and time rows. This is a
+compact timer surface with a PowerPoint adapter, not a new media dashboard.
+The remote publisher/viewer work composes around the existing local app and
+keeps its local Windows/PowerPoint behavior intact.
 
 The first implementation adapts the remote PowerPoint snapshot into the shared
 display model. A later Downstage rundown publisher or simple standalone timer

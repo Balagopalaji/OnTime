@@ -79,6 +79,17 @@ timer face through a stage-timer adapter. Those senders remain authoritative
 for their own timer math and transitions; the viewer only projects and safely
 interpolates their published state.
 
+The already-built standalone PowerPoint countdown app in `apps/ppt-timer` is
+the baseline being extended; this issue must not recreate or redesign its
+timer panel. Its collapsed state is a small charcoal rounded box showing only
+a large time and a small status label at the top: `Ready`, `Playing`,
+`Paused`, or `Ended` for known presentation states. The video title is not
+shown in the collapsed face. Hover exposes the unobtrusive disclosure and
+close controls; the disclosure opens the existing video list, where sanitized
+video titles and each video's status/time may be inspected. Remote desktop and
+browser viewers reuse this compact/expanded behavior rather than introducing a
+second dashboard or a permanently visible media-label panel.
+
 This issue implements the PowerPoint source first. It must nevertheless leave
 an explicit, tested source-adapter boundary so adding a `stage-timer` source
 does not require cloning the skin, importing PowerPoint types into a generic
@@ -116,6 +127,9 @@ add rundown editing or timer controls to this read-only issue.
   contracts. A future stage-timer payload receives its own validated contract
   and adapter while reusing the envelope, freshness reducer, authorization,
   and visual shell.
+- The compact viewer face keeps sanitized video titles collapsed by default.
+  The titles remain available in the disclosure list so the operator can
+  identify a video without sacrificing the minimal timer-only presentation.
 - Ordinary remote payloads use an explicit allowlist. Sanitized display titles
   and media labels may be present, but full paths, deck paths, process IDs,
   window handles, affinity data, raw helper diagnostics, and credentials are
@@ -144,8 +158,9 @@ confidence-monitor workflow.
 
 **When** the host publishes a valid playing observation
 
-**Then** the viewer shows the selected video identity, status, and remaining
-time using the canonical PowerPoint presentation view.
+**Then** the viewer shows the canonical compact PowerPoint face: a small
+`Playing` status label above the remaining time, with no video title in the
+collapsed face; the disclosure control can reveal the selected video title.
 
 ### RPV-003 — Cloud URL viewer shows the same state
 
@@ -153,8 +168,8 @@ time using the canonical PowerPoint presentation view.
 
 **When** the host publishes a new observation
 
-**Then** the browser viewer shows the same selected video, status, and
-remaining-time meaning as the desktop viewer.
+**Then** the browser viewer shows the same compact status-and-time face and the
+same disclosure behavior for the selected video as the desktop viewer.
 
 ### RPV-004 — LAN pairing grants viewer-only access
 
@@ -184,7 +199,8 @@ and play-order information
 
 **Then** its headline and secondary rows follow the same selected/headline
 policy as the local Downstage host, without independently guessing which video
-the helper selected.
+the helper selected; the rows are available in the expanded video list while
+the collapsed face remains status plus time.
 
 ### RPV-007 — Reconnect begins from a fresh snapshot
 
@@ -298,6 +314,3 @@ separate capability and authorization contract.
 3. **Remote controls:** when should slide navigation or media control begin?
    **Recommendation:** keep the first release read-only; add commands only
    after observation, authorization, and failure semantics are proven.
-4. **Media labels:** should sanitized video labels be shared by default or only
-   after an operator enables them? **Recommendation:** make the field optional
-   in v1 and settle the default during the viewer UX planning gate.

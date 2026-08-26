@@ -112,6 +112,29 @@ Use RepoPrompt CE Community Edition, not the discontinued legacy integration:
   socket bootstrap/connection mechanics only through a new independently typed,
   privacy-filtered snapshot and replay event.
 
+## Existing app baseline — do not recreate the timer
+
+The standalone PowerPoint countdown app already exists in `apps/ppt-timer` and
+is the product baseline for ISSUE-002. The deep plan must build around that
+working app and preserve its local Windows/PowerPoint behavior; it must not
+propose a replacement timer skin or a second media dashboard.
+
+Audit and explicitly reuse the current panel/view behavior from:
+
+- `apps/ppt-timer/src/renderer/powerpoint-panel.ts`
+- `apps/ppt-timer/src/renderer/view.ts`
+- `apps/ppt-timer/src/renderer/panel-options.ts`
+- `apps/ppt-timer/src/renderer/styles.css`
+
+The compact remote face must match the existing app: a small charcoal rounded
+box, large time, and a small always-visible status label at the top (`Ready`,
+`Playing`, `Paused`, or `Ended`). The video title is not visible in the
+collapsed face. Hover exposes the quiet disclosure and close controls; the
+disclosure opens the existing video list with sanitized video titles and
+per-video status/time rows. The deep plan must identify what can be shared or
+extracted and what remains PowerPoint-specific, without changing this local
+app's established UX.
+
 ## Windows source readiness already established
 
 The local chain is tested and supplies the PowerPoint observations needed for a
@@ -170,8 +193,10 @@ The remote contract must decide exact names and validation for at least:
 Ordinary remote payloads must exclude full `filename`, presentation/deck paths,
 PowerPoint `instanceId`, process counts/PIDs, COM affinity data, helper paths,
 validator warnings/extensions, diagnostics, window/display data, credentials,
-and control actions. Sanitized labels are optional in v1; recommend their
-default during UX planning.
+and control actions. Sanitized video titles are supported for the expanded
+disclosure/list only; they are not rendered in the collapsed compact face.
+Treat this behavior as resolved from the existing app, not as an open
+media-label decision.
 
 ## Reusable viewer-surface audit
 
@@ -267,6 +292,22 @@ Recommended delivery dependency:
 7. LAN adapter/pairing using the proven contract.
 8. Stage-timer publication and controls only in future separately authorized
    issues.
+
+## Decision handling for this planning pass
+
+The two remaining owner decisions are not yet silently ratified:
+
+1. Publisher boundary: planning recommendation is a separate
+   `apps/downstage-publisher` process that leaves `apps/ppt-timer` unchanged.
+2. Cloud viewer cap: planning recommendation is 50 concurrent viewers per
+   presentation session, while LAN retains its existing 20-device limit.
+
+Produce the complete Deep Plan, endpoint/data/rules draft, conformance matrix,
+scenario-to-code matrix, and ordered slice backlog using those recommendations
+as explicit assumptions. If owner ratification is still required, mark the
+readiness verdict `BLOCKED` and list exactly what must be ratified before
+implementation; do not omit the planning artifacts or invent a silent
+decision.
 
 ## Verification and return format
 
