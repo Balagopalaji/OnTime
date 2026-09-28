@@ -2,7 +2,7 @@
 Type: Progress
 Status: current
 Owner: Loop orchestrator
-Last updated: 2026-08-26
+Last updated: 2026-09-28
 Issue: ISSUE-002
 Spec: docs/spec/downstage-remote-powerpoint-viewer.spec.md
 Endpoint contract: docs/spec/downstage-remote-powerpoint-viewer.endpoints.md
@@ -19,11 +19,15 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "task-loop",
-  "currentTask": "S0 — red",
+  "phase": "S0 verified; handoff",
+  "currentTask": "S1a — pending",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {},
-  "stableFindingSignatures": []
+  "reviewCycleCounts": {"S0": 2},
+  "stableFindingSignatures": [
+    "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
+    "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
+    "P2|frontend/src/lib/firebase.test.ts|copied default port literals|S0"
+  ]
 }
 ```
 
@@ -36,7 +40,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: task loop — S0 red gate
+- Current phase: S0 verified; stop for model handoff before S1a
 
 ## Readiness gate
 
@@ -51,7 +55,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 
 | Task | Deep Plan item | Scenarios | Files/surfaces | Owner/session | Tests | Status | Evidence |
 |---|---|---|---|---|---|---|---|
-| S0 | Emulator port configuration | Infrastructure prerequisite; no scenario claim | `frontend/src/lib/firebase.ts`, `.env.example`, config test | Pending test delegate | focused config test; frontend lint/typecheck/test; rules/join emulator | red pending | Worktree clean at supplied base SHA; readiness passed. |
+| S0 | Emulator port configuration | Infrastructure prerequisite; no scenario claim | `frontend/src/lib/firebase.ts`, `.env.example`, config test; emulator harness cleanup | GPT-6 Sol in existing worktree | focused config 8/8; frontend 248/248, lint/typecheck; rules 6/6; join exits 0 | verified | Firestore/Functions defaults match `firebase.json` (8081/5002); invalid overrides fall back; `deleteApp(app)` closes join harness resources. |
 | S1a | Strict envelope/payload/parser package | RPV-003–RPV-010 | `packages/remote-viewer-contracts` | unassigned | package tests/typecheck/guardrails | pending | Depends on S0. |
 | S1b | Reducer/timing/comparator/freshness | RPV-002,003,006–009 | `packages/remote-viewer-contracts` | unassigned | fake-clock/skew/reducer tests | pending | Depends on S1a. |
 | S2 | Ratified D1/D2 decision gate | no runtime claim | docs | complete before Loop | n/a | complete | Deep Plan records supersession. |
@@ -77,14 +81,30 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 
 ## Review and escape ledger
 
-No findings or escape decisions recorded.
+Inspected `frontend/src/lib/firebase.ts`, `firebase.test.ts`,
+`frontend/.env.example`, `firebase/tests/joinAsOperator.emu.js`, and the
+S0 diff. No P0/P1 finding remains.
+
+| Signature | Status | Evidence |
+|---|---|---|
+| `P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0` | fixed | `parseEmulatorPort` rejects non-integer/out-of-range values; six invalid-value cases pass in the focused 8/8 suite. |
+| `P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0` | fixed | each test stubs both port env values to empty before import; focused and full frontend suites pass. |
+| `P2|frontend/src/lib/firebase.test.ts|copied default port literals|S0` | fixed | expected default ports are parsed from checked-in `firebase.json`; focused and full frontend suites pass. |
+
+The existing join-operator test asserted success but previously hung because
+Firebase app resources remained open. A `finally` block now calls
+`deleteApp(app)`; the emulator command exits 0 and shuts down all emulators.
 
 ## Validation and resume log
 
 - 2026-08-26: Preflight confirmed clean authorized worktree and branch at `7533c67bfeaea1fc41288e63ea6182feea3dbcda`.
 - 2026-08-26: Inline readiness passed; independent Oracle `new-chat-E83A12` returned `implementable`, no blockers, first safe task S0.
-- Last safe checkpoint: readiness passed; before S0 failing-test delegation.
-- Resume: start S0 in Implement mode with a test-only delegate; confirm a meaningful red caused by the hard-coded emulator ports, then delegate the smallest implementation.
+- 2026-09-28: S0 focused test `npm run test --workspace frontend -- src/lib/firebase.test.ts` **PASS**, 1 file/8 tests.
+- 2026-09-28: `npm run test --workspace frontend` **PASS**, 26 files/248 tests; `npm run lint --workspace frontend` **PASS**; `npm run typecheck --workspace frontend` **PASS**.
+- 2026-09-28: `npm run test:rules --workspace ontime-firebase-rules` **PASS**, 6/6 tests and clean exit.
+- 2026-09-28: `npm run test:join-operator --workspace ontime-firebase-rules` **PASS**, success assertion, exit 0, and emulator shutdown.
+- No RPV scenario is claimed by S0. The conformance matrix remains 10/10 Not-built. No UI/user test is required for S0.
+- Last safe checkpoint: S0 verified. Next safe Deep Plan slice is **S1a**, the strict remote envelope/payload/sanitizer/parser package. Stop here for handoff to Claude Opus 5.5; use this same worktree and branch.
 
 ## Context exception log
 

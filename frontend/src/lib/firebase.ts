@@ -15,6 +15,14 @@ const firebaseConfig = {
 
 const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
 
+const parseEmulatorPort = (value: string | undefined, fallback: number) => {
+  const port = Number(value)
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : fallback
+}
+
+const firestoreEmulatorPort = parseEmulatorPort(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT, 8081)
+const functionsEmulatorPort = parseEmulatorPort(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT, 5002)
+
 // Only initialize Firebase if config is present (allows local/companion-only mode)
 const hasConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId)
 
@@ -49,7 +57,7 @@ if (hasConfig) {
 if (useEmulator && auth && db) {
   try {
     connectAuthEmulator(auth, 'http://localhost:9099')
-    connectFirestoreEmulator(db, 'localhost', 8080)
+    connectFirestoreEmulator(db, 'localhost', firestoreEmulatorPort)
   } catch (error) {
     console.warn('Failed to connect Firebase emulators', error)
   }
@@ -57,7 +65,7 @@ if (useEmulator && auth && db) {
 
 if (useEmulator && functions) {
   try {
-    connectFunctionsEmulator(functions, 'localhost', 5001)
+    connectFunctionsEmulator(functions, 'localhost', functionsEmulatorPort)
   } catch (error) {
     console.warn('Failed to connect Firebase Functions emulator', error)
   }

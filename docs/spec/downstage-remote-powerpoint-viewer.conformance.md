@@ -2,7 +2,7 @@
 Type: Conformance
 Status: current
 Owner: KDB
-Last updated: 2026-08-26
+Last updated: 2026-09-28
 Scope: Spec-to-implementation evidence for RPV-001 through RPV-010.
 ---
 
@@ -49,4 +49,7 @@ evidence.
 - Conformed: 0.
 - Diverged: 0.
 - Not-built: 10.
-- Runtime tests and user testing: **NOT RUN (documentation-only)**.
+- S0 infrastructure verification: frontend config 8/8, full frontend 248/248,
+  Firestore rules 6/6, and join-operator emulator assertion/exit 0. S0 claims
+  no RPV behavior.
+- RPV runtime, staging, Windows, and user testing: **NOT RUN**.

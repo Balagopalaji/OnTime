@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { initializeApp } = require('firebase/app');
+const { deleteApp, initializeApp } = require('firebase/app');
 const {
   connectAuthEmulator,
   createUserWithEmailAndPassword,
@@ -98,37 +98,41 @@ const run = async () => {
     appId: 'ontime-emulator',
   });
 
-  const authClient = getAuth(app);
-  connectAuthEmulator(authClient, `http://${auth.host}:${auth.port}`, {
-    disableWarnings: true,
-  });
+  try {
+    const authClient = getAuth(app);
+    connectAuthEmulator(authClient, `http://${auth.host}:${auth.port}`, {
+      disableWarnings: true,
+    });
 
-  const db = getFirestore(app);
-  connectFirestoreEmulator(db, firestore.host, firestore.port);
+    const db = getFirestore(app);
+    connectFirestoreEmulator(db, firestore.host, firestore.port);
 
-  const func = getFunctions(app);
-  connectFunctionsEmulator(func, functions.host, functions.port);
+    const func = getFunctions(app);
+    connectFunctionsEmulator(func, functions.host, functions.port);
 
-  await ensureAuth(authClient);
-  await seedRoom({ projectId, firestore });
+    await ensureAuth(authClient);
+    await seedRoom({ projectId, firestore });
 
-  const joinAsOperator = httpsCallable(func, 'joinAsOperator');
-  const response = await joinAsOperator({
-    roomId: 'room-1',
-    inviteCode: 'CREW-1234',
-    odRole: 'lx',
-  });
+    const joinAsOperator = httpsCallable(func, 'joinAsOperator');
+    const response = await joinAsOperator({
+      roomId: 'room-1',
+      inviteCode: 'CREW-1234',
+      odRole: 'lx',
+    });
 
-  if (!response?.data?.success) {
-    throw new Error(`joinAsOperator failed: ${JSON.stringify(response?.data)}`);
+    if (!response?.data?.success) {
+      throw new Error(`joinAsOperator failed: ${JSON.stringify(response?.data)}`);
+    }
+
+    const opSnap = await getDoc(doc(db, 'rooms/room-1/operators', authClient.currentUser.uid));
+    if (!opSnap.exists()) {
+      throw new Error('Operator doc not created in emulator.');
+    }
+
+    console.log('joinAsOperator emulator test passed.');
+  } finally {
+    await deleteApp(app);
   }
-
-  const opSnap = await getDoc(doc(db, 'rooms/room-1/operators', authClient.currentUser.uid));
-  if (!opSnap.exists()) {
-    throw new Error('Operator doc not created in emulator.');
-  }
-
-  console.log('joinAsOperator emulator test passed.');
 };
 
 run().catch((error) => {
