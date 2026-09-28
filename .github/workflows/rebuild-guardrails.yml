@@ -122,6 +122,12 @@ jobs:
       - name: Lock-view-model tests
         run: npm run test --workspace @ontime/lock-view-model
 
+      - name: Remote-viewer-contracts typecheck
+        run: npm run typecheck --workspace @ontime/remote-viewer-contracts
+
+      - name: Remote-viewer-contracts tests
+        run: npm run test --workspace @ontime/remote-viewer-contracts
+
       - name: Frontend test suite (characterization safety net)
         working-directory: frontend
         run: npx vitest run
