@@ -65,6 +65,8 @@ const STEPS = [
   { name: 'Lock-view-model tests', cmd: 'npm run test --workspace @ontime/lock-view-model' },
   { name: 'Remote-viewer-contracts typecheck', cmd: 'npm run typecheck --workspace @ontime/remote-viewer-contracts' },
   { name: 'Remote-viewer-contracts tests', cmd: 'npm run test --workspace @ontime/remote-viewer-contracts' },
+  { name: 'Timer-face typecheck', cmd: 'npm run typecheck --workspace @ontime/timer-face' },
+  { name: 'Timer-face tests', cmd: 'npm run test --workspace @ontime/timer-face' },
   { name: 'Frontend test suite (characterization safety net)', cmd: 'npx vitest run', cwd: 'frontend' },
   { name: 'Diff whitespace check', cmd: `git diff --check ${base}...HEAD` },
   { name: 'Commit whitespace check', cmd: 'git show --check HEAD' },

@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S3d verified",
-  "currentTask": "S4a — next",
+  "phase": "Implement: S4a verified",
+  "currentTask": "S4b — next",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -79,7 +79,11 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P2|functions/src/presentation/cleanup.ts|one failing uid blocks all cleanup|S3d",
     "P2|functions/src/presentation/cleanup.ts|head-of-line/timeout loses progress|S3d",
     "P2|functions/src/presentation/cleanup.ts|narrow throttle detection; overcounted metric|S3d",
-    "P2|functions/src/presentation/cleanup.ts|cursor advances past failed chunk|S3d"
+    "P2|functions/src/presentation/cleanup.ts|cursor advances past failed chunk|S3d",
+    "P2|packages/timer-face/src/render.ts|stateKey can hide stale styling|S4a",
+    "P2|packages/timer-face/src/model.ts|isFocus required but unrendered|S4a",
+    "P2|packages/timer-face/src/announce.ts|zero-row videoText announcement fallback dropped|S4a",
+    "P2|packages/timer-face/src/render.ts|fixed element IDs in reusable face|S4a"
   ]
 }
 ```
@@ -93,7 +97,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: Implement mode; S1a, S1b, S3a–S3d verified; S4a next
+- Current phase: Implement mode; S1a, S1b, S3a–S3d, S4a verified; S4b next
 
 ## Readiness gate
 
@@ -116,7 +120,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 | S3b | Viewer links/generation/rules | RPV-003,007,010 (server/rules layer) | `functions/src/presentation/{links,sessions,callers,crypto,index}.ts`, `functions/src/{lock,operators}.ts` (principal guard), `firebase/firestore.rules`, `firebase/tests/{presentation-harness,presentation-links.emu,presentation-auth-session.emu}.js` | Claude Opus 5.5 orchestrator (direct) | emulator 12 cases (resolve claims, viewer read-only + RPV-010 denials incl. room create and room/lock callables, rotate/revoke/issue generations, attached-listener revocation, expiry, ended); unit +1 (secret rotation) | verified | red 0/10 (`not-found`), review-fix red 3/12 + unit 1; green S3a 9/9, S3b 12/12, unit 18/18, rules suite exit 0, join-operator exit 0, guardrails pass; Oracle re-review closed all S3b findings. |
 | S3c | Publish transaction/current state | RPV-001,003,006–010 (server layer) | `functions/src/presentation/{publish,sessions,idempotency,index}.ts`, contracts CJS build (`tsconfig.cjs.json`, `build:cjs`, `smoke:cjs`, exports), functions dependency/prebuild, `.gitignore`, `firebase/tests/presentation-publish.emu.js` | Claude Opus 5.5 orchestrator (direct) | emulator 9 cases (stamped parser-valid snapshot, viewer read, identical/recomputed-timing retry, conflict/gap/regression reasons, heartbeat, sanitization, forbidden/server-owned keys, null/future send estimate, unavailable, foreign device/owner user, epoch reset, end + snapshot deletion) | verified | red 0/9 (`not-found`), review-fix red 4/9; green S3a 9/9, S3b 12/12, S3c 9/9; contracts 318/318 + CJS smoke; functions unit 18/18; rules + join-operator exit 0; guardrails pass; Oracle re-review closed all. |
 | S3d | Cleanup/TTL/indexes/rate limit/load plan | RPV-003,007,008,010 (server layer; staging gates open) | `functions/src/presentation/{rate-limit,cleanup,crypto,links,publish,sessions,device-auth,index}.ts`, unit tests `{rate-limit,cleanup,firestore-config}.test.ts`, `firebase/firestore.indexes.json`, `firebase.json`, `firebase/tests/{presentation-limits.emu.js,run-presentation-emu.mjs,presentation-harness.js}`, `docs/qa/presentation-remote-viewer-load-plan.md` | Claude Opus 5.5 orchestrator (direct) | unit 53 (limiter windows/keys/limits/fail modes, IP normalization, TTL/index config, paced/isolated/cursor Auth deletion); unscaled emulator 7 (publish 5/s, begin 10/min, resolve 30/min, caller-scoped revoke, cleanup cascade + principals, cursor resume, 520 links, backlog, rate buckets TTL-only) | verified (emulator); staging gates NOT RUN → blocked | reds observed per review round (P1 case confirmed failing against old scope); green unit 53/53; emulator 9/9, 12/12, 9/9, 7/7; rules/join exit 0; guardrails pass; Oracle re-review rounds 2–4 closed all but N-7, fixed with red→green unit test. |
-| S4a | Source-neutral timer face | RPV-002,003,005,008,009 | `packages/timer-face` | unassigned | DOM characterization/typecheck | pending | Depends on S1a. |
+| S4a | Source-neutral timer face | RPV-002,003,005,008,009 (face layer) | `packages/timer-face/{package.json,tsconfig.json,src/{model,format,render,announce,index}.ts,src/timer-face.css,test/goldens.ts}`, CI wiring, lockfile workspace entry | Claude Opus 5.5 orchestrator (direct) | 28 happy-dom tests: 9 exact outerHTML/announcement goldens captured from the unmodified ppt-timer renderer (temporary capture test, not committed), formatTime/fit tables, stage-timer model, data-connection hook, import purity, patch-in-place, CSS rules | verified | red: module absent, then 4 review-fix reds; green 28/28; typecheck; guardrails pass; no app file changed. |
 | S4b | Adapt local PPT UI/remote fixtures | RPV-001,002,006,008 | ppt-timer renderer/tests | unassigned | full ppt-timer + DOM parity | pending | Depends on S4a,S1b. |
 | S5a | Browser route/resolve/subscription/reducer | RPV-003,007–010 | frontend session route/hook/helper | unassigned | frontend integration | pending | Depends on S3c,S4a. |
 | S5b | Browser teardown/access states | RPV-003,007–010 | frontend viewer components/tests | unassigned | leak/teardown/build + user test | pending | Depends on S5a. |
@@ -196,6 +200,10 @@ S0 diff. No P0/P1 finding remains.
 | `P2|functions/src/presentation/cleanup.ts|head-of-line/timeout loses progress|S3d` | fixed | per-unit processing, cursor emulator case, 540 s; Oracle closed. |
 | `P2|functions/src/presentation/cleanup.ts|narrow throttle detection; overcounted metric|S3d` | fixed | too-many-requests defers; `authUsersProcessed`; Oracle closed. |
 | `P2|functions/src/presentation/cleanup.ts|cursor advances past failed chunk|S3d` | fixed (red→green unit; fresh review deferred to final full-diff review) | clean-prefix cursor test. |
+| `P2|packages/timer-face/src/render.ts|stateKey can hide stale styling|S4a` | fixed | `data-connection` for stale/disconnected; CSS matched in DOM test with stateKey playing. |
+| `P2|packages/timer-face/src/model.ts|isFocus required but unrendered|S4a` | accepted | plan-defined field; documented as semantic, not styled. |
+| `P2|packages/timer-face/src/announce.ts|zero-row videoText announcement fallback dropped|S4a` | fixed | `announceDetail`; ninth golden (`Playing — Intro.mp4`) passes. |
+| `P2|packages/timer-face/src/render.ts|fixed element IDs in reusable face|S4a` | accepted (documented) | one face per document; lookups scoped to root. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -212,6 +220,8 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-28 (S3c): `npm run test:presentation --workspace ontime-firebase-rules` 9/9 + 12/12 + 9/9; `npm run smoke:cjs --workspace @ontime/remote-viewer-contracts` PASS; contracts 318/318; functions unit 18/18; rules/join exit 0; guardrails PASS.
 - 2026-09-29 (S3d): `npm run test --workspace functions` 53/53; `npm run test:presentation --workspace ontime-firebase-rules` (runner: scaled 9/9 + 12/12 + 9/9, unscaled 7/7); `test:rules` exit 0; `test:join-operator` exit 0; guardrails PASS.
 - `functions/lib` decision: the tracked build output was last committed at 4172fbf and was already stale versus `functions/src` before ISSUE-002; `firebase.json` has no predeploy build, so the repo does not keep lib in sync with src. Emulator runs rebuild lib; after each run the tracked `functions/lib/{index,lock,operators}.js` are restored with `git checkout --` and the generated `functions/lib/presentation/` is removed. No build output is committed. Deploy packaging (build + workspace contracts bundle) is a release gate in the load plan.
+- 2026-09-29 (S4a): `npm run test --workspace @ontime/timer-face` 28/28; `npm run typecheck --workspace @ontime/timer-face` PASS; guardrails PASS. Goldens captured by a temporary `apps/ppt-timer/src/renderer/zz-golden-capture.test.ts` that was deleted immediately (app tree unchanged).
+- S4a interpretations: `TimerDisplayModel`/`DisclosureRow` add optional adapter hooks `stateKey` (`data-state`), `alertText`, `announceDetail`, row `ordinal` (`data-ordinal`) and `announceLabel`; `messageText` is announced, not rendered; `data-connection` is rendered only for stale/disconnected (local DOM unchanged); `isFocus` kept (plan type) but unstyled; `.videos/.video-row` classes and `#badge/#message/#time/#videos` IDs kept for zero-diff S4b adoption (one face per document). S4b done-criteria: delete the app copies of `formatTime`, the fit helpers, and duplicated CSS rules, and import the package.
 - S3d interpretations/divergences (closeout doc sync): limits keyed per (session, caller) for link mutation/end/publish; resolve-session counts failed resolutions only; IP scope = HMAC of normalized IP (IPv4, v4-mapped→v4, IPv6 /64), missing IP fails closed except in the emulator (loopback); emulator-only `PRESENTATION_EMULATOR_RATE_LIMIT_MULTIPLIER` for multi-case suites (unscaled suite proves defaults). No TTL on sessions/devices (sweep owns cascade + Auth principals); rate buckets TTL-only with no index. Cleanup: unit-by-unit, paced shared 1000-uid Auth chunks (20/run), persisted `viewerAuthCleanedThrough` cursor over a clean prefix, throttling defers as backlog, per-unit failures isolated with alerts, `timeoutSeconds: 540`. Staging gates (NOT RUN → blocked): 50-viewer/30-min load, p95, cost, TTL deploy, client-IP trust, shared NAT, limiter contention, Auth quota, deploy packaging.
 - S3c interpretations/divergences (closeout doc sync): snapshot doc is `{snapshot: RemoteSnapshotV1, cleanupAfterMs}` (nested so viewers run the strict parser on `snapshot`; S5 rejects any other wrapper key). Publish idempotency hash excludes `observationAgeMs`/`sentAtEstimatedServerMs`. Publish rejections are `failed-precondition` with `details.reason` ∈ `window-expired | epoch-mismatch | sequence-conflict (+acceptedSequence) | sequence-gap | clock-future (+serverNowMs) | session-ended`. S6c policy: `sequence-conflict` → publish latest at `acceptedSequence + 1`; `sequence-gap`/`epoch-mismatch` → resume; `clock-future` → resync offset from `serverNowMs`; `window-expired` → resume; `session-ended` → stop. Replay of a lost response works only while the session/window are live (accepted: next step resume/stop makes it moot). Ending a session deletes the snapshot doc. Contracts `exports` have no `default` condition (matches sibling packages).
 - S3b interpretations/divergences (closeout doc sync): revoke's "safe access-ended state" is the `viewerGeneration` increment — existing viewers' `viewerState` listener is denied at once (client renders access-ended), snapshot listener on the next write; no `access-ended` status value is written. `issue` returns the current link, or mints one at the current generation after a revoke or a server-secret rotation (rotation therefore revokes previously shared URLs on the next issue — accepted cost). `issue`/`rotate` require an unexpired window (`failed-precondition`, resume first). `resume` returns `viewerUrl: null` when the link was revoked or the secret rotated. One viewer principal per session generation (`ppv_<hash>`); S3d must rate-limit resolve by HMAC-IP/session and delete `ppv_` users in cleanup. Firestore `isSignedIn()` now excludes any role-bearing token and all lock/operator callables reject role-bearing principals (RPV-010).

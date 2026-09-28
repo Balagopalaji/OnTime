@@ -1,0 +1,14 @@
+{
+  "name": "@ontime/timer-face",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./timer-face.css": "./src/timer-face.css"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest --run src"
+  }
+}
