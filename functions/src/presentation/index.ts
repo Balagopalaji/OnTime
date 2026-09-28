@@ -12,3 +12,4 @@ export {
   revokePresentationViewerLink,
   rotatePresentationViewerLink,
 } from './links'
+export { endPresentationSession, publishPresentationSnapshot } from './publish'

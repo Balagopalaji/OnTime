@@ -39,6 +39,7 @@ export type SessionDoc = {
 export const sessionRef = (sessionId: string) => db.collection(COLLECTIONS.sessions).doc(sessionId)
 export const viewerStateRef = (sessionId: string) => db.collection(COLLECTIONS.viewerStates).doc(sessionId)
 export const linkRef = (tokenHash: string) => db.collection(COLLECTIONS.links).doc(tokenHash)
+export const snapshotRef = (sessionId: string) => db.collection(COLLECTIONS.snapshots).doc(sessionId)
 
 export function viewerLinkFor(sessionId: string, linkNonce: string): { token: string; tokenHash: string; url: string } {
   const token = deriveViewerLinkToken(serverSecret(), sessionId, linkNonce)
@@ -157,11 +158,15 @@ export async function assertReplayCurrent(sessionId: string, linkNonce: string |
   }
 }
 
-/** Safe ended state: session rejects publish/snapshot reads; the current viewer generation sees `ended`. */
+/**
+ * Safe ended state: session rejects publish/snapshot reads, the current viewer
+ * generation sees `ended`, and the last snapshot (titles/labels) is deleted.
+ */
 export function writeSessionEnded(tx: Transaction, sessionId: string, nowMs: number): void {
   const cleanupAfterMs = nowMs + INACTIVE_CLEANUP_MS
   tx.update(sessionRef(sessionId), { status: 'ended', endedAtMs: nowMs, cleanupAfterMs })
   tx.update(viewerStateRef(sessionId), { status: 'ended', cleanupAfterMs })
+  tx.delete(snapshotRef(sessionId))
 }
 
 /** Owning active device, still-active session; used by resume and later link/publish/end operations. */
@@ -177,7 +182,9 @@ export async function readOwnedSession(
   if (session.publisherDeviceUid !== caller.deviceUid || session.ownerUid !== caller.ownerUid) {
     return { ok: false, code: 'permission-denied', message: 'Another device publishes this session.' }
   }
-  if (session.status !== 'active') return { ok: false, code: 'failed-precondition', message: 'Presentation session has ended.' }
+  if (session.status !== 'active') {
+    return { ok: false, code: 'failed-precondition', message: 'Presentation session has ended.', details: { reason: 'session-ended' } }
+  }
   return { ok: true, value: session }
 }
 

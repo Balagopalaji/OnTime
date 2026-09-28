@@ -10,6 +10,7 @@ companion/docs/temp/
 prompt-exports/
 packages/ppt-bridge/dist-cjs/
 packages/presentation-core/dist-cjs/
+packages/remote-viewer-contracts/dist-cjs/
 packages/ppt-bridge/bin/
 .dotnet-cli/
 .electron-builder-cache/

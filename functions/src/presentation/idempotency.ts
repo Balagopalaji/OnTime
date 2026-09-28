@@ -6,7 +6,7 @@ import { db } from './firestore'
 
 export type Outcome<T> =
   | { ok: true; value: T }
-  | { ok: false; code: functions.https.FunctionsErrorCode; message: string }
+  | { ok: false; code: functions.https.FunctionsErrorCode; message: string; details?: Record<string, unknown> }
 
 /**
  * Outcomes that a later retry may legitimately change (cap freed, target
@@ -15,7 +15,7 @@ export type Outcome<T> =
 const NON_DURABLE_CODES = new Set<functions.https.FunctionsErrorCode>(['resource-exhausted', 'not-found'])
 
 export function unwrap<T>(outcome: Outcome<T>): T {
-  if (!outcome.ok) throw new functions.https.HttpsError(outcome.code, outcome.message)
+  if (!outcome.ok) throw new functions.https.HttpsError(outcome.code, outcome.message, outcome.details)
   return outcome.value
 }
 

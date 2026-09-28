@@ -12,11 +12,14 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "vitest --run src/presentation"
+    "test": "vitest --run src/presentation",
+    "prebuild": "npm run build:cjs --workspace @ontime/remote-viewer-contracts",
+    "pretest": "npm run build:cjs --workspace @ontime/remote-viewer-contracts"
   },
   "dependencies": {
     "firebase-admin": "^11.10.1",
-    "firebase-functions": "^4.4.1"
+    "firebase-functions": "^4.4.1",
+    "@ontime/remote-viewer-contracts": "0.0.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

@@ -4,10 +4,19 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "import": "./src/index.ts",
+      "require": {
+        "types": "./dist-cjs/index.d.ts",
+        "default": "./dist-cjs/index.js"
+      }
+    }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest --run src"
-  }
+    "test": "vitest --run src",
+    "build:cjs": "node ../../scripts/build-cjs.mjs",
+    "smoke:cjs": "node test/cjs-smoke.cjs"
+  },
+  "types": "./dist-cjs/index.d.ts"
 }
