@@ -103,6 +103,11 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-28: `npm run test --workspace frontend` **PASS**, 26 files/248 tests; `npm run lint --workspace frontend` **PASS**; `npm run typecheck --workspace frontend` **PASS**.
 - 2026-09-28: `npm run test:rules --workspace ontime-firebase-rules` **PASS**, 6/6 tests and clean exit.
 - 2026-09-28: `npm run test:join-operator --workspace ontime-firebase-rules` **PASS**, success assertion, exit 0, and emulator shutdown.
+- Verification used the existing dependency installation at the main checkout
+  through a temporary root `node_modules` symlink. That symlink and the
+  generated Firestore debug log were removed after testing; the worktree is
+  clean. A future test run in this worktree needs dependencies installed or a
+  temporary link to the existing installation.
 - No RPV scenario is claimed by S0. The conformance matrix remains 10/10 Not-built. No UI/user test is required for S0.
 - Last safe checkpoint: S0 verified. Next safe Deep Plan slice is **S1a**, the strict remote envelope/payload/sanitizer/parser package. Stop here for handoff to Claude Opus 5.5; use this same worktree and branch.
 
