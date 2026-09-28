@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S1a verified",
-  "currentTask": "S1b — next",
+  "phase": "Implement: S1b verified",
+  "currentTask": "S3a — next (S4a parallel-eligible)",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -33,7 +33,13 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P3|packages/remote-viewer-contracts/src/parse-payload.ts|sparse videos array compacted|S1a",
     "P3|packages/remote-viewer-contracts/src/parse-payload.ts|unavailable payload read before shape check|S1a",
     "P3|packages/remote-viewer-contracts/src/strict.ts|negative zero passes through|S1a",
-    "P3|packages/remote-viewer-contracts/src/sanitize.ts|ZWJ/ZWNJ stripped; slash over-stripping|S1a"
+    "P3|packages/remote-viewer-contracts/src/sanitize.ts|ZWJ/ZWNJ stripped; slash over-stripping|S1a",
+    "P2|packages/remote-viewer-contracts/src/viewer-session.ts|old observation shown live and over-advanced|S1b",
+    "P2|packages/remote-viewer-contracts/src/ordering.ts|non-playing timing changes never material|S1b",
+    "P3|packages/remote-viewer-contracts/src/ordering.ts|remaining drift ignored|S1b",
+    "P3|packages/remote-viewer-contracts/src/ordering.ts|previous vs last-published ambiguity|S1b",
+    "P3|packages/remote-viewer-contracts/src/timing.ts|viewer clock ignores round trip|S1b",
+    "P3|packages/remote-viewer-contracts/src/parse-snapshot.ts|unbounded freshness policy|S1b"
   ]
 }
 ```
@@ -47,7 +53,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: Implement mode; S1a verified; S1b next
+- Current phase: Implement mode; S1a–S1b verified; S3a next
 
 ## Readiness gate
 
@@ -64,7 +70,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 |---|---|---|---|---|---|---|---|
 | S0 | Emulator port configuration | Infrastructure prerequisite; no scenario claim | `frontend/src/lib/firebase.ts`, `.env.example`, config test; emulator harness cleanup | GPT-6 Sol in existing worktree | focused config 8/8; frontend 248/248, lint/typecheck; rules 6/6; join exits 0 | verified | Firestore/Functions defaults match `firebase.json` (8081/5002); invalid overrides fall back; `deleteApp(app)` closes join harness resources. |
 | S1a | Strict envelope/payload/parser package | RPV-003–RPV-010 (contract layer only) | `packages/remote-viewer-contracts` (types, sanitizer, candidate/request/snapshot parsers), CI wiring, lockfile workspace entry | Claude Opus 5.5 orchestrator (direct; see context exceptions) | 246 unit tests: sanitizer table/idempotence; per-parser reconstruction, forbidden-field golden rejects, version/source, availability/payload, payload invariants | verified | red 230/230 `not implemented`; green 246/246; typecheck; guardrails + boundaries pass; Oracle review no P0/P1. |
-| S1b | Reducer/timing/comparator/freshness | RPV-002,003,006–009 | `packages/remote-viewer-contracts` | unassigned | fake-clock/skew/reducer tests | pending | Depends on S1a. |
+| S1b | Reducer/timing/comparator/freshness | RPV-002,003,006–009 (contract layer only) | `packages/remote-viewer-contracts` `timing.ts`, `ordering.ts`, `viewer-session.ts` | Claude Opus 5.5 orchestrator (direct) | 72 new unit tests: transit/offset/advance/interpolation, ±5 min skew, order comparator, material comparator, reducer ordering/terminal/incompatible, fake-clock freshness 25 s/60 s, RPV-009 identical projection | verified | red 44 `not implemented` then 12 review-fix reds; green 318/318; typecheck; guardrails pass; Oracle review no P0/P1. |
 | S2 | Ratified D1/D2 decision gate | no runtime claim | docs | complete before Loop | n/a | complete | Deep Plan records supersession. |
 | S3a | Publisher-device auth/session creation | RPV-003,007,010 | Functions presentation modules/tests | unassigned | Functions build + emulator tests | pending | Depends on S1a. |
 | S3b | Viewer links/generation/rules | RPV-003,007,010 | Functions link modules, rules/tests | unassigned | rules/emulator tests | pending | Depends on S3a. |
@@ -104,6 +110,12 @@ S0 diff. No P0/P1 finding remains.
 | `P3|packages/remote-viewer-contracts/src/parse-payload.ts|unavailable payload read before shape check|S1a` | fixed | `expectRecord` before discriminant read; getter-not-touched and unknown-key-first tests pass. |
 | `P3|packages/remote-viewer-contracts/src/strict.ts|negative zero passes through|S1a` | fixed | numeric helpers normalize `-0`; `Object.is` test passes. |
 | `P3|packages/remote-viewer-contracts/src/sanitize.ts|ZWJ/ZWNJ stripped; slash over-stripping|S1a` | fixed (joiners) / accepted trade-off (slash) | joiners preserved by test; `AC/DC`→`DC` documented privacy-over-fidelity. |
+| `P2|packages/remote-viewer-contracts/src/viewer-session.ts|old observation shown live and over-advanced|S1b` | fixed | observation-age freshness + capped advance; stale-old-observation and boundary tests pass. |
+| `P2|packages/remote-viewer-contracts/src/ordering.ts|non-playing timing changes never material|S1b` | fixed | paused scrub/jitter/timing-appearing cases pass. |
+| `P3|packages/remote-viewer-contracts/src/ordering.ts|remaining drift ignored|S1b` | fixed | remaining-correction test passes. |
+| `P3|packages/remote-viewer-contracts/src/ordering.ts|previous vs last-published ambiguity|S1b` | fixed | parameter `lastPublished` + doc; accumulation test passes. |
+| `P3|packages/remote-viewer-contracts/src/timing.ts|viewer clock ignores round trip|S1b` | fixed | `createServerClock` uses the midpoint sample; skew test passes. |
+| `P3|packages/remote-viewer-contracts/src/parse-snapshot.ts|unbounded freshness policy|S1b` | fixed | upper bounds at 10/25/60 s; inflated-policy rejects and tightened-policy accept pass. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -114,6 +126,8 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-28 (S1a): `npm install` in the worktree (stale ignored `frontend/node_modules` symlink tree removed first; main checkout verified intact). Only lockfile change kept: the new workspace entries; the directory-derived root `name` churn was reverted.
 - 2026-09-28 (S1a): red `npm run test --workspace @ontime/remote-viewer-contracts` 230 failed, all `Error: not implemented`; typecheck PASS.
 - 2026-09-28 (S1a): green 246/246 after review fixes; `npm run typecheck --workspace @ontime/remote-viewer-contracts` PASS; `npm run guardrails` PASS (static + boundaries, 287 modules).
+- 2026-09-28 (S1b): red 44 new failures (`not implemented`), typecheck PASS; review-fix red 12; green `npm run test --workspace @ontime/remote-viewer-contracts` 318/318; typecheck PASS; `npm run guardrails` PASS (293 modules).
+- S1b interpretations: `PublishSnapshotRequestV1.sentAtEstimatedServerMs` is `number | null` (null = no reliable offset ⇒ server transit 0, metric); freshness (live/stale/disconnected) is judged on observation age (`observationAgeMs + preCommitTransitMs + max(0, now − publishedAtMs)`) and the advance is capped at `staleAfterMs` — a refinement of the plan's since-commit-only clamp so a re-published old observation cannot look live (≤ ~1 s earlier stale in normal operation); v1 policy fields may be tightened but not loosened past 10/25/60 s; `MAX_CLOCK_UNCERTAINTY_MS = 2000`; material comparator compares against the last *published* candidate and treats non-playing elapsed/remaining changes >750 ms (or null↔value) as material; viewer and sidecar share one midpoint offset model.
 - S1a interpretations (to reconcile in closeout doc sync, not auto-edited): publish request carries `schemaMajor/sourceKind/sourceMajor` although the endpoints table omits them (plan: server "verifies and reconstructs the candidate"); `timing-unavailable` allows playing-status rows whose numerics are all null; every non-`no-video` state needs ≥1 row; `headline.focusedOrdinal` must equal the single `isFocus` row; unknown/forbidden keys are rejected (not dropped); sanitizer is path-basename + Unicode Cc/Cf/Cs/Co removal (ZWJ/ZWNJ kept) + repeated known-extension strip + 80-code-point cap, idempotent; constants `MAX_VIDEO_ROWS=64`, `MAX_DISPLAY_TEXT_LENGTH=80`, `SESSION_ID_PATTERN=[A-Za-z0-9_-]{1,128}`.
 
 - 2026-08-26: Preflight confirmed clean authorized worktree and branch at `7533c67bfeaea1fc41288e63ea6182feea3dbcda`.

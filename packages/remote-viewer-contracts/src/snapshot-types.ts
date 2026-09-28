@@ -89,7 +89,8 @@ export type PublishSnapshotRequestV1 = SourceHeader & {
   sequence: number
   observedAtMs: number
   observationAgeMs: number
-  sentAtEstimatedServerMs: number
+  /** `null` when the sidecar has no reliable server-clock offset; the server then uses zero transit. */
+  sentAtEstimatedServerMs: number | null
 } & RemoteSourceBody
 
 export type RemoteSnapshotV1 = SourceHeader & {

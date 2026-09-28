@@ -333,6 +333,11 @@ describe('publish request fields', () => {
     expect(errorOf(parsePublishSnapshotRequestV1(activeRequest({ [key]: value })))).toEqual({ code, path: key })
   })
 
+  it('accepts a null send estimate when the sidecar has no reliable offset', () => {
+    const parsed = parsePublishSnapshotRequestV1(activeRequest({ sentAtEstimatedServerMs: null }))
+    expect(valueOf(parsed).sentAtEstimatedServerMs).toBeNull()
+  })
+
   it('rejects server-owned fields supplied by the sidecar', () => {
     // Defect: a sidecar forges server time or freshness policy.
     for (const key of ['publishedAtMs', 'preCommitTransitMs', 'staleAfterMs']) {
@@ -351,12 +356,21 @@ describe('candidate fields', () => {
 })
 
 describe('stored snapshot freshness policy', () => {
+  it('accepts a policy tightened below the v1 defaults', () => {
+    const parsed = parseRemoteSnapshotV1(activeSnapshot({ heartbeatIntervalMs: 5_000, staleAfterMs: 15_000, disconnectAfterMs: 40_000 }))
+    expect(valueOf(parsed).staleAfterMs).toBe(15_000)
+  })
+
   it.each([
     [{ staleAfterMs: 0 }, 'staleAfterMs'],
     [{ heartbeatIntervalMs: 30_000 }, 'heartbeatIntervalMs'],
     [{ disconnectAfterMs: 20_000 }, 'disconnectAfterMs'],
     [{ preCommitTransitMs: 25_001 }, 'preCommitTransitMs'],
     [{ publishedAtMs: -1 }, 'publishedAtMs'],
+    // Defect: an inflated server policy means the viewer never goes stale.
+    [{ staleAfterMs: 1e12, disconnectAfterMs: 2e12 }, 'staleAfterMs'],
+    [{ disconnectAfterMs: 60_001 }, 'disconnectAfterMs'],
+    [{ heartbeatIntervalMs: 10_001 }, 'heartbeatIntervalMs'],
   ])('rejects %j', (override, path) => {
     // Defect: a policy where stale precedes heartbeat, or unbounded transit, breaks freshness.
     const error = errorOf(parseRemoteSnapshotV1(activeSnapshot(override)))

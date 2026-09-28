@@ -1,15 +1,18 @@
 import { parseSourceBody } from './parse-payload'
 import {
+  DISCONNECT_AFTER_MS,
+  HEARTBEAT_INTERVAL_MS,
   POWERPOINT_SOURCE_KIND,
   POWERPOINT_SOURCE_MAJOR,
   REMOTE_SCHEMA_MAJOR,
   SESSION_ID_PATTERN,
+  STALE_AFTER_MS,
   type ParseResult,
   type PublishSnapshotRequestV1,
   type RemoteSnapshotCandidateV1,
   type RemoteSnapshotV1,
 } from './snapshot-types'
-import { expectInteger, expectNonNegative, expectRecord, reject, runParser, type UnknownRecord } from './strict'
+import { expectInteger, expectNonNegative, expectNullableNonNegative, expectRecord, reject, runParser, type UnknownRecord } from './strict'
 
 const BODY_KEYS = ['schemaMajor', 'sourceKind', 'sourceMajor', 'observedAtMs', 'availability', 'payload']
 const CANDIDATE_KEYS = new Set(BODY_KEYS)
@@ -71,7 +74,7 @@ export function parsePublishSnapshotRequestV1(input: unknown): ParseResult<Publi
     const record = expectRecord(input, '', REQUEST_KEYS)
     const header = parseHeader(record)
     const ordering = parseSessionOrdering(record)
-    const sentAtEstimatedServerMs = expectNonNegative(record, 'sentAtEstimatedServerMs', '')
+    const sentAtEstimatedServerMs = expectNullableNonNegative(record, 'sentAtEstimatedServerMs', '')
     return { ...header, ...ordering, sentAtEstimatedServerMs, ...parseSourceBody(record) }
   })
 }
@@ -87,6 +90,10 @@ export function parseRemoteSnapshotV1(input: unknown): ParseResult<RemoteSnapsho
     const heartbeatIntervalMs = expectInteger(record, 'heartbeatIntervalMs', '', 1)
     const staleAfterMs = expectInteger(record, 'staleAfterMs', '', 1)
     const disconnectAfterMs = expectInteger(record, 'disconnectAfterMs', '', 1)
+    // v1 may tighten but never loosen the spec's 10 s / 25 s / 60 s policy.
+    if (heartbeatIntervalMs > HEARTBEAT_INTERVAL_MS) reject('invalid-field', 'heartbeatIntervalMs')
+    if (staleAfterMs > STALE_AFTER_MS) reject('invalid-field', 'staleAfterMs')
+    if (disconnectAfterMs > DISCONNECT_AFTER_MS) reject('invalid-field', 'disconnectAfterMs')
     if (heartbeatIntervalMs >= staleAfterMs) reject('invalid-combination', 'heartbeatIntervalMs')
     if (disconnectAfterMs <= staleAfterMs) reject('invalid-combination', 'disconnectAfterMs')
     if (preCommitTransitMs > staleAfterMs) reject('invalid-combination', 'preCommitTransitMs')
