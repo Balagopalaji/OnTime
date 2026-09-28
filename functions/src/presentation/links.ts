@@ -1,11 +1,12 @@
 import * as functions from 'firebase-functions'
 import type { Transaction } from 'firebase-admin/firestore'
 import { PUBLISHER_ROLE, VIEWER_ROLE, serverSecret } from './config'
-import { isCurrentLinkNonce, linkTokenHash, randomUrlSafe, sha256Hex } from './crypto'
+import { isCurrentLinkNonce, linkTokenHash, presentationViewerUid, randomUrlSafe } from './crypto'
 import { readActiveDevice, requireOwnerUser, requirePublisherClaims, type PublisherCaller } from './callers'
 import { adminAuth } from './firestore'
 import { runIdempotent, unwrap, type Outcome } from './idempotency'
 import { PATTERNS, parseRequest } from './requests'
+import { RATE_LIMITS, enforceRateLimit, ipScope } from './rate-limit'
 import {
   assertReplayCurrent,
   linkRef,
@@ -66,6 +67,8 @@ async function runLinkOperation(
 ) {
   const caller = requirePublisherClaims(context)
   const request = parseRequest(data, sessionRequest)
+  // Scoped by caller too, so another principal's denied calls cannot exhaust the owner's budget.
+  await enforceRateLimit(RATE_LIMITS.linkMutationPerSession, `${request.sessionId}|${caller.deviceUid}`, { failOpen: false })
   const nowMs = Date.now()
   const { outcome, replayed } = await runIdempotent(
     { scope: caller.deviceUid, clientRequestId: request.clientRequestId, operation, request, nowMs },
@@ -131,6 +134,7 @@ export const revokePresentationViewerLink = functions.https.onCall(async (data, 
   const device = isDevice ? requirePublisherClaims(context) : undefined
   const ownerUid = isDevice ? undefined : requireOwnerUser(context)
   const scope = device?.deviceUid ?? (ownerUid as string)
+  await enforceRateLimit(RATE_LIMITS.linkMutationPerSession, `${request.sessionId}|${scope}`, { failOpen: false })
   const { outcome } = await runIdempotent(
     { scope, clientRequestId: request.clientRequestId, operation: 'revokePresentationViewerLink', request, nowMs: Date.now() },
     async (tx): Promise<Outcome<{ revoked: true; viewerGeneration: number }>> => {
@@ -158,11 +162,13 @@ export const revokePresentationViewerLink = functions.https.onCall(async (data, 
  * failure is the same `permission-denied`, so the endpoint is not an oracle.
  * One viewer principal per session generation bounds Auth user growth.
  */
-export const resolvePresentationViewerLink = functions.https.onCall(async (data) => {
+export const resolvePresentationViewerLink = functions.https.onCall(async (data, context) => {
   const request = parseRequest(data, {
     sessionId: { pattern: PATTERNS.sessionId },
     token: { pattern: PATTERNS.viewerToken },
   })
+  // Viewers share one principal per generation, so limits are scoped by IP and session, never by uid.
+  await enforceRateLimit(RATE_LIMITS.resolvePerIp, ipScope(context.rawRequest?.ip), { failOpen: false })
   const nowMs = Date.now()
   const linkDocId = linkTokenHash(request.token)
   const [linkSnap, sessionSnap] = await Promise.all([linkRef(linkDocId).get(), sessionRef(request.sessionId).get()])
@@ -178,9 +184,12 @@ export const resolvePresentationViewerLink = functions.https.onCall(async (data)
     session.status === 'active' &&
     nowMs < link.expiresAtMs &&
     nowMs < session.activeWindowExpiresAtMs
-  if (!valid || !session) throw new functions.https.HttpsError('permission-denied', 'Viewer link is not valid.')
+  if (!valid || !session) {
+    await enforceRateLimit(RATE_LIMITS.resolvePerSession, request.sessionId, { failOpen: false })
+    throw new functions.https.HttpsError('permission-denied', 'Viewer link is not valid.')
+  }
 
-  const viewerUid = `ppv_${sha256Hex(`${request.sessionId}|${session.viewerGeneration}`).slice(0, 40)}`
+  const viewerUid = presentationViewerUid(request.sessionId, session.viewerGeneration)
   const customToken = await adminAuth().createCustomToken(viewerUid, {
     role: VIEWER_ROLE,
     sessionId: request.sessionId,

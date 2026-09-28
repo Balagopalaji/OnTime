@@ -19,6 +19,7 @@ import { adminAuth, db } from './firestore'
 import { runIdempotent, unwrap, type Outcome } from './idempotency'
 import { writeSessionEnded } from './sessions'
 import { PATTERNS, parseRequest } from './requests'
+import { RATE_LIMITS, enforceRateLimit, ipScope } from './rate-limit'
 
 /**
  * Publisher-device approval (endpoints: Begin/Approve/Complete/Refresh/Revoke).
@@ -47,12 +48,13 @@ type ChallengeDoc = {
 
 const challengeRef = (challengeId: string) => db.collection(COLLECTIONS.challenges).doc(challengeId)
 
-export const beginPresentationPublisherAuth = functions.https.onCall(async (data) => {
+export const beginPresentationPublisherAuth = functions.https.onCall(async (data, context) => {
   const request = parseRequest(data, {
     clientRequestId: { pattern: PATTERNS.clientRequestId },
     codeChallenge: { pattern: PATTERNS.codeChallenge },
     callbackScheme: { pattern: PATTERNS.callbackScheme },
   })
+  await enforceRateLimit(RATE_LIMITS.publisherAuthPerIp, ipScope(context.rawRequest?.ip), { failOpen: false })
   if (request.callbackScheme !== publisherCallbackScheme()) {
     throw new functions.https.HttpsError('invalid-argument', 'Invalid request field: callbackScheme')
   }
@@ -109,7 +111,7 @@ export const approvePresentationPublisherAuth = functions.https.onCall(async (da
   return unwrap(outcome)
 })
 
-export const completePresentationPublisherAuth = functions.https.onCall(async (data) => {
+export const completePresentationPublisherAuth = functions.https.onCall(async (data, context) => {
   const request = parseRequest(data, {
     clientRequestId: { pattern: PATTERNS.clientRequestId },
     challengeId: { pattern: PATTERNS.challengeId },
@@ -117,6 +119,7 @@ export const completePresentationPublisherAuth = functions.https.onCall(async (d
     codeVerifier: { pattern: PATTERNS.codeVerifier },
     devicePublicKey: { pattern: PATTERNS.devicePublicKey },
   })
+  await enforceRateLimit(RATE_LIMITS.publisherAuthPerIp, ipScope(context.rawRequest?.ip), { failOpen: false })
   const nowMs = Date.now()
   const { outcome } = await runIdempotent(
     {
@@ -173,6 +176,7 @@ export const completePresentationPublisherAuth = functions.https.onCall(async (d
 export const refreshPresentationPublisherDevice = functions.https.onCall(async (data, context) => {
   const caller = requirePublisherClaims(context)
   parseRequest(data, { clientRequestId: { pattern: PATTERNS.clientRequestId } })
+  await enforceRateLimit(RATE_LIMITS.refreshPerDevice, caller.deviceUid, { failOpen: false })
   const nowMs = Date.now()
   const outcome = await db.runTransaction(async (tx) => {
     const device = await readActiveDevice(tx, caller)

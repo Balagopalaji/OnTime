@@ -13,6 +13,7 @@ import { readActiveDevice, requirePublisherClaims, type PublisherCaller } from '
 import { db } from './firestore'
 import { runIdempotent, unwrap, type Outcome } from './idempotency'
 import { PATTERNS, parseRequest } from './requests'
+import { RATE_LIMITS, enforceRateLimit } from './rate-limit'
 
 /** Server-only session document (clients are denied; see endpoints data model). */
 export type SessionDoc = {
@@ -80,6 +81,7 @@ export const createPresentationSession = functions.https.onCall(async (data, con
     clientRequestId: { pattern: PATTERNS.clientRequestId },
     roomId: { pattern: PATTERNS.roomId, optional: true },
   })
+  await enforceRateLimit(RATE_LIMITS.createPerOwner, caller.ownerUid, { failOpen: false })
   const nowMs = Date.now()
   const { outcome, replayed } = await runIdempotent(
     { scope: caller.deviceUid, clientRequestId: request.clientRequestId, operation: 'createPresentationSession', request, nowMs },
@@ -202,6 +204,7 @@ export const resumePresentationSession = functions.https.onCall(async (data, con
     sessionId: { pattern: PATTERNS.sessionId },
     clientRequestId: { pattern: PATTERNS.clientRequestId },
   })
+  await enforceRateLimit(RATE_LIMITS.resumePerDevice, caller.deviceUid, { failOpen: false })
   const nowMs = Date.now()
   const { outcome, replayed } = await runIdempotent(
     { scope: caller.deviceUid, clientRequestId: request.clientRequestId, operation: 'resumePresentationSession', request, nowMs },

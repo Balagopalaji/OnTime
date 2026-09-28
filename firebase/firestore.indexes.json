@@ -1,0 +1,144 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "presentationSessions",
+      "fieldPath": "cleanupAfterMs",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationSessionSnapshots",
+      "fieldPath": "cleanupAfterMs",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationSessionViewerStates",
+      "fieldPath": "cleanupAfterMs",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationViewerLinks",
+      "fieldPath": "cleanupAfterMs",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationRequestResults",
+      "fieldPath": "cleanupAfterMs",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationPublisherAuthChallenges",
+      "fieldPath": "cleanupAfterMs",
+      "ttl": true,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationPublisherDevices",
+      "fieldPath": "cleanupAfterMs",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "presentationRateLimits",
+      "fieldPath": "cleanupAfterMs",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "presentationSessionSnapshots",
+      "fieldPath": "snapshot",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "presentationSessions",
+      "fieldPath": "lastSequence",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "presentationSessions",
+      "fieldPath": "lastPublishAtMs",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "presentationSessions",
+      "fieldPath": "lastPublishRequestHash",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "presentationSessions",
+      "fieldPath": "lastPublishResult",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "presentationSessionViewerStates",
+      "fieldPath": "lastPublishAtMs",
+      "indexes": []
+    }
+  ]
+}

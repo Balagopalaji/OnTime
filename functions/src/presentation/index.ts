@@ -13,3 +13,4 @@ export {
   rotatePresentationViewerLink,
 } from './links'
 export { endPresentationSession, publishPresentationSnapshot } from './publish'
+export { cleanupExpiredPresentationSessions } from './cleanup'

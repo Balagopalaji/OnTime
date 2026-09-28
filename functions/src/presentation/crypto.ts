@@ -47,6 +47,11 @@ export function deriveViewerLinkToken(secret: string, sessionId: string, linkNon
   return createHmac('sha256', secret).update(`viewer-link|${sessionId}|${linkNonce}`, 'utf8').digest('base64url')
 }
 
+/** One read-only viewer principal per session generation (bounded Auth user growth; deleted by cleanup). */
+export function presentationViewerUid(sessionId: string, viewerGeneration: number): string {
+  return `ppv_${sha256Hex(`${sessionId}|${viewerGeneration}`).slice(0, 40)}`
+}
+
 export function linkTokenHash(token: string): string {
   return sha256Hex(`viewer-link-token|${token}`)
 }

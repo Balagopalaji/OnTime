@@ -152,6 +152,7 @@ async function createPresentationHarness(name) {
     cleanup,
     clientDb,
     newAccount,
+    privileged,
     signInAsDevice,
     signInWithAccount,
   };

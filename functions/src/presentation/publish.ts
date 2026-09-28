@@ -15,6 +15,7 @@ import { readActiveDevice, requireOwnerUser, requirePublisherClaims } from './ca
 import { db } from './firestore'
 import { runIdempotent, unwrap, type Outcome } from './idempotency'
 import { PATTERNS, parseRequest } from './requests'
+import { RATE_LIMITS, enforceRateLimit } from './rate-limit'
 import { readOwnedSession, sessionRef, snapshotRef, viewerStateRef, writeSessionEnded, type SessionDoc } from './sessions'
 
 /**
@@ -71,6 +72,8 @@ export const publishPresentationSnapshot = functions.https.onCall(async (data, c
     throw new functions.https.HttpsError('invalid-argument', `Invalid snapshot: ${parsed.error.code} at ${parsed.error.path || 'request'}`)
   }
   const request = parsed.value
+  // Fail open (with alert) so a limiter outage never disconnects a live show.
+  await enforceRateLimit(RATE_LIMITS.publishPerSession, `${request.sessionId}|${caller.deviceUid}`, { failOpen: true })
   const hash = publishIdentityHash(request)
 
   const outcome = await db.runTransaction(async (tx): Promise<Outcome<PublishResult>> => {
@@ -135,6 +138,7 @@ export const endPresentationSession = functions.https.onCall(async (data, contex
   const isDevice = context.auth?.token.role === PUBLISHER_ROLE
   const device = isDevice ? requirePublisherClaims(context) : undefined
   const ownerUid = isDevice ? undefined : requireOwnerUser(context)
+  await enforceRateLimit(RATE_LIMITS.endPerSession, `${request.sessionId}|${device?.deviceUid ?? ownerUid}`, { failOpen: false })
   const nowMs = Date.now()
   const { outcome } = await runIdempotent(
     {
