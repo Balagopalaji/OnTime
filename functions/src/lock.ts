@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { rejectPresentationPrincipal } from './presentation/callers';
 
 const STALE_THRESHOLD_MS = 90_000;
 const FORCE_TAKEOVER_TIMEOUT_MS = 30_000;
@@ -85,6 +86,7 @@ const requireAuthUid = (context: functions.https.CallableContext): string => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign-in required.');
   }
+  rejectPresentationPrincipal(context);
   return context.auth.uid;
 };
 

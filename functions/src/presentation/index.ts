@@ -6,3 +6,9 @@ export {
   revokePresentationPublisherDevice,
 } from './device-auth'
 export { createPresentationSession, resumePresentationSession } from './sessions'
+export {
+  issuePresentationViewerLink,
+  resolvePresentationViewerLink,
+  revokePresentationViewerLink,
+  rotatePresentationViewerLink,
+} from './links'

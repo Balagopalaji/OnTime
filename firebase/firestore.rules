@@ -1,8 +1,52 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Role-bearing principals (ISSUE-002 presentation publisher/viewer custom
+    // tokens) are not ordinary signed-in users and gain no room/user permissions.
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null && !('role' in request.auth.token);
+    }
+    function isPresentationViewer(sessionId) {
+      return request.auth != null
+        && request.auth.token.get('role', '') == 'presentation-viewer'
+        && request.auth.token.get('sessionId', '') == sessionId;
+    }
+    // One cross-document get() of the private session per snapshot read.
+    function presentationSnapshotReadable(sessionId) {
+      let session = get(/databases/$(database)/documents/presentationSessions/$(sessionId)).data;
+      return session.viewerGeneration == request.auth.token.viewerGeneration
+        && session.status == 'active'
+        && request.time.toMillis() < session.activeWindowExpiresAtMs;
+    }
+
+    // ISSUE-002 presentation sessions: all client writes denied; callables use Admin.
+    match /presentationSessionSnapshots/{sessionId} {
+      allow read: if isPresentationViewer(sessionId) && presentationSnapshotReadable(sessionId);
+      allow write: if false;
+    }
+    // The current generation may still read a safe ended state; revoked generations cannot.
+    match /presentationSessionViewerStates/{sessionId} {
+      allow read: if isPresentationViewer(sessionId)
+        && resource.data.viewerGeneration == request.auth.token.viewerGeneration;
+      allow write: if false;
+    }
+    match /presentationSessions/{sessionId} {
+      allow read, write: if false;
+    }
+    match /presentationViewerLinks/{tokenHash} {
+      allow read, write: if false;
+    }
+    match /presentationRequestResults/{resultId} {
+      allow read, write: if false;
+    }
+    match /presentationPublisherAuthChallenges/{challengeId} {
+      allow read, write: if false;
+    }
+    match /presentationPublisherDevices/{deviceUid} {
+      allow read, write: if false;
+    }
+    match /presentationRateLimits/{bucketKey} {
+      allow read, write: if false;
     }
     function isServiceAccount() {
       return isSignedIn()

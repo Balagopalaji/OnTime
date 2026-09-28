@@ -21,6 +21,14 @@ function denied(message: string): never {
   throw new functions.https.HttpsError('permission-denied', message)
 }
 
+/**
+ * Guard for pre-ISSUE-002 room/lock callables: presentation publisher and
+ * viewer principals are not ordinary users and get no room authority.
+ */
+export function rejectPresentationPrincipal(context: functions.https.CallableContext): void {
+  if (context.auth?.token.role !== undefined) denied('Presentation principals cannot use room operations.')
+}
+
 const NON_OWNER_PROVIDERS = new Set(['custom', 'anonymous'])
 
 /**

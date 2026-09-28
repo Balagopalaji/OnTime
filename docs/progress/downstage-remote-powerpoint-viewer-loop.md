@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S3a verified",
-  "currentTask": "S3b — next",
+  "phase": "Implement: S3b verified",
+  "currentTask": "S3c — next",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -47,7 +47,15 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P3|functions/src/presentation/idempotency.ts|retryable errors persisted|S3a",
     "P3|functions/src/presentation/sessions.ts|replay returns rotated-away URL|S3a",
     "P3|functions/src/presentation/idempotency.ts|request-result ID collision|S3a",
-    "P3|functions/src/presentation/device-auth.ts|unauthenticated write amplification / dead begin field|S3a"
+    "P3|functions/src/presentation/device-auth.ts|unauthenticated write amplification / dead begin field|S3a",
+    "P2|functions/src/presentation/links.ts|secret rotation yields unresolvable issued/replayed URLs|S3b",
+    "P2|functions/src/{lock,operators}.ts|presentation principals accepted by room/lock callables|S3b",
+    "P3|functions/src/presentation/links.ts|issue/rotate return already-expired links|S3b",
+    "P3|functions/src/presentation/links.ts|missing link doc becomes internal error|S3b",
+    "P3|firebase/firestore.rules|attached listeners after revoke untested|S3b",
+    "P3|firebase/firestore.rules|isSignedIn role denylist vs owner allowlist|S3b",
+    "P3|functions/src/presentation/links.ts|one shared viewer principal per generation|S3b",
+    "P3|functions/src/presentation/links.ts|secret rotation revokes previously shared URLs on next issue|S3b"
   ]
 }
 ```
@@ -61,7 +69,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: Implement mode; S1a, S1b, S3a verified; S3b next
+- Current phase: Implement mode; S1a, S1b, S3a, S3b verified; S3c next
 
 ## Readiness gate
 
@@ -81,7 +89,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 | S1b | Reducer/timing/comparator/freshness | RPV-002,003,006–009 (contract layer only) | `packages/remote-viewer-contracts` `timing.ts`, `ordering.ts`, `viewer-session.ts` | Claude Opus 5.5 orchestrator (direct) | 72 new unit tests: transit/offset/advance/interpolation, ±5 min skew, order comparator, material comparator, reducer ordering/terminal/incompatible, fake-clock freshness 25 s/60 s, RPV-009 identical projection | verified | red 44 `not implemented` then 12 review-fix reds; green 318/318; typecheck; guardrails pass; Oracle review no P0/P1. |
 | S2 | Ratified D1/D2 decision gate | no runtime claim | docs | complete before Loop | n/a | complete | Deep Plan records supersession. |
 | S3a | Publisher-device auth/session creation | RPV-003,007,010 (server layer) | `functions/src/presentation/{config,crypto,requests,callers,idempotency,device-auth,sessions,firestore,index}.ts`, `functions/src/index.ts`, `firebase/tests/{emu-harness,presentation-auth-session.emu}.js`, `firebase/package.json` `test:presentation`, functions `test` script + tsconfig test exclude | Claude Opus 5.5 orchestrator (direct) | unit 17 (RFC 7636 vector, canonical hash, link derivation, strict requests); emulator 9 cases | verified | red: callables `not-found` 6/6, then 7/9 review-fix reds; green emulator 9/9, unit 17/17; functions build; rules + join-operator regressions pass; guardrails pass. |
-| S3b | Viewer links/generation/rules | RPV-003,007,010 | Functions link modules, rules/tests | unassigned | rules/emulator tests | pending | Depends on S3a. |
+| S3b | Viewer links/generation/rules | RPV-003,007,010 (server/rules layer) | `functions/src/presentation/{links,sessions,callers,crypto,index}.ts`, `functions/src/{lock,operators}.ts` (principal guard), `firebase/firestore.rules`, `firebase/tests/{presentation-harness,presentation-links.emu,presentation-auth-session.emu}.js` | Claude Opus 5.5 orchestrator (direct) | emulator 12 cases (resolve claims, viewer read-only + RPV-010 denials incl. room create and room/lock callables, rotate/revoke/issue generations, attached-listener revocation, expiry, ended); unit +1 (secret rotation) | verified | red 0/10 (`not-found`), review-fix red 3/12 + unit 1; green S3a 9/9, S3b 12/12, unit 18/18, rules suite exit 0, join-operator exit 0, guardrails pass; Oracle re-review closed all S3b findings. |
 | S3c | Publish transaction/current state | RPV-001,003,006–010 | Functions publish modules/tests | unassigned | transaction/emulator tests | pending | Depends on S1b,S3b. |
 | S3d | Cleanup/TTL/indexes/rate limit/load plan | RPV-003,007,008,010 | Functions/config/tests | unassigned | cleanup/limiter/config tests | pending | Depends on S3c. |
 | S4a | Source-neutral timer face | RPV-002,003,005,008,009 | `packages/timer-face` | unassigned | DOM characterization/typecheck | pending | Depends on S1a. |
@@ -132,6 +140,14 @@ S0 diff. No P0/P1 finding remains.
 | `P3|functions/src/presentation/sessions.ts|replay returns rotated-away URL|S3a` | fixed | `assertReplayCurrent` (status, nonce, hash, epoch). |
 | `P3|functions/src/presentation/idempotency.ts|request-result ID collision|S3a` | fixed | hashed doc ID. |
 | `P3|functions/src/presentation/device-auth.ts|unauthenticated write amplification / dead begin field|S3a` | fixed (begin idempotent; not-found not persisted) / deferred (rate limits → S3d) | begin idempotency case passes. |
+| `P2|functions/src/presentation/links.ts|secret rotation yields unresolvable issued/replayed URLs|S3b` | fixed | `isCurrentLinkNonce` guards issue/replay/resume; unit swap-secret test passes; Oracle re-review closed. |
+| `P2|functions/src/{lock,operators}.ts|presentation principals accepted by room/lock callables|S3b` | fixed | `rejectPresentationPrincipal` in both `requireAuthUid`; viewer/device joinAsOperator + acquireLock denied in emulator. |
+| `P3|functions/src/presentation/links.ts|issue/rotate return already-expired links|S3b` | fixed | expired issue/rotate → failed-precondition case passes. |
+| `P3|functions/src/presentation/links.ts|missing link doc becomes internal error|S3b` | false_positive | `.data()` is undefined for a missing doc; branch is guarded. |
+| `P3|firebase/firestore.rules|attached listeners after revoke untested|S3b` | fixed | attached-listener rotation case passes (state immediate, snapshot next write). |
+| `P3|firebase/firestore.rules|isSignedIn role denylist vs owner allowlist|S3b` | fixed | `!('role' in request.auth.token)`; rules suite passes. |
+| `P3|functions/src/presentation/links.ts|one shared viewer principal per generation|S3b` | accepted (deliberate) | S3d owns IP/session-scoped limits and `ppv_` cleanup. |
+| `P3|functions/src/presentation/links.ts|secret rotation revokes previously shared URLs on next issue|S3b` | accepted (documented cost) | fails safe; recorded for conformance. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -144,6 +160,8 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-28 (S1a): green 246/246 after review fixes; `npm run typecheck --workspace @ontime/remote-viewer-contracts` PASS; `npm run guardrails` PASS (static + boundaries, 287 modules).
 - 2026-09-28 (S1b): red 44 new failures (`not implemented`), typecheck PASS; review-fix red 12; green `npm run test --workspace @ontime/remote-viewer-contracts` 318/318; typecheck PASS; `npm run guardrails` PASS (293 modules).
 - 2026-09-28 (S3a): `npm run test:presentation --workspace ontime-firebase-rules` red 0/6 (`not-found`), review-fix red 2/9, green 9/9; `npm run test --workspace functions` 17/17; `npm run build --workspace functions` PASS; `test:rules` exit 0; `test:join-operator` exit 0; guardrails PASS. Build output in tracked `functions/lib` is restored after each emulator run (it was already stale vs `src` before ISSUE-002; not committed). Pure helpers (crypto/requests) were written before their unit tests; all callable behavior was red-first via the emulator suite.
+- 2026-09-28 (S3b): `npm run test:presentation --workspace ontime-firebase-rules` S3a 9/9 + S3b 12/12; `npm run test --workspace functions` 18/18; `test:rules` exit 0; `test:join-operator` exit 0; guardrails PASS.
+- S3b interpretations/divergences (closeout doc sync): revoke's "safe access-ended state" is the `viewerGeneration` increment — existing viewers' `viewerState` listener is denied at once (client renders access-ended), snapshot listener on the next write; no `access-ended` status value is written. `issue` returns the current link, or mints one at the current generation after a revoke or a server-secret rotation (rotation therefore revokes previously shared URLs on the next issue — accepted cost). `issue`/`rotate` require an unexpired window (`failed-precondition`, resume first). `resume` returns `viewerUrl: null` when the link was revoked or the secret rotated. One viewer principal per session generation (`ppv_<hash>`); S3d must rate-limit resolve by HMAC-IP/session and delete `ppv_` users in cleanup. Firestore `isSignedIn()` now excludes any role-bearing token and all lock/operator callables reject role-bearing principals (RPV-010).
 - S3a interpretations/divergences (closeout doc sync): `completePresentationPublisherAuth` additionally requires `authorizationCode` and `approvePresentationPublisherAuth` returns `{status:'approved', callbackUrl}` (`<scheme>://publisher-auth?challenge=…&code=…`) — P1 anti-phishing binding; the one-time code is useless without the PKCE verifier. Revoking a device ends its active sessions. Owner = no role claim and provider not custom/anonymous. Viewer-link token = HMAC(serverSecret, sessionId|nonce); session stores `viewerLinkNonce` + `viewerLinkDocId`; plaintext token never stored. Request-result doc ID = sha256(scope, clientRequestId); `resource-exhausted`/`not-found` outcomes are not persisted. Additive session fields: `viewerLinkNonce`, `viewerLinkDocId`, `createdAtMs`, `endedAtMs`. Cap uses a query read inside the transaction; concurrent-create safety relies on Firestore serializable transactions and is a staging check. Web approval page (`/publisher/device/approve`) is not owned by any slice; scheduled with S5 (frontend). Production deploy of Functions with the workspace contracts package is a release gate.
 - S1b interpretations: `PublishSnapshotRequestV1.sentAtEstimatedServerMs` is `number | null` (null = no reliable offset ⇒ server transit 0, metric); freshness (live/stale/disconnected) is judged on observation age (`observationAgeMs + preCommitTransitMs + max(0, now − publishedAtMs)`) and the advance is capped at `staleAfterMs` — a refinement of the plan's since-commit-only clamp so a re-published old observation cannot look live (≤ ~1 s earlier stale in normal operation); v1 policy fields may be tightened but not loosened past 10/25/60 s; `MAX_CLOCK_UNCERTAINTY_MS = 2000`; material comparator compares against the last *published* candidate and treats non-playing elapsed/remaining changes >750 ms (or null↔value) as material; viewer and sidecar share one midpoint offset model.
 - S1a interpretations (to reconcile in closeout doc sync, not auto-edited): publish request carries `schemaMajor/sourceKind/sourceMajor` although the endpoints table omits them (plan: server "verifies and reconstructs the candidate"); `timing-unavailable` allows playing-status rows whose numerics are all null; every non-`no-video` state needs ≥1 row; `headline.focusedOrdinal` must equal the single `isFocus` row; unknown/forbidden keys are rejected (not dropped); sanitizer is path-basename + Unicode Cc/Cf/Cs/Co removal (ZWJ/ZWNJ kept) + repeated known-extension strip + 80-code-point cap, idempotent; constants `MAX_VIDEO_ROWS=64`, `MAX_DISPLAY_TEXT_LENGTH=80`, `SESSION_ID_PATTERN=[A-Za-z0-9_-]{1,128}`.

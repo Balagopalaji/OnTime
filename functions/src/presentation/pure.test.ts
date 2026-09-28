@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   canonicalJson,
   deriveViewerLinkToken,
+  isCurrentLinkNonce,
   linkTokenHash,
   requestHash,
   verifyPkceS256,
@@ -50,6 +51,15 @@ describe('viewer link tokens', () => {
     expect(deriveViewerLinkToken('s'.repeat(32), 'sess1', 'nonce2')).not.toBe(token)
     expect(deriveViewerLinkToken('t'.repeat(32), 'sess1', 'nonce1')).not.toBe(token)
     expect(PATTERNS.viewerToken.test(token)).toBe(true)
+  })
+
+  it('recognises a stored link only under the secret that minted it', () => {
+    // Defect: after a secret rotation, issue/replay hands out a URL whose hash matches no link.
+    const token = deriveViewerLinkToken('s'.repeat(32), 'sess1', 'nonce1')
+    const docId = linkTokenHash(token)
+    expect(isCurrentLinkNonce('s'.repeat(32), 'sess1', 'nonce1', docId)).toBe(true)
+    expect(isCurrentLinkNonce('r'.repeat(32), 'sess1', 'nonce1', docId)).toBe(false)
+    expect(isCurrentLinkNonce('s'.repeat(32), 'sess1', 'nonce1', null)).toBe(false)
   })
 
   it('stores only a hash that differs from the token', () => {

@@ -8,7 +8,7 @@ import {
   serverSecret,
   viewerUrl,
 } from './config'
-import { deriveViewerLinkToken, linkTokenHash, randomUrlSafe } from './crypto'
+import { deriveViewerLinkToken, isCurrentLinkNonce, linkTokenHash, randomUrlSafe } from './crypto'
 import { readActiveDevice, requirePublisherClaims, type PublisherCaller } from './callers'
 import { db } from './firestore'
 import { runIdempotent, unwrap, type Outcome } from './idempotency'
@@ -26,10 +26,10 @@ export type SessionDoc = {
   sourceKind: 'powerpoint'
   roomId?: string
   viewerGeneration: number
-  /** Nonce from which the current viewer-link token is derived with the server secret. */
-  viewerLinkNonce: string
-  /** Link document ID (token hash); stored so link updates survive a server-secret rotation. */
-  viewerLinkDocId: string
+  /** Nonce from which the current viewer-link token is derived; null after the link is revoked. */
+  viewerLinkNonce: string | null
+  /** Current link document ID (token hash); stored so link updates survive a server-secret rotation. */
+  viewerLinkDocId: string | null
   activeWindowExpiresAtMs: number
   lastPublishAtMs: number | null
   createdAtMs: number
@@ -43,6 +43,12 @@ export const linkRef = (tokenHash: string) => db.collection(COLLECTIONS.links).d
 export function viewerLinkFor(sessionId: string, linkNonce: string): { token: string; tokenHash: string; url: string } {
   const token = deriveViewerLinkToken(serverSecret(), sessionId, linkNonce)
   return { token, tokenHash: linkTokenHash(token), url: viewerUrl(sessionId, token) }
+}
+
+/** URL for the session's current link, or null when revoked or minted under a rotated secret. */
+export function currentViewerUrl(sessionId: string, linkNonce: string | null, linkDocId: string | null): string | null {
+  if (linkNonce === null || !isCurrentLinkNonce(serverSecret(), sessionId, linkNonce, linkDocId)) return null
+  return viewerLinkFor(sessionId, linkNonce).url
 }
 
 function cleanupAfter(activeWindowExpiresAtMs: number): number {
@@ -138,13 +144,13 @@ export const createPresentationSession = functions.https.onCall(async (data, con
  * A replayed create/resume result is returned only while it still describes
  * the session: active, same link (not rotated, secret unchanged), same epoch.
  */
-async function assertReplayCurrent(sessionId: string, linkNonce: string, epoch?: number): Promise<void> {
+export async function assertReplayCurrent(sessionId: string, linkNonce: string | null, epoch?: number): Promise<void> {
   const session = (await sessionRef(sessionId).get()).data() as SessionDoc | undefined
   const current =
     session !== undefined &&
     session.status === 'active' &&
     session.viewerLinkNonce === linkNonce &&
-    session.viewerLinkDocId === viewerLinkFor(sessionId, linkNonce).tokenHash &&
+    (linkNonce === null || isCurrentLinkNonce(serverSecret(), sessionId, linkNonce, session.viewerLinkDocId)) &&
     (epoch === undefined || session.epoch === epoch)
   if (!current) {
     throw new functions.https.HttpsError('failed-precondition', 'Session changed since this request; retry with a new clientRequestId.')
@@ -175,7 +181,13 @@ export async function readOwnedSession(
   return { ok: true, value: session }
 }
 
-type ResumedSession = { sessionId: string; linkNonce: string; epoch: number; activeWindowExpiresAtMs: number }
+type ResumedSession = {
+  sessionId: string
+  linkNonce: string | null
+  linkDocId: string | null
+  epoch: number
+  activeWindowExpiresAtMs: number
+}
 
 export const resumePresentationSession = functions.https.onCall(async (data, context) => {
   const caller = requirePublisherClaims(context)
@@ -207,13 +219,18 @@ export const resumePresentationSession = functions.https.onCall(async (data, con
         cleanupAfterMs,
       })
       tx.update(viewerStateRef(request.sessionId), { activeWindowExpiresAtMs, cleanupAfterMs })
-      tx.update(linkRef(session.viewerLinkDocId), {
-        expiresAtMs: activeWindowExpiresAtMs,
-        cleanupAfterMs,
-      })
+      if (session.viewerLinkDocId !== null) {
+        tx.update(linkRef(session.viewerLinkDocId), { expiresAtMs: activeWindowExpiresAtMs, cleanupAfterMs })
+      }
       return {
         ok: true,
-        value: { sessionId: request.sessionId, linkNonce: session.viewerLinkNonce, epoch, activeWindowExpiresAtMs },
+        value: {
+          sessionId: request.sessionId,
+          linkNonce: session.viewerLinkNonce,
+          linkDocId: session.viewerLinkDocId,
+          epoch,
+          activeWindowExpiresAtMs,
+        },
       }
     },
   )
@@ -221,7 +238,8 @@ export const resumePresentationSession = functions.https.onCall(async (data, con
   if (replayed) await assertReplayCurrent(resumed.sessionId, resumed.linkNonce, resumed.epoch)
   return {
     epoch: resumed.epoch,
-    viewerUrl: viewerLinkFor(resumed.sessionId, resumed.linkNonce).url,
+    // null when the link was revoked or the secret rotated; the publisher issues a new one explicitly.
+    viewerUrl: currentViewerUrl(resumed.sessionId, resumed.linkNonce, resumed.linkDocId),
     activeWindowExpiresAtMs: resumed.activeWindowExpiresAtMs,
   }
 })

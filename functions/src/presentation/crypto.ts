@@ -50,3 +50,8 @@ export function deriveViewerLinkToken(secret: string, sessionId: string, linkNon
 export function linkTokenHash(token: string): string {
   return sha256Hex(`viewer-link-token|${token}`)
 }
+
+/** True when `linkNonce` under `secret` still derives the stored link document ID (false after a secret rotation). */
+export function isCurrentLinkNonce(secret: string, sessionId: string, linkNonce: string, linkDocId: string | null): boolean {
+  return linkDocId !== null && linkTokenHash(deriveViewerLinkToken(secret, sessionId, linkNonce)) === linkDocId
+}

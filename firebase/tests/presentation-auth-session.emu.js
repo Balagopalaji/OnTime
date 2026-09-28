@@ -4,109 +4,22 @@
  * Run via `npm run test:presentation --workspace ontime-firebase-rules`.
  */
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const { deleteApp, initializeApp } = require('firebase/app');
+const { signInWithCustomToken, signOut } = require('firebase/auth');
+const { runSuite } = require('./emu-harness');
 const {
-  connectAuthEmulator,
-  createUserWithEmailAndPassword,
-  getAuth,
-  signInWithCustomToken,
-  signOut,
-} = require('firebase/auth');
-const { connectFunctionsEmulator, getFunctions, httpsCallable } = require('firebase/functions');
-const { initializeTestEnvironment } = require('@firebase/rules-unit-testing');
-const { getEmulatorHosts, runSuite } = require('./emu-harness');
-
-const pkcePair = () => {
-  const verifier = crypto.randomBytes(32).toString('base64url');
-  const challenge = crypto.createHash('sha256').update(verifier, 'ascii').digest('base64url');
-  return { verifier, challenge };
-};
-const requestId = () => `req_${crypto.randomBytes(8).toString('hex')}`;
-const devicePublicKey = crypto.randomBytes(48).toString('base64url');
-
-const expectCode = async (promise, code, label) => {
-  await assert.rejects(promise, (error) => {
-    assert.equal(error.code, `functions/${code}`, `${label}: expected ${code}, got ${error.code} (${error.message})`);
-    return true;
-  });
-};
+  callbackCode,
+  createPresentationHarness,
+  devicePublicKey,
+  expectCode,
+  pkcePair,
+  requestId,
+} = require('./presentation-harness');
 
 async function main() {
-  const hosts = await getEmulatorHosts();
-  const app = initializeApp({ projectId: hosts.projectId, apiKey: 'demo-key', authDomain: 'localhost' }, `s3a-${Date.now()}`);
-  const auth = getAuth(app);
-  connectAuthEmulator(auth, `http://${hosts.auth.host}:${hosts.auth.port}`, { disableWarnings: true });
-  const fns = getFunctions(app);
-  connectFunctionsEmulator(fns, hosts.functions.host, hosts.functions.port);
-  const call = (name, data) => httpsCallable(fns, name)(data).then((r) => r.data);
-  const testEnv = await initializeTestEnvironment({
-    projectId: hosts.projectId,
-    firestore: { host: hosts.firestore.host, port: hosts.firestore.port },
-  });
-  // withSecurityRulesDisabled resolves to void, so results are captured explicitly.
-  const privileged = async (fn) => {
-    let result;
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      result = await fn(ctx.firestore());
-    });
-    return result;
-  };
-  const adminRead = (path) =>
-    privileged(async (db) => {
-      const snap = await db.doc(path).get();
-      return snap.exists ? snap.data() : null;
-    });
-  const adminDump = (collection) =>
-    privileged(async (db) => {
-      const snap = await db.collection(collection).get();
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    });
-
-  const owner = { email: `owner-${Date.now()}@example.com`, password: 'password-123' };
-  const other = { email: `other-${Date.now()}@example.com`, password: 'password-123' };
-
-  /** Full approval flow for one device; returns { deviceUid, customToken }. */
-  async function approveDevice(account) {
-    await signOut(auth);
-    const pkce = pkcePair();
-    const begun = await call('beginPresentationPublisherAuth', {
-      clientRequestId: requestId(),
-      codeChallenge: pkce.challenge,
-      callbackScheme: 'downstage-ppt-timer',
-    });
-    await signInWithAccount(account);
-    const approved = await call('approvePresentationPublisherAuth', { challengeId: begun.challengeId, decision: 'approve' });
-    await signOut(auth);
-    return call('completePresentationPublisherAuth', {
-      clientRequestId: requestId(),
-      challengeId: begun.challengeId,
-      authorizationCode: callbackCode(approved.callbackUrl, begun.challengeId),
-      codeVerifier: pkce.verifier,
-      devicePublicKey,
-    });
-  }
-
-  /** The one-time code reaches only the approving machine, via the app's registered callback. */
-  function callbackCode(callbackUrl, challengeId) {
-    const url = new URL(callbackUrl);
-    assert.equal(url.protocol, 'downstage-ppt-timer:');
-    assert.equal(url.searchParams.get('challenge'), challengeId);
-    const code = url.searchParams.get('code');
-    assert.match(code, /^[A-Za-z0-9_-]{32,64}$/);
-    return code;
-  }
-
-  const accounts = new Map();
-  async function signInWithAccount(account) {
-    if (!accounts.has(account.email)) {
-      await createUserWithEmailAndPassword(auth, account.email, account.password);
-      accounts.set(account.email, auth.currentUser.uid);
-      return;
-    }
-    const { signInWithEmailAndPassword } = require('firebase/auth');
-    await signInWithEmailAndPassword(auth, account.email, account.password);
-  }
+  const h = await createPresentationHarness('s3a');
+  const { accounts, adminDump, adminRead, approveDevice, auth, call, signInWithAccount } = h;
+  const owner = h.newAccount('owner');
+  const other = h.newAccount('other');
 
   await runSuite([
     ['begin rejects an unregistered callback scheme', async () => {
@@ -360,9 +273,7 @@ async function main() {
     }],
   ]);
 
-  await signOut(auth).catch(() => {});
-  await testEnv.cleanup();
-  await deleteApp(app);
+  await h.cleanup();
 }
 
 main().then(

@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import * as functions from 'firebase-functions';
+import { rejectPresentationPrincipal } from './presentation/callers';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -30,6 +31,7 @@ const requireAuthUid = (context: functions.https.CallableContext): string => {
   if (!context.auth?.uid) {
     throw new functions.https.HttpsError('unauthenticated', 'Sign-in required.');
   }
+  rejectPresentationPrincipal(context);
   return context.auth.uid;
 };
 
