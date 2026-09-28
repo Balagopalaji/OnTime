@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "build:cjs-deps": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge",
+    "build:cjs-deps": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge && npm run build:cjs --workspace @ontime/powerpoint-display",
     "build:main": "tsc -p tsconfig.build.json",
     "build:renderer": "vite build",
     "build": "npm run build:cjs-deps && npm run build:main && npm run build:renderer",
@@ -22,8 +22,11 @@
     "@ontime/presentation-core": "0.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
     "@electron/asar": "3.4.1",
+    "@ontime/powerpoint-display": "0.0.0",
+    "@ontime/remote-viewer-contracts": "0.0.0",
+    "@ontime/timer-face": "0.0.0",
+    "@types/node": "^22.9.0",
     "electron": "43.2.0",
     "electron-builder": "26.11.1",
     "typescript": "~5.9.3",

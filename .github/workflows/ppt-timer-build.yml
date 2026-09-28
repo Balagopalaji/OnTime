@@ -61,6 +61,7 @@ jobs:
         run: |
           npm run build:cjs --workspace @ontime/presentation-core
           npm run build:cjs --workspace @ontime/ppt-bridge
+          npm run build:cjs --workspace @ontime/powerpoint-display
 
       - name: PPT timer typecheck
         run: npm run typecheck --workspace apps/ppt-timer

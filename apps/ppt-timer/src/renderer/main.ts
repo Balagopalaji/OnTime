@@ -13,16 +13,19 @@
  * player stops, identity/duration changes, or two newer readings consistently
  * confirm a material correction. A 250 ms tick patches ONLY timer strings.
  */
+import '@ontime/timer-face/timer-face.css'
+import { patchTimerFace } from '@ontime/timer-face'
 import {
   announcementFor,
   describeView,
   SMOOTHING_TICK_MS,
+  toDisplayModel,
 } from './view.js'
 import type { AppView, PanelMode, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 import { createPlaybackClock } from './playback-clock.js'
 import { applyManualPanelMode, currentSlideKey, INITIAL_PANEL_STATE, reconcilePanelState } from './panel-state.js'
 import { renderOptionStrip, renderWindowControls } from './panel-options.js'
-import { renderPowerPointPanel, renderVideoList, setTimerText } from './powerpoint-panel.js'
+import { renderPowerPointPanel, renderVideoList } from './powerpoint-panel.js'
 
 declare global {
   interface Window {
@@ -146,6 +149,7 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
   }
   section.querySelector('#always-on-top')?.setAttribute('aria-pressed', String(view.alwaysOnTop))
   section.querySelector('#auto-open-video-list')?.setAttribute('aria-pressed', String(view.autoOpenVideoList))
+  // Mirrors @ontime/timer-face `renderDisclosureList` row markup (name, status + data-status, time).
   const rowNodes = section.querySelectorAll<HTMLElement>('.video-row')
   videoRows.forEach((row, index) => {
     const item = rowNodes[index]
@@ -197,14 +201,7 @@ export function renderApp(
  * same model.
  */
 export function patchTimers(root: HTMLElement, view: AppView, advanceMs: number): void {
-  const model = describeView(view.state, { timingMode: view.timingMode, advanceMs })
-  const time = root.querySelector('#time')
-  if (time instanceof HTMLElement) setTimerText(time, model.timeText)
-  const rowTimes = root.querySelectorAll('.video-row .video-row-time')
-  model.videoRows.forEach((row, index) => {
-    const node = rowTimes[index]
-    if (node && node.textContent !== row.timeText) node.textContent = row.timeText
-  })
+  patchTimerFace(root, toDisplayModel(describeView(view.state, { timingMode: view.timingMode, advanceMs })))
 }
 
 /** Monotonic where available; `performance.now()` never jumps with the clock. */

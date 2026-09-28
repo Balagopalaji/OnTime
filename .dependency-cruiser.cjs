@@ -62,10 +62,10 @@ module.exports = {
       name: 'ppt-timer-standalone',
       severity: 'error',
       comment:
-        'apps/ppt-timer may depend only on @ontime/ppt-bridge and @ontime/presentation-core; no rooms/cloud/sync/general-timer/interface contracts.',
+        'apps/ppt-timer may depend only on @ontime/ppt-bridge, @ontime/presentation-core, the pure @ontime/timer-face, @ontime/remote-viewer-contracts, and @ontime/powerpoint-display (ISSUE-002); no rooms/cloud/sync/general-timer/interface contracts.',
       from: { path: '^apps/ppt-timer(/|$)' },
       to: {
-        path: '(^@ontime/(?!ppt-bridge(?:/|$)|presentation-core(?:/|$))|firebase|cloud-adapter|local-sync|^companion/|^frontend/|^functions/|socket\\.io|socket\\.io-client|interface-contracts|shared-types|timer-core|lock-view-model)',
+        path: '(^@ontime/(?!ppt-bridge(?:/|$)|presentation-core(?:/|$)|timer-face(?:/|$)|remote-viewer-contracts(?:/|$)|powerpoint-display(?:/|$))|firebase|cloud-adapter|local-sync|^companion/|^frontend/|^functions/|socket\\.io|socket\\.io-client|interface-contracts|shared-types|timer-core|lock-view-model)',
       },
     },
   ],

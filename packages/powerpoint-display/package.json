@@ -1,0 +1,25 @@
+{
+  "name": "@ontime/powerpoint-display",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "types": "./dist-cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "require": {
+        "types": "./dist-cjs/index.d.ts",
+        "default": "./dist-cjs/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest --run src",
+    "build:cjs": "npm run build:cjs --workspace @ontime/remote-viewer-contracts && npm run build:cjs --workspace @ontime/timer-face && node ../../scripts/build-cjs.mjs"
+  },
+  "dependencies": {
+    "@ontime/remote-viewer-contracts": "0.0.0",
+    "@ontime/timer-face": "0.0.0"
+  }
+}

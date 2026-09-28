@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S4a verified",
-  "currentTask": "S4b — next",
+  "phase": "Implement: S4b verified",
+  "currentTask": "S5a — next",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1, "S4b": 1},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -83,7 +83,12 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P2|packages/timer-face/src/render.ts|stateKey can hide stale styling|S4a",
     "P2|packages/timer-face/src/model.ts|isFocus required but unrendered|S4a",
     "P2|packages/timer-face/src/announce.ts|zero-row videoText announcement fallback dropped|S4a",
-    "P2|packages/timer-face/src/render.ts|fixed element IDs in reusable face|S4a"
+    "P2|packages/timer-face/src/render.ts|fixed element IDs in reusable face|S4a",
+    "P1|packages/remote-viewer-contracts/package.json|server contracts depend on DOM face package|S4b",
+    "P2|apps/ppt-timer/src/renderer/view.ts|local/remote copy duplicated with partial parity|S4b",
+    "P2|apps/ppt-timer/src/renderer/main.ts|app re-implements face patch logic|S4b",
+    "P2|apps/ppt-timer/src/renderer/styles.css|dead max-height media block restates face values|S4b",
+    "P2|apps/ppt-timer/src/renderer/view.ts|stale comments and whitespace|S4b"
   ]
 }
 ```
@@ -97,7 +102,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: Implement mode; S1a, S1b, S3a–S3d, S4a verified; S4b next
+- Current phase: Implement mode; S1a, S1b, S3a–S3d, S4a, S4b verified; S5a next
 
 ## Readiness gate
 
@@ -121,7 +126,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 | S3c | Publish transaction/current state | RPV-001,003,006–010 (server layer) | `functions/src/presentation/{publish,sessions,idempotency,index}.ts`, contracts CJS build (`tsconfig.cjs.json`, `build:cjs`, `smoke:cjs`, exports), functions dependency/prebuild, `.gitignore`, `firebase/tests/presentation-publish.emu.js` | Claude Opus 5.5 orchestrator (direct) | emulator 9 cases (stamped parser-valid snapshot, viewer read, identical/recomputed-timing retry, conflict/gap/regression reasons, heartbeat, sanitization, forbidden/server-owned keys, null/future send estimate, unavailable, foreign device/owner user, epoch reset, end + snapshot deletion) | verified | red 0/9 (`not-found`), review-fix red 4/9; green S3a 9/9, S3b 12/12, S3c 9/9; contracts 318/318 + CJS smoke; functions unit 18/18; rules + join-operator exit 0; guardrails pass; Oracle re-review closed all. |
 | S3d | Cleanup/TTL/indexes/rate limit/load plan | RPV-003,007,008,010 (server layer; staging gates open) | `functions/src/presentation/{rate-limit,cleanup,crypto,links,publish,sessions,device-auth,index}.ts`, unit tests `{rate-limit,cleanup,firestore-config}.test.ts`, `firebase/firestore.indexes.json`, `firebase.json`, `firebase/tests/{presentation-limits.emu.js,run-presentation-emu.mjs,presentation-harness.js}`, `docs/qa/presentation-remote-viewer-load-plan.md` | Claude Opus 5.5 orchestrator (direct) | unit 53 (limiter windows/keys/limits/fail modes, IP normalization, TTL/index config, paced/isolated/cursor Auth deletion); unscaled emulator 7 (publish 5/s, begin 10/min, resolve 30/min, caller-scoped revoke, cleanup cascade + principals, cursor resume, 520 links, backlog, rate buckets TTL-only) | verified (emulator); staging gates NOT RUN → blocked | reds observed per review round (P1 case confirmed failing against old scope); green unit 53/53; emulator 9/9, 12/12, 9/9, 7/7; rules/join exit 0; guardrails pass; Oracle re-review rounds 2–4 closed all but N-7, fixed with red→green unit test. |
 | S4a | Source-neutral timer face | RPV-002,003,005,008,009 (face layer) | `packages/timer-face/{package.json,tsconfig.json,src/{model,format,render,announce,index}.ts,src/timer-face.css,test/goldens.ts}`, CI wiring, lockfile workspace entry | Claude Opus 5.5 orchestrator (direct) | 28 happy-dom tests: 9 exact outerHTML/announcement goldens captured from the unmodified ppt-timer renderer (temporary capture test, not committed), formatTime/fit tables, stage-timer model, data-connection hook, import purity, patch-in-place, CSS rules | verified | red: module absent, then 4 review-fix reds; green 28/28; typecheck; guardrails pass; no app file changed. |
-| S4b | Adapt local PPT UI/remote fixtures | RPV-001,002,006,008 | ppt-timer renderer/tests | unassigned | full ppt-timer + DOM parity | pending | Depends on S4a,S1b. |
+| S4b | Adapt local PPT UI/remote fixtures | RPV-001,002,006,008 (face layer; live Windows remains S7) | `apps/ppt-timer/src/renderer/{view,powerpoint-panel,main}.ts`, `styles.css`, `face-adoption.test.ts`, app `package.json` (devDeps + build:cjs-deps); new `packages/powerpoint-display` (remote adapter + 17 tests); timer-face CJS build; `.dependency-cruiser.cjs` ppt-timer allowance; CI build/test steps | Claude Opus 5.5 orchestrator (direct) | app 441 (all pre-existing characterization unchanged + 11 adoption/parity); powerpoint-display 17; timer-face 28; contracts 318 + CJS smoke; functions 53 | verified | red 4 adoption tests (identity/CSS/toDisplayModel); green 441/441; typecheck; renderer build; headless-Chrome visual parity 11/11 pixel-identical vs pre-S4b build; guardrails pass; Oracle review closed. |
 | S5a | Browser route/resolve/subscription/reducer | RPV-003,007–010 | frontend session route/hook/helper | unassigned | frontend integration | pending | Depends on S3c,S4a. |
 | S5b | Browser teardown/access states | RPV-003,007–010 | frontend viewer components/tests | unassigned | leak/teardown/build + user test | pending | Depends on S5a. |
 | S6a | Sidecar protocol/broker/lifecycle harness | RPV-001,005,008,010 | ppt-timer publisher-sidecar/main | unassigned | protocol/import/lifecycle | pending | Depends on S1b. |
@@ -204,6 +209,11 @@ S0 diff. No P0/P1 finding remains.
 | `P2|packages/timer-face/src/model.ts|isFocus required but unrendered|S4a` | accepted | plan-defined field; documented as semantic, not styled. |
 | `P2|packages/timer-face/src/announce.ts|zero-row videoText announcement fallback dropped|S4a` | fixed | `announceDetail`; ninth golden (`Playing — Intro.mp4`) passes. |
 | `P2|packages/timer-face/src/render.ts|fixed element IDs in reusable face|S4a` | accepted (documented) | one face per document; lookups scoped to root. |
+| `P1|packages/remote-viewer-contracts/package.json|server contracts depend on DOM face package|S4b` | fixed | adapter moved to `@ontime/powerpoint-display`; contracts have no dependencies; CJS smoke + functions 53/53. |
+| `P2|apps/ppt-timer/src/renderer/view.ts|local/remote copy duplicated with partial parity|S4b` | fixed (parity for all shared states) | 9 parity cases pass. |
+| `P2|apps/ppt-timer/src/renderer/main.ts|app re-implements face patch logic|S4b` | fixed | `patchTimers` → `patchTimerFace`; `patchControls` documented to mirror `renderDisclosureList`; 441/441. |
+| `P2|apps/ppt-timer/src/renderer/styles.css|dead max-height media block restates face values|S4b` | fixed | deleted; 560×170/190 captures still pixel-identical. |
+| `P2|apps/ppt-timer/src/renderer/view.ts|stale comments and whitespace|S4b` | fixed | header updated; blank runs collapsed. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -221,6 +231,9 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-29 (S3d): `npm run test --workspace functions` 53/53; `npm run test:presentation --workspace ontime-firebase-rules` (runner: scaled 9/9 + 12/12 + 9/9, unscaled 7/7); `test:rules` exit 0; `test:join-operator` exit 0; guardrails PASS.
 - `functions/lib` decision: the tracked build output was last committed at 4172fbf and was already stale versus `functions/src` before ISSUE-002; `firebase.json` has no predeploy build, so the repo does not keep lib in sync with src. Emulator runs rebuild lib; after each run the tracked `functions/lib/{index,lock,operators}.js` are restored with `git checkout --` and the generated `functions/lib/presentation/` is removed. No build output is committed. Deploy packaging (build + workspace contracts bundle) is a release gate in the load plan.
 - 2026-09-29 (S4a): `npm run test --workspace @ontime/timer-face` 28/28; `npm run typecheck --workspace @ontime/timer-face` PASS; guardrails PASS. Goldens captured by a temporary `apps/ppt-timer/src/renderer/zz-golden-capture.test.ts` that was deleted immediately (app tree unchanged).
+- 2026-09-29 (S4b): `npm run test --workspace apps/ppt-timer` 441/441; `npm run typecheck --workspace apps/ppt-timer` PASS (after `npm run build:cjs-deps --workspace apps/ppt-timer`); `npm run build:renderer --workspace apps/ppt-timer` PASS; `@ontime/powerpoint-display` 17/17 + typecheck; `@ontime/timer-face` 28/28; `@ontime/remote-viewer-contracts` 318/318 + CJS smoke; functions 53/53; guardrails PASS.
+- S4b user testing (UI slice): automated visual smoke — the pre-S4b renderer (files from `c23e1c4`) and the current renderer were Vite-built into `/tmp`, driven by an identical fake preload in headless Google Chrome, and screenshotted in 9 states at 560×170 (plus the auto-opened video tray at 560×300 and two states at 560×190); all 11 captures are pixel-identical (PIL diff bbox `None`) and were visually inspected (compact face, PAUSED/RETRYING labels, 1:03:20 fit, disclosure rows). Live Windows/PowerPoint use of the app remains the S7 platform gate (blocked here: no Windows host).
+- S4b interpretations: the remote PowerPoint adapter is its own package `@ontime/powerpoint-display` (contracts stay free of DOM/face deps); timer-face and powerpoint-display get CJS builds because ppt-timer typechecks with node16 CommonJS resolution; ppt-timer consumes them as devDependencies (renderer is Vite-bundled), so the packaged runtime-dependency guard is unchanged; local/remote copy tables stay separate but parity is tested for every shared state (6 active + 3 unavailable); remote stale = frozen time + "Reconnecting"/warning, disconnected = `--:--` + "Disconnected"/warning, access-ended/session-ended/incompatible have explicit copy.
 - S4a interpretations: `TimerDisplayModel`/`DisclosureRow` add optional adapter hooks `stateKey` (`data-state`), `alertText`, `announceDetail`, row `ordinal` (`data-ordinal`) and `announceLabel`; `messageText` is announced, not rendered; `data-connection` is rendered only for stale/disconnected (local DOM unchanged); `isFocus` kept (plan type) but unstyled; `.videos/.video-row` classes and `#badge/#message/#time/#videos` IDs kept for zero-diff S4b adoption (one face per document). S4b done-criteria: delete the app copies of `formatTime`, the fit helpers, and duplicated CSS rules, and import the package.
 - S3d interpretations/divergences (closeout doc sync): limits keyed per (session, caller) for link mutation/end/publish; resolve-session counts failed resolutions only; IP scope = HMAC of normalized IP (IPv4, v4-mapped→v4, IPv6 /64), missing IP fails closed except in the emulator (loopback); emulator-only `PRESENTATION_EMULATOR_RATE_LIMIT_MULTIPLIER` for multi-case suites (unscaled suite proves defaults). No TTL on sessions/devices (sweep owns cascade + Auth principals); rate buckets TTL-only with no index. Cleanup: unit-by-unit, paced shared 1000-uid Auth chunks (20/run), persisted `viewerAuthCleanedThrough` cursor over a clean prefix, throttling defers as backlog, per-unit failures isolated with alerts, `timeoutSeconds: 540`. Staging gates (NOT RUN → blocked): 50-viewer/30-min load, p95, cost, TTL deploy, client-IP trust, shared NAT, limiter contention, Auth quota, deploy packaging.
 - S3c interpretations/divergences (closeout doc sync): snapshot doc is `{snapshot: RemoteSnapshotV1, cleanupAfterMs}` (nested so viewers run the strict parser on `snapshot`; S5 rejects any other wrapper key). Publish idempotency hash excludes `observationAgeMs`/`sentAtEstimatedServerMs`. Publish rejections are `failed-precondition` with `details.reason` ∈ `window-expired | epoch-mismatch | sequence-conflict (+acceptedSequence) | sequence-gap | clock-future (+serverNowMs) | session-ended`. S6c policy: `sequence-conflict` → publish latest at `acceptedSequence + 1`; `sequence-gap`/`epoch-mismatch` → resume; `clock-future` → resync offset from `serverNowMs`; `window-expired` → resume; `session-ended` → stop. Replay of a lost response works only while the session/window are live (accepted: next step resume/stop makes it moot). Ending a session deletes the snapshot doc. Contracts `exports` have no `default` condition (matches sibling packages).

@@ -68,6 +68,12 @@ jobs:
       - name: PPT bridge CJS smoke
         run: npm run smoke:cjs --workspace @ontime/ppt-bridge
 
+      - name: Viewer packages CJS build (contracts, timer-face, powerpoint-display)
+        run: npm run build:cjs --workspace @ontime/powerpoint-display
+
+      - name: Remote-viewer-contracts CJS smoke
+        run: npm run smoke:cjs --workspace @ontime/remote-viewer-contracts
+
       # Stage 6: the standalone app gate runs per-commit alongside the shared
       # packages it consumes (typecheck + tests run on every OS; the Windows-only
       # installer/electron-builder lane is in ppt-timer-build.yml).
@@ -133,6 +139,12 @@ jobs:
 
       - name: Timer-face tests
         run: npm run test --workspace @ontime/timer-face
+
+      - name: PowerPoint-display typecheck
+        run: npm run typecheck --workspace @ontime/powerpoint-display
+
+      - name: PowerPoint-display tests
+        run: npm run test --workspace @ontime/powerpoint-display
 
       - name: Frontend test suite (characterization safety net)
         working-directory: frontend

@@ -8,9 +8,10 @@
  * stays pure and deterministic.
  *
  * The renderer receives an already-projected view via IPC; this module owns the
- * last mile of human-readable formatting (state copy, slide position, video
- * indicator, per-video rows, multi-instance overlay, `--:--` / `00:00` time
- * rendering) plus the bounded local interpolation between helper observations.
+ * last mile of human-readable state copy (slide position, video indicator,
+ * per-video rows, multi-instance overlay) plus the bounded local interpolation
+ * between helper observations; time formatting and the compact face come from
+ * `@ontime/timer-face` via {@link toDisplayModel}.
  */
 import {
   derivePowerPointRemainingMs,
@@ -20,6 +21,15 @@ import {
   type PowerPointViewState,
   type PowerPointViewStateBase,
 } from '@ontime/presentation-core'
+import {
+  announcementFor as faceAnnouncementFor,
+  formatTime,
+  type DisclosureRow,
+  type TimerDisplayModel,
+} from '@ontime/timer-face'
+
+/** Shared with every viewer through `@ontime/timer-face` (ISSUE-002 S4b). */
+export { formatTime }
 
 export type Badge = 'playing' | 'paused' | 'retry'
 
@@ -79,25 +89,6 @@ const STATUS_TEXT: Record<PowerPointVideoTile['status'], VideoRowModel['statusTe
   playing: 'Playing',
   paused: 'Paused',
   ended: 'Ended',
-}
-
-/**
- * Format a millisecond value as `MM:SS` (or `H:MM:SS` at/above one hour). A null
- * or non-finite value renders `--:--`; zero renders `00:00`. Values are floored
- * to whole seconds (matching the Controller's `formatDuration`, so the same
- * measurement never reads one second apart across surfaces) and are never
- * displayed negative.
- */
-export function formatTime(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms)) return DASHED
-  const seconds = Math.floor(ms / 1000)
-  const safe = seconds < 0 ? 0 : seconds
-  const hours = Math.floor(safe / 3600)
-  const minutes = Math.floor((safe % 3600) / 60)
-  const secs = safe % 60
-  const mm = String(minutes).padStart(2, '0')
-  const ss = String(secs).padStart(2, '0')
-  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
 /**
@@ -298,27 +289,69 @@ export function describeView(state: PowerPointViewState, options: DescribeViewOp
   }
 }
 
+const BADGE_LABEL: Record<Badge, string> = {
+  playing: 'Playing',
+  paused: 'Paused',
+  retry: 'Retrying',
+}
+
+const STATE_LABEL: Partial<Record<RenderModel['stateKind'], string>> = {
+  connecting: 'Connecting to PowerPoint',
+  powerpoint_not_running: 'PowerPoint is not running',
+  no_slideshow: 'No slideshow running',
+  no_video: 'No video on this slide',
+  timing_unavailable: 'Timing unavailable',
+  ready: 'Ready',
+  ended: 'Ended',
+}
+
+function connectionFor(kind: RenderModel['stateKind']): TimerDisplayModel['connection'] {
+  if (kind === 'connecting') return 'connecting'
+  if (kind === 'unavailable' || kind === 'powerpoint_not_running' || kind === 'no_slideshow') return 'unavailable'
+  return 'live'
+}
+
+export function toDisclosureRow(row: VideoRowModel): DisclosureRow {
+  return {
+    key: row.key,
+    ordinal: row.ordinal,
+    nameText: row.nameText,
+    statusText: row.statusText,
+    timeText: row.timeText,
+    isFocus: row.isFocus,
+    announceLabel: row.label,
+  }
+}
+
 /**
- * The text a screen reader should hear for a view. Derived only from statuses,
- * names, and messages — never from a timer value — so the polite live region
- * announces meaningful changes (a video starting, pausing, or ending) and stays
- * silent through the 250 ms interpolation ticks.
- *
- * The multi-instance warning leads the string when present. It used to announce
- * itself through a `role="alert"` node, which the full repaint re-inserted on
- * every poll and so re-announced assertively once per second for the whole
- * session; routing it here means it is spoken once, when it appears.
+ * Local PowerPoint adapter to the shared compact face (ISSUE-002 S4b). Keeps
+ * the ISSUE-001 status copy exactly: the label is the badge text, else the
+ * state label, else the message. The multi-instance warning is announced (once,
+ * when it appears) but never rendered; `videoText` backs the announcement only
+ * when a presentation carries no rows.
+ */
+export function toDisplayModel(model: RenderModel): TimerDisplayModel {
+  return {
+    connection: connectionFor(model.stateKind),
+    stateKey: model.stateKind,
+    statusText: model.badge
+      ? BADGE_LABEL[model.badge]
+      : (STATE_LABEL[model.stateKind] ?? model.messageText ?? 'PowerPoint timer'),
+    ...(model.messageText === null ? {} : { messageText: model.messageText }),
+    ...(model.badge === null ? {} : { badge: model.badge }),
+    timeText: model.timeText,
+    disclosureRows: model.videoRows.map(toDisclosureRow),
+    ...(model.multiInstanceWarning === null ? {} : { alertText: model.multiInstanceWarning }),
+    ...(model.videoRows.length === 0 && model.videoText !== null ? { announceDetail: model.videoText } : {}),
+  }
+}
+
+/**
+ * The text a screen reader should hear for a view: the shared face's polite
+ * announcement (statuses, names, messages — never a timer value), so it stays
+ * silent through the 250 ms interpolation ticks. The multi-instance warning
+ * leads when present and is spoken once, when it appears.
  */
 export function announcementFor(model: RenderModel): string {
-  const badgeStatus =
-    model.badge === 'playing' ? 'Playing' : model.badge === 'paused' ? 'Paused' : model.badge === 'retry' ? 'Retrying' : null
-  const head = model.messageText ?? badgeStatus
-  const rows = model.videoRows
-  const detail =
-    rows.length > 1
-      ? rows.map((row) => `${row.label}: ${row.statusText}`).join(', ')
-      : (rows[0]?.label ?? model.videoText)
-  return [model.multiInstanceWarning, head, detail]
-    .filter((part): part is string => part !== null && part !== undefined && part.length > 0)
-    .join(' — ')
+  return faceAnnouncementFor(toDisplayModel(model))
 }
