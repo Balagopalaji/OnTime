@@ -10,6 +10,8 @@ import {
 } from './lock';
 import { joinAsOperator } from './operators';
 
+export * from './presentation';
+
 export {
   acquireLock,
   denyControl,

@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S1b verified",
-  "currentTask": "S3a — next (S4a parallel-eligible)",
+  "phase": "Implement: S3a verified",
+  "currentTask": "S3b — next",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -39,7 +39,15 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P3|packages/remote-viewer-contracts/src/ordering.ts|remaining drift ignored|S1b",
     "P3|packages/remote-viewer-contracts/src/ordering.ts|previous vs last-published ambiguity|S1b",
     "P3|packages/remote-viewer-contracts/src/timing.ts|viewer clock ignores round trip|S1b",
-    "P3|packages/remote-viewer-contracts/src/parse-snapshot.ts|unbounded freshness policy|S1b"
+    "P3|packages/remote-viewer-contracts/src/parse-snapshot.ts|unbounded freshness policy|S1b",
+    "P1|functions/src/presentation/device-auth.ts|attacker-started approval completes for victim owner|S3a",
+    "P2|functions/src/presentation/device-auth.ts|revoked device sessions hold cap and stay live|S3a",
+    "P2|functions/src/presentation/sessions.ts|secret rotation breaks link update/retry|S3a",
+    "P2|functions/src/presentation/callers.ts|owner check is a role denylist|S3a",
+    "P3|functions/src/presentation/idempotency.ts|retryable errors persisted|S3a",
+    "P3|functions/src/presentation/sessions.ts|replay returns rotated-away URL|S3a",
+    "P3|functions/src/presentation/idempotency.ts|request-result ID collision|S3a",
+    "P3|functions/src/presentation/device-auth.ts|unauthenticated write amplification / dead begin field|S3a"
   ]
 }
 ```
@@ -53,7 +61,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: Implement mode; S1a–S1b verified; S3a next
+- Current phase: Implement mode; S1a, S1b, S3a verified; S3b next
 
 ## Readiness gate
 
@@ -72,7 +80,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 | S1a | Strict envelope/payload/parser package | RPV-003–RPV-010 (contract layer only) | `packages/remote-viewer-contracts` (types, sanitizer, candidate/request/snapshot parsers), CI wiring, lockfile workspace entry | Claude Opus 5.5 orchestrator (direct; see context exceptions) | 246 unit tests: sanitizer table/idempotence; per-parser reconstruction, forbidden-field golden rejects, version/source, availability/payload, payload invariants | verified | red 230/230 `not implemented`; green 246/246; typecheck; guardrails + boundaries pass; Oracle review no P0/P1. |
 | S1b | Reducer/timing/comparator/freshness | RPV-002,003,006–009 (contract layer only) | `packages/remote-viewer-contracts` `timing.ts`, `ordering.ts`, `viewer-session.ts` | Claude Opus 5.5 orchestrator (direct) | 72 new unit tests: transit/offset/advance/interpolation, ±5 min skew, order comparator, material comparator, reducer ordering/terminal/incompatible, fake-clock freshness 25 s/60 s, RPV-009 identical projection | verified | red 44 `not implemented` then 12 review-fix reds; green 318/318; typecheck; guardrails pass; Oracle review no P0/P1. |
 | S2 | Ratified D1/D2 decision gate | no runtime claim | docs | complete before Loop | n/a | complete | Deep Plan records supersession. |
-| S3a | Publisher-device auth/session creation | RPV-003,007,010 | Functions presentation modules/tests | unassigned | Functions build + emulator tests | pending | Depends on S1a. |
+| S3a | Publisher-device auth/session creation | RPV-003,007,010 (server layer) | `functions/src/presentation/{config,crypto,requests,callers,idempotency,device-auth,sessions,firestore,index}.ts`, `functions/src/index.ts`, `firebase/tests/{emu-harness,presentation-auth-session.emu}.js`, `firebase/package.json` `test:presentation`, functions `test` script + tsconfig test exclude | Claude Opus 5.5 orchestrator (direct) | unit 17 (RFC 7636 vector, canonical hash, link derivation, strict requests); emulator 9 cases | verified | red: callables `not-found` 6/6, then 7/9 review-fix reds; green emulator 9/9, unit 17/17; functions build; rules + join-operator regressions pass; guardrails pass. |
 | S3b | Viewer links/generation/rules | RPV-003,007,010 | Functions link modules, rules/tests | unassigned | rules/emulator tests | pending | Depends on S3a. |
 | S3c | Publish transaction/current state | RPV-001,003,006–010 | Functions publish modules/tests | unassigned | transaction/emulator tests | pending | Depends on S1b,S3b. |
 | S3d | Cleanup/TTL/indexes/rate limit/load plan | RPV-003,007,008,010 | Functions/config/tests | unassigned | cleanup/limiter/config tests | pending | Depends on S3c. |
@@ -116,6 +124,14 @@ S0 diff. No P0/P1 finding remains.
 | `P3|packages/remote-viewer-contracts/src/ordering.ts|previous vs last-published ambiguity|S1b` | fixed | parameter `lastPublished` + doc; accumulation test passes. |
 | `P3|packages/remote-viewer-contracts/src/timing.ts|viewer clock ignores round trip|S1b` | fixed | `createServerClock` uses the midpoint sample; skew test passes. |
 | `P3|packages/remote-viewer-contracts/src/parse-snapshot.ts|unbounded freshness policy|S1b` | fixed | upper bounds at 10/25/60 s; inflated-policy rejects and tightened-policy accept pass. |
+| `P1|functions/src/presentation/device-auth.ts|attacker-started approval completes for victim owner|S3a` | fixed | one-time callback code required; phished-approval case (guessed/missing code) rejected; emulator 9/9. |
+| `P2|functions/src/presentation/device-auth.ts|revoked device sessions hold cap and stay live|S3a` | fixed | revoke ends sessions; viewer state `ended`; replacement device creates immediately. |
+| `P2|functions/src/presentation/sessions.ts|secret rotation breaks link update/retry|S3a` | fixed | `viewerLinkDocId` stored; resume updates by ID; replay checks recomputed hash. |
+| `P2|functions/src/presentation/callers.ts|owner check is a role denylist|S3a` | fixed | allowlist; publisher-token approve denied. |
+| `P3|functions/src/presentation/idempotency.ts|retryable errors persisted|S3a` | fixed | `resource-exhausted`/`not-found` not persisted. |
+| `P3|functions/src/presentation/sessions.ts|replay returns rotated-away URL|S3a` | fixed | `assertReplayCurrent` (status, nonce, hash, epoch). |
+| `P3|functions/src/presentation/idempotency.ts|request-result ID collision|S3a` | fixed | hashed doc ID. |
+| `P3|functions/src/presentation/device-auth.ts|unauthenticated write amplification / dead begin field|S3a` | fixed (begin idempotent; not-found not persisted) / deferred (rate limits → S3d) | begin idempotency case passes. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -127,6 +143,8 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-28 (S1a): red `npm run test --workspace @ontime/remote-viewer-contracts` 230 failed, all `Error: not implemented`; typecheck PASS.
 - 2026-09-28 (S1a): green 246/246 after review fixes; `npm run typecheck --workspace @ontime/remote-viewer-contracts` PASS; `npm run guardrails` PASS (static + boundaries, 287 modules).
 - 2026-09-28 (S1b): red 44 new failures (`not implemented`), typecheck PASS; review-fix red 12; green `npm run test --workspace @ontime/remote-viewer-contracts` 318/318; typecheck PASS; `npm run guardrails` PASS (293 modules).
+- 2026-09-28 (S3a): `npm run test:presentation --workspace ontime-firebase-rules` red 0/6 (`not-found`), review-fix red 2/9, green 9/9; `npm run test --workspace functions` 17/17; `npm run build --workspace functions` PASS; `test:rules` exit 0; `test:join-operator` exit 0; guardrails PASS. Build output in tracked `functions/lib` is restored after each emulator run (it was already stale vs `src` before ISSUE-002; not committed). Pure helpers (crypto/requests) were written before their unit tests; all callable behavior was red-first via the emulator suite.
+- S3a interpretations/divergences (closeout doc sync): `completePresentationPublisherAuth` additionally requires `authorizationCode` and `approvePresentationPublisherAuth` returns `{status:'approved', callbackUrl}` (`<scheme>://publisher-auth?challenge=…&code=…`) — P1 anti-phishing binding; the one-time code is useless without the PKCE verifier. Revoking a device ends its active sessions. Owner = no role claim and provider not custom/anonymous. Viewer-link token = HMAC(serverSecret, sessionId|nonce); session stores `viewerLinkNonce` + `viewerLinkDocId`; plaintext token never stored. Request-result doc ID = sha256(scope, clientRequestId); `resource-exhausted`/`not-found` outcomes are not persisted. Additive session fields: `viewerLinkNonce`, `viewerLinkDocId`, `createdAtMs`, `endedAtMs`. Cap uses a query read inside the transaction; concurrent-create safety relies on Firestore serializable transactions and is a staging check. Web approval page (`/publisher/device/approve`) is not owned by any slice; scheduled with S5 (frontend). Production deploy of Functions with the workspace contracts package is a release gate.
 - S1b interpretations: `PublishSnapshotRequestV1.sentAtEstimatedServerMs` is `number | null` (null = no reliable offset ⇒ server transit 0, metric); freshness (live/stale/disconnected) is judged on observation age (`observationAgeMs + preCommitTransitMs + max(0, now − publishedAtMs)`) and the advance is capped at `staleAfterMs` — a refinement of the plan's since-commit-only clamp so a re-published old observation cannot look live (≤ ~1 s earlier stale in normal operation); v1 policy fields may be tightened but not loosened past 10/25/60 s; `MAX_CLOCK_UNCERTAINTY_MS = 2000`; material comparator compares against the last *published* candidate and treats non-playing elapsed/remaining changes >750 ms (or null↔value) as material; viewer and sidecar share one midpoint offset model.
 - S1a interpretations (to reconcile in closeout doc sync, not auto-edited): publish request carries `schemaMajor/sourceKind/sourceMajor` although the endpoints table omits them (plan: server "verifies and reconstructs the candidate"); `timing-unavailable` allows playing-status rows whose numerics are all null; every non-`no-video` state needs ≥1 row; `headline.focusedOrdinal` must equal the single `isFocus` row; unknown/forbidden keys are rejected (not dropped); sanitizer is path-basename + Unicode Cc/Cf/Cs/Co removal (ZWJ/ZWNJ kept) + repeated known-extension strip + 80-code-point cap, idempotent; constants `MAX_VIDEO_ROWS=64`, `MAX_DISPLAY_TEXT_LENGTH=80`, `SESSION_ID_PATTERN=[A-Za-z0-9_-]{1,128}`.
 
