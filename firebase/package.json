@@ -4,7 +4,8 @@
   "scripts": {
     "test:rules": "firebase emulators:exec --config ../firebase.json --only firestore \"node ./tests/firestore.rules.test.js\"",
     "test:join-operator": "firebase emulators:exec --config ../firebase.json --only firestore,functions,auth \"node ./tests/joinAsOperator.emu.js\"",
-    "test:presentation": "npm run build --workspace functions && node ./tests/run-presentation-emu.mjs"
+    "test:presentation": "npm run build --workspace functions && node ./tests/run-presentation-emu.mjs",
+    "user-test:presentation-viewer": "npm run build --workspace functions && firebase emulators:exec --config ../firebase.json --only firestore,functions,auth \"node ./tests/presentation-viewer-walkthrough.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.0",

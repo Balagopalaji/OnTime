@@ -1,0 +1,22 @@
+[
+  {
+    "step": "environment",
+    "body": "{\"data\":{\"sessionId\":\"y1T0p-OsjYhMFg-FKnNy\",\"token\":\"Vu33e5tlVz_SdJi02gRgTcTPI7-wPVVwExSr1FUo7fk\"}}"
+  },
+  {
+    "step": "W7 resume (epoch 2) → live again from the new snapshot",
+    "body": "{\"data\":{\"sessionId\":\"y1T0p-OsjYhMFg-FKnNy\",\"token\":\"Vu33e5tlVz_SdJi02gRgTcTPI7-wPVVwExSr1FUo7fk\"}}"
+  },
+  {
+    "step": "W9 owner revokes link → Access ended",
+    "body": "{\"data\":{\"sessionId\":\"y1T0p-OsjYhMFg-FKnNy\",\"token\":\"tGJzDAQnixSKn05hsIPTdYSqbJOEBn8-b44-FEwRUSc\"}}"
+  },
+  {
+    "step": "W10 new link after revoke → live",
+    "body": "{\"data\":{\"sessionId\":\"y1T0p-OsjYhMFg-FKnNy\",\"token\":\"tGJzDAQnixSKn05hsIPTdYSqbJOEBn8-b44-FEwRUSc\"}}"
+  },
+  {
+    "step": "W10 owner ends the session → Session ended",
+    "body": "{\"data\":{\"sessionId\":\"y1T0p-OsjYhMFg-FKnNy\",\"token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}"
+  }
+]

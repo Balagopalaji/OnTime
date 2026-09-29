@@ -5,6 +5,7 @@ import { DashboardPage } from './DashboardPage'
 import { ControllerPage } from './ControllerPage'
 import { ViewerPage } from './ViewerPage'
 import { ProtectedRoute } from './ProtectedRoute'
+import { PublisherDeviceApprovalPage } from './PublisherDeviceApprovalPage'
 import { CompanionTestPage } from './CompanionTestPage'
 import { LocalModePage } from './LocalModePage'
 import { CompanionTrustHelper } from './CompanionTrustHelper'
@@ -96,6 +97,14 @@ export const AppRouter = () => {
                 }
               />
               <Route path="/room/:roomId/view" element={<ViewerPage />} />
+              <Route
+                path="/publisher/device/approve"
+                element={
+                  <ProtectedRoute>
+                    <PublisherDeviceApprovalPage />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/companion-test" element={<CompanionTestPage />} />
               <Route path="/local" element={<LocalModePage />} />
               <Route path="/companion/trust" element={<CompanionTrustHelper />} />

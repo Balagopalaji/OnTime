@@ -17,8 +17,10 @@ import type { TimerDisplayModel } from '@ontime/timer-face'
  * resolve the link and anchor a monotonic server clock, sign in with the
  * viewer token, attach the viewer-state listener, then the snapshot listener;
  * reduce through the shared transport-neutral reducer and project on a 250 ms
- * tick. Transient failures reconnect with capped, jittered backoff; a
- * terminal state (ended / access ended) releases listeners and credentials.
+ * tick. Transient failures reconnect with capped, jittered backoff on a fresh
+ * transport (a denied target can wedge a Firestore client); a refused
+ * reconnect is classified by resolve's reason (session ended vs access
+ * ended). A terminal state releases listeners and credentials.
  * `stop()` detaches state then snapshot listeners, cancels every timer, and
  * clears credentials. There is no lease to release.
  */
@@ -43,7 +45,8 @@ export type PresentationTransport = {
 export type ControllerOptions = {
   sessionId: string
   token: string | null
-  transport: PresentationTransport
+  /** Builds an isolated transport; called once per (re)connection. */
+  createTransport: () => PresentationTransport
   /** Monotonic local clock (performance.now in the browser). */
   now: () => number
   /** Jitter source in [0, 1); injectable for tests. */
@@ -75,7 +78,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export function createPresentationSessionController(options: ControllerOptions) {
-  const { sessionId, transport, now, onDisplay } = options
+  const { sessionId, createTransport, now, onDisplay } = options
   const random = options.random ?? Math.random
   let state: ViewerSessionState = createViewerSession(sessionId)
   let clock: ServerClock | null = null
@@ -85,17 +88,22 @@ export function createPresentationSessionController(options: ControllerOptions) 
   let failures = 0
   let emptyReconnects = 0
   let reconnectPending = false
+  let transport: PresentationTransport | null = null
   let lastDisplayKey = ''
-  let unsubscribers: Array<() => void> = []
+  let unsubscribeState: (() => void) | null = null
+  let unsubscribeSnapshot: (() => void) | null = null
   const timers = new Set<ReturnType<typeof setTimeout>>()
   let ticker: ReturnType<typeof setInterval> | null = null
 
   const serverNow = () => (clock === null ? 0 : estimateServerNow(clock, now()))
   const isTerminal = () => state.phase === 'ended' || state.phase === 'access-ended'
 
+  /** Viewer state first, then snapshot (endpoint browser step 6 order). */
   function detachListeners(): void {
-    for (const unsubscribe of unsubscribers.splice(0)) unsubscribe()
-    unsubscribers = []
+    unsubscribeState?.()
+    unsubscribeSnapshot?.()
+    unsubscribeState = null
+    unsubscribeSnapshot = null
   }
 
   function clearTimers(): void {
@@ -106,13 +114,20 @@ export function createPresentationSessionController(options: ControllerOptions) 
   }
 
   /** Listeners, timers, and credentials go away once; the final display stays rendered. */
+  /** Detach listeners and dispose the current transport (its app and credentials). */
+  async function disposeTransport(): Promise<void> {
+    detachListeners()
+    const current = transport
+    transport = null
+    await current?.close()
+  }
+
   async function release(): Promise<void> {
     if (released) return
     released = true
     stopped = true
-    detachListeners()
     clearTimers()
-    await transport.close()
+    await disposeTransport()
   }
 
   function render(): void {
@@ -150,13 +165,15 @@ export function createPresentationSessionController(options: ControllerOptions) 
   }
 
   /**
-   * A listener died without a terminal explanation: drop both and reconnect from a
-   * fresh resolve (once, however many listeners fail). Repeated reconnects that
-   * never deliver data end access instead of looping.
+   * A listener died (the SDK stops it) without a terminal explanation. The
+   * whole transport is discarded — a denied target can stall the client's other
+   * listeners — and one reconnect is scheduled on a fresh transport; a refused
+   * resolve then says whether the session ended. Repeated reconnects that never
+   * deliver data end access instead of looping.
    */
   function reconnect(token: string): void {
     if (stopped || released || isTerminal() || reconnectPending) return
-    detachListeners()
+    void disposeTransport()
     emptyReconnects += 1
     if (emptyReconnects > MAX_EMPTY_RECONNECTS) {
       dispatch({ type: 'access-ended' })
@@ -175,10 +192,12 @@ export function createPresentationSessionController(options: ControllerOptions) 
   async function connect(token: string): Promise<void> {
     reconnectPending = false
     if (stopped || released) return
+    transport ??= createTransport()
+    const current = transport
     const sentLocalMs = now()
     let resolved: ResolveResult
     try {
-      resolved = await transport.resolve(sessionId, token)
+      resolved = await current.resolve(sessionId, token)
     } catch (error) {
       const { code, details } = error as CallableError
       if (code === 'functions/resource-exhausted') {
@@ -187,7 +206,8 @@ export function createPresentationSessionController(options: ControllerOptions) 
       } else if (code !== undefined && RETRYABLE_RESOLVE.has(code)) {
         retry(token)
       } else {
-        dispatch({ type: 'access-ended' })
+        const reason = (details as { reason?: unknown } | undefined)?.reason
+        dispatch({ type: reason === 'session-ended' ? 'session-ended' : 'access-ended' })
       }
       return
     }
@@ -195,7 +215,7 @@ export function createPresentationSessionController(options: ControllerOptions) 
     clock = createServerClock({ sentLocalMs, receivedLocalMs: now(), serverNowMs: resolved.serverNowMs })
     windowExpiresAtMs = resolved.activeWindowExpiresAtMs
     try {
-      await transport.signIn(resolved.customToken)
+      await current.signIn(resolved.customToken)
     } catch (error) {
       if (RETRYABLE_SIGN_IN.has((error as { code?: string }).code ?? '')) {
         retry(token)
@@ -205,9 +225,9 @@ export function createPresentationSessionController(options: ControllerOptions) 
       }
       return
     }
-    if (stopped || released) return
-    unsubscribers.push(
-      transport.onViewerState(
+    if (stopped || released || transport !== current) return
+    detachListeners()
+    unsubscribeState = current.onViewerState(
         sessionId,
         (viewerState) => {
           if (viewerState === null) return
@@ -218,19 +238,16 @@ export function createPresentationSessionController(options: ControllerOptions) 
         },
         // Denial means this generation lost access (revoke/rotate); anything else is transient.
         (code) => (code === 'permission-denied' ? dispatch({ type: 'access-ended' }) : reconnect(token)),
-      ),
     )
-    unsubscribers.push(
-      transport.onSnapshot(
+    unsubscribeSnapshot = current.onSnapshot(
         sessionId,
         (doc) => {
           if (doc === null) return
           delivered()
           dispatch({ type: 'snapshot', data: unwrapSnapshot(doc) })
         },
-        // An ended session or revoked generation is explained by the viewer state; otherwise recover.
+        // An ended session or revoked link denies the snapshot; the reconnect's resolve says which.
         () => reconnect(token),
-      ),
     )
     if (ticker === null) ticker = setInterval(render, PROJECTION_TICK_MS)
     render()

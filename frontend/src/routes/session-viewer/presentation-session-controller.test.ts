@@ -76,7 +76,7 @@ describe('presentation session controller', () => {
     const controller = createPresentationSessionController({
       sessionId: SESSION,
       token,
-      transport: fake.transport,
+      createTransport: () => fake.transport,
       now: () => monotonic,
       random: () => 0.5,
       onDisplay: (d) => displays.push(d),
@@ -254,7 +254,7 @@ describe('presentation session controller', () => {
     await vi.advanceTimersByTimeAsync(0)
     fake.snapshot().next(stored())
     fake.snapshot().error('unavailable')
-    expect(fake.calls.slice(-2)).toEqual(['unlisten:state', 'unlisten:snapshot'])
+    expect(fake.calls.slice(-3)).toEqual(['unlisten:state', 'unlisten:snapshot', 'close'])
     await advance(2_000)
     expect(fake.transport.resolve).toHaveBeenCalledTimes(2)
     fake.snapshot().next(stored({ sequence: 2, publishedAtMs: SERVER_T0 + 2_000 }))
@@ -274,6 +274,47 @@ describe('presentation session controller', () => {
     expect((fake.transport.resolve as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(6)
     expect(last()).toMatchObject({ statusText: 'Access ended' })
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('shows Session ended when a reconnect is refused because the session ended', async () => {
+    // Defect (found in user testing): ending a session denied the snapshot target, the shared
+    // listen stream stalled so the ended state never arrived, and the viewer showed Access ended.
+    let resolves = 0
+    const fake = fakeTransport(async () => {
+      resolves += 1
+      if (resolves > 1) throw Object.assign(new Error('ended'), { code: 'functions/permission-denied', details: { reason: 'session-ended' } })
+      return { customToken: 'custom', serverNowMs: SERVER_T0, activeWindowExpiresAtMs: SERVER_T0 + 86_400_000 }
+    })
+    start(fake)
+    await vi.advanceTimersByTimeAsync(0)
+    fake.snapshot().next(stored())
+    fake.snapshot().error('permission-denied')
+    await advance(10_000)
+    expect(resolves).toBe(2)
+    expect(last()).toMatchObject({ statusText: 'Session ended' })
+  })
+
+  it('reconnects on a fresh transport and disposes the wedged one', async () => {
+    // Defect: after a denied target the Firestore client can stop delivering other listeners.
+    const first = fakeTransport()
+    const second = fakeTransport()
+    const transports = [first.transport, second.transport]
+    const controller = createPresentationSessionController({
+      sessionId: SESSION,
+      token: TOKEN,
+      createTransport: () => transports.shift() as PresentationTransport,
+      now: () => monotonic,
+      random: () => 0.5,
+      onDisplay: (d) => displays.push(d),
+    })
+    controller.start()
+    await vi.advanceTimersByTimeAsync(0)
+    first.snapshot().error('unavailable')
+    await advance(2_000)
+    expect(first.transport.close).toHaveBeenCalledTimes(1)
+    expect(second.transport.onSnapshot).toHaveBeenCalledTimes(1)
+    await controller.stop()
+    expect(second.transport.close).toHaveBeenCalledTimes(1)
   })
 
   it('schedules a single reconnect when both listeners fail in the same tick', async () => {

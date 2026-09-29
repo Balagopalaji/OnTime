@@ -174,19 +174,20 @@ export const resolvePresentationViewerLink = functions.https.onCall(async (data,
   const [linkSnap, sessionSnap] = await Promise.all([linkRef(linkDocId).get(), sessionRef(request.sessionId).get()])
   const link = linkSnap.data() as LinkDoc | undefined
   const session = sessionSnap.data() as SessionDoc | undefined
-  const valid =
+  const currentLink =
     link !== undefined &&
     session !== undefined &&
     link.sessionId === request.sessionId &&
     link.status === 'active' &&
     session.viewerLinkDocId === linkDocId &&
-    link.viewerGeneration === session.viewerGeneration &&
-    session.status === 'active' &&
-    nowMs < link.expiresAtMs &&
-    nowMs < session.activeWindowExpiresAtMs
+    link.viewerGeneration === session.viewerGeneration
+  const valid = currentLink && session?.status === 'active' && nowMs < link.expiresAtMs && nowMs < session.activeWindowExpiresAtMs
   if (!valid || !session) {
     await enforceRateLimit(RATE_LIMITS.resolvePerSession, request.sessionId, { failOpen: false })
-    throw new functions.https.HttpsError('permission-denied', 'Viewer link is not valid.')
+    // Only the current link's holder (already allowed to read the safe ended state) learns that
+    // the session ended; every other failure is the same undifferentiated denial.
+    const details = currentLink && session?.status === 'ended' ? { reason: 'session-ended' } : undefined
+    throw new functions.https.HttpsError('permission-denied', 'Viewer link is not valid.', details)
   }
 
   const viewerUid = presentationViewerUid(request.sessionId, session.viewerGeneration)

@@ -1,0 +1,152 @@
+[
+  {
+    "step": "environment",
+    "result": "PASS",
+    "detail": "Chrome Chrome/154.0.8037.58; Vite dev server on :5173; emulators project stagetime-2d3df",
+    "eventIndex": 2
+  },
+  {
+    "step": "W1 open link → connecting face",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/01-connecting.png",
+    "eventIndex": 361
+  },
+  {
+    "step": "W1 token scrubbed from address bar",
+    "result": "PASS",
+    "detail": "http://localhost:5173/session/y1T0p-OsjYhMFg-FKnNy/view",
+    "eventIndex": 361
+  },
+  {
+    "step": "W2 live compact face (Playing above time, no title)",
+    "result": "PASS",
+    "detail": "time 01:29; screenshot assets/issue-002-s5b/02-live-playing.png",
+    "eventIndex": 405
+  },
+  {
+    "step": "W2 disclosure caret visible inside the viewport",
+    "result": "PASS",
+    "detail": "",
+    "eventIndex": 405
+  },
+  {
+    "step": "W2 countdown advances between publishes",
+    "result": "PASS",
+    "detail": "01:29 → 01:26; screenshot assets/issue-002-s5b/03-counting-down.png",
+    "eventIndex": 405
+  },
+  {
+    "step": "W3 disclosure shows video titles/status/time",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/04-disclosure-open.png",
+    "eventIndex": 406
+  },
+  {
+    "step": "W4 paused shows Paused and does not advance",
+    "result": "PASS",
+    "detail": "01:30 → 01:30; screenshot assets/issue-002-s5b/05-paused.png",
+    "eventIndex": 411
+  },
+  {
+    "step": "W5 helper unavailable → Retrying with --:--",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/06-source-unavailable.png",
+    "eventIndex": 414
+  },
+  {
+    "step": "W6 no heartbeat → Reconnecting, frozen, dimmed",
+    "result": "PASS",
+    "detail": "{\"badge\":\"Reconnecting\",\"message\":null,\"time\":\"01:05\",\"connection\":\"stale\"}; screenshot assets/issue-002-s5b/07-stale.png",
+    "eventIndex": 418
+  },
+  {
+    "step": "W6 60 s without contact → Disconnected with --:--",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/08-disconnected.png",
+    "eventIndex": 420
+  },
+  {
+    "step": "W7 resume (epoch 2) → live again from the new snapshot",
+    "result": "PASS",
+    "detail": "epoch 2; screenshot assets/issue-002-s5b/09-resumed-new-epoch.png",
+    "eventIndex": 434
+  },
+  {
+    "step": "W8 reload keeps the viewer live (tab-scoped token)",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/10-reloaded.png",
+    "eventIndex": 732
+  },
+  {
+    "step": "W9 owner revokes link → Access ended",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/11-access-ended.png",
+    "eventIndex": 744
+  },
+  {
+    "step": "W10 new link after revoke → live",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/12-new-link-live.png",
+    "eventIndex": 781
+  },
+  {
+    "step": "W10 owner ends the session → Session ended",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/13-session-ended.png",
+    "eventIndex": 802
+  },
+  {
+    "step": "W11 wrong token → Access ended",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/14-bad-link.png",
+    "eventIndex": 816
+  },
+  {
+    "step": "W12 operator app phase begins",
+    "result": "PASS",
+    "detail": "errors after this point come from the operator app",
+    "eventIndex": 816
+  },
+  {
+    "step": "W12 approval page explains and offers Approve/Deny",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/15-approval-prompt.png",
+    "eventIndex": 2241
+  },
+  {
+    "step": "W12 approve → hands off to the app callback",
+    "result": "PASS",
+    "detail": "screenshot assets/issue-002-s5b/16-approval-done.png",
+    "eventIndex": 2261
+  },
+  {
+    "step": "W12 app completes approval with the callback code",
+    "result": "PASS",
+    "detail": "ppd_c8QXMBiAOartI4gyv9eFuNYR",
+    "eventIndex": 2261
+  },
+  {
+    "step": "runtime: no unexpected console errors",
+    "result": "PASS",
+    "detail": "8 total (8 expected); unexpected: none",
+    "eventIndex": 2261
+  },
+  {
+    "step": "runtime: failed network requests",
+    "result": "PASS",
+    "detail": "none",
+    "eventIndex": 2261
+  },
+  {
+    "step": "runtime: token never in a request URL",
+    "result": "PASS",
+    "detail": "332 requests checked",
+    "eventIndex": 2261
+  },
+  {
+    "step": "runtime: viewer never reads room data",
+    "result": "PASS",
+    "detail": "",
+    "eventIndex": 2261
+  }
+]

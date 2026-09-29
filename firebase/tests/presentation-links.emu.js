@@ -203,7 +203,27 @@ async function main() {
       assert.equal((await read(statePath)).status, 'ended');
       await rulesDenied(read(snapshotPath), 'ended snapshot');
       await signOut(auth);
-      await callDenied(call('resolvePresentationViewerLink', { sessionId, token: tokenOf(viewerUrl) }), 'ended resolve');
+      // The current link's holder learns why (session ended), so the viewer shows Session ended.
+      await assert.rejects(call('resolvePresentationViewerLink', { sessionId, token: tokenOf(viewerUrl) }), (error) => {
+        assert.equal(error.code, 'functions/permission-denied');
+        assert.deepEqual(error.details, { reason: 'session-ended' });
+        return true;
+      });
+      // After the owner revokes the ended session's link, even the old current token learns nothing.
+      await signInWithAccount(owner);
+      await call('revokePresentationViewerLink', { sessionId, clientRequestId: requestId() });
+      await signOut(auth);
+      await assert.rejects(call('resolvePresentationViewerLink', { sessionId, token: tokenOf(viewerUrl) }), (error) => {
+        assert.equal(error.code, 'functions/permission-denied');
+        assert.equal(error.details, undefined);
+        return true;
+      });
+      // A wrong token learns nothing.
+      await assert.rejects(call('resolvePresentationViewerLink', { sessionId, token: 'B'.repeat(43) }), (error) => {
+        assert.equal(error.code, 'functions/permission-denied');
+        assert.equal(error.details, undefined);
+        return true;
+      });
     }],
   ]);
 

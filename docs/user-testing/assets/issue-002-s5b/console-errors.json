@@ -1,0 +1,42 @@
+[
+  {
+    "step": "W10 new link after revoke → live",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"Failed to load resource: the server responded with a status of 400 (Bad Request)\",\"timestamp\":1790673925542.433,\"url\":\"http://localhost:8081/google.firestore.v1.Firestore/Listen/channel?VER=8&database=projects%2Fstagetime-2d3df%2Fdatabases%2F(defa",
+    "expected": true
+  },
+  {
+    "step": "W10 new link after revoke → live",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"Failed to load resource: the server responded with a status of 403 (Forbidden)\",\"timestamp\":1790673928327.578,\"url\":\"http://localhost:5002/stagetime-2d3df/us-central1/resolvePresentationViewerLink\",\"networkRequestId\":\"6179.110\"}}",
+    "expected": true
+  },
+  {
+    "step": "W10 owner ends the session → Session ended",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"Failed to load resource: the server responded with a status of 403 (Forbidden)\",\"timestamp\":1790673928431.998,\"url\":\"http://localhost:5002/stagetime-2d3df/us-central1/resolvePresentationViewerLink\",\"networkRequestId\":\"6179.111\"}}",
+    "expected": true
+  },
+  {
+    "step": "W12 operator app phase begins",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"WebSocket connection to 'ws://localhost:4000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED\",\"timestamp\":1790673929452.766,\"url\":\"http://localhost:5173/node_modules/.vite/deps/socket__i",
+    "expected": true
+  },
+  {
+    "step": "W12 operator app phase begins",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"WebSocket connection to 'ws://[::1]:4000/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED\",\"timestamp\":1790673929464.126,\"url\":\"http://localhost:5173/node_modules/.vite/deps/socket__io-cl",
+    "expected": true
+  },
+  {
+    "step": "W12 operator app phase begins",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"WebSocket connection to 'wss://127.0.0.1:4440/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED\",\"timestamp\":1790673929467.562,\"url\":\"http://localhost:5173/node_modules/.vite/deps/socket__",
+    "expected": true
+  },
+  {
+    "step": "W12 operator app phase begins",
+    "text": "{\"entry\":{\"source\":\"network\",\"level\":\"error\",\"text\":\"WebSocket connection to 'wss://[::1]:4440/socket.io/?EIO=4&transport=websocket' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED\",\"timestamp\":1790673929470.516,\"url\":\"http://localhost:5173/node_modules/.vite/deps/socket__io-c",
+    "expected": true
+  },
+  {
+    "step": "W12 approval page explains and offers Approve/Deny",
+    "text": "{\"entry\":{\"source\":\"other\",\"level\":\"error\",\"text\":\"Failed to launch 'downstage-ppt-timer://publisher-auth?challenge=S6oJb8IRLO3My131sdD8TlCEMEBqa3NX&code=t5tRk2CpDdguQZqvpDuPfe1_0BJ867RQffbpNYHH3lI' because the scheme does not have a registered handler.\",\"timestamp\":1790673929609.959,\"url\":\"http://l",
+    "expected": true
+  }
+]

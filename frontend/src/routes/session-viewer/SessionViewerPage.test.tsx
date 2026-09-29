@@ -120,9 +120,38 @@ describe('SessionViewerPage (cloud browser viewer)', () => {
     expect(other.fake.transport.resolve).not.toHaveBeenCalled()
   })
 
-  it('resolves exactly once under StrictMode double mounting', async () => {
-    const { fake } = renderAt(`/session/sess_1/view#token=${TOKEN}`, fakeTransport(), true)
+  it('switches to a newly opened link in the same tab (fragment-only navigation)', async () => {
+    // Defect (found in user testing): pasting a re-issued link only changes the hash, the page
+    // never re-reads it, and the viewer stays at "Access ended".
+    const { fake } = renderAt('/session/sess_1/view')
     await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(document.querySelector('#message')?.textContent).toBe('Access ended')
+    const next = 'N'.repeat(43)
+    act(() => {
+      window.history.replaceState(null, '', `/session/sess_1/view#token=${next}`)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(fake.transport.resolve).toHaveBeenCalledWith('sess_1', next)
+    expect(window.location.hash).toBe('')
+  })
+
+  it('resolves exactly once and creates a single transport under StrictMode double mounting', async () => {
+    // Defect: the discarded first mount built (then deleted) a Firebase app, logging app-deleted warnings.
+    const fake = fakeTransport()
+    const factory = vi.fn(() => fake.transport)
+    window.history.replaceState(null, '', `/session/sess_1/view#token=${TOKEN}`)
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/session/sess_1/view']}>
+          <Routes>
+            <Route path="/session/:sessionId/view" element={<SessionViewerPage createTransport={factory} />} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    )
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(factory).toHaveBeenCalledTimes(1)
     expect(fake.transport.resolve).toHaveBeenCalledTimes(1)
   })
 

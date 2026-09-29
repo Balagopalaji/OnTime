@@ -19,18 +19,22 @@ export function usePresentationSession(
 ): TimerDisplayModel {
   const [display, setDisplay] = useState<TimerDisplayModel>(CONNECTING)
   useEffect(() => {
-    const controller = createPresentationSessionController({
-      sessionId,
-      token,
-      transport: createTransport(),
-      now: monotonicNow,
-      onDisplay: setDisplay,
-    })
-    // Deferred one task so StrictMode's mount/unmount/remount resolves the link once.
-    const starting = setTimeout(() => controller.start(), 0)
+    let controller: ReturnType<typeof createPresentationSessionController> | null = null
+    // Deferred one task, transport included, so StrictMode's discarded first mount creates
+    // no Firebase app and the link resolves once.
+    const starting = setTimeout(() => {
+      controller = createPresentationSessionController({
+        sessionId,
+        token,
+        createTransport,
+        now: monotonicNow,
+        onDisplay: setDisplay,
+      })
+      controller.start()
+    }, 0)
     return () => {
       clearTimeout(starting)
-      void controller.stop()
+      void controller?.stop()
     }
   }, [sessionId, token, createTransport])
   return display

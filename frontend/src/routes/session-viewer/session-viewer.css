@@ -7,6 +7,14 @@ body:has(.session-viewer) {
   background: #111315;
 }
 
+/* Padding must stay inside the viewport height or the disclosure caret falls below the fold. */
+.session-viewer,
+.session-viewer *,
+.session-viewer *::before,
+.session-viewer *::after {
+  box-sizing: border-box;
+}
+
 .session-viewer {
   position: relative;
   display: flex;

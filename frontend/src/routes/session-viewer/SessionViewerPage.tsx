@@ -43,11 +43,19 @@ export function SessionViewerPage({
   createTransport?: () => PresentationTransport
 }) {
   const { sessionId = '' } = useParams()
-  // Read the credential once (fragment, else this tab's stored copy), then remove it from the URL.
-  const [token] = useState(() => takeViewerToken(sessionId, window.location.hash))
+  // Read the credential (fragment, else this tab's stored copy), then remove it from the URL.
+  const [token, setToken] = useState(() => takeViewerToken(sessionId, window.location.hash))
   useEffect(() => {
     if (window.location.hash) scrubViewerToken()
-  }, [])
+    // A newly opened link in the same tab changes only the fragment (no reload): adopt it.
+    const onHashChange = () => {
+      const next = takeViewerToken(sessionId, window.location.hash)
+      if (window.location.hash) scrubViewerToken()
+      if (next !== null) setToken(next)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [sessionId])
   const display = usePresentationSession(sessionId, token, createTransport)
   const [open, setOpen] = useState(false)
   const hasRows = display.disclosureRows.length > 0
