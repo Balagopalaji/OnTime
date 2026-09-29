@@ -59,6 +59,16 @@ module.exports = {
       to: { path: '(local-sync-arbitration)', reachable: true },
     },
     {
+      name: 'session-viewer-no-room-contexts',
+      severity: 'error',
+      comment:
+        'The ISSUE-002 cloud presentation viewer uses its own session adapter and isolated Firebase app; it must not import room/timer contexts or hooks, the default Firebase app (lib/firebase.ts), Companion, or local-sync arbitration.',
+      from: { path: '^frontend/src/routes/session-viewer/' },
+      to: {
+        path: '(^frontend/src/(context|hooks)/|^frontend/src/lib/firebase\\.ts$|^frontend/src/routes/(ViewerPage|ControllerPage|DashboardPage)|local-sync-arbitration|socket\\.io|^companion/)',
+      },
+    },
+    {
       name: 'ppt-timer-standalone',
       severity: 'error',
       comment:

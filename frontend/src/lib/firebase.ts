@@ -3,28 +3,7 @@ import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence, 
 import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase/firestore'
 import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions'
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-}
-
-const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
-
-const parseEmulatorPort = (value: string | undefined, fallback: number) => {
-  const port = Number(value)
-  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : fallback
-}
-
-const firestoreEmulatorPort = parseEmulatorPort(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT, 8081)
-const functionsEmulatorPort = parseEmulatorPort(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT, 5002)
-
-// Only initialize Firebase if config is present (allows local/companion-only mode)
-const hasConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId)
+import { emulatorSettings, firebaseConfig, hasConfig } from './firebase-config'
 
 let app: ReturnType<typeof initializeApp> | null = null
 let auth: ReturnType<typeof getAuth> | null = null
@@ -54,18 +33,18 @@ if (hasConfig) {
   console.warn('[Firebase] No configuration found - running in local/companion mode only')
 }
 
-if (useEmulator && auth && db) {
+if (emulatorSettings.enabled && auth && db) {
   try {
-    connectAuthEmulator(auth, 'http://localhost:9099')
-    connectFirestoreEmulator(db, 'localhost', firestoreEmulatorPort)
+    connectAuthEmulator(auth, `http://localhost:${emulatorSettings.authPort}`)
+    connectFirestoreEmulator(db, 'localhost', emulatorSettings.firestorePort)
   } catch (error) {
     console.warn('Failed to connect Firebase emulators', error)
   }
 }
 
-if (useEmulator && functions) {
+if (emulatorSettings.enabled && functions) {
   try {
-    connectFunctionsEmulator(functions, 'localhost', functionsEmulatorPort)
+    connectFunctionsEmulator(functions, 'localhost', emulatorSettings.functionsPort)
   } catch (error) {
     console.warn('Failed to connect Firebase Functions emulator', error)
   }
