@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S5b verified",
-  "currentTask": "S6a — next",
+  "phase": "Implement: S6a verified",
+  "currentTask": "S6b — next",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1, "S4b": 1, "S5a": 3, "S5b": 1},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1, "S4b": 1, "S5a": 3, "S5b": 1, "S6a": 1},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -109,7 +109,16 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P1|frontend/src/routes/PublisherDeviceApprovalPage.tsx|any custom scheme callback opened|S5b",
     "P2|frontend/src/routes/session-viewer/SessionViewerPage.tsx|hashchange path untested|S5b",
     "P2|functions/src/presentation/links.ts|resolve reason set must stay closed|S5b",
-    "P2|frontend/src/routes/session-viewer/session-viewer.css|reset skips pseudo-elements|S5b"
+    "P2|frontend/src/routes/session-viewer/session-viewer.css|reset skips pseudo-elements|S5b",
+    "P1|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|stop/start race orphans a sidecar|S6a",
+    "P1|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|refused SHARE_START hangs in starting|S6a",
+    "P1|apps/ppt-timer/src/main/publisher-sidecar/protocol.ts|negotiated max size not enforced|S6a",
+    "P2|apps/ppt-timer/src/main/publisher-sidecar/protocol.ts|size measured in UTF-16 units|S6a",
+    "P2|apps/ppt-timer/src/main/publisher-sidecar/protocol.ts|stop/end commands lack nonce|S6a",
+    "P2|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|shutdown without connection keeps stale status|S6a",
+    "P2|apps/ppt-timer/src/main/publisher-sidecar/launcher.ts|main-side port never closed|S6a",
+    "P2|apps/ppt-timer/src/main/publisher-sidecar/sidecar.test.ts|boundary scan misses package/dynamic imports|S6a",
+    "P3|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|respawn budget never refreshes|S6a"
   ]
 }
 ```
@@ -123,7 +132,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 - Loop session: `176D035B-3F92-4E16-B33E-C49FC150E1ED`
 - Issue: `ISSUE-002` (outer Backlog layer owns status and closure)
 - PR: not opened; outer Backlog layer owns push/PR/merge
-- Current phase: Implement mode; S1a, S1b, S3a–S3d, S4a, S4b, S5a, S5b verified; S6a next
+- Current phase: Implement mode; S1a–S1b, S3a–S3d, S4a–S4b, S5a–S5b, S6a verified; S6b next
 
 ## Readiness gate
 
@@ -150,7 +159,7 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
 | S4b | Adapt local PPT UI/remote fixtures | RPV-001,002,006,008 (face layer; live Windows remains S7) | `apps/ppt-timer/src/renderer/{view,powerpoint-panel,main}.ts`, `styles.css`, `face-adoption.test.ts`, app `package.json` (devDeps + build:cjs-deps); new `packages/powerpoint-display` (remote adapter + 17 tests); timer-face CJS build; `.dependency-cruiser.cjs` ppt-timer allowance; CI build/test steps | Claude Opus 5.5 orchestrator (direct) | app 441 (all pre-existing characterization unchanged + 11 adoption/parity); powerpoint-display 17; timer-face 28; contracts 318 + CJS smoke; functions 53 | verified | red 4 adoption tests (identity/CSS/toDisplayModel); green 441/441; typecheck; renderer build; headless-Chrome visual parity 11/11 pixel-identical vs pre-S4b build; guardrails pass; Oracle review closed. |
 | S5a | Browser route/resolve/subscription/reducer | RPV-003,007–010 (browser layer; live browser matrix in S5b) | `frontend/src/routes/session-viewer/{presentation-session-controller,firebase-transport,usePresentationSession,session-link,SessionViewerPage,SessionViewerApp}.ts(x)`, `session-viewer.css`, `frontend/src/lib/firebase-config.ts` (side-effect-free), `lib/firebase.ts` (imports config), `frontend/src/main.tsx` (import()-split entries), `frontend/package.json` deps, `.dependency-cruiser.cjs` `session-viewer-no-room-contexts` | Claude Opus 5.5 orchestrator (direct) | 41 controller/link/page tests (listener order, server-clock interpolation, regression/wrapper rejection, stale/disconnected, ended/access-ended, window expiry, token absent/denied, retryAfter clamp, capped jittered backoff, sign-in classification, listener-error reconnect bounded, single reconnect, terminal release, stop during resolve/sign-in, fragment scrub, tab-scoped reload, StrictMode single resolve, disclosure, polite announcement) | verified | reds per review round (6, 2, 4); green frontend 289/289; lint; tsc -b; vite build (separate SessionViewerApp chunk); boundary rule mutation-checked; guardrails pass. |
 | S5b | Browser teardown/access states | RPV-003,007–010 (browser layer; Safari/Firefox + production blocked) | `frontend/src/routes/session-viewer/*` (fresh transport per reconnect, resolve-reason classification, hashchange adoption, lazy transport, CSS box sizing), `frontend/src/routes/PublisherDeviceApprovalPage.tsx` + route, `functions/src/presentation/links.ts` (`details.reason: session-ended`), `firebase/tests/presentation-viewer-walkthrough.mjs` + `user-test:presentation-viewer`, `docs/user-testing/issue-002-s5b-cloud-viewer.md` + 19 evidence files | Claude Opus 5.5 orchestrator (direct) | frontend 305 (session viewer 44, approval page 13); links emulator 12 (+session-ended reason, revoked-after-end no reason); walkthrough 25 checks | verified (Chrome/emulator); Safari/Firefox blocked | user testing found 3 P1s (caret below fold, hash-only link, ended-as-access-ended) — each red-first then fixed; final walkthrough 25/25; emulator 9/9, 12/12, 9/9, 7/7; functions 53/53; rules exit 0; guardrails pass. |
-| S6a | Sidecar protocol/broker/lifecycle harness | RPV-001,005,008,010 | ppt-timer publisher-sidecar/main | unassigned | protocol/import/lifecycle | pending | Depends on S1b. |
+| S6a | Sidecar protocol/broker/lifecycle harness | RPV-001,005,008,010 (process layer; live Windows is S7) | `apps/ppt-timer/src/main/publisher-sidecar/{protocol,port,sidecar-core,worker,launcher,electron-spawn,lifecycle,candidate-adapter}.ts` + tests; `apps/ppt-timer/test/publisher-sidecar-harness.ts`; main.ts wiring deferred to S6c (398/400 lines) | Claude Opus 5.5 orchestrator (direct) | 59 tests (protocol parsers; core handshake/terminate/latest-only/shutdown; launcher handshake/timeout/wrong nonce/violation/deadline kill; lifecycle coalescing, respawn+replay, budget/refresh, stop-start race, refused SHARE_START, idle on shutdown; import boundary incl. packages; candidate adapter host-state table, privacy, timing degrade, 4 H1 fixtures × 4 mode combos round-trip) | verified | red (modules absent; review round 4 reds); green ppt-timer 500/500; typecheck; guardrails; **empirical Electron 43.2.0 smoke (macOS arm64)**: utilityProcess.fork + MessageChannelMain handshake, share, candidate, forged-candidate termination, clean shutdown, lifecycle starting→sharing→stopping→idle. |
 | S6b | Device auth/encrypted persistence | RPV-001,003,010 | publisher-sidecar auth/store | unassigned | auth/storage tests | pending | Depends on S6a,S3a. |
 | S6c | Cloud publish/heartbeat/retry/epoch/UI | RPV-001–003,006–010 | sidecar + app IPC/UI | unassigned | publication/heartbeat/retry suites | pending | Depends on S6b,S3c,S4b. |
 | S6d | Package/lifecycle/crash/S-033 | RPV-001,005,007,008,010 | app package/main lifecycle | unassigned | package/full app/guardrails | pending | Depends on S6c. |
@@ -256,6 +265,15 @@ S0 diff. No P0/P1 finding remains.
 | `P2|frontend/src/routes/session-viewer/SessionViewerPage.tsx|hashchange path untested|S5b` | false_positive | page test "switches to a newly opened link in the same tab". |
 | `P2|functions/src/presentation/links.ts|resolve reason set must stay closed|S5b` | fixed | revoked-after-end token gets no details (emulator). |
 | `P2|frontend/src/routes/session-viewer/session-viewer.css|reset skips pseudo-elements|S5b` | fixed | ::before/::after included. |
+| `P1|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|stop/start race orphans a sidecar|S6a` | fixed (defensive; race test passes; fresh review deferred to final) | synchronous detach via `retiring`; stop→start test. |
+| `P1|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|refused SHARE_START hangs in starting|S6a` | fixed (red→green) | NACK test → failed + killed. |
+| `P1|apps/ppt-timer/src/main/publisher-sidecar/protocol.ts|negotiated max size not enforced|S6a` | fixed (red→green) | 1 024-byte HELLO + 1 200-byte UTF-8 label terminates. |
+| `P2|apps/ppt-timer/src/main/publisher-sidecar/protocol.ts|size measured in UTF-16 units|S6a` | fixed | TextEncoder byte length; same test. |
+| `P2|apps/ppt-timer/src/main/publisher-sidecar/protocol.ts|stop/end commands lack nonce|S6a` | false_positive | key table requires `{kind, nonce, id}`; wrong-nonce test covers SHARE_START family. |
+| `P2|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|shutdown without connection keeps stale status|S6a` | fixed (red→green) | restarting → shutdown → idle test. |
+| `P2|apps/ppt-timer/src/main/publisher-sidecar/launcher.ts|main-side port never closed|S6a` | fixed | `finish` closes the port. |
+| `P2|apps/ppt-timer/src/main/publisher-sidecar/sidecar.test.ts|boundary scan misses package/dynamic imports|S6a` | fixed | scans `import()`/`require()`; only `@ontime/remote-viewer-contracts`, which has no dependencies. |
+| `P3|apps/ppt-timer/src/main/publisher-sidecar/lifecycle.ts|respawn budget never refreshes|S6a` | fixed (red→green) | stable-period refresh test. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -276,6 +294,8 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-09-29 (S4b): `npm run test --workspace apps/ppt-timer` 441/441; `npm run typecheck --workspace apps/ppt-timer` PASS (after `npm run build:cjs-deps --workspace apps/ppt-timer`); `npm run build:renderer --workspace apps/ppt-timer` PASS; `@ontime/powerpoint-display` 17/17 + typecheck; `@ontime/timer-face` 28/28; `@ontime/remote-viewer-contracts` 318/318 + CJS smoke; functions 53/53; guardrails PASS.
 - 2026-09-29 (S5a): `npm run test --workspace frontend` 289/289; `npm run lint --workspace frontend` PASS; `npm run typecheck --workspace frontend` PASS; `npm run build --workspace frontend` PASS; guardrails PASS. Session-viewer tests were authored alongside their modules for new files (module absent = red); every review fix was red first.
 - 2026-09-29 (S5b): `npm run test --workspace frontend` 305/305; `npm run build --workspace frontend` PASS; `npm run test:presentation --workspace ontime-firebase-rules` 9/9, 12/12, 9/9, 7/7; `npm run user-test:presentation-viewer --workspace ontime-firebase-rules` 25/25 (headless Chrome 154 via CDP, emulators, Vite dev server; screenshots and logs in `docs/user-testing/assets/issue-002-s5b/`); `test:rules` exit 0; functions 53/53; guardrails PASS.
+- 2026-09-30 (S6a): `npm run test --workspace apps/ppt-timer` 500/500; `npm run typecheck --workspace apps/ppt-timer` PASS; `npm run build:main --workspace apps/ppt-timer` PASS; guardrails PASS; Electron smoke `apps/ppt-timer/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron /tmp/sidecar-smoke.js` → handshake ok, share ok, candidate ok, forged candidate terminated the channel, shutdown clean, lifecycle `starting,sharing,stopping,idle`. The worktree's pinned Electron 43.2.0 binary had to be installed with `node install.js` (npm install scripts are blocked here); node_modules only.
+- S6a interpretations: protocol size limit is the HELLO-negotiated `maxMessageBytes` capped at 64 KiB, in UTF-8 bytes; a protocol violation terminates the channel (sidecar exits 2; launcher kills); a refused `SHARE_START` is handled like a crash (bounded respawn); respawn budget (1 s/5 s/30 s) refreshes after 60 s of stable sharing; the candidate adapter publishes a slide whose playing row lacks timing as `timing-unavailable`; `main.ts` wiring, runtime dependency on the contracts package, and packaging are S6c/S6d.
 - S5b user testing: record at `docs/user-testing/issue-002-s5b-cloud-viewer.md` — 12 workflows (open link, live compact face, countdown, disclosure, paused, source unavailable, stale 25 s / disconnected 60 s, resume new epoch, reload, revoke → access ended, new link → live, end → session ended, wrong token, owner device approval → app callback → completion) plus runtime checks (no unexpected console errors, no failed requests, token never in 331 request URLs, no room reads). Not tested (blocked): Safari/Firefox (no automation driver here; handed to user for the staging browser matrix), production Firebase/Google sign-in, native callback handler.
 - S5b interpretations: emulator probe showed a denied snapshot target stalls the same Firestore client's viewer-state delivery (and `getDocFromServer`), so every reconnect uses a fresh isolated transport and a refused reconnect is classified by `resolvePresentationViewerLink` `details.reason: 'session-ended'` (only for the current link's holder; otherwise no details). The approval page opens only the configured `VITE_PRESENTATION_CALLBACK_SCHEME` (default `downstage-ppt-timer`); the server already pins the scheme at begin/complete.
 - S5a interpretations: the viewer runs on its own named Firebase app with in-memory auth and mounts from an `import()`-split entry outside Auth/Data/room providers; the link token is scrubbed from the URL but kept in tab-scoped `sessionStorage` per session so a reload keeps working; resolve/sign-in/listener failures retry with capped jittered backoff (2 s → 60 s; `retryAfterMs` clamped to [1 s, 60 s]); permanent sign-in errors, a denied viewer state, window expiry, or more than 5 data-less listener reconnects end access; terminal states release listeners and credentials immediately.
