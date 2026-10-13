@@ -26,6 +26,20 @@ export type SafeErrorCode = 'protocol-violation' | 'not-sharing' | 'invalid-cand
 export type StorageError = 'encryption-unavailable' | 'not-found' | 'corrupt' | 'too-large' | 'io'
 type StorageResult<K extends string> = { kind: K; nonce: string; requestId: number } & ({ ok: true } | { ok: false; error: StorageError })
 export type ShareState = 'idle' | 'starting' | 'sharing' | 'stopping'
+/** Safe cloud-share status for the visible share UI (no URLs, tokens, or error bodies). */
+export const SHARE_STATUSES = [
+  'connecting',
+  'awaiting-approval',
+  'live',
+  'retrying',
+  'paused',
+  'ended',
+  'signed-out',
+  'storage-unavailable',
+  'approval-failed',
+  'not-configured',
+] as const
+export type ShareStatus = (typeof SHARE_STATUSES)[number]
 
 export type Hello = { kind: 'HELLO'; nonce: string; protocolMajor: 1; maxMessageBytes: number; capabilities: string[] }
 export type MainToSidecar =
@@ -33,6 +47,8 @@ export type MainToSidecar =
   | { kind: 'SHARE_START'; nonce: string; id: number }
   | { kind: 'SHARE_STOP'; nonce: string; id: number }
   | { kind: 'END_SESSION'; nonce: string; id: number }
+  /** Revoke this publisher device and clear its sealed credential. */
+  | { kind: 'SIGN_OUT'; nonce: string; id: number }
   | { kind: 'SNAPSHOT_CANDIDATE'; nonce: string; id: number; candidate: RemoteSnapshotCandidateV1 }
   | { kind: 'SHUTDOWN'; nonce: string; id: number; deadlineMs: number }
   /** Relays the one-time approval code from the app's registered callback URI. */
@@ -47,6 +63,9 @@ export type SidecarToMain =
   | { kind: 'SHARE_STATE'; nonce: string; state: ShareState }
   | { kind: 'SAFE_ERROR'; nonce: string; code: SafeErrorCode }
   | { kind: 'SHUTDOWN_COMPLETE'; nonce: string }
+  | { kind: 'PUBLISH_STATUS'; nonce: string; status: ShareStatus }
+  /** Validated viewer URL (token only in the fragment); main shows it only in the explicit share UI. */
+  | { kind: 'VIEWER_LINK'; nonce: string; url: string }
   /** Validated HTTPS approval URL for `shell.openExternal`; carries only the challenge ID. */
   | { kind: 'AUTH_REQUIRED'; nonce: string; url: string }
   | { kind: 'SEAL_REQUEST'; nonce: string; requestId: number; data: string }
@@ -71,6 +90,7 @@ const MAIN_KEYS: Record<MainToSidecar['kind'], KeySpec> = {
   SHARE_START: [['kind', 'nonce', 'id']],
   SHARE_STOP: [['kind', 'nonce', 'id']],
   END_SESSION: [['kind', 'nonce', 'id']],
+  SIGN_OUT: [['kind', 'nonce', 'id']],
   SNAPSHOT_CANDIDATE: [['kind', 'nonce', 'id', 'candidate']],
   SHUTDOWN: [['kind', 'nonce', 'id', 'deadlineMs']],
   AUTH_CALLBACK: [['kind', 'nonce', 'id', 'challengeId', 'code']],
@@ -85,6 +105,8 @@ const SIDECAR_KEYS: Record<SidecarToMain['kind'], KeySpec> = {
   SHARE_STATE: [['kind', 'nonce', 'state']],
   SAFE_ERROR: [['kind', 'nonce', 'code']],
   SHUTDOWN_COMPLETE: [['kind', 'nonce']],
+  PUBLISH_STATUS: [['kind', 'nonce', 'status']],
+  VIEWER_LINK: [['kind', 'nonce', 'url']],
   AUTH_REQUIRED: [['kind', 'nonce', 'url']],
   SEAL_REQUEST: [['kind', 'nonce', 'requestId', 'data']],
   UNSEAL_REQUEST: [['kind', 'nonce', 'requestId']],
@@ -208,6 +230,22 @@ export function isApprovalUrl(value: string): boolean {
   return params.length === 1 && params[0] === 'challenge' && CHALLENGE_ID.test(url.searchParams.get('challenge') ?? '')
 }
 
+const VIEWER_PATH = /^\/session\/[A-Za-z0-9_-]{1,128}\/view$/
+const VIEWER_HASH = /^#token=[A-Za-z0-9_-]{32,128}$/
+
+/** Viewer URLs: HTTPS (or loopback HTTP), `/session/<id>/view`, no query, token only in the fragment. */
+export function isViewerUrl(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  const loopback = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+  if (url.protocol !== 'https:' && !loopback) return false
+  return !url.username && !url.password && !url.search && VIEWER_PATH.test(url.pathname) && VIEWER_HASH.test(url.hash)
+}
+
 function major(value: unknown): 1 {
   if (value !== SIDECAR_PROTOCOL_MAJOR) fail('incompatible-major')
   return SIDECAR_PROTOCOL_MAJOR
@@ -249,7 +287,7 @@ export function parseMainToSidecar(raw: unknown, expectedNonce: string, maxBytes
       case 'SHUTDOWN':
         return { kind, nonce, id, deadlineMs: integer(record.deadlineMs, 1, 60_000) }
       default:
-        return { kind: kind as 'SHARE_START' | 'SHARE_STOP' | 'END_SESSION', nonce, id }
+        return { kind: kind as 'SHARE_START' | 'SHARE_STOP' | 'END_SESSION' | 'SIGN_OUT', nonce, id }
     }
   })
 }
@@ -276,6 +314,12 @@ export function parseSidecarToMain(raw: unknown, expectedNonce: string): Protoco
         return { kind, nonce, code: code() }
       case 'SHUTDOWN_COMPLETE':
         return { kind, nonce }
+      case 'PUBLISH_STATUS':
+        if (!SHARE_STATUSES.includes(record.status as ShareStatus)) fail('invalid-field')
+        return { kind, nonce, status: record.status as ShareStatus }
+      case 'VIEWER_LINK':
+        if (typeof record.url !== 'string' || !isViewerUrl(record.url)) fail('invalid-field')
+        return { kind, nonce, url: record.url as string }
       case 'AUTH_REQUIRED':
         if (typeof record.url !== 'string' || !isApprovalUrl(record.url)) fail('invalid-field')
         return { kind, nonce, url: record.url as string }

@@ -5,6 +5,7 @@
     "test:rules": "firebase emulators:exec --config ../firebase.json --only firestore \"node ./tests/firestore.rules.test.js\"",
     "test:join-operator": "firebase emulators:exec --config ../firebase.json --only firestore,functions,auth \"node ./tests/joinAsOperator.emu.js\"",
     "test:presentation": "npm run build --workspace functions && node ./tests/run-presentation-emu.mjs",
+    "test:presentation-sidecar": "npm run build --workspace functions && npm run build:cjs-deps --workspace @ontime/ppt-timer && npm run build:main --workspace @ontime/ppt-timer && firebase emulators:exec --config ../firebase.json --only firestore,functions,auth \"node ./tests/presentation-sidecar.emu.js\"",
     "user-test:presentation-viewer": "npm run build --workspace functions && firebase emulators:exec --config ../firebase.json --only firestore,functions,auth \"node ./tests/presentation-viewer-walkthrough.mjs\""
   },
   "devDependencies": {

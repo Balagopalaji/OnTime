@@ -24,6 +24,19 @@ describe('sidecar core (runs in the utility process)', () => {
     return { main: port1, core, exit, replies }
   }
 
+  it('restarts the share on a later SHARE_START after the share ended on its own', async () => {
+    // Defect: after approval-failed/not-configured/signed-out the core stays "sharing" and ignores Share.
+    const { main, replies } = connect()
+    main.postMessage({ kind: 'HELLO', nonce: NONCE, protocolMajor: 1, maxMessageBytes: 65_536, capabilities: ['publish'] })
+    main.postMessage({ kind: 'SHARE_START', nonce: NONCE, id: 1 })
+    main.postMessage({ kind: 'SHARE_START', nonce: NONCE, id: 2 })
+    await tick()
+    expect(replies.filter((r) => r.kind === 'PUBLISH_STATUS')).toEqual([
+      { kind: 'PUBLISH_STATUS', nonce: NONCE, status: 'not-configured' },
+      { kind: 'PUBLISH_STATUS', nonce: NONCE, status: 'not-configured' },
+    ])
+  })
+
   it('answers a valid HELLO with READY echoing the nonce, then acknowledges commands', async () => {
     const { main, core, replies } = connect()
     main.postMessage({ kind: 'HELLO', nonce: NONCE, protocolMajor: 1, maxMessageBytes: 65_536, capabilities: ['publish'] })
@@ -34,6 +47,7 @@ describe('sidecar core (runs in the utility process)', () => {
     expect(replies).toEqual([
       { kind: 'READY', nonce: NONCE, protocolMajor: 1, capabilities: ['publish'] },
       { kind: 'SHARE_STATE', nonce: NONCE, state: 'sharing' },
+      { kind: 'PUBLISH_STATUS', nonce: NONCE, status: 'not-configured' },
       { kind: 'ACK', nonce: NONCE, id: 1 },
       { kind: 'ACK', nonce: NONCE, id: 2 },
       { kind: 'ACK', nonce: NONCE, id: 3 },
@@ -304,10 +318,12 @@ describe('sidecar boundaries (RPV-001, RPV-005, RPV-010)', () => {
 
   it('the protocol has no viewer-to-PowerPoint or renderer command message', () => {
     expect([...MAIN_TO_SIDECAR_KINDS].sort()).toEqual([
-      'AUTH_CALLBACK', 'CLEAR_RESULT', 'END_SESSION', 'HELLO', 'SEAL_RESULT', 'SHARE_START', 'SHARE_STOP', 'SHUTDOWN', 'SNAPSHOT_CANDIDATE', 'UNSEAL_RESULT',
+      'AUTH_CALLBACK', 'CLEAR_RESULT', 'END_SESSION', 'HELLO', 'SEAL_RESULT', 'SHARE_START', 'SHARE_STOP', 'SHUTDOWN', 'SIGN_OUT', 'SNAPSHOT_CANDIDATE',
+      'UNSEAL_RESULT',
     ])
     expect([...SIDECAR_TO_MAIN_KINDS].sort()).toEqual([
-      'ACK', 'AUTH_REQUIRED', 'CLEAR_SEALED', 'NACK', 'READY', 'SAFE_ERROR', 'SEAL_REQUEST', 'SHARE_STATE', 'SHUTDOWN_COMPLETE', 'UNSEAL_REQUEST',
+      'ACK', 'AUTH_REQUIRED', 'CLEAR_SEALED', 'NACK', 'PUBLISH_STATUS', 'READY', 'SAFE_ERROR', 'SEAL_REQUEST', 'SHARE_STATE', 'SHUTDOWN_COMPLETE',
+      'UNSEAL_REQUEST', 'VIEWER_LINK',
     ])
   })
 })

@@ -20,9 +20,11 @@ export type SpawnedSidecar = { port: PortLike; kill(): void; onExit(listener: (c
 
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, 'nonce' | 'id'> : never
 export type SidecarCommand = WithoutEnvelope<
-  Extract<MainToSidecar, { kind: 'SHARE_START' | 'SHARE_STOP' | 'END_SESSION' | 'SNAPSHOT_CANDIDATE' | 'AUTH_CALLBACK' }>
+  Extract<MainToSidecar, { kind: 'SHARE_START' | 'SHARE_STOP' | 'END_SESSION' | 'SIGN_OUT' | 'SNAPSHOT_CANDIDATE' | 'AUTH_CALLBACK' }>
 >
-export type SidecarEvent = Extract<SidecarToMain, { kind: 'SHARE_STATE' | 'SAFE_ERROR' | 'AUTH_REQUIRED' }>
+const EVENT_KINDS = ['SHARE_STATE', 'SAFE_ERROR', 'AUTH_REQUIRED', 'PUBLISH_STATUS', 'VIEWER_LINK'] as const
+export type SidecarEvent = Extract<SidecarToMain, { kind: (typeof EVENT_KINDS)[number] }>
+const isEvent = (message: SidecarToMain): message is SidecarEvent => (EVENT_KINDS as readonly string[]).includes(message.kind)
 export type SendResult = { ok: true } | { ok: false; code: SafeErrorCode }
 
 export type SidecarConnection = {
@@ -137,7 +139,7 @@ export function createSidecarLauncher(options: {
             const done = pending.get(message.id)
             pending.delete(message.id)
             done?.(message.kind === 'ACK' ? { ok: true } : { ok: false, code: message.code })
-          } else if (message.kind === 'SHARE_STATE' || message.kind === 'SAFE_ERROR' || message.kind === 'AUTH_REQUIRED') {
+          } else if (isEvent(message)) {
             for (const listener of eventListeners) listener(message)
           } else if (message.kind === 'SEAL_REQUEST' || message.kind === 'UNSEAL_REQUEST' || message.kind === 'CLEAR_SEALED') {
             const unavailable = { ok: false as const, error: 'encryption-unavailable' as const }

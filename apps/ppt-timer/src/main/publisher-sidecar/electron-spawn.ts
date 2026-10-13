@@ -6,9 +6,9 @@
 import { MessageChannelMain, utilityProcess } from 'electron'
 import type { SpawnedSidecar } from './launcher'
 
-export function electronSidecarSpawner(entryPath: string): () => SpawnedSidecar {
+export function electronSidecarSpawner(entryPath: string, args: string[] = []): () => SpawnedSidecar {
   return () => {
-    const child = utilityProcess.fork(entryPath, [], { serviceName: 'Downstage Publisher', stdio: 'ignore' })
+    const child = utilityProcess.fork(entryPath, args, { serviceName: 'Downstage Publisher', stdio: 'ignore' })
     const { port1, port2 } = new MessageChannelMain()
     child.postMessage({ kind: 'port' }, [port2])
     port1.start()
