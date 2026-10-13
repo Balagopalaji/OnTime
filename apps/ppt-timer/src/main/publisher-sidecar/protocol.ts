@@ -12,8 +12,19 @@ export const SIDECAR_MAX_MESSAGE_BYTES = 64 * 1024
 
 const NONCE = /^[A-Za-z0-9_-]{22,64}$/
 const CAPABILITY = /^[a-z-]{1,32}$/
+const CHALLENGE_ID = /^[A-Za-z0-9_-]{22,64}$/
+const AUTH_CODE = /^[A-Za-z0-9_-]{43}$/
+/**
+ * Sealed credential payloads are small JSON strings, opaque to main. They are
+ * bounded by serialized UTF-8 size (escapes included), so any request or result
+ * carrying one stays well inside the 64 KiB envelope.
+ */
+export const SEALED_DATA_MAX_BYTES = 16 * 1024
+export const sealedDataFits = (data: string) => new TextEncoder().encode(JSON.stringify(data)).length <= SEALED_DATA_MAX_BYTES
 
 export type SafeErrorCode = 'protocol-violation' | 'not-sharing' | 'invalid-candidate' | 'internal'
+export type StorageError = 'encryption-unavailable' | 'not-found' | 'corrupt' | 'too-large' | 'io'
+type StorageResult<K extends string> = { kind: K; nonce: string; requestId: number } & ({ ok: true } | { ok: false; error: StorageError })
 export type ShareState = 'idle' | 'starting' | 'sharing' | 'stopping'
 
 export type Hello = { kind: 'HELLO'; nonce: string; protocolMajor: 1; maxMessageBytes: number; capabilities: string[] }
@@ -24,6 +35,11 @@ export type MainToSidecar =
   | { kind: 'END_SESSION'; nonce: string; id: number }
   | { kind: 'SNAPSHOT_CANDIDATE'; nonce: string; id: number; candidate: RemoteSnapshotCandidateV1 }
   | { kind: 'SHUTDOWN'; nonce: string; id: number; deadlineMs: number }
+  /** Relays the one-time approval code from the app's registered callback URI. */
+  | { kind: 'AUTH_CALLBACK'; nonce: string; id: number; challengeId: string; code: string }
+  | StorageResult<'SEAL_RESULT'>
+  | ({ kind: 'UNSEAL_RESULT'; nonce: string; requestId: number } & ({ ok: true; data: string } | { ok: false; error: StorageError }))
+  | StorageResult<'CLEAR_RESULT'>
 export type SidecarToMain =
   | { kind: 'READY'; nonce: string; protocolMajor: 1; capabilities: string[] }
   | { kind: 'ACK'; nonce: string; id: number }
@@ -31,6 +47,11 @@ export type SidecarToMain =
   | { kind: 'SHARE_STATE'; nonce: string; state: ShareState }
   | { kind: 'SAFE_ERROR'; nonce: string; code: SafeErrorCode }
   | { kind: 'SHUTDOWN_COMPLETE'; nonce: string }
+  /** Validated HTTPS approval URL for `shell.openExternal`; carries only the challenge ID. */
+  | { kind: 'AUTH_REQUIRED'; nonce: string; url: string }
+  | { kind: 'SEAL_REQUEST'; nonce: string; requestId: number; data: string }
+  | { kind: 'UNSEAL_REQUEST'; nonce: string; requestId: number }
+  | { kind: 'CLEAR_SEALED'; nonce: string; requestId: number }
 
 export type ProtocolError =
   | 'invalid-shape'
@@ -42,27 +63,39 @@ export type ProtocolError =
   | 'invalid-field'
 export type ProtocolResult<T> = { ok: true; value: T } | { ok: false; error: ProtocolError }
 
-const MAIN_KEYS: Record<MainToSidecar['kind'], readonly string[]> = {
-  HELLO: ['kind', 'nonce', 'protocolMajor', 'maxMessageBytes', 'capabilities'],
-  SHARE_START: ['kind', 'nonce', 'id'],
-  SHARE_STOP: ['kind', 'nonce', 'id'],
-  END_SESSION: ['kind', 'nonce', 'id'],
-  SNAPSHOT_CANDIDATE: ['kind', 'nonce', 'id', 'candidate'],
-  SHUTDOWN: ['kind', 'nonce', 'id', 'deadlineMs'],
+/** Required keys, then optional keys (whose presence each parser validates). */
+type KeySpec = readonly [required: readonly string[], optional?: readonly string[]]
+const RESULT_KEYS: KeySpec = [['kind', 'nonce', 'requestId', 'ok'], ['error']]
+const MAIN_KEYS: Record<MainToSidecar['kind'], KeySpec> = {
+  HELLO: [['kind', 'nonce', 'protocolMajor', 'maxMessageBytes', 'capabilities']],
+  SHARE_START: [['kind', 'nonce', 'id']],
+  SHARE_STOP: [['kind', 'nonce', 'id']],
+  END_SESSION: [['kind', 'nonce', 'id']],
+  SNAPSHOT_CANDIDATE: [['kind', 'nonce', 'id', 'candidate']],
+  SHUTDOWN: [['kind', 'nonce', 'id', 'deadlineMs']],
+  AUTH_CALLBACK: [['kind', 'nonce', 'id', 'challengeId', 'code']],
+  SEAL_RESULT: RESULT_KEYS,
+  UNSEAL_RESULT: [['kind', 'nonce', 'requestId', 'ok'], ['error', 'data']],
+  CLEAR_RESULT: RESULT_KEYS,
 }
-const SIDECAR_KEYS: Record<SidecarToMain['kind'], readonly string[]> = {
-  READY: ['kind', 'nonce', 'protocolMajor', 'capabilities'],
-  ACK: ['kind', 'nonce', 'id'],
-  NACK: ['kind', 'nonce', 'id', 'code'],
-  SHARE_STATE: ['kind', 'nonce', 'state'],
-  SAFE_ERROR: ['kind', 'nonce', 'code'],
-  SHUTDOWN_COMPLETE: ['kind', 'nonce'],
+const SIDECAR_KEYS: Record<SidecarToMain['kind'], KeySpec> = {
+  READY: [['kind', 'nonce', 'protocolMajor', 'capabilities']],
+  ACK: [['kind', 'nonce', 'id']],
+  NACK: [['kind', 'nonce', 'id', 'code']],
+  SHARE_STATE: [['kind', 'nonce', 'state']],
+  SAFE_ERROR: [['kind', 'nonce', 'code']],
+  SHUTDOWN_COMPLETE: [['kind', 'nonce']],
+  AUTH_REQUIRED: [['kind', 'nonce', 'url']],
+  SEAL_REQUEST: [['kind', 'nonce', 'requestId', 'data']],
+  UNSEAL_REQUEST: [['kind', 'nonce', 'requestId']],
+  CLEAR_SEALED: [['kind', 'nonce', 'requestId']],
 }
 export const MAIN_TO_SIDECAR_KINDS = Object.keys(MAIN_KEYS) as ReadonlyArray<MainToSidecar['kind']>
 export const SIDECAR_TO_MAIN_KINDS = Object.keys(SIDECAR_KEYS) as ReadonlyArray<SidecarToMain['kind']>
 
 const SAFE_CODES: readonly SafeErrorCode[] = ['protocol-violation', 'not-sharing', 'invalid-candidate', 'internal']
 const SHARE_STATES: readonly ShareState[] = ['idle', 'starting', 'sharing', 'stopping']
+const STORAGE_ERRORS: readonly StorageError[] = ['encryption-unavailable', 'not-found', 'corrupt', 'too-large', 'io']
 
 class Reject {
   readonly error: ProtocolError
@@ -93,7 +126,7 @@ function sameNonce(a: string, b: string): boolean {
 /** Shape, size, kind, and exact keys; returns the record and its kind. */
 function envelope<K extends string>(
   raw: unknown,
-  keys: Record<K, readonly string[]>,
+  keys: Record<K, KeySpec>,
   onlyKind?: K,
   maxBytes: number = SIDECAR_MAX_MESSAGE_BYTES,
 ): { record: Record<string, unknown>; kind: K } {
@@ -111,8 +144,11 @@ function envelope<K extends string>(
   const kind = record.kind
   if (typeof kind !== 'string' || !Object.prototype.hasOwnProperty.call(keys, kind)) fail('unknown-kind')
   if (onlyKind !== undefined && kind !== onlyKind) fail('unknown-kind')
-  const allowed = keys[kind as K]
-  if (Object.keys(record).some((key) => !allowed.includes(key)) || allowed.some((key) => !(key in record))) fail('unknown-key')
+  const [required, optional = []] = keys[kind as K]
+  const present = Object.keys(record)
+  if (present.some((key) => !required.includes(key) && !optional.includes(key)) || required.some((key) => !(key in record))) {
+    fail('unknown-key')
+  }
   return { record, kind: kind as K }
 }
 
@@ -131,6 +167,45 @@ function integer(value: unknown, min: number, max: number): number {
 function capabilities(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 8 || value.some((c) => typeof c !== 'string' || !CAPABILITY.test(c))) fail('invalid-field')
   return [...(value as string[])]
+}
+
+function matching(value: unknown, pattern: RegExp): string {
+  if (typeof value !== 'string' || !pattern.test(value)) fail('invalid-field')
+  return value as string
+}
+
+/** Storage results: `ok: true` carries nothing else (or only `data` for unseal); `ok: false` only an enumerated error. */
+function storageOutcome(record: Record<string, unknown>, allowData: boolean): { ok: true; data?: string } | { ok: false; error: StorageError } {
+  if (record.ok === true) {
+    if ('error' in record) fail('invalid-field')
+    if (!allowData) {
+      if ('data' in record) fail('invalid-field')
+      return { ok: true }
+    }
+    if (typeof record.data !== 'string' || !sealedDataFits(record.data)) fail('invalid-field')
+    return { ok: true, data: record.data as string }
+  }
+  if (record.ok !== false || 'data' in record || !STORAGE_ERRORS.includes(record.error as StorageError)) fail('invalid-field')
+  return { ok: false, error: record.error as StorageError }
+}
+
+/**
+ * Approval URLs: HTTPS (or loopback HTTP for the emulator), the fixed approval
+ * path, and exactly one `challenge` parameter — no token or other data. The
+ * allowed origin is enforced by main before opening.
+ */
+export function isApprovalUrl(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  const loopback = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+  if (url.protocol !== 'https:' && !loopback) return false
+  if (url.username || url.password || url.hash || url.pathname !== '/publisher/device/approve') return false
+  const params = [...url.searchParams.keys()]
+  return params.length === 1 && params[0] === 'challenge' && CHALLENGE_ID.test(url.searchParams.get('challenge') ?? '')
 }
 
 function major(value: unknown): 1 {
@@ -158,8 +233,14 @@ export function parseMainToSidecar(raw: unknown, expectedNonce: string, maxBytes
     const { record, kind } = envelope(raw, MAIN_KEYS, undefined, maxBytes)
     const nonce = nonceOf(record, expectedNonce)
     if (kind === 'HELLO') fail('unknown-kind')
+    if (kind === 'SEAL_RESULT' || kind === 'CLEAR_RESULT' || kind === 'UNSEAL_RESULT') {
+      const requestId = integer(record.requestId, 0, Number.MAX_SAFE_INTEGER)
+      return { kind, nonce, requestId, ...storageOutcome(record, kind === 'UNSEAL_RESULT') } as MainToSidecar
+    }
     const id = integer(record.id, 0, Number.MAX_SAFE_INTEGER)
     switch (kind) {
+      case 'AUTH_CALLBACK':
+        return { kind, nonce, id, challengeId: matching(record.challengeId, CHALLENGE_ID), code: matching(record.code, AUTH_CODE) }
       case 'SNAPSHOT_CANDIDATE': {
         const parsed = parseRemoteSnapshotCandidateV1(record.candidate)
         if (!parsed.ok) fail('invalid-field')
@@ -195,6 +276,15 @@ export function parseSidecarToMain(raw: unknown, expectedNonce: string): Protoco
         return { kind, nonce, code: code() }
       case 'SHUTDOWN_COMPLETE':
         return { kind, nonce }
+      case 'AUTH_REQUIRED':
+        if (typeof record.url !== 'string' || !isApprovalUrl(record.url)) fail('invalid-field')
+        return { kind, nonce, url: record.url as string }
+      case 'SEAL_REQUEST':
+        if (typeof record.data !== 'string' || !sealedDataFits(record.data)) fail('invalid-field')
+        return { kind, nonce, requestId: integer(record.requestId, 0, Number.MAX_SAFE_INTEGER), data: record.data as string }
+      case 'UNSEAL_REQUEST':
+      case 'CLEAR_SEALED':
+        return { kind, nonce, requestId: integer(record.requestId, 0, Number.MAX_SAFE_INTEGER) }
     }
   })
 }

@@ -5,6 +5,7 @@
  * sidecar kills it; nothing here can reach the PowerPoint host.
  */
 import { randomBytes } from 'node:crypto'
+import type { CredentialBroker } from './credential-store'
 import type { PortLike } from './port'
 import {
   SIDECAR_MAX_MESSAGE_BYTES,
@@ -18,8 +19,10 @@ import {
 export type SpawnedSidecar = { port: PortLike; kill(): void; onExit(listener: (code: number | null) => void): void }
 
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, 'nonce' | 'id'> : never
-export type SidecarCommand = WithoutEnvelope<Exclude<MainToSidecar, { kind: 'HELLO' } | { kind: 'SHUTDOWN' }>>
-export type SidecarEvent = Extract<SidecarToMain, { kind: 'SHARE_STATE' | 'SAFE_ERROR' }>
+export type SidecarCommand = WithoutEnvelope<
+  Extract<MainToSidecar, { kind: 'SHARE_START' | 'SHARE_STOP' | 'END_SESSION' | 'SNAPSHOT_CANDIDATE' | 'AUTH_CALLBACK' }>
+>
+export type SidecarEvent = Extract<SidecarToMain, { kind: 'SHARE_STATE' | 'SAFE_ERROR' | 'AUTH_REQUIRED' }>
 export type SendResult = { ok: true } | { ok: false; code: SafeErrorCode }
 
 export type SidecarConnection = {
@@ -33,7 +36,10 @@ export function createSidecarLauncher(options: {
   spawn: () => SpawnedSidecar
   nonce?: () => string
   handshakeTimeoutMs?: number
+  /** safeStorage broker for SEAL/UNSEAL/CLEAR requests; absent → encryption unavailable. */
+  broker?: CredentialBroker
 }) {
+  const broker = options.broker
   const makeNonce = options.nonce ?? (() => randomBytes(24).toString('base64url'))
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000
 
@@ -131,8 +137,19 @@ export function createSidecarLauncher(options: {
             const done = pending.get(message.id)
             pending.delete(message.id)
             done?.(message.kind === 'ACK' ? { ok: true } : { ok: false, code: message.code })
-          } else if (message.kind === 'SHARE_STATE' || message.kind === 'SAFE_ERROR') {
+          } else if (message.kind === 'SHARE_STATE' || message.kind === 'SAFE_ERROR' || message.kind === 'AUTH_REQUIRED') {
             for (const listener of eventListeners) listener(message)
+          } else if (message.kind === 'SEAL_REQUEST' || message.kind === 'UNSEAL_REQUEST' || message.kind === 'CLEAR_SEALED') {
+            const unavailable = { ok: false as const, error: 'encryption-unavailable' as const }
+            const reply = (kind: 'SEAL_RESULT' | 'UNSEAL_RESULT' | 'CLEAR_RESULT', operation: Promise<object> | undefined) =>
+              void (operation ?? Promise.resolve(unavailable))
+                .catch(() => ({ ok: false, error: 'io' }))
+                .then((outcome) => {
+                  if (alive) child.port.postMessage({ kind, nonce, requestId: message.requestId, ...outcome })
+                })
+            if (message.kind === 'SEAL_REQUEST') reply('SEAL_RESULT', broker?.seal(message.data))
+            else if (message.kind === 'UNSEAL_REQUEST') reply('UNSEAL_RESULT', broker?.unseal())
+            else reply('CLEAR_RESULT', broker?.clear())
           }
         })
 

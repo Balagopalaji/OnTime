@@ -24,6 +24,7 @@ export type FakeProcess = SpawnedSidecar & {
 /** Spawn factory whose "process" runs the real sidecar core in-process. */
 export function inProcessSpawner(options: { ignoreShutdown?: boolean; silent?: boolean } = {}) {
   const spawned: FakeProcess[] = []
+  const cores: Array<ReturnType<typeof createSidecarCore>> = []
   const spawn = (): FakeProcess => {
     const channel = new MessageChannel()
     const exitListeners: Array<(code: number | null) => void> = []
@@ -48,7 +49,7 @@ export function inProcessSpawner(options: { ignoreShutdown?: boolean; silent?: b
       crash: () => fireExit(1),
     }
     if (!options.silent) {
-      createSidecarCore({
+      const core = createSidecarCore({
         port: {
           ...sidecarPort,
           onMessage: (listener) =>
@@ -60,9 +61,10 @@ export function inProcessSpawner(options: { ignoreShutdown?: boolean; silent?: b
         },
         exit: (code) => setImmediate(() => fireExit(code)),
       })
+      cores.push(core)
     }
     spawned.push(handle)
     return handle
   }
-  return { spawn, spawned }
+  return { spawn, spawned, cores }
 }

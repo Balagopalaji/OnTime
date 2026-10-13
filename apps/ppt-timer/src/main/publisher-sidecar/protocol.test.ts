@@ -70,6 +70,44 @@ describe('sidecar protocol', () => {
   })
 
   it.each([
+    [{ kind: 'AUTH_CALLBACK', nonce: NONCE, id: 8, challengeId: 'c'.repeat(32), code: 'k'.repeat(43) }],
+    [{ kind: 'SEAL_RESULT', nonce: NONCE, requestId: 3, ok: true }],
+    [{ kind: 'SEAL_RESULT', nonce: NONCE, requestId: 3, ok: false, error: 'encryption-unavailable' }],
+    [{ kind: 'UNSEAL_RESULT', nonce: NONCE, requestId: 4, ok: true, data: '{"v":1}' }],
+    [{ kind: 'UNSEAL_RESULT', nonce: NONCE, requestId: 4, ok: false, error: 'not-found' }],
+    [{ kind: 'CLEAR_RESULT', nonce: NONCE, requestId: 5, ok: true }],
+  ])('reconstructs storage/auth main→sidecar %j', (message) => {
+    expect(parseMainToSidecar(message, NONCE)).toEqual({ ok: true, value: message })
+  })
+
+  it.each([
+    [{ kind: 'AUTH_REQUIRED', nonce: NONCE, url: 'https://ontime.app/publisher/device/approve?challenge=' + 'c'.repeat(32) }],
+    [{ kind: 'SEAL_REQUEST', nonce: NONCE, requestId: 1, data: '{"v":1}' }],
+    [{ kind: 'UNSEAL_REQUEST', nonce: NONCE, requestId: 2 }],
+    [{ kind: 'CLEAR_SEALED', nonce: NONCE, requestId: 3 }],
+  ])('reconstructs storage/auth sidecar→main %j', (message) => {
+    expect(parseSidecarToMain(message, NONCE)).toEqual({ ok: true, value: message })
+  })
+
+  it.each([
+    [{ kind: 'SEAL_RESULT', nonce: NONCE, requestId: 3, ok: true, data: 'leak' }, 'unknown-key'],
+    [{ kind: 'UNSEAL_RESULT', nonce: NONCE, requestId: 4, ok: true }, 'invalid-field'],
+    [{ kind: 'UNSEAL_RESULT', nonce: NONCE, requestId: 4, ok: false, error: 'Error: C:\\Users\\x' }, 'invalid-field'],
+    [{ kind: 'AUTH_CALLBACK', nonce: NONCE, id: 1, challengeId: 'short', code: 'k'.repeat(43) }, 'invalid-field'],
+  ])('rejects malformed storage/auth main→sidecar %j as %s', (message, error) => {
+    expect(parseMainToSidecar(message, NONCE)).toEqual({ ok: false, error })
+  })
+
+  it.each([
+    [{ kind: 'AUTH_REQUIRED', nonce: NONCE, url: 'javascript:alert(1)' }, 'invalid-field'],
+    [{ kind: 'AUTH_REQUIRED', nonce: NONCE, url: 'https://ontime.app/publisher/device/approve?challenge=x&token=secret' }, 'invalid-field'],
+    [{ kind: 'SEAL_REQUEST', nonce: NONCE, requestId: 1, data: 'x'.repeat(20_000) }, 'invalid-field'],
+  ])('rejects malformed storage/auth sidecar→main %j as %s', (message, error) => {
+    // Defect: the sidecar asks main to open an arbitrary URL or to seal unbounded data.
+    expect(parseSidecarToMain(message, NONCE)).toEqual({ ok: false, error })
+  })
+
+  it.each([
     [{ kind: 'READY', nonce: NONCE, protocolMajor: 2, capabilities: [] }, 'incompatible-major'],
     [{ kind: 'SAFE_ERROR', nonce: NONCE, code: 'Error: at C:\\Users\\ops\\sidecar.js:12' }, 'invalid-field'],
     [{ kind: 'SHARE_STATE', nonce: NONCE, state: 'publishing-to-evil' }, 'invalid-field'],

@@ -276,7 +276,7 @@ describe('publisher lifecycle (main side)', () => {
 
 describe('sidecar boundaries (RPV-001, RPV-005, RPV-010)', () => {
   const dir = __dirname
-  const SIDECAR_SIDE = ['worker.ts', 'sidecar-core.ts', 'protocol.ts', 'port.ts']
+  const SIDECAR_SIDE = ['worker.ts', 'sidecar-core.ts', 'protocol.ts', 'port.ts', 'auth.ts']
 
   it('the sidecar side never imports helper, COM, host, renderer IPC, Electron, or child_process code', () => {
     const seen = new Set<string>()
@@ -303,7 +303,11 @@ describe('sidecar boundaries (RPV-001, RPV-005, RPV-010)', () => {
   })
 
   it('the protocol has no viewer-to-PowerPoint or renderer command message', () => {
-    expect([...MAIN_TO_SIDECAR_KINDS].sort()).toEqual(['END_SESSION', 'HELLO', 'SHARE_START', 'SHARE_STOP', 'SHUTDOWN', 'SNAPSHOT_CANDIDATE'])
-    expect([...SIDECAR_TO_MAIN_KINDS].sort()).toEqual(['ACK', 'NACK', 'READY', 'SAFE_ERROR', 'SHARE_STATE', 'SHUTDOWN_COMPLETE'])
+    expect([...MAIN_TO_SIDECAR_KINDS].sort()).toEqual([
+      'AUTH_CALLBACK', 'CLEAR_RESULT', 'END_SESSION', 'HELLO', 'SEAL_RESULT', 'SHARE_START', 'SHARE_STOP', 'SHUTDOWN', 'SNAPSHOT_CANDIDATE', 'UNSEAL_RESULT',
+    ])
+    expect([...SIDECAR_TO_MAIN_KINDS].sort()).toEqual([
+      'ACK', 'AUTH_REQUIRED', 'CLEAR_SEALED', 'NACK', 'READY', 'SAFE_ERROR', 'SEAL_REQUEST', 'SHARE_STATE', 'SHUTDOWN_COMPLETE', 'UNSEAL_REQUEST',
+    ])
   })
 })
