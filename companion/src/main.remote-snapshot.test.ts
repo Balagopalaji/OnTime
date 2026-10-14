@@ -123,6 +123,15 @@ test('S9a wiring: the token route lives on the viewer HTTP handlers and is loopb
   assert.ok(local.json.token.length >= 43);
 });
 
+test('LAN request listener answers a malformed request target with 400 instead of throwing', async () => {
+  const m: any = await loadMain();
+  const handler = m.createViewerRequestHandler({ allowLan: true });
+  for (const url of ['//', 'http://', '/%E0%A4%A']) {
+    const lan = await httpCall(handler, { url, method: 'GET', address: '192.168.1.40' });
+    assert.equal(lan.status, 400, url);
+  }
+});
+
 test('S9a wiring: only a loopback socket with a minted one-time token is admitted as publisher', async () => {
   const m: any = await loadMain();
   const connect = connector(m);

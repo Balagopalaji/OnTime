@@ -31,6 +31,7 @@ import {
 } from './control-audit-utils';
 import { createRoomCacheAdapter } from './room-cache';
 import { createRemoteSnapshotHub } from './remote-snapshot';
+import { rejectMalformedTarget } from './request-target';
 import { initializePptDebugLogging, logPptInfo } from './ppt-debug-log';
 import { stopPowerPointHelper, stopPptProbeHelper } from './ppt-probe';
 import { createPptQuitGate, runCompanionShutdown } from './ppt-quit-gate';
@@ -1690,15 +1691,12 @@ function handlePairingRequest(req: any, res: any, allowLan: boolean): boolean {
 }
 
 export function createViewerRequestHandler({ allowLan }: { allowLan: boolean }) {
-  return (req: any, res: any) => {
-    if (remoteSnapshot.handleHttp(req, res) || handlePairingRequest(req, res, allowLan)) {
-      return;
-    }
-    if (serveViewerRequest(req, res, allowLan)) {
+  return rejectMalformedTarget((req: any, res: any) => {
+    if (remoteSnapshot.handleHttp(req, res) || handlePairingRequest(req, res, allowLan) || serveViewerRequest(req, res, allowLan)) {
       return;
     }
     // Let Socket.IO and other listeners handle non-viewer requests.
-  };
+  });
 }
 
 function getLocalhostCertPaths() {

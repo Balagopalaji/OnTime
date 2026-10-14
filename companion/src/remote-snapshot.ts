@@ -31,6 +31,7 @@ import type {
   RemoteSnapshotPublishResult,
 } from '@ontime/interface-contracts';
 import { compareSnapshotOrder, parseRemoteSnapshotV1, type RemoteSnapshotV1 } from '@ontime/remote-viewer-contracts';
+import { parseRequestUrl } from './request-target';
 
 export const PUBLISHER_TOKEN_PATH = '/api/remote-snapshot/publisher-token';
 const PUBLISHER_TOKEN_TTL_MS = 60 * 1000;
@@ -122,8 +123,11 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
   const tokens = new Map<string, TokenEntry>();
   // Insertion order == recency: a session is re-inserted on every accepted publish.
   const sessions = new Map<string, CachedSession>();
-  // Sessions the operator ended; a late publish must not resurrect them. Bounded FIFO.
-  const endedSessions = new Set<string>();
+  // Sessions the operator ended (sessionId -> room); a late publish must not resurrect them and a
+  // viewer joining later is told. Bounded FIFO.
+  const endedSessions = new Map<string, string>();
+  // Admitted publisher sockets, so a room purge can revoke their admission.
+  const publisherSockets = new Set<RemoteSocketLike>();
 
   function socketAddress(socket: RemoteSocketLike): string | undefined {
     return typeof socket.handshake?.address === 'string' ? socket.handshake.address : socket.conn?.remoteAddress;
@@ -156,7 +160,12 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
    */
   function handleHttp(req: any, res: any): boolean {
     if (typeof req?.url !== 'string') return false;
-    if (new URL(req.url, 'http://localhost').pathname !== PUBLISHER_TOKEN_PATH) return false;
+    const requestUrl = parseRequestUrl(req.url);
+    if (!requestUrl) {
+      sendJson(res, 400, { error: 'Bad Request' });
+      return true;
+    }
+    if (requestUrl.pathname !== PUBLISHER_TOKEN_PATH) return false;
     const headers = req.headers ?? {};
     if (!deps.isLoopback(req.socket?.remoteAddress)) {
       sendJson(res, 403, { error: 'Forbidden' });
@@ -230,6 +239,7 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
     if (!deps.isLoopback(socketAddress(socket))) return respond('NOT_LOOPBACK');
     if (entry.roomId !== roomId) return respond('ROOM_MISMATCH');
     data.remotePublisherRoomId = roomId;
+    publisherSockets.add(socket);
     return respond(null);
   }
 
@@ -317,31 +327,61 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
     return decision;
   }
 
-  /** Bootstrap: the cached latest full snapshot of every session in the room goes to the new client first. */
+  function endedEnvelope(roomId: string, sessionId: string): RemoteSnapshotEndedEnvelope {
+    return { type: 'REMOTE_SNAPSHOT_ENDED', roomId, sessionId, timestamp: deps.now() };
+  }
+
+  /**
+   * Bootstrap: the cached latest full snapshot of every session in the room goes to the new client
+   * first, then ENDED for sessions the operator already ended (so a late joiner leaves "connecting").
+   */
   function bootstrapViewer(socket: RemoteSocketLike, roomId: string): void {
     for (const session of sessions.values()) {
       if (session.roomId === roomId) socket.emit('REMOTE_SNAPSHOT', envelope(roomId, session.snapshot));
     }
+    for (const [sessionId, endedRoom] of endedSessions) {
+      if (endedRoom === roomId) socket.emit('REMOTE_SNAPSHOT_ENDED', endedEnvelope(roomId, sessionId));
+    }
   }
 
-  /** The operator stopped sharing: drop the cache, tell viewers, and refuse a resurrecting publish. */
+  /**
+   * The operator stopped sharing: drop the cache, tell viewers, and refuse a resurrecting publish.
+   * The session need not be cached (it may never have published, or been evicted); it is ignored
+   * only when it belongs to another room.
+   */
   function endSession(socket: RemoteSocketLike, payload: unknown): void {
     const admitted = admittedRoom(socket);
     const record = asRecord(payload);
     if (!admitted.ok || record?.type !== 'REMOTE_SNAPSHOT_END' || record.roomId !== admitted.roomId) return;
     const sessionId = record.sessionId;
-    if (typeof sessionId !== 'string' || sessions.get(sessionId)?.roomId !== admitted.roomId) return;
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > MAX_ROOM_ID_LENGTH) return;
+    const boundRoom = sessions.get(sessionId)?.roomId ?? endedSessions.get(sessionId);
+    if (boundRoom !== undefined && boundRoom !== admitted.roomId) return;
     sessions.delete(sessionId);
-    endedSessions.add(sessionId);
-    if (endedSessions.size > MAX_ENDED_SESSIONS) endedSessions.delete(endedSessions.values().next().value as string);
-    const ended: RemoteSnapshotEndedEnvelope = { type: 'REMOTE_SNAPSHOT_ENDED', roomId: admitted.roomId, sessionId, timestamp: deps.now() };
-    deps.emitToRoom(admitted.roomId, 'REMOTE_SNAPSHOT_ENDED', ended);
+    endedSessions.delete(sessionId);
+    endedSessions.set(sessionId, admitted.roomId);
+    if (endedSessions.size > MAX_ENDED_SESSIONS) endedSessions.delete(endedSessions.keys().next().value as string);
+    deps.emitToRoom(admitted.roomId, 'REMOTE_SNAPSHOT_ENDED', endedEnvelope(admitted.roomId, sessionId));
   }
 
-  /** Room deleted: nothing about it may linger (cached snapshots, unclaimed tokens). */
+  /**
+   * Room deleted: nothing about it may linger (cached snapshots, unclaimed tokens, ended markers).
+   * Viewers are told each dropped session ended, and publishers admitted to the room lose admission
+   * so a post-delete publish is rejected.
+   */
   function clearRoom(roomId: string): void {
-    for (const [sessionId, session] of sessions) if (session.roomId === roomId) sessions.delete(sessionId);
+    for (const [sessionId, session] of sessions) {
+      if (session.roomId !== roomId) continue;
+      sessions.delete(sessionId);
+      deps.emitToRoom(roomId, 'REMOTE_SNAPSHOT_ENDED', endedEnvelope(roomId, sessionId));
+    }
+    for (const [sessionId, endedRoom] of endedSessions) if (endedRoom === roomId) endedSessions.delete(sessionId);
     for (const [hash, entry] of tokens) if (entry.roomId === roomId) tokens.delete(hash);
+    for (const publisher of publisherSockets) {
+      if (publisher.data?.remotePublisherRoomId !== roomId) continue;
+      delete publisher.data.remotePublisherRoomId;
+      publisherSockets.delete(publisher);
+    }
   }
 
   /** Registers the publisher-side handlers on a new socket connection. */
@@ -353,6 +393,9 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
       publish(socket, payload);
     });
     socket.on?.('REMOTE_SNAPSHOT_END', (payload) => endSession(socket, payload));
+    socket.on?.('disconnect', () => {
+      publisherSockets.delete(socket);
+    });
   }
 
   return { handleHttp, admitPublisher, authorizePublish, publish, bootstrapViewer, endSession, clearRoom, registerSocket };

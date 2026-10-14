@@ -221,6 +221,15 @@ test('S9a mint: validates method and body', async () => {
   assert.equal((await call(h.hub, { body: JSON.stringify({ roomId: 'room-1', pad: 'x'.repeat(4096) }) })).res.status, 413);
 });
 
+test('S9a mint: a malformed request target is a 400, never a throw', async () => {
+  const h = makeHarness();
+  for (const url of ['//', 'http://', '/%E0%A4%A']) {
+    const { handled, res } = await call(h.hub, { url });
+    assert.equal(handled, true, url);
+    assert.equal(res.status, 400, url);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Socket admission
 // ---------------------------------------------------------------------------
@@ -472,9 +481,55 @@ test('S9b end: stopping drops the cache, notifies viewers, and refuses a resurre
   ]);
   const viewer = makeSocket();
   h.hub.bootstrapViewer(viewer, 'room-1');
-  assert.equal(viewer.emitted.length, 0);
+  assert.deepEqual(viewer.emitted.map((entry) => entry.event), ['REMOTE_SNAPSHOT_ENDED']);
   assert.equal(publish(h, publisher, snapshot({ epoch: 9, sequence: 1 })).code, 'SESSION_ENDED');
   assert.equal(h.roomEmits.length, 1);
+});
+
+test('S9b end: an uncached session is still ended, broadcast and refused afterwards', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  h.hub.endSession(publisher, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-1', sessionId: 'sess_A', timestamp: 1 });
+  assert.deepEqual(h.roomEmits.map((e) => [e.roomId, e.event, e.payload.sessionId]), [['room-1', 'REMOTE_SNAPSHOT_ENDED', 'sess_A']]);
+  const result = publish(h, publisher, snapshot());
+  assert.equal(result.accepted, false);
+  assert.equal(result.code, 'SESSION_ENDED');
+  assert.equal(h.roomEmits.length, 1);
+});
+
+test('S9b end: a session cached or ended for another room cannot be ended from this one', async () => {
+  const h = makeHarness();
+  const owner = await admittedPublisher(h, 'room-1');
+  const other = await admittedPublisher(h, 'room-2');
+  publish(h, owner, snapshot());
+  h.roomEmits.length = 0;
+  h.hub.endSession(other, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-2', sessionId: 'sess_A', timestamp: 1 });
+  assert.equal(h.roomEmits.length, 0);
+  assert.equal(publish(h, owner, snapshot({ sequence: 2 })).accepted, true);
+  h.hub.endSession(owner, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-1', sessionId: 'sess_A', timestamp: 1 });
+  h.roomEmits.length = 0;
+  h.hub.endSession(other, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-2', sessionId: 'sess_A', timestamp: 1 });
+  assert.equal(h.roomEmits.length, 0);
+});
+
+test('S9b bootstrap: a viewer joining after END receives ENDED for that room only (bounded)', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  h.hub.endSession(publisher, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-1', sessionId: 'sess_gone', timestamp: 1 });
+  const late = makeSocket();
+  h.hub.bootstrapViewer(late, 'room-1');
+  assert.deepEqual(late.emitted.map((e) => [e.event, e.payload.roomId, e.payload.sessionId]), [['REMOTE_SNAPSHOT_ENDED', 'room-1', 'sess_gone']]);
+  const elsewhere = makeSocket();
+  h.hub.bootstrapViewer(elsewhere, 'room-2');
+  assert.equal(elsewhere.emitted.length, 0);
+  for (let i = 0; i < 64; i += 1) {
+    h.hub.endSession(publisher, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-1', sessionId: `sess_${i}`, timestamp: 1 });
+  }
+  const afterCap = makeSocket();
+  h.hub.bootstrapViewer(afterCap, 'room-1');
+  const ids = afterCap.emitted.map((e) => e.payload.sessionId);
+  assert.equal(ids.length, 64);
+  assert.equal(ids.includes('sess_gone'), false);
 });
 
 test('S9b end: only the admitted publisher of the owning room can end a session', async () => {
@@ -488,7 +543,6 @@ test('S9b end: only the admitted publisher of the owning room can end a session'
   h.hub.endSession(lanViewer, end);
   h.hub.endSession(stranger, { ...end, roomId: 'room-2' });
   h.hub.endSession(stranger, end);
-  h.hub.endSession(publisher, { ...end, sessionId: 'sess_unknown' });
   h.hub.endSession(publisher, null);
   assert.equal(h.roomEmits.length, 0);
   assert.equal(publish(h, publisher, snapshot({ sequence: 2 })).accepted, true);
@@ -504,6 +558,36 @@ test('S9b clearRoom: drops cached sessions and pending tokens for a deleted room
   h.hub.bootstrapViewer(viewer, 'room-1');
   assert.equal(viewer.emitted.length, 0);
   assert.deepEqual(h.hub.admitPublisher(makeSocket(), admitPayload(pending.token)).admitted, false);
+});
+
+test('S9b clearRoom: viewers get ENDED per dropped session and the room publisher loses admission', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  const otherRoom = await admittedPublisher(h, 'room-2');
+  publish(h, publisher, snapshot());
+  publish(h, publisher, snapshot({ sessionId: 'sess_B' }));
+  publish(h, otherRoom, snapshot({ sessionId: 'sess_C' }), 'room-2');
+  h.roomEmits.length = 0;
+  h.hub.clearRoom('room-1');
+  assert.deepEqual(
+    h.roomEmits.map((e) => [e.roomId, e.event, e.payload.sessionId]).sort(),
+    [['room-1', 'REMOTE_SNAPSHOT_ENDED', 'sess_A'], ['room-1', 'REMOTE_SNAPSHOT_ENDED', 'sess_B']],
+  );
+  assert.equal(publisher.data.remotePublisherRoomId, undefined);
+  assert.equal(publish(h, publisher, snapshot({ sequence: 9 })).code, 'UNAUTHORIZED_ROLE');
+  assert.equal(otherRoom.data.remotePublisherRoomId, 'room-2');
+  assert.equal(publish(h, otherRoom, snapshot({ sessionId: 'sess_C', sequence: 2 }), 'room-2').accepted, true);
+});
+
+test('S9b clearRoom: a disconnected publisher is forgotten', async () => {
+  const h = makeHarness();
+  const socket = makeSocket();
+  h.hub.registerSocket(socket);
+  const { token } = await mint(h.hub);
+  socket.handlers.get('REMOTE_PUBLISHER_ADMIT')!(admitPayload(token));
+  socket.handlers.get('disconnect')!(undefined);
+  h.hub.clearRoom('room-1');
+  assert.equal(socket.data.remotePublisherRoomId, 'room-1');
 });
 
 test('S9b bounds: a room keeps at most four sessions (oldest evicted)', async () => {
@@ -522,7 +606,7 @@ test('S9b registration: publisher events are wired next to admission', async () 
   const h = makeHarness();
   const socket = makeSocket();
   h.hub.registerSocket(socket);
-  assert.deepEqual([...socket.handlers.keys()].sort(), ['REMOTE_PUBLISHER_ADMIT', 'REMOTE_SNAPSHOT_END', 'REMOTE_SNAPSHOT_PUBLISH']);
+  assert.deepEqual([...socket.handlers.keys()].sort(), ['REMOTE_PUBLISHER_ADMIT', 'REMOTE_SNAPSHOT_END', 'REMOTE_SNAPSHOT_PUBLISH', 'disconnect']);
   const { token } = await mint(h.hub);
   socket.handlers.get('REMOTE_PUBLISHER_ADMIT')!(admitPayload(token));
   socket.handlers.get('REMOTE_SNAPSHOT_PUBLISH')!(publishPayload());
