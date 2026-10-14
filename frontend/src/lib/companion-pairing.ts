@@ -26,7 +26,7 @@ export type LanPairingStatus = {
   }>
 }
 
-const getCompanionOrigin = () => {
+export const getCompanionOrigin = () => {
   if (typeof window === 'undefined') return 'https://localhost:4440'
   if (window.location.port === '4440' || window.location.port === '4000') {
     return window.location.origin

@@ -4,6 +4,7 @@ import { LandingPage } from './LandingPage'
 import { DashboardPage } from './DashboardPage'
 import { ControllerPage } from './ControllerPage'
 import { ViewerPage } from './ViewerPage'
+import { LanPresentationPage } from './LanPresentationPage'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublisherDeviceApprovalPage } from './PublisherDeviceApprovalPage'
 import { CompanionTestPage } from './CompanionTestPage'
@@ -75,6 +76,7 @@ export const AppRouter = () => {
           {isViewerOnly ? (
             <>
               <Route path="/room/:roomId/view" element={<ViewerPage />} />
+              <Route path="/room/:roomId/presentation" element={<LanPresentationPage />} />
               <Route index element={<LandingPage />} />
             </>
           ) : (
@@ -97,6 +99,7 @@ export const AppRouter = () => {
                 }
               />
               <Route path="/room/:roomId/view" element={<ViewerPage />} />
+              <Route path="/room/:roomId/presentation" element={<LanPresentationPage />} />
               <Route
                 path="/publisher/device/approve"
                 element={

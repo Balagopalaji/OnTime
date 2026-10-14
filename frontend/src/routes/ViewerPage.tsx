@@ -15,49 +15,7 @@ import { useTimers } from '../hooks/useTimers'
 import { useCompanionConnection } from '../context/CompanionConnectionContext'
 import type { HandshakeError } from '@ontime/interface-contracts'
 import { claimLanPairing } from '../lib/companion-pairing'
-
-type ViewerTokenState = {
-  token: string
-  expiresAt: number
-  role: string
-}
-
-const getViewerTokenKey = (roomId: string) => `ontime:viewerToken:${roomId}`
-
-const readViewerToken = (roomId?: string | null): ViewerTokenState | null => {
-  if (!roomId || typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(getViewerTokenKey(roomId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as ViewerTokenState
-    if (!parsed?.token || typeof parsed.expiresAt !== 'number') return null
-    if (parsed.expiresAt <= Date.now()) {
-      window.localStorage.removeItem(getViewerTokenKey(roomId))
-      return null
-    }
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-const writeViewerToken = (roomId: string, payload: ViewerTokenState) => {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(getViewerTokenKey(roomId), JSON.stringify(payload))
-  } catch {
-    // ignore
-  }
-}
-
-const clearViewerToken = (roomId: string) => {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.removeItem(getViewerTokenKey(roomId))
-  } catch {
-    // ignore
-  }
-}
+import { clearViewerToken, readViewerToken, writeViewerToken, type ViewerTokenState } from '../lib/lan-viewer-token'
 
 export const ViewerPage = () => {
   const { roomId } = useParams()
