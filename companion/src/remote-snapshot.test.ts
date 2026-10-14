@@ -351,6 +351,185 @@ test('S9a publish authorization: wrong room and invalid snapshots are rejected',
 });
 
 // ---------------------------------------------------------------------------
+// S9b: validate, order, cache, bootstrap, broadcast
+// ---------------------------------------------------------------------------
+
+function publish(h: ReturnType<typeof makeHarness>, socket: FakeSocket, snap: unknown, roomId = 'room-1') {
+  h.hub.publish(socket, publishPayload(snap, roomId));
+  return socket.last('REMOTE_SNAPSHOT_PUBLISH_RESULT');
+}
+
+test('S9b publish: an accepted full snapshot is acked, cached verbatim, and broadcast to the room', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  const snap = snapshot({ sequence: 4 });
+  const result = publish(h, publisher, snap);
+  assert.deepEqual(result, {
+    type: 'REMOTE_SNAPSHOT_PUBLISH_RESULT',
+    roomId: 'room-1',
+    sessionId: 'sess_A',
+    accepted: true,
+    order: 'apply',
+    epoch: 1,
+    sequence: 4,
+    timestamp: h.now(),
+  });
+  assert.equal(h.roomEmits.length, 1);
+  assert.equal(h.roomEmits[0].roomId, 'room-1');
+  assert.equal(h.roomEmits[0].event, 'REMOTE_SNAPSHOT');
+  assert.deepEqual(h.roomEmits[0].payload, { type: 'REMOTE_SNAPSHOT', roomId: 'room-1', snapshot: snap, timestamp: h.now() });
+});
+
+test('S9b ordering: duplicates and regressions are rejected without a broadcast; higher epochs reset', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  const outcome = (snap: unknown) => {
+    const result = publish(h, publisher, snap);
+    return result.accepted ? `accepted:${result.order}` : `${result.code}@${result.lastEpoch}.${result.lastSequence}`;
+  };
+  assert.equal(outcome(snapshot({ epoch: 2, sequence: 5 })), 'accepted:apply');
+  assert.equal(outcome(snapshot({ epoch: 2, sequence: 5 })), 'DUPLICATE@2.5');
+  assert.equal(outcome(snapshot({ epoch: 2, sequence: 3 })), 'REGRESSION@2.5');
+  assert.equal(outcome(snapshot({ epoch: 1, sequence: 99 })), 'REGRESSION@2.5');
+  assert.equal(outcome(snapshot({ epoch: 2, sequence: 9 })), 'accepted:apply', 'gaps are allowed');
+  assert.equal(outcome(snapshot({ epoch: 3, sequence: 1 })), 'accepted:reset');
+  assert.equal(outcome(snapshot({ epoch: 2, sequence: 100 })), 'REGRESSION@3.1');
+  assert.deepEqual(h.roomEmits.map((entry) => entry.payload.snapshot.sequence), [5, 9, 1]);
+});
+
+test('S9b publish: invalid, wrong-room and unauthorized publishes are rejected, never cached or broadcast', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  const lanViewer = makeSocket('192.168.1.60', { clientId: 'v', clientType: 'viewer', viewerRole: 'all', roomId: 'room-1' });
+  const anonymous = makeSocket();
+  assert.equal(publish(h, publisher, snapshot({ fullName: 'C:\\x.pptx' })).code, 'INVALID_SNAPSHOT');
+  assert.equal(publish(h, publisher, snapshot(), 'room-2').code, 'ROOM_MISMATCH');
+  assert.equal(publish(h, lanViewer, snapshot()).code, 'UNAUTHORIZED_ROLE');
+  assert.equal(publish(h, anonymous, snapshot()).code, 'UNAUTHORIZED_ROLE');
+  h.hub.publish(publisher, 'garbage');
+  assert.equal(publisher.last('REMOTE_SNAPSHOT_PUBLISH_RESULT').code, 'INVALID_PAYLOAD');
+  assert.equal(h.roomEmits.length, 0);
+  const viewer = makeSocket();
+  h.hub.bootstrapViewer(viewer, 'room-1');
+  assert.equal(viewer.emitted.length, 0);
+});
+
+test('S9b publish: a reused token cannot create a second publisher', async () => {
+  const h = makeHarness();
+  const { token } = await mint(h.hub);
+  const first = makeSocket();
+  const second = makeSocket();
+  assert.equal(h.hub.admitPublisher(first, admitPayload(token)).admitted, true);
+  assert.equal(h.hub.admitPublisher(second, admitPayload(token)).admitted, false);
+  assert.equal(publish(h, second, snapshot()).code, 'UNAUTHORIZED_ROLE');
+  assert.equal(publish(h, first, snapshot()).accepted, true);
+});
+
+test('S9b bootstrap: a newly admitted viewer receives the latest cached full snapshot first', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  publish(h, publisher, snapshot({ sequence: 1 }));
+  const latest = snapshot({ sequence: 2, observedAtMs: 1_000_500 });
+  publish(h, publisher, latest);
+  h.advance(5_000);
+  const late = makeSocket('192.168.1.70');
+  h.hub.bootstrapViewer(late, 'room-1');
+  assert.deepEqual(late.emitted, [
+    { event: 'REMOTE_SNAPSHOT', payload: { type: 'REMOTE_SNAPSHOT', roomId: 'room-1', snapshot: latest, timestamp: h.now() } },
+  ]);
+});
+
+test('S9b bootstrap: rooms are isolated and a room without a session bootstraps nothing', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h, 'room-1');
+  publish(h, publisher, snapshot());
+  const other = makeSocket();
+  h.hub.bootstrapViewer(other, 'room-2');
+  assert.equal(other.emitted.length, 0);
+  h.hub.bootstrapViewer(other, 'room-1');
+  assert.equal(other.emitted.length, 1);
+});
+
+test('S9b session binding: a session id stays bound to the room that first published it', async () => {
+  const h = makeHarness();
+  const first = await admittedPublisher(h, 'room-1');
+  const second = await admittedPublisher(h, 'room-2');
+  publish(h, first, snapshot());
+  assert.equal(publish(h, second, snapshot({ sequence: 2 }), 'room-2').code, 'SESSION_BOUND_TO_OTHER_ROOM');
+  const viewer = makeSocket();
+  h.hub.bootstrapViewer(viewer, 'room-2');
+  assert.equal(viewer.emitted.length, 0);
+});
+
+test('S9b end: stopping drops the cache, notifies viewers, and refuses a resurrecting publish', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  publish(h, publisher, snapshot());
+  h.roomEmits.length = 0;
+  h.hub.endSession(publisher, { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-1', sessionId: 'sess_A', timestamp: 1 });
+  assert.deepEqual(h.roomEmits, [
+    { roomId: 'room-1', event: 'REMOTE_SNAPSHOT_ENDED', payload: { type: 'REMOTE_SNAPSHOT_ENDED', roomId: 'room-1', sessionId: 'sess_A', timestamp: h.now() } },
+  ]);
+  const viewer = makeSocket();
+  h.hub.bootstrapViewer(viewer, 'room-1');
+  assert.equal(viewer.emitted.length, 0);
+  assert.equal(publish(h, publisher, snapshot({ epoch: 9, sequence: 1 })).code, 'SESSION_ENDED');
+  assert.equal(h.roomEmits.length, 1);
+});
+
+test('S9b end: only the admitted publisher of the owning room can end a session', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h, 'room-1');
+  const stranger = await admittedPublisher(h, 'room-2');
+  const lanViewer = makeSocket('192.168.1.60', { clientId: 'v', clientType: 'viewer', viewerRole: 'all' });
+  publish(h, publisher, snapshot());
+  h.roomEmits.length = 0;
+  const end = { type: 'REMOTE_SNAPSHOT_END', roomId: 'room-1', sessionId: 'sess_A', timestamp: 1 };
+  h.hub.endSession(lanViewer, end);
+  h.hub.endSession(stranger, { ...end, roomId: 'room-2' });
+  h.hub.endSession(stranger, end);
+  h.hub.endSession(publisher, { ...end, sessionId: 'sess_unknown' });
+  h.hub.endSession(publisher, null);
+  assert.equal(h.roomEmits.length, 0);
+  assert.equal(publish(h, publisher, snapshot({ sequence: 2 })).accepted, true);
+});
+
+test('S9b clearRoom: drops cached sessions and pending tokens for a deleted room', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  publish(h, publisher, snapshot());
+  const pending = await mint(h.hub);
+  h.hub.clearRoom('room-1');
+  const viewer = makeSocket();
+  h.hub.bootstrapViewer(viewer, 'room-1');
+  assert.equal(viewer.emitted.length, 0);
+  assert.deepEqual(h.hub.admitPublisher(makeSocket(), admitPayload(pending.token)).admitted, false);
+});
+
+test('S9b bounds: a room keeps at most four sessions (oldest evicted)', async () => {
+  const h = makeHarness();
+  const publisher = await admittedPublisher(h);
+  for (let i = 0; i < 5; i += 1) {
+    h.advance(10);
+    assert.equal(publish(h, publisher, snapshot({ sessionId: `sess_${i}` })).accepted, true);
+  }
+  const viewer = makeSocket();
+  h.hub.bootstrapViewer(viewer, 'room-1');
+  assert.deepEqual(viewer.emitted.map((entry) => entry.payload.snapshot.sessionId), ['sess_1', 'sess_2', 'sess_3', 'sess_4']);
+});
+
+test('S9b registration: publisher events are wired next to admission', async () => {
+  const h = makeHarness();
+  const socket = makeSocket();
+  h.hub.registerSocket(socket);
+  assert.deepEqual([...socket.handlers.keys()].sort(), ['REMOTE_PUBLISHER_ADMIT', 'REMOTE_SNAPSHOT_END', 'REMOTE_SNAPSHOT_PUBLISH']);
+  const { token } = await mint(h.hub);
+  socket.handlers.get('REMOTE_PUBLISHER_ADMIT')!(admitPayload(token));
+  socket.handlers.get('REMOTE_SNAPSHOT_PUBLISH')!(publishPayload());
+  assert.equal(socket.last('REMOTE_SNAPSHOT_PUBLISH_RESULT').accepted, true);
+});
+
+// ---------------------------------------------------------------------------
 // Boundaries
 // ---------------------------------------------------------------------------
 

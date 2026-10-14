@@ -487,6 +487,7 @@ function applyRoomTombstone(roomId: string) {
   roomControlAuditStore.delete(roomId);
   roomViewerTokenStore.delete(roomId);
   roomPairingCodeStore.delete(roomId);
+  remoteSnapshot.clearRoom(roomId);
   scheduleRoomCacheWrite();
 }
 
@@ -3937,6 +3938,7 @@ export function handleJoinRoom(socket: Socket, payload: unknown) {
     }
   });
 
+  remoteSnapshot.bootstrapViewer(socket, payload.roomId);
   pendingHandshakeStore.delete(clientId);
 }
 

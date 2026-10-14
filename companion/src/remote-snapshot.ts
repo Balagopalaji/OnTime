@@ -3,8 +3,10 @@
 // LAN remote presentation snapshot adapter (ISSUE-002 S9a). Companion only
 // relays: the local ppt-timer sidecar (role `presentation-publisher`) admits
 // itself over loopback with a one-time token minted here, then publishes full
-// `RemoteSnapshotV1` snapshots that this module validates, caches, and fans
-// out to the room's paired viewers (S9b).
+// `RemoteSnapshotV1` snapshots that this module validates, orders (epoch /
+// sequence, via the contracts' `compareSnapshotOrder`), caches (latest full
+// snapshot per sessionId), bootstraps to each newly admitted client of the
+// room, and broadcasts to the room's paired viewers (S9b).
 //
 // Boundaries (kept narrow on purpose):
 // - main.ts only constructs the hub with its shared helpers (`isLoopback`,
@@ -23,9 +25,12 @@ import type {
   RemotePublisherAdmitRejectCode,
   RemotePublisherAdmitResult,
   RemotePublisherTokenResponse,
+  RemoteSnapshotEndedEnvelope,
+  RemoteSnapshotEnvelope,
   RemoteSnapshotPublishRejectCode,
+  RemoteSnapshotPublishResult,
 } from '@ontime/interface-contracts';
-import { parseRemoteSnapshotV1, type RemoteSnapshotV1 } from '@ontime/remote-viewer-contracts';
+import { compareSnapshotOrder, parseRemoteSnapshotV1, type RemoteSnapshotV1 } from '@ontime/remote-viewer-contracts';
 
 export const PUBLISHER_TOKEN_PATH = '/api/remote-snapshot/publisher-token';
 const PUBLISHER_TOKEN_TTL_MS = 60 * 1000;
@@ -33,6 +38,9 @@ const MAX_OUTSTANDING_TOKENS = 16;
 const MAX_TOKEN_REQUEST_BYTES = 1024;
 const MAX_ROOM_ID_LENGTH = 128;
 const MAX_TOKEN_LENGTH = 256;
+const MAX_SESSIONS_PER_ROOM = 4;
+const MAX_SESSIONS_TOTAL = 32;
+const MAX_ENDED_SESSIONS = 64;
 
 export type RemoteSnapshotDeps = {
   now: () => number;
@@ -54,6 +62,9 @@ export type RemoteSocketLike = {
 };
 
 type TokenEntry = { roomId: string; expiresAt: number; usedAt?: number };
+
+/** Latest accepted full snapshot of one presentation session, bound to the room that published it. */
+type CachedSession = { roomId: string; snapshot: RemoteSnapshotV1 };
 
 export type PublishAuthorization =
   | { ok: true; roomId: string; snapshot: RemoteSnapshotV1 }
@@ -109,6 +120,10 @@ function readSmallJson(req: any): Promise<unknown | 'too-large' | 'invalid'> {
 export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
   const generateToken = deps.generateToken ?? (() => crypto.randomBytes(32).toString('base64url'));
   const tokens = new Map<string, TokenEntry>();
+  // Insertion order == recency: a session is re-inserted on every accepted publish.
+  const sessions = new Map<string, CachedSession>();
+  // Sessions the operator ended; a late publish must not resurrect them. Bounded FIFO.
+  const endedSessions = new Set<string>();
 
   function socketAddress(socket: RemoteSocketLike): string | undefined {
     return typeof socket.handshake?.address === 'string' ? socket.handshake.address : socket.conn?.remoteAddress;
@@ -219,21 +234,114 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
   }
 
   /**
-   * Role + transport + shape gate for `REMOTE_SNAPSHOT_PUBLISH`. Only a socket
-   * admitted through {@link admitPublisher} carries `remotePublisherRoomId`;
-   * paired LAN viewers (JWT `JOIN_ROOM`) never do. Loopback is re-checked on
-   * every publish as defense in depth.
+   * Role + transport gate shared by publish and end. Only a socket admitted
+   * through {@link admitPublisher} carries `remotePublisherRoomId`; paired LAN
+   * viewers (JWT `JOIN_ROOM`) never do. Loopback is re-checked on every call as
+   * defense in depth.
    */
-  function authorizePublish(socket: RemoteSocketLike, payload: unknown): PublishAuthorization {
-    const admittedRoomId = socket.data?.remotePublisherRoomId;
-    if (typeof admittedRoomId !== 'string') return { ok: false, code: 'UNAUTHORIZED_ROLE' };
+  function admittedRoom(socket: RemoteSocketLike): { ok: true; roomId: string } | { ok: false; code: 'UNAUTHORIZED_ROLE' | 'NOT_LOOPBACK' } {
+    const roomId = socket.data?.remotePublisherRoomId;
+    if (typeof roomId !== 'string') return { ok: false, code: 'UNAUTHORIZED_ROLE' };
     if (!deps.isLoopback(socketAddress(socket))) return { ok: false, code: 'NOT_LOOPBACK' };
+    return { ok: true, roomId };
+  }
+
+  /** Role + transport + shape gate for `REMOTE_SNAPSHOT_PUBLISH` (strict snapshot parser). */
+  function authorizePublish(socket: RemoteSocketLike, payload: unknown): PublishAuthorization {
+    const admitted = admittedRoom(socket);
+    if (!admitted.ok) return admitted;
     const record = asRecord(payload);
     if (record?.type !== 'REMOTE_SNAPSHOT_PUBLISH' || !isRoomId(record.roomId)) return { ok: false, code: 'INVALID_PAYLOAD' };
-    if (record.roomId !== admittedRoomId) return { ok: false, code: 'ROOM_MISMATCH' };
+    if (record.roomId !== admitted.roomId) return { ok: false, code: 'ROOM_MISMATCH' };
     const parsed = parseRemoteSnapshotV1(record.snapshot);
     if (!parsed.ok) return { ok: false, code: 'INVALID_SNAPSHOT' };
-    return { ok: true, roomId: admittedRoomId, snapshot: parsed.value };
+    return { ok: true, roomId: admitted.roomId, snapshot: parsed.value };
+  }
+
+  function envelope(roomId: string, snapshot: RemoteSnapshotV1): RemoteSnapshotEnvelope {
+    return { type: 'REMOTE_SNAPSHOT', roomId, snapshot, timestamp: deps.now() };
+  }
+
+  function evictOldest(predicate: (session: CachedSession) => boolean): void {
+    for (const [sessionId, session] of sessions) {
+      if (predicate(session)) {
+        sessions.delete(sessionId);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Validates, orders, caches and broadcasts one full snapshot. A higher epoch
+   * resets; duplicates and regressions are rejected and never replace the cache.
+   */
+  function publish(socket: RemoteSocketLike, payload: unknown): PublishAuthorization {
+    const claimedRoom = asRecord(payload)?.roomId;
+    const replyRoomId = typeof claimedRoom === 'string' ? claimedRoom : String(socket.data?.remotePublisherRoomId ?? '');
+    const reply = (extra: Partial<Pick<RemoteSnapshotPublishResult, 'sessionId'>>, outcome: object) =>
+      socket.emit('REMOTE_SNAPSHOT_PUBLISH_RESULT', {
+        type: 'REMOTE_SNAPSHOT_PUBLISH_RESULT',
+        roomId: replyRoomId,
+        ...extra,
+        timestamp: deps.now(),
+        ...outcome,
+      });
+    const decision = authorizePublish(socket, payload);
+    if (!decision.ok) {
+      reply({}, { accepted: false, code: decision.code });
+      return decision;
+    }
+    const { roomId, snapshot } = decision;
+    const { sessionId } = snapshot;
+    const rejected = (code: RemoteSnapshotPublishRejectCode, last?: { epoch: number; sequence: number }): PublishAuthorization => {
+      reply({ sessionId }, { accepted: false, code, lastEpoch: last?.epoch, lastSequence: last?.sequence });
+      return { ok: false, code };
+    };
+    if (endedSessions.has(sessionId)) return rejected('SESSION_ENDED');
+    const cached = sessions.get(sessionId);
+    if (cached && cached.roomId !== roomId) return rejected('SESSION_BOUND_TO_OTHER_ROOM');
+    const last = cached ? { epoch: cached.snapshot.epoch, sequence: cached.snapshot.sequence } : null;
+    const order = compareSnapshotOrder(last, snapshot);
+    if (order === 'duplicate') return rejected('DUPLICATE', last ?? undefined);
+    if (order === 'regression') return rejected('REGRESSION', last ?? undefined);
+
+    sessions.delete(sessionId);
+    sessions.set(sessionId, { roomId, snapshot });
+    let inRoom = 0;
+    for (const session of sessions.values()) if (session.roomId === roomId) inRoom += 1;
+    if (inRoom > MAX_SESSIONS_PER_ROOM) evictOldest((session) => session.roomId === roomId);
+    if (sessions.size > MAX_SESSIONS_TOTAL) evictOldest(() => true);
+
+    reply({ sessionId }, { accepted: true, order, epoch: snapshot.epoch, sequence: snapshot.sequence });
+    deps.emitToRoom(roomId, 'REMOTE_SNAPSHOT', envelope(roomId, snapshot));
+    return decision;
+  }
+
+  /** Bootstrap: the cached latest full snapshot of every session in the room goes to the new client first. */
+  function bootstrapViewer(socket: RemoteSocketLike, roomId: string): void {
+    for (const session of sessions.values()) {
+      if (session.roomId === roomId) socket.emit('REMOTE_SNAPSHOT', envelope(roomId, session.snapshot));
+    }
+  }
+
+  /** The operator stopped sharing: drop the cache, tell viewers, and refuse a resurrecting publish. */
+  function endSession(socket: RemoteSocketLike, payload: unknown): void {
+    const admitted = admittedRoom(socket);
+    const record = asRecord(payload);
+    if (!admitted.ok || record?.type !== 'REMOTE_SNAPSHOT_END' || record.roomId !== admitted.roomId) return;
+    const sessionId = record.sessionId;
+    if (typeof sessionId !== 'string' || sessions.get(sessionId)?.roomId !== admitted.roomId) return;
+    sessions.delete(sessionId);
+    endedSessions.add(sessionId);
+    if (endedSessions.size > MAX_ENDED_SESSIONS) endedSessions.delete(endedSessions.values().next().value as string);
+    const ended: RemoteSnapshotEndedEnvelope = { type: 'REMOTE_SNAPSHOT_ENDED', roomId: admitted.roomId, sessionId, timestamp: deps.now() };
+    deps.emitToRoom(admitted.roomId, 'REMOTE_SNAPSHOT_ENDED', ended);
+  }
+
+  /** Room deleted: nothing about it may linger (cached snapshots, unclaimed tokens). */
+  function clearRoom(roomId: string): void {
+    for (const [sessionId, session] of sessions) if (session.roomId === roomId) sessions.delete(sessionId);
+    for (const [hash, entry] of tokens) if (entry.roomId === roomId) tokens.delete(hash);
   }
 
   /** Registers the publisher-side handlers on a new socket connection. */
@@ -241,9 +349,13 @@ export function createRemoteSnapshotHub(deps: RemoteSnapshotDeps) {
     socket.on?.('REMOTE_PUBLISHER_ADMIT', (payload) => {
       admitPublisher(socket, payload);
     });
+    socket.on?.('REMOTE_SNAPSHOT_PUBLISH', (payload) => {
+      publish(socket, payload);
+    });
+    socket.on?.('REMOTE_SNAPSHOT_END', (payload) => endSession(socket, payload));
   }
 
-  return { handleHttp, admitPublisher, authorizePublish, registerSocket };
+  return { handleHttp, admitPublisher, authorizePublish, publish, bootstrapViewer, endSession, clearRoom, registerSocket };
 }
 
 export type RemoteSnapshotHub = ReturnType<typeof createRemoteSnapshotHub>;
