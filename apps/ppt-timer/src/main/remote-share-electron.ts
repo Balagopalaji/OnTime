@@ -29,8 +29,9 @@ export function installRemoteShare(onChange: () => void): RemoteShare {
     copyToClipboard: async (text) => clipboard.writeText(text),
     onChange,
   })
-  // The installer registers the callback scheme (electron-builder `protocols`); the app never
-  // writes the OS registry itself, so dev and unpacked runs leave it untouched.
+  // The NSIS installer registers the callback scheme (build/installer.nsh customInstall; AppX
+  // gets it from electron-builder `protocols`); the app never writes the OS registry itself,
+  // so dev and unpacked runs leave it untouched.
   app.on('open-url', (event, url) => {
     if (share.handleCallbackUrl(url)) event.preventDefault()
   })

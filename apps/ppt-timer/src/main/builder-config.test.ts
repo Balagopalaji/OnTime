@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CALLBACK_SCHEME } from './remote-share'
@@ -89,15 +89,52 @@ describe('electron-builder installer config (Stage 6 Batch A)', () => {
     expect(configText).toMatch(/output:\s*dist_out\b/)
   })
 
-  it('registers exactly the publisher-auth callback scheme at installer level (ISSUE-002 S6d)', () => {
-    // One top-level `protocols` entry feeds both NSIS (HKCU registry) and the
-    // Store feasibility AppX (uap:Protocol); dev runs never register it.
+  it('keeps the top-level protocols entry for the AppX feasibility target (ISSUE-002 S6d)', () => {
+    // electron-builder's NSIS target ignores `protocols`; only AppX (uap:Protocol), mac and
+    // Linux read it. The NSIS install registers the scheme through the include below.
     const block = configText.slice(configText.indexOf('\nprotocols:')).split('\n\n')[0]
     expect(configText.match(/^protocols:/gm)).toHaveLength(1)
     expect(block).toMatch(/\n  name: Downstage PPT Video Timer\n/)
     const schemes = [...block.matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((match) => match[1])
     expect(schemes).toEqual([CALLBACK_SCHEME])
     expect(CALLBACK_SCHEME).toBe('downstage-ppt-timer')
+  })
+
+  describe('NSIS installer protocol registration (ISSUE-002 S6d)', () => {
+    const nsisBlock = configText.slice(configText.indexOf('\nnsis:'))
+    const includeRel = nsisBlock.match(/^\s+include:\s*(\S+)\s*$/m)?.[1]
+    const includeText =
+      includeRel && existsSync(path.join(appRoot, includeRel))
+        ? readFileSync(path.join(appRoot, includeRel), 'utf8')
+        : ''
+    const macro = (name: string) =>
+      includeText.match(new RegExp(`!macro ${name}\\b([\\s\\S]*?)!macroend`))?.[1] ?? ''
+    const key = `Software\\Classes\\${CALLBACK_SCHEME}`
+
+    it('configures an nsis.include that exists under the build resources directory', () => {
+      expect(includeRel).toBe('build/installer.nsh')
+      expect(includeText).not.toBe('')
+    })
+
+    it('customInstall writes exactly the per-user callback scheme key with the %1 command', () => {
+      const writes = [...macro('customInstall').matchAll(/^\s*WriteRegStr\s+(.+)$/gm)].map((m) =>
+        m[1].trim(),
+      )
+      expect(writes).toEqual([
+        `HKCU "${key}" "" "URL:Downstage PPT Timer"`,
+        `HKCU "${key}" "URL Protocol" ""`,
+        `HKCU "${key}\\DefaultIcon" "" "$INSTDIR\\\${APP_EXECUTABLE_FILENAME},0"`,
+        `HKCU "${key}\\shell\\open\\command" "" '"$INSTDIR\\\${APP_EXECUTABLE_FILENAME}" "%1"'`,
+      ])
+      expect(macro('customInstall')).not.toMatch(/HKLM|HKEY_LOCAL_MACHINE|SHCTX/)
+    })
+
+    it('customUnInstall removes that key and nothing else', () => {
+      const deletes = [...macro('customUnInstall').matchAll(/^\s*DeleteRegKey\s+(.+)$/gm)].map((m) =>
+        m[1].trim(),
+      )
+      expect(deletes).toEqual([`HKCU "${key}"`])
+    })
   })
 
   it('keeps the Store feasibility manifest to one capability and no protocol-specific capability', () => {

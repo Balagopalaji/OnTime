@@ -58,9 +58,11 @@ files:
   - package.json
 
 # ISSUE-002 publisher approval returns to the app through this custom URL scheme
-# (src/main/remote-share.ts CALLBACK_SCHEME). electron-builder registers it for
-# the NSIS install (per-user HKCU) and emits the matching uap:Protocol extension
-# in the Store feasibility AppX; dev runs never touch the OS registry.
+# (src/main/remote-share.ts CALLBACK_SCHEME). electron-builder 26.11.1 reads
+# `protocols` for the AppX target only (it emits the uap:Protocol extension in the
+# Store feasibility package); the NSIS target ignores it, so the NSIS install
+# registers the scheme under HKCU via `nsis.include` (build/installer.nsh). Dev
+# runs never touch the OS registry.
 protocols:
   name: Downstage PPT Video Timer
   schemes:
@@ -96,6 +98,9 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
+  # customInstall/customUnInstall register and remove the HKCU callback URL scheme
+  # (ISSUE-002 S6d); the default build resources directory is `build/`.
+  include: build/installer.nsh
 
 # No `publish` block: auto-update is a spec Non-Goal. Upgrade is user-initiated
 # by installing a newer installer with the same appId (S-031).
