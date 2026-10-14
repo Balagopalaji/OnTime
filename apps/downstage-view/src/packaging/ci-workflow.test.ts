@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 // The packaging lane must stay secret-safe and must run the same audit that the
-// package-content tests exercise.
+// package-content tests exercise. S8c adds the Windows job.
 
 const repoRoot = path.resolve(__dirname, '../../../..')
 const workflow = readFileSync(path.join(repoRoot, '.github/workflows/downstage-view-build.yml'), 'utf8')
@@ -30,6 +30,20 @@ describe('downstage-view-build.yml (ISSUE-002 S8b)', () => {
     expect(order[0]).toBeLessThan(order[1])
     expect(order[1]).toBeLessThan(order[2])
     expect(order[3]).toBeLessThan(order[4])
+  })
+
+  it('builds the Windows installer on a Windows runner, unsigned, then audits it (S8c)', () => {
+    const windowsJob = workflow.slice(workflow.indexOf('\n  windows:'))
+    expect(windowsJob).toMatch(/runs-on:\s*windows-latest/)
+    expect(windowsJob).not.toMatch(/secrets\./)
+    expect(windowsJob).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"')
+    const order = ['npm run test --workspace apps/downstage-view', 'npm run dist:win', 'npm run audit:package'].map((needle) =>
+      windowsJob.indexOf(needle),
+    )
+    expect(order.every((index) => index >= 0)).toBe(true)
+    expect(order[0]).toBeLessThan(order[1])
+    expect(order[1]).toBeLessThan(order[2])
+    expect(windowsJob).toContain('downstage-view-win-x64')
   })
 
   it('reads signing secrets only for the signed packaging step and falls back to unsigned', () => {

@@ -1,5 +1,5 @@
 interface UnpackedAppOptions {
-  platform: 'darwin'
+  platform: 'win32' | 'darwin'
 }
 export const APP_NAME: string
 export function auditAsarEntries(entries: readonly string[]): string[]

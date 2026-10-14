@@ -1,4 +1,4 @@
-// Packaged-content audit for Downstage View (ISSUE-002 S8b).
+// Packaged-content audit for Downstage View (ISSUE-002 S8b/S8c).
 //
 // Pure functions (unit-tested in src/packaging/package-content.test.ts) plus a CLI
 // that runs them against real electron-builder output:
@@ -74,7 +74,7 @@ function auditAsarEntries(entries) {
 
 /**
  * Violations for an unpacked app tree. `files` are file paths relative to
- * the directory containing `Downstage View.app` (darwin).
+ * win-unpacked/ (win32) or to the directory containing `Downstage View.app` (darwin).
  */
 function auditUnpackedApp(files, { platform }) {
   const all = files.map(normalize).filter((file) => file !== '')
@@ -84,24 +84,35 @@ function auditUnpackedApp(files, { platform }) {
     if (/\.node$/i.test(file)) violations.push(`native module must not be packaged: ${file}`)
     if (/app\.asar\.unpacked/.test(file)) violations.push(`nothing may be unpacked from app.asar: ${file}`)
   }
-  if (platform !== 'darwin') throw new Error(`unsupported platform for audit: ${platform}`)
-  const root = `${APP_NAME}.app/Contents/`
-  const resources = `${root}Resources/`
-  for (const file of all) {
-    if (file.startsWith(resources)) {
-      const rest = file.slice(resources.length)
-      if (rest !== 'app.asar' && !/\.icns$/.test(rest) && !/^[^/]+\.lproj\//.test(rest) && !/app\.asar\.unpacked|ppt-?probe|\.node$/i.test(rest)) {
-        violations.push(`unexpected file in Resources (only app.asar, icons, lproj): ${file}`)
+  if (platform === 'win32') {
+    const appExe = `${APP_NAME}.exe`
+    for (const file of all) {
+      if (/\.exe$/i.test(file) && file !== appExe) violations.push(`unexpected executable (only ${appExe} is allowed): ${file}`)
+      if (file.startsWith('resources/') && file !== 'resources/app.asar' && !/app\.asar\.unpacked|ppt-?probe|\.node$/i.test(file)) {
+        violations.push(`unexpected file in resources (only app.asar is allowed): ${file}`)
       }
     }
-    if (file.startsWith(`${root}MacOS/`) && file !== `${root}MacOS/${APP_NAME}`) {
-      violations.push(`unexpected executable in Contents/MacOS: ${file}`)
+    for (const required of [appExe, 'resources/app.asar']) {
+      if (!all.includes(required)) violations.push(`missing required file: ${required}`)
+    }
+  } else {
+    const root = `${APP_NAME}.app/Contents/`
+    const resources = `${root}Resources/`
+    for (const file of all) {
+      if (file.startsWith(resources)) {
+        const rest = file.slice(resources.length)
+        if (rest !== 'app.asar' && !/\.icns$/.test(rest) && !/^[^/]+\.lproj\//.test(rest) && !/app\.asar\.unpacked|ppt-?probe|\.node$/i.test(rest)) {
+          violations.push(`unexpected file in Resources (only app.asar, icons, lproj): ${file}`)
+        }
+      }
+      if (file.startsWith(`${root}MacOS/`) && file !== `${root}MacOS/${APP_NAME}`) {
+        violations.push(`unexpected executable in Contents/MacOS: ${file}`)
+      }
+    }
+    for (const required of [`${root}MacOS/${APP_NAME}`, `${resources}app.asar`]) {
+      if (!all.includes(required)) violations.push(`missing required file: ${required}`)
     }
   }
-  for (const required of [`${root}MacOS/${APP_NAME}`, `${resources}app.asar`]) {
-    if (!all.includes(required)) violations.push(`missing required file: ${required}`)
-  }
-
   return violations
 }
 
@@ -116,13 +127,15 @@ function walk(dir, prefix = '') {
 function auditOutput(outDir) {
   const asar = require('@electron/asar')
   const targets = []
+  const win = path.join(outDir, 'win-unpacked')
+  if (existsSync(win)) targets.push({ platform: 'win32', root: win, asarPath: path.join(win, 'resources/app.asar') })
   for (const name of existsSync(outDir) ? readdirSync(outDir) : []) {
     const appDir = path.join(outDir, name, `${APP_NAME}.app`)
     if (name.startsWith('mac') && existsSync(appDir)) {
       targets.push({ platform: 'darwin', root: path.join(outDir, name), asarPath: path.join(appDir, 'Contents/Resources/app.asar') })
     }
   }
-  if (targets.length === 0) return [`no mac*/${APP_NAME}.app found under ${outDir} (run npm run dist:* first)`]
+  if (targets.length === 0) return [`no win-unpacked or mac*/${APP_NAME}.app found under ${outDir} (run npm run dist:* first)`]
   const violations = []
   for (const { platform, root, asarPath } of targets) {
     const label = path.relative(outDir, root) || '.'

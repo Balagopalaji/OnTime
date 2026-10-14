@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-// Static assertions on electron-builder.yml (ISSUE-002 S8b macOS).
+// Static assertions on electron-builder.yml (ISSUE-002 S8b macOS, S8c Windows).
 // Nothing here builds, signs, or notarizes; it pins the shape of the packaging
 // config so a later edit cannot quietly widen the shell's privileges.
 
@@ -49,6 +49,8 @@ interface BuilderConfig {
     artifactName?: string
     [key: string]: unknown
   }
+  win: { target: Array<Target | string>; artifactName?: string; [key: string]: unknown }
+  nsis: Record<string, unknown>
   [key: string]: unknown
 }
 const config = yaml.load(configText) as BuilderConfig
@@ -105,6 +107,7 @@ describe('shared identity and shell-only inputs', () => {
     for (const key of ['protocols', 'fileAssociations']) {
       expect(config).not.toHaveProperty(key)
       expect(config.mac).not.toHaveProperty(key)
+      expect(config.win).not.toHaveProperty(key)
     }
     expect(activeText).not.toMatch(/downstage-ppt-timer|CFBundleURL|uap:Protocol/)
   })
@@ -181,6 +184,51 @@ describe('S8b macOS named-tester build', () => {
       'npm run build && electron-builder --mac -c.mac.identity=null -c.mac.notarize=false',
     )
     expect(packageJson.scripts['dist:mac']).not.toMatch(/identity|notarize/)
+  })
+})
+
+describe('S8c Windows per-user installer', () => {
+  it('builds an x64 NSIS installer only (ppt-timer pattern; no arm64 there either)', () => {
+    const pttConfig = readFileSync(path.join(pttRoot, 'electron-builder.yml'), 'utf8')
+    expect(pttConfig).not.toMatch(/arm64/)
+    expect(config.win.target.map(targetOf)).toEqual([{ target: 'nsis', arch: ['x64'] }])
+    expect(config.win.artifactName).toBe('Downstage-View-${version}-win-${arch}-setup.${ext}')
+  })
+
+  it('is an assisted per-user install with no data deletion surprise', () => {
+    expect(config.nsis).toEqual({
+      oneClick: false,
+      perMachine: false,
+      allowToChangeInstallationDirectory: true,
+      deleteAppDataOnUninstall: false,
+    })
+  })
+
+  it('has no signing inputs in the file', () => {
+    for (const key of [
+      'publisherName',
+      'certificateFile',
+      'certificatePassword',
+      'certificateSubjectName',
+      'certificateSha1',
+      'azureSignOptions',
+      'signtoolOptions',
+      'signingHashAlgorithms',
+      'sign',
+      'requestedExecutionLevel',
+    ]) {
+      expect(config.win).not.toHaveProperty(key)
+    }
+  })
+
+  it('exposes dist:win and the package audit script', () => {
+    expect(packageJson.scripts['dist:win']).toBe('npm run build && electron-builder --win')
+    expect(packageJson.scripts.dist).toBe('npm run build && electron-builder')
     expect(packageJson.scripts['audit:package']).toBe('node scripts/package-audit.cjs dist_out')
+  })
+
+  it('keeps mac before win in the file (S8c serialized after S8b)', () => {
+    expect(configText.indexOf('\nmac:')).toBeGreaterThan(-1)
+    expect(configText.indexOf('\nwin:')).toBeGreaterThan(configText.indexOf('\nmac:'))
   })
 })

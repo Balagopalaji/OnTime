@@ -1,4 +1,4 @@
-# Downstage View desktop packaging (ISSUE-002 S8b macOS; the Windows block is S8c).
+# Downstage View desktop packaging (ISSUE-002 S8b macOS, S8c Windows).
 #
 # Downstage View is a read-only shell around the HOSTED cloud viewer route. The
 # packaged app is only the compiled shell (dist/main, dist/preload, dist/renderer,
@@ -57,6 +57,23 @@ mac:
   # One minimal entitlements file for the app and its helpers.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+
+# S8c: Windows x64 NSIS, assisted per-user install (no admin, no registry
+# protocol/file-association registration: S8a has no deep link). x64 only, as in
+# ppt-timer; Windows on Arm runs it under x64 emulation. Unsigned: signing is a
+# separate public-release gate and no signing key is configured here.
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Downstage-View-${version}-win-${arch}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
 
 # No `publish` block: no auto-update. Upgrade is installing a newer build with the
 # same appId.

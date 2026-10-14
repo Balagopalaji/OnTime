@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { auditAsarEntries, auditUnpackedApp } from '../../scripts/package-audit.cjs'
 
-// Packaged-content proof for S8b. The audit module is also the CLI run
+// Packaged-content proof for S8b/S8c. The audit module is also the CLI run
 // against real electron-builder output (`npm run audit:package`); here it is
 // exercised on the exact file set the `files` globs select from the build
 // output, and on synthetic bad trees to prove it can fail.
@@ -87,6 +87,44 @@ describe('asar content audit', () => {
       (file) => !/\.map$|\.test\./.test(file),
     )
     expect(auditAsarEntries(selected)).toEqual([])
+  })
+})
+
+describe('Windows unpacked app audit (S8c no-helper)', () => {
+  const win = (extra: string[] = []): string[] => [
+    'Downstage View.exe',
+    'ffmpeg.dll',
+    'libEGL.dll',
+    'chrome_100_percent.pak',
+    'locales/en-US.pak',
+    'resources/app.asar',
+    ...extra,
+  ]
+
+  it('accepts one app exe and a bare resources/app.asar', () => {
+    expect(auditUnpackedApp(win(), { platform: 'win32' })).toEqual([])
+  })
+
+  it('rejects any other .exe, ppt-probe, extraResources, or unpacked asar content', () => {
+    for (const extra of [
+      'resources/bin/ppt-probe.exe',
+      'resources/ppt-probe.exe',
+      'ppt-probe.exe',
+      'helper.exe',
+      'resources/helper.exe',
+      'resources/bin/helper.txt',
+      'resources/app.asar.unpacked/native.node',
+      'resources/something.dll',
+      'resources/extra.json',
+      'resources/elevate.exe',
+    ]) {
+      expect(auditUnpackedApp(win([extra]), { platform: 'win32' }), extra).not.toEqual([])
+    }
+  })
+
+  it('rejects a missing or renamed app exe and a missing asar', () => {
+    expect(auditUnpackedApp(win().filter((f) => f !== 'Downstage View.exe'), { platform: 'win32' })).not.toEqual([])
+    expect(auditUnpackedApp(win().filter((f) => f !== 'resources/app.asar'), { platform: 'win32' })).not.toEqual([])
   })
 })
 

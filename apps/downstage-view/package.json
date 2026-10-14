@@ -15,6 +15,7 @@
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:mac:unsigned": "npm run build && electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
+    "dist:win": "npm run build && electron-builder --win",
     "audit:package": "node scripts/package-audit.cjs dist_out"
   },
   "devDependencies": {

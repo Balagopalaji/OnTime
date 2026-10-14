@@ -1,7 +1,7 @@
 name: Build Downstage View desktop viewer
 
 # Named-tester desktop artifacts for the read-only Downstage View shell (ISSUE-002
-# S8b macOS; the Windows job is S8c). Manual or tag-triggered, like ppt-timer-build.yml; the
+# S8b macOS, S8c Windows). Manual or tag-triggered, like ppt-timer-build.yml; the
 # per-commit typecheck/test gate is scripts/ci-local.mjs. electron-builder can only
 # produce real dmg/NSIS output on its own OS, so each platform has its own job.
 #
@@ -75,3 +75,52 @@ jobs:
           path: |
             apps/downstage-view/dist_out/*.dmg
             apps/downstage-view/dist_out/*.zip
+
+  windows:
+    name: Build installer (Windows x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/downstage-view-v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "const fs=require('node:fs'); const version=JSON.parse(fs.readFileSync('apps/downstage-view/package.json','utf8')).version; if (process.env.RELEASE_TAG !== 'downstage-view-v' + version) { throw new Error('Release tag must exactly match downstage-view-v' + version + ', got ' + process.env.RELEASE_TAG); }"
+
+      - name: Downstage View typecheck
+        run: npm run typecheck --workspace apps/downstage-view
+
+      - name: Downstage View tests
+        run: npm run test --workspace apps/downstage-view
+
+      - name: Package installer
+        working-directory: apps/downstage-view
+        env:
+          # Unsigned installer: no signing in CI.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:win
+
+      # No ppt-probe helper, no extra .exe beside the app, no extraResources, no
+      # native modules, and an app.asar holding only the compiled shell.
+      - name: Audit packaged app contents (no helper bundle)
+        working-directory: apps/downstage-view
+        run: npm run audit:package
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: downstage-view-win-x64
+          path: apps/downstage-view/dist_out/*-win-x64-setup.exe
