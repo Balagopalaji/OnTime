@@ -30,6 +30,7 @@ import {
   type ControlAuditEntry,
 } from './control-audit-utils';
 import { createRoomCacheAdapter } from './room-cache';
+import { createRemoteSnapshotHub } from './remote-snapshot';
 import { initializePptDebugLogging, logPptInfo } from './ppt-debug-log';
 import { stopPowerPointHelper, stopPptProbeHelper } from './ppt-probe';
 import { createPptQuitGate, runCompanionShutdown } from './ppt-quit-gate';
@@ -677,11 +678,14 @@ export const roomOwnerStore: Map<string, {
   setBy?: string;
 }> = new Map();
 const roomClientsEmitAt: Map<string, number> = new Map();
-const roomViewerTokenStore: Map<string, Map<string, ViewerTokenEntry>> = new Map();
-const roomPairingCodeStore: Map<string, PairingCodeEntry> = new Map();
+export const roomViewerTokenStore: Map<string, Map<string, ViewerTokenEntry>> = new Map();
+export const roomPairingCodeStore: Map<string, PairingCodeEntry> = new Map();
 let currentToken: string | null = null;
 let currentTokenExpiresAt: number | null = null;
 let jwtSecret: string | null = null;
+export const setJwtSecretForTests = (secret: string | null): void => { jwtSecret = secret; };
+// ISSUE-002 S9: LAN remote snapshot relay (loopback publisher, paired viewers). Narrow adapter; see remote-snapshot.ts.
+const remoteSnapshot = createRemoteSnapshotHub({ now: () => Date.now(), isLoopback, emitToRoom });
 let viewerBundleState: ViewerBundleState | null = null;
 // Disk room-cache persistence adapter (rebuild unit U7). Owns the cache
 // read/write/schedule/flush lifecycle over the persisted stores below, with the
@@ -779,17 +783,6 @@ function emitControllerLockStateToSocket(socket: Socket, roomId: string) {
     timestamp: Date.now(),
   };
   socket.emit('CONTROLLER_LOCK_STATE', payload);
-}
-
-function emitRoomPinStateToSocket(socket: Socket, roomId: string) {
-  const entry = roomPinStore.get(roomId);
-  const payload: RoomPinState = {
-    type: 'ROOM_PIN_STATE',
-    roomId,
-    pin: entry?.pin ?? null,
-    updatedAt: entry?.updatedAt ?? Date.now(),
-  };
-  socket.emit('ROOM_PIN_STATE', payload);
 }
 
 function emitRoomPinStateToController(roomId: string) {
@@ -1103,7 +1096,7 @@ function getPairingCode(roomId: string, now: number = Date.now()): PairingCodeEn
   return existing;
 }
 
-function createPairingCode(roomId: string, now: number = Date.now()): PairingCodeEntry {
+export function createPairingCode(roomId: string, now: number = Date.now()): PairingCodeEntry {
   const code = generatePairingCode();
   const entry: PairingCodeEntry = {
     roomId,
@@ -1695,9 +1688,9 @@ function handlePairingRequest(req: any, res: any, allowLan: boolean): boolean {
   return true;
 }
 
-function createViewerRequestHandler({ allowLan }: { allowLan: boolean }) {
+export function createViewerRequestHandler({ allowLan }: { allowLan: boolean }) {
   return (req: any, res: any) => {
-    if (handlePairingRequest(req, res, allowLan)) {
+    if (remoteSnapshot.handleHttp(req, res) || handlePairingRequest(req, res, allowLan)) {
       return;
     }
     if (serveViewerRequest(req, res, allowLan)) {
@@ -3016,7 +3009,7 @@ export function handleSocketDisconnectCleanup(socket: Socket, reason: string) {
   }
 }
 
-function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
+export function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
   server.on('connection', (socket) => {
     const remoteAddress =
       typeof socket.handshake?.address === 'string'
@@ -3032,6 +3025,7 @@ function registerSocketHandlers(server: SocketIOServer, allowLan: boolean) {
       return;
     }
     console.log(`[ws] client connected: ${socket.id}`);
+    remoteSnapshot.registerSocket(socket);
     socket.on('JOIN_ROOM', (payload) => handleJoinRoom(socket, payload));
     socket.on('SYNC_ROOM_STATE', (payload) => handleSyncRoomState(socket, payload));
     socket.on('SEED_COMPANION_CACHE', (payload) => handleSeedCompanionCache(socket, payload));
@@ -3199,10 +3193,6 @@ function verifyTokenPayload(token: string | undefined): AuthTokenPayload | null 
     console.warn('[auth] Token verification failed', error);
     return null;
   }
-}
-
-function verifyToken(token: string | undefined): boolean {
-  return Boolean(verifyTokenPayload(token));
 }
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -3618,7 +3608,7 @@ function logWsLatencyTrace(
   });
 }
 
-function handleJoinRoom(socket: Socket, payload: unknown) {
+export function handleJoinRoom(socket: Socket, payload: unknown) {
   const reconnectStartedAt =
     typeof (payload as { reconnectStartedAt?: unknown })?.reconnectStartedAt === 'number'
       ? ((payload as { reconnectStartedAt?: number }).reconnectStartedAt as number)

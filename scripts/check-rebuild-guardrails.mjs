@@ -137,8 +137,11 @@ function checkPresentationCoreContract() {
   }
 
   const companionPackage = read('companion/package.json')
-  if (!companionPackage.includes('"prebuild": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge"')) {
-    fail('Companion must prebuild presentation-core CJS then ppt-bridge CJS before TypeScript compilation')
+  if (!companionPackage.includes('"prebuild": "npm run build:cjs --workspace @ontime/remote-viewer-contracts && npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge"')) {
+    fail('Companion must prebuild remote-viewer-contracts CJS, then presentation-core CJS, then ppt-bridge CJS before TypeScript compilation')
+  }
+  if (!companionPackage.includes('"@ontime/remote-viewer-contracts": "0.0.0"')) {
+    fail('Companion must declare @ontime/remote-viewer-contracts workspace dependency (LAN remote snapshot validation)')
   }
   if (!companionPackage.includes('"@ontime/presentation-core": "0.0.0"')) {
     fail('Companion must declare @ontime/presentation-core workspace dependency')
@@ -452,7 +455,7 @@ function checkPackagePopulationRatchet() {
 // must lower its baseline here in the same PR. Never raise a baseline.
 const GOD_FILE_LINE_BASELINES = {
   'frontend/src/context/UnifiedDataContext.tsx': 5922,
-  'companion/src/main.ts': 5841,
+  'companion/src/main.ts': 5832,
 }
 
 function checkGodFileRatchet() {

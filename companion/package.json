@@ -7,7 +7,7 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "electron ./electron-dev.js",
-    "prebuild": "npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge",
+    "prebuild": "npm run build:cjs --workspace @ontime/remote-viewer-contracts && npm run build:cjs --workspace @ontime/presentation-core && npm run build:cjs --workspace @ontime/ppt-bridge",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/*.test.js",
     "build:viewer": "node ./scripts/build-viewer.js",
@@ -63,6 +63,7 @@
     "@ontime/interface-contracts": "0.0.0",
     "@ontime/ppt-bridge": "0.0.0",
     "@ontime/presentation-core": "0.0.0",
+    "@ontime/remote-viewer-contracts": "0.0.0",
     "@ontime/shared-types": "0.0.0"
   },
   "optionalDependencies": {

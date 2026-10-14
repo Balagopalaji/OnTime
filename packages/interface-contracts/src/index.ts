@@ -378,3 +378,12 @@ export * from './room-state-envelopes';
 // `@ontime/interface-contracts` surface is unchanged.
 // ---------------------------------------------------------------------------
 export * from './live-cue-envelopes';
+
+// ---------------------------------------------------------------------------
+// LAN remote presentation snapshot envelopes (ISSUE-002 S9a). Independently
+// typed from the LiveCue-based presentation envelopes above: they carry the
+// strict-parsed `RemoteSnapshotV1` from `@ontime/remote-viewer-contracts` and
+// the loopback-only `presentation-publisher` admission handshake. Sibling
+// module so this barrel stays under the 400-line production-file ceiling.
+// ---------------------------------------------------------------------------
+export * from './remote-snapshot-envelopes';
