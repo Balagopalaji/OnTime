@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -12,6 +12,12 @@ const activeConfig = configText
   .split('\n')
   .filter((line) => !/^\s*#/.test(line))
   .join('\n')
+
+// The one workspace package whose name legitimately contains a forbidden word
+// ("viewer"): the dependency-free snapshot contracts the publisher sidecar loads at
+// runtime (ISSUE-002). Everything else in the active config is still scanned.
+const ALLOWED_RUNTIME_PACKAGE = '@ontime/remote-viewer-contracts'
+const scannedConfig = activeConfig.split(ALLOWED_RUNTIME_PACKAGE).join('')
 
 // Forbidden cross-product assets. The standalone is a strict Windows-only viewer
 // of PowerPoint state; it must never bundle Companion/frontend/viewer/cloud/socket
@@ -63,11 +69,14 @@ describe('packaged installer content (security / allowlist)', () => {
     // sweep in every workspace, including forbidden ones.
     expect(activeConfig).not.toMatch(/packages\/\*(?!\*)/)
     expect(activeConfig).not.toMatch(/\.\.\/\.\.\/packages\/(?!ppt-bridge)/)
+    // Only the named runtime packages may be mentioned under node_modules/@ontime.
+    const named = [...activeConfig.matchAll(/node_modules\/@ontime\/([\w-]+)/g)].map((match) => match[1])
+    expect([...new Set(named)].sort()).toEqual(['ppt-bridge', 'remote-viewer-contracts'])
   })
 
   it('references no Companion/frontend/viewer/cloud/socket assets in active config', () => {
     for (const forbidden of FORBIDDEN_REFERENCES) {
-      expect(activeConfig.toLowerCase()).not.toContain(forbidden)
+      expect(scannedConfig.toLowerCase()).not.toContain(forbidden)
     }
   })
 
@@ -76,7 +85,24 @@ describe('packaged installer content (security / allowlist)', () => {
       dependencies?: Record<string, string>
     }
     const deps = Object.keys(pkg.dependencies ?? {})
-    expect(deps.sort()).toEqual(['@ontime/ppt-bridge', '@ontime/presentation-core'])
+    // The publisher sidecar (utility process) and the main-process candidate adapter
+    // load the contracts package at runtime, so it must ship (S6d), not be a devDependency.
+    expect(deps.sort()).toEqual(['@ontime/ppt-bridge', '@ontime/presentation-core', ALLOWED_RUNTIME_PACKAGE])
+  })
+
+  it('ships only the contracts package runtime payload (CJS build + package.json), not its sources or tests', () => {
+    expect(activeConfig).toContain('!node_modules/@ontime/remote-viewer-contracts/src/**')
+    expect(activeConfig).toContain('!node_modules/@ontime/remote-viewer-contracts/test/**')
+    expect(activeConfig).not.toMatch(/!node_modules\/@ontime\/remote-viewer-contracts\/(dist-cjs|package\.json)/)
+  })
+
+  it('builds every runtime workspace package to CJS before the main compile', () => {
+    const pkg = JSON.parse(readFileSync(path.join(appRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
+    // powerpoint-display's build:cjs builds the contracts and timer-face CJS first.
+    expect(pkg.scripts['build:cjs-deps']).toContain('@ontime/powerpoint-display')
+    expect(readFileSync(path.join(appRoot, '../../packages/powerpoint-display/package.json'), 'utf8')).toContain(
+      'npm run build:cjs --workspace @ontime/remote-viewer-contracts',
+    )
   })
 
   it('app package.json devDependencies pin electron and electron-builder to exact versions', () => {
@@ -104,5 +130,103 @@ describe('packaged installer content (security / allowlist)', () => {
     expect(config).not.toContain('HELPER_VERSION')
     expect(main).toContain('appVersion: app.getVersion()')
     expect(main).toContain('helperVersion: host.getHelperVersion() ?? app.getVersion()')
+  })
+
+  describe('publisher sidecar packaging (ISSUE-002 S6d)', () => {
+    const srcMain = path.join(appRoot, 'src/main')
+    const builtins = new Set(['electron'])
+    const pkg = JSON.parse(readFileSync(path.join(appRoot, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    const packageName = (spec: string) => (spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0])
+
+    /** Runtime (non-type) module specifiers of a TypeScript source file. */
+    const runtimeSpecifiers = (file: string): string[] => {
+      const source = readFileSync(file, 'utf8')
+      const found: string[] = []
+      for (const [, typeOnly, clause, spec] of source.matchAll(/(?:^|\n)\s*(?:import|export)\s+(type\s+)?([^;'"]*?)\s*from\s+'([^']+)'/g)) {
+        if (typeOnly) continue
+        const names = /^\{([^}]*)\}$/.exec(clause.trim())?.[1]
+        if (names !== undefined && names.split(',').map((name) => name.trim()).filter(Boolean).every((name) => name.startsWith('type '))) continue
+        found.push(spec)
+      }
+      for (const [, spec] of source.matchAll(/(?:import|require)\(\s*'([^']+)'\s*\)/g)) found.push(spec)
+      return found
+    }
+
+    /** Bare specifiers reachable at runtime from the given entry sources. */
+    const closure = (entries: string[]) => {
+      const seen = new Set<string>()
+      const bare = new Set<string>()
+      const visit = (file: string) => {
+        if (seen.has(file)) return
+        seen.add(file)
+        for (const spec of runtimeSpecifiers(file)) {
+          if (spec.startsWith('.')) visit(path.resolve(path.dirname(file), spec.replace(/\.js$/, '') + '.ts'))
+          else if (!spec.startsWith('node:')) bare.add(packageName(spec))
+        }
+      }
+      entries.forEach((entry) => visit(path.join(srcMain, entry)))
+      return { files: [...seen], bare: [...bare].sort() }
+    }
+
+    it('declares every non-builtin module reachable from main and the sidecar worker as a production dependency', () => {
+      const { bare } = closure(['main.ts', 'publisher-sidecar/worker.ts'])
+      const missing = bare.filter((name) => !builtins.has(name) && !(name in pkg.dependencies))
+      expect(missing).toEqual([])
+      expect(bare).toContain(ALLOWED_RUNTIME_PACKAGE)
+    })
+
+    it('limits the sidecar worker to the dependency-free contracts package (no Electron, helper, or child_process)', () => {
+      const { bare, files } = closure(['publisher-sidecar/worker.ts'])
+      expect(bare).toEqual([ALLOWED_RUNTIME_PACKAGE])
+      expect(files.some((file) => /session-host|helper-discovery|ppt-bridge/.test(file))).toBe(false)
+    })
+
+    it('starts the worker from the compiled main directory under the packaged dist glob', () => {
+      const glue = readFileSync(path.join(srcMain, 'remote-share-electron.ts'), 'utf8')
+      expect(glue).toContain("join(__dirname, 'publisher-sidecar/worker.js')")
+      expect(existsSync(path.join(srcMain, 'publisher-sidecar/worker.ts'))).toBe(true)
+      const build = JSON.parse(readFileSync(path.join(appRoot, 'tsconfig.build.json'), 'utf8')) as {
+        compilerOptions: { rootDir: string; outDir: string }
+        include: string[]
+        exclude: string[]
+      }
+      expect(build.compilerOptions).toMatchObject({ rootDir: 'src', outDir: 'dist' })
+      expect(build.include).toContain('src/main/**/*')
+      // dist/main/publisher-sidecar/worker.js is inside `dist/**/*` and not excluded from the package.
+      expect(activeConfig).toMatch(/- dist\/\*\*\/\*/)
+      expect(activeConfig).not.toMatch(/!dist\/main\/publisher-sidecar/)
+    })
+
+    it('leaves protocol registration to the installer instead of the running app', () => {
+      // electron-builder `protocols` owns the OS registration (NSIS per-user HKCU / AppX
+      // extension); a runtime registration would also mutate the registry from dev or portable runs.
+      const glue = readFileSync(path.join(srcMain, 'remote-share-electron.ts'), 'utf8')
+      expect(glue).not.toContain('setAsDefaultProtocolClient')
+      expect(glue).toContain("app.on('open-url'")
+      expect(glue).toContain("app.on('second-instance'")
+    })
+
+    const builtMain = path.join(appRoot, 'dist/main')
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((entry) => {
+        const full = path.join(dir, entry)
+        return statSync(full).isDirectory() ? walk(full) : [full]
+      })
+
+    // Needs `npm run build --workspace apps/ppt-timer` (no Electron required).
+    it.skipIf(!existsSync(path.join(builtMain, 'main.js')))('built dist contains the worker and requires only declared dependencies', () => {
+      expect(existsSync(path.join(builtMain, 'publisher-sidecar/worker.js'))).toBe(true)
+      expect(existsSync(path.join(builtMain, 'build-manifest.js'))).toBe(true) // present in dist, excluded from the package by config
+      const required = new Set<string>()
+      for (const file of walk(builtMain).filter((name) => name.endsWith('.js'))) {
+        for (const [, spec] of readFileSync(file, 'utf8').matchAll(/require\("([^".][^"]*)"\)/g)) {
+          if (!spec.startsWith('node:')) required.add(packageName(spec))
+        }
+      }
+      expect([...required].filter((name) => !builtins.has(name) && !(name in pkg.dependencies))).toEqual([])
+      expect(required.has(ALLOWED_RUNTIME_PACKAGE)).toBe(true)
+      const worker = readFileSync(path.join(builtMain, 'publisher-sidecar/worker.js'), 'utf8')
+      expect(worker).not.toMatch(/require\("(electron|child_process|node:child_process)"\)/)
+    })
   })
 })

@@ -35,7 +35,7 @@ appx:
 # Production code only: the compiled main/preload/renderer (dist/) plus
 # package.json. electron-builder always copies production-dependency
 # node_modules regardless of this list (@ontime/ppt-bridge,
-# @ontime/presentation-core); `node_modules/**/*` is listed explicitly to match
+# @ontime/presentation-core, @ontime/remote-viewer-contracts); `node_modules/**/*` is listed explicitly to match
 # the proven Controller/Companion packaging convention rather than rely on that
 # implicit default silently. `dist/main/build-manifest.js` is release-tooling
 # (consumed by `scripts/build-manifest.mjs` from the local build output, run
@@ -49,7 +49,22 @@ files:
   # outputs are packaged separately below as the one canonical resource.
   - '!node_modules/@ontime/ppt-bridge/bin/**'
   - '!node_modules/@ontime/ppt-bridge/native/**'
+  # The publisher sidecar (dist/main/publisher-sidecar/worker.js, started by
+  # utilityProcess.fork inside this same app) and the main-process candidate
+  # adapter load the contracts package at runtime via its CJS build. Ship only
+  # that payload (dist-cjs + package.json), not its sources or tests.
+  - '!node_modules/@ontime/remote-viewer-contracts/src/**'
+  - '!node_modules/@ontime/remote-viewer-contracts/test/**'
   - package.json
+
+# ISSUE-002 publisher approval returns to the app through this custom URL scheme
+# (src/main/remote-share.ts CALLBACK_SCHEME). electron-builder registers it for
+# the NSIS install (per-user HKCU) and emits the matching uap:Protocol extension
+# in the Store feasibility AppX; dev runs never touch the OS registry.
+protocols:
+  name: Downstage PPT Video Timer
+  schemes:
+    - downstage-ppt-timer
 
 # Exactly one helper, at resources/bin/ppt-probe.exe. Dir+filter mirrors the
 # proven Companion packaging pattern (companion/package.json extraResources) and

@@ -2,7 +2,8 @@
  * Electron glue for ISSUE-002 remote share (effectful only; policy lives in
  * `remote-share.ts`): the utility-process spawner with the non-secret cloud
  * target, the safeStorage credential broker under userData, and the app
- * callback URI (`open-url` on macOS, second-instance argv on Windows).
+ * callback URI (`open-url` on macOS, second-instance argv on Windows; the
+ * installer registers the scheme).
  */
 import { app, clipboard, safeStorage, shell } from 'electron'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -11,7 +12,7 @@ import { CLOUD_CONFIG_ARG } from './publisher-sidecar/cloud-client.js'
 import { createCredentialBroker } from './publisher-sidecar/credential-store.js'
 import { electronSidecarSpawner } from './publisher-sidecar/electron-spawn.js'
 import { createSidecarLauncher } from './publisher-sidecar/launcher.js'
-import { CALLBACK_SCHEME, createRemoteShare, readRemoteShareConfig, type RemoteShare } from './remote-share.js'
+import { createRemoteShare, readRemoteShareConfig, type RemoteShare } from './remote-share.js'
 
 export function installRemoteShare(onChange: () => void): RemoteShare {
   const config = readRemoteShareConfig(process.env)
@@ -28,8 +29,8 @@ export function installRemoteShare(onChange: () => void): RemoteShare {
     copyToClipboard: async (text) => clipboard.writeText(text),
     onChange,
   })
-  // Packaged builds register the callback scheme (installer protocols: S6d); dev never touches the OS registry.
-  if (config && app.isPackaged) app.setAsDefaultProtocolClient(CALLBACK_SCHEME)
+  // The installer registers the callback scheme (electron-builder `protocols`); the app never
+  // writes the OS registry itself, so dev and unpacked runs leave it untouched.
   app.on('open-url', (event, url) => {
     if (share.handleCallbackUrl(url)) event.preventDefault()
   })

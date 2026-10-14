@@ -165,7 +165,9 @@ jobs:
 
           $requiredRuntimeFiles = @(
             'node_modules/@ontime/ppt-bridge/dist-cjs/index.js',
-            'node_modules/@ontime/presentation-core/dist-cjs/index.js'
+            'node_modules/@ontime/presentation-core/dist-cjs/index.js',
+            'node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js',
+            'dist/main/publisher-sidecar/worker.js'
           )
           foreach ($path in $requiredRuntimeFiles) {
             if (-not ($entries -match [regex]::Escape($path))) {
@@ -177,9 +179,15 @@ jobs:
             throw 'Packaged app.asar must not include build-only dist/main/build-manifest.js'
           }
 
+          # ISSUE-002: the publisher sidecar (dist/main/publisher-sidecar/, which
+          # includes the cloud client) and its dependency-free contracts package
+          # legitimately contain "cloud"/"viewer" in their names; scan everything else.
+          $scanEntries = $entries | Where-Object {
+            $_ -notmatch 'dist/main/publisher-sidecar/' -and $_ -notmatch 'node_modules/@ontime/remote-viewer-contracts/'
+          }
           $forbidden = @('companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions')
           foreach ($word in $forbidden) {
-            if ($entries -match [regex]::Escape($word)) {
+            if ($scanEntries -match [regex]::Escape($word)) {
               throw "Packaged app.asar unexpectedly references forbidden asset: $word"
             }
           }

@@ -3,6 +3,7 @@
 import { app, BrowserWindow, clipboard, Menu, screen, shell, type Display } from 'electron'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createAppLifecycle } from './app-lifecycle.js'
 import { UPSELL_URL_CONSTANT } from './config.js'
 import { createAppControllers } from './controllers.js'
 import { DiagnosticsBuffer, isOverlayDebug, type AppDiagEvent, type DiagMeta } from './diagnostics.js'
@@ -38,10 +39,6 @@ import {
   type Rectangle,
 } from './window-placement.js'
 import { resolveUpsellUrl, type DisplayInfo } from '../shared/ipc-contract.js'
-// Grace period before a hung helper close is abandoned so a stuck COM call can
-// never wedge quit (S-024). The non-Windows path resolves within a microtask.
-const SHUTDOWN_TIMEOUT_MS = 2_000
-
 const displayLabel = (display: Display): string =>
   `Display ${String(display.id)} (${display.size.width}×${display.size.height})`
 
@@ -60,7 +57,6 @@ const boundsEqual = (a: Rectangle, b: Rectangle): boolean => a.x === b.x && a.y 
 async function main(): Promise<void> {
   const startupStartedAt = performance.now()
   let mainWindow: BrowserWindow | null = null
-  let quitting = false
 
   await configureProductIdentity(app)
 
@@ -303,6 +299,8 @@ async function main(): Promise<void> {
       createdWindow.show()
       singleInstance.windowReady(createdWindow)
     })
+    // Windows logoff/shutdown skips `before-quit`; run the same bounded shutdown.
+    mainWindow.on('session-end', lifecycle.sessionEnd)
     mainWindow.on('moved', persistBounds)
     mainWindow.on('resized', () => persistBounds(!resizePolicy.consumeResize()))
     mainWindow.on('closed', () => {
@@ -319,28 +317,18 @@ async function main(): Promise<void> {
     else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Await the helper close before exiting so no STA child outlives Electron
-  // (S-024). Idempotent; a hung close is abandoned after the grace period.
-  const runShutdown = async (): Promise<void> => {
-    await Promise.race([
-      Promise.all([host.shutdown().catch(() => undefined), remoteShare.shutdown(SHUTDOWN_TIMEOUT_MS - 500)]),
-      new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
-    ])
-  }
-
-  app.on('before-quit', (event) => {
-    // Always prevent the default quit until the helper close settles; a repeated
-    // quit during the pending window must not bypass the gate or its grace
-    // period (S-024). The shutdown itself is idempotent via `quitting`.
-    event.preventDefault()
-    if (quitting) return
-    quitting = true
-    diagnostics.push({ kind: 'app_shutdown' })
-    void runShutdown().finally(() => app.exit(0))
+  // Await the helper and sidecar close before exiting so no child outlives
+  // Electron (S-024); a hung close is abandoned after SHUTDOWN_TIMEOUT_MS. Closing
+  // the only window quits; minimize/hide leave the host and any share running.
+  const lifecycle = createAppLifecycle({
+    host,
+    remoteShare,
+    quit: () => app.quit(),
+    exit: (code) => app.exit(code),
+    onShutdown: () => diagnostics.push({ kind: 'app_shutdown' }),
   })
-
-  // Closing the only window closes the helper and exits; no tray/background.
-  app.on('window-all-closed', () => app.quit())
+  app.on('before-quit', lifecycle.beforeQuit)
+  app.on('window-all-closed', lifecycle.windowAllClosed)
 
   await app.whenReady()
   diagnostics.push({ kind: 'app_ready', elapsedMs: startupElapsedMs() })

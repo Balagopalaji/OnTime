@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { CALLBACK_SCHEME } from './remote-share'
 
 const appRoot = path.resolve(__dirname, '../..')
 const configText = readFileSync(path.join(appRoot, 'electron-builder.yml'), 'utf8')
@@ -86,5 +87,22 @@ describe('electron-builder installer config (Stage 6 Batch A)', () => {
 
   it('outputs to dist_out', () => {
     expect(configText).toMatch(/output:\s*dist_out\b/)
+  })
+
+  it('registers exactly the publisher-auth callback scheme at installer level (ISSUE-002 S6d)', () => {
+    // One top-level `protocols` entry feeds both NSIS (HKCU registry) and the
+    // Store feasibility AppX (uap:Protocol); dev runs never register it.
+    const block = configText.slice(configText.indexOf('\nprotocols:')).split('\n\n')[0]
+    expect(configText.match(/^protocols:/gm)).toHaveLength(1)
+    expect(block).toMatch(/\n  name: Downstage PPT Video Timer\n/)
+    const schemes = [...block.matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((match) => match[1])
+    expect(schemes).toEqual([CALLBACK_SCHEME])
+    expect(CALLBACK_SCHEME).toBe('downstage-ppt-timer')
+  })
+
+  it('keeps the Store feasibility manifest to one capability and no protocol-specific capability', () => {
+    // A custom URL scheme is an AppX extension, not a capability.
+    expect(appxBlock).not.toMatch(/protocols?:/)
+    expect(storeManifestScript).not.toMatch(/protocol/i)
   })
 })

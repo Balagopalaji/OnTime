@@ -134,6 +134,14 @@ jobs:
           if ($capabilities.Count -ne 1 -or $capabilities[0] -ne 'runFullTrust') {
             throw "Expected only runFullTrust, got: $($capabilities -join ', ')"
           }
+          # The publisher-auth callback scheme is a manifest extension (not a capability).
+          $protocols = @(
+            $manifest.SelectNodes("//*[local-name()='Protocol']") |
+              ForEach-Object { $_.GetAttribute('Name') }
+          )
+          if ($protocols.Count -ne 1 -or $protocols[0] -ne 'downstage-ppt-timer') {
+            throw "Expected only the downstage-ppt-timer protocol, got: $($protocols -join ', ')"
+          }
 
           $helpers = @(Get-ChildItem -LiteralPath $env:STORE_INSPECT_DIR -Recurse -Filter ppt-probe.exe -File)
           $expectedHelper = Join-Path $env:STORE_INSPECT_DIR 'app/resources/bin/ppt-probe.exe'
@@ -150,12 +158,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ASAR listing failed with exit code $LASTEXITCODE" }
           foreach ($required in @(
             'node_modules/@ontime/ppt-bridge/dist-cjs/index.js',
-            'node_modules/@ontime/presentation-core/dist-cjs/index.js'
+            'node_modules/@ontime/presentation-core/dist-cjs/index.js',
+            'node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js',
+            'dist/main/publisher-sidecar/worker.js'
           )) {
             if (-not ($entries -match [regex]::Escape($required))) { throw "ASAR missing $required" }
           }
+          # The publisher sidecar and its contracts package are the only allowed
+          # carriers of "cloud"/"viewer" in their names (ISSUE-002).
+          $scanEntries = $entries | Where-Object {
+            $_ -notmatch 'dist/main/publisher-sidecar/' -and $_ -notmatch 'node_modules/@ontime/remote-viewer-contracts/'
+          }
           foreach ($forbidden in @('companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions')) {
-            if ($entries -match [regex]::Escape($forbidden)) { throw "ASAR contains forbidden reference: $forbidden" }
+            if ($scanEntries -match [regex]::Escape($forbidden)) { throw "ASAR contains forbidden reference: $forbidden" }
           }
 
           $signature = Get-AuthenticodeSignature -LiteralPath $env:STORE_ARTIFACT_PATH

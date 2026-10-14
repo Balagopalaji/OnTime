@@ -64,6 +64,12 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
     // Both runtime workspace deps must actually resolve into the packaged app.
     expect(wf).toContain('node_modules/@ontime/ppt-bridge/dist-cjs/index.js')
     expect(wf).toContain('node_modules/@ontime/presentation-core/dist-cjs/index.js')
+    // ISSUE-002 S6d: the publisher sidecar worker and its contracts dependency ship in the asar,
+    // and their names (viewer/cloud) are the only allowed exceptions to the forbidden-word scan.
+    expect(wf).toContain('node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js')
+    expect(wf).toContain('dist/main/publisher-sidecar/worker.js')
+    expect(wf).toContain('$scanEntries')
+    expect(wf).not.toMatch(/\$entries -match \[regex\]::Escape\(\$word\)/)
     // Build-only manifest tooling must not ship inside the packaged app.
     expect(wf).toContain('dist/main/build-manifest.js')
     // Exactly one helper, and no forbidden cross-product assets in the package.
@@ -104,6 +110,12 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
     expect(store).toContain('Packaged helper hash does not match canonical helper')
     expect(store).toContain('node_modules/@ontime/ppt-bridge/dist-cjs/index.js')
     expect(store).toContain('node_modules/@ontime/presentation-core/dist-cjs/index.js')
+    expect(store).toContain('node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js')
+    expect(store).toContain('dist/main/publisher-sidecar/worker.js')
+    expect(store).toContain('$scanEntries')
+    // The callback scheme is a manifest extension, not a capability.
+    expect(store).toContain("local-name()='Protocol'")
+    expect(store).toContain("'downstage-ppt-timer'")
     expect(store).toContain("$signature.Status -ne 'NotSigned'")
     expect(store).toContain('build.store-feasibility.manifest.json')
     expect(store).toContain('if-no-files-found: error')
