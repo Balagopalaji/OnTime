@@ -4,6 +4,8 @@
  * speaks only the strict protocol on it. No window, helper, COM, or host code.
  */
 import { CLOUD_CONFIG_ARG, parseCloudConfig } from './cloud-client'
+import { LAN_CONFIG_ARG, parseLanConfig } from './lan-config'
+import { createLanConnector } from './lan-socket'
 import { createSidecarCore } from './sidecar-core'
 
 /** Anything malformed → not configured. */
@@ -11,6 +13,16 @@ function cloudConfigFromArgv(argv: string[]) {
   const arg = argv.find((value) => value.startsWith(CLOUD_CONFIG_ARG))
   try {
     return arg ? parseCloudConfig(JSON.parse(arg.slice(CLOUD_CONFIG_ARG.length))) : null
+  } catch {
+    return null
+  }
+}
+
+/** Anything malformed → LAN off. */
+function lanConfigFromArgv(argv: string[]) {
+  const arg = argv.find((value) => value.startsWith(LAN_CONFIG_ARG))
+  try {
+    return arg ? parseLanConfig(JSON.parse(arg.slice(LAN_CONFIG_ARG.length))) : null
   } catch {
     return null
   }
@@ -39,6 +51,10 @@ parentPort?.once('message', (event) => {
     cloud: (() => {
       const config = cloudConfigFromArgv(process.argv)
       return config ? { config, fetch: (url: string, init: RequestInit) => fetch(url, init) } : null
+    })(),
+    lan: (() => {
+      const config = lanConfigFromArgv(process.argv)
+      return config ? { config, connect: createLanConnector({ fetch: (url, init) => fetch(url, init) }) } : null
     })(),
   })
   port.start()

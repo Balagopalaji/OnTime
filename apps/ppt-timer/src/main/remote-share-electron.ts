@@ -12,7 +12,8 @@ import { CLOUD_CONFIG_ARG } from './publisher-sidecar/cloud-client.js'
 import { createCredentialBroker } from './publisher-sidecar/credential-store.js'
 import { electronSidecarSpawner } from './publisher-sidecar/electron-spawn.js'
 import { createSidecarLauncher } from './publisher-sidecar/launcher.js'
-import { createRemoteShare, readRemoteShareConfig, type RemoteShare } from './remote-share.js'
+import { LAN_CONFIG_ARG } from './publisher-sidecar/lan-config.js'
+import { createRemoteShare, readLanConfig, readRemoteShareConfig, type RemoteShare } from './remote-share.js'
 
 export function installRemoteShare(onChange: () => void): RemoteShare {
   const config = readRemoteShareConfig(process.env)
@@ -21,13 +22,15 @@ export function installRemoteShare(onChange: () => void): RemoteShare {
     fs: { readFile: (path) => readFile(path), writeFile: (path, data) => writeFile(path, data, { mode: 0o600 }), rename, rm: (path) => rm(path) },
     filePath: join(app.getPath('userData'), 'publisher-credential.bin'),
   })
-  const args = config ? [`${CLOUD_CONFIG_ARG}${JSON.stringify(config.cloud)}`] : []
+  const lanConfig = readLanConfig(process.env)
+  const args = [...(config ? [`${CLOUD_CONFIG_ARG}${JSON.stringify(config.cloud)}`] : []), ...(lanConfig ? [`${LAN_CONFIG_ARG}${JSON.stringify(lanConfig)}`] : [])]
   const share = createRemoteShare({
     config,
     launcher: createSidecarLauncher({ spawn: electronSidecarSpawner(join(__dirname, 'publisher-sidecar/worker.js'), args), broker }),
     openExternal: (url) => shell.openExternal(url),
     copyToClipboard: async (text) => clipboard.writeText(text),
     onChange,
+    lan: lanConfig !== null,
   })
   // The NSIS installer registers the callback scheme (build/installer.nsh customInstall; AppX
   // gets it from electron-builder `protocols`); the app never writes the OS registry itself,

@@ -7,6 +7,8 @@
 import type { RemoteSnapshotCandidateV1 } from '@ontime/remote-viewer-contracts'
 import { approveDevice, createCredentialsClient } from './auth'
 import { createCloudClient, type CloudConfig, type FetchLike } from './cloud-client'
+import type { LanConfig } from './lan-config'
+import { createLanPublisher, type LanConnector } from './lan-publisher'
 import type { PortLike } from './port'
 import {
   SIDECAR_PROTOCOL_MAJOR,
@@ -38,6 +40,8 @@ export function createSidecarCore(options: {
   exit: (code: number) => void
   /** Non-secret cloud target from main; absent → `not-configured`. */
   cloud?: { config: CloudConfig; fetch: FetchLike } | null
+  /** Non-secret loopback Companion target from main; absent → LAN publishing is off. */
+  lan?: { config: LanConfig; connect: LanConnector } | null
 }) {
   const { port } = options
   let nonce: string | null = null
@@ -75,6 +79,7 @@ export function createSidecarCore(options: {
     for (const resolve of pendingStorage.values()) resolve({ kind: 'CLEAR_RESULT', nonce: nonce ?? '', requestId: 0, ok: false, error: 'io' })
     pendingStorage.clear()
     share.pause()
+    guardLan(() => lan?.pause())
     port.close()
     options.exit(code)
   }
@@ -114,6 +119,25 @@ export function createSidecarCore(options: {
       }, timeoutMs)
       authListeners.add(listener)
     })
+
+  /** LAN is best effort and independent of the cloud: nothing it does may throw into the command loop. */
+  const guardLan = (action: () => unknown) => {
+    try {
+      const result = action()
+      if (result instanceof Promise) result.catch(() => undefined)
+    } catch {
+      // A LAN fault never reaches the cloud share or the protocol channel.
+    }
+  }
+  const lan = options.lan
+    ? createLanPublisher({
+        config: options.lan.config,
+        connect: options.lan.connect,
+        onStatus: (status) => {
+          if (nonce !== null) emit({ kind: 'LAN_STATUS', nonce, status })
+        },
+      })
+    : null
 
   const cloud = options.cloud ? createCloudClient({ ...options.cloud, onRefreshTokenChanged: () => share.refreshTokenChanged() }) : null
   const share = createShareSession({
@@ -157,21 +181,26 @@ export function createSidecarCore(options: {
         }
         // The share session owns idempotency, so Share works again after it ended on its own.
         share.start()
+        guardLan(() => lan?.start())
         return send({ kind: 'ACK', nonce, id: message.id })
       case 'SNAPSHOT_CANDIDATE':
         if (state !== 'sharing') return send({ kind: 'NACK', nonce, id: message.id, code: 'not-sharing' })
         latest = message.candidate
         share.offer(message.candidate)
+        guardLan(() => lan?.offer(message.candidate))
         return send({ kind: 'ACK', nonce, id: message.id })
       case 'SHARE_STOP':
         if (state === 'sharing') {
           state = 'idle'
           latest = null
           share.pause()
+          guardLan(() => lan?.pause())
           send({ kind: 'SHARE_STATE', nonce, state: 'idle' })
         }
         return send({ kind: 'ACK', nonce, id: message.id })
       case 'END_SESSION':
+        // LAN first: it only needs the loopback socket, so the viewers' ended state is not held up by cloud latency.
+        guardLan(() => lan?.end())
         void share.end()
         return send({ kind: 'ACK', nonce, id: message.id })
       case 'SIGN_OUT':

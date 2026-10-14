@@ -160,14 +160,16 @@ jobs:
             'node_modules/@ontime/ppt-bridge/dist-cjs/index.js',
             'node_modules/@ontime/presentation-core/dist-cjs/index.js',
             'node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js',
+            'node_modules/socket.io-client/build/cjs/index.js',
             'dist/main/publisher-sidecar/worker.js'
           )) {
             if (-not ($entries -match [regex]::Escape($required))) { throw "ASAR missing $required" }
           }
           # The publisher sidecar and its contracts package are the only allowed
-          # carriers of "cloud"/"viewer" in their names (ISSUE-002).
+          # carriers of "cloud"/"viewer" in their names (ISSUE-002), plus the sidecar's
+          # socket.io-client LAN transport and its dependencies (S9c).
           $scanEntries = $entries | Where-Object {
-            $_ -notmatch 'dist/main/publisher-sidecar/' -and $_ -notmatch 'node_modules/@ontime/remote-viewer-contracts/'
+            $_ -notmatch 'dist/main/publisher-sidecar/' -and $_ -notmatch 'node_modules/@ontime/remote-viewer-contracts/' -and $_ -notmatch 'node_modules/(socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser|@socket\.io)/'
           }
           foreach ($forbidden in @('companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions')) {
             if ($scanEntries -match [regex]::Escape($forbidden)) { throw "ASAR contains forbidden reference: $forbidden" }

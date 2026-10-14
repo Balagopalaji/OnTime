@@ -88,6 +88,8 @@ describe('sidecar protocol', () => {
     [{ kind: 'UNSEAL_REQUEST', nonce: NONCE, requestId: 2 }],
     [{ kind: 'CLEAR_SEALED', nonce: NONCE, requestId: 3 }],
     [{ kind: 'PUBLISH_STATUS', nonce: NONCE, status: 'live' }],
+    [{ kind: 'LAN_STATUS', nonce: NONCE, status: 'live' }],
+    [{ kind: 'LAN_STATUS', nonce: NONCE, status: 'unavailable' }],
     [{ kind: 'VIEWER_LINK', nonce: NONCE, url: VIEWER }],
     [{ kind: 'VIEWER_LINK', nonce: NONCE, url: 'http://localhost:5173/session/s1/view#token=' + 't'.repeat(32) }],
   ])('reconstructs storage/auth/share sidecar→main %j', (message) => {
@@ -108,6 +110,9 @@ describe('sidecar protocol', () => {
     [{ kind: 'AUTH_REQUIRED', nonce: NONCE, url: 'https://ontime.app/publisher/device/approve?challenge=x&token=secret' }, 'invalid-field'],
     [{ kind: 'SEAL_REQUEST', nonce: NONCE, requestId: 1, data: 'x'.repeat(20_000) }, 'invalid-field'],
     [{ kind: 'PUBLISH_STATUS', nonce: NONCE, status: 'Error: token=abc' }, 'invalid-field'],
+    [{ kind: 'LAN_STATUS', nonce: NONCE, status: 'ECONNREFUSED 127.0.0.1:4000' }, 'invalid-field'],
+    [{ kind: 'LAN_STATUS', nonce: NONCE, status: 'awaiting-approval' }, 'invalid-field'],
+    [{ kind: 'LAN_STATUS', nonce: NONCE, status: 'live', roomId: 'room-1' }, 'unknown-key'],
     [{ kind: 'VIEWER_LINK', nonce: NONCE, url: VIEWER.replace('#token=', '?token=') }, 'invalid-field'],
     [{ kind: 'VIEWER_LINK', nonce: NONCE, url: VIEWER.replace('https:', 'file:') }, 'invalid-field'],
     [{ kind: 'VIEWER_LINK', nonce: NONCE, url: VIEWER.replace('/view', '/admin') }, 'invalid-field'],

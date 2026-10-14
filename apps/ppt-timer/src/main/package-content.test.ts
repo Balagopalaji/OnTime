@@ -17,6 +17,11 @@ const activeConfig = configText
 // ("viewer"): the dependency-free snapshot contracts the publisher sidecar loads at
 // runtime (ISSUE-002). Everything else in the active config is still scanned.
 const ALLOWED_RUNTIME_PACKAGE = '@ontime/remote-viewer-contracts'
+// ISSUE-002 S9c: the sidecar's loopback LAN publisher is the one place a Socket.IO *client* runs in
+// the standalone (`lan-socket.ts`; dependency-cruiser rule `ppt-timer-lan-transport`). It is a
+// production dependency, not a devDependency, because the packaged utility process requires it.
+// The Socket.IO server, Companion, and interface contracts remain forbidden.
+const LAN_TRANSPORT_PACKAGE = 'socket.io-client'
 const scannedConfig = activeConfig.split(ALLOWED_RUNTIME_PACKAGE).join('')
 
 // Forbidden cross-product assets. The standalone is a strict Windows-only viewer
@@ -87,7 +92,7 @@ describe('packaged installer content (security / allowlist)', () => {
     const deps = Object.keys(pkg.dependencies ?? {})
     // The publisher sidecar (utility process) and the main-process candidate adapter
     // load the contracts package at runtime, so it must ship (S6d), not be a devDependency.
-    expect(deps.sort()).toEqual(['@ontime/ppt-bridge', '@ontime/presentation-core', ALLOWED_RUNTIME_PACKAGE])
+    expect(deps.sort()).toEqual(['@ontime/ppt-bridge', '@ontime/presentation-core', ALLOWED_RUNTIME_PACKAGE, LAN_TRANSPORT_PACKAGE])
   })
 
   it('ships only the contracts package runtime payload (CJS build + package.json), not its sources or tests', () => {
@@ -175,9 +180,9 @@ describe('packaged installer content (security / allowlist)', () => {
       expect(bare).toContain(ALLOWED_RUNTIME_PACKAGE)
     })
 
-    it('limits the sidecar worker to the dependency-free contracts package (no Electron, helper, or child_process)', () => {
+    it('limits the sidecar worker to the contracts package and the LAN socket client (no Electron, helper, server, or child_process)', () => {
       const { bare, files } = closure(['publisher-sidecar/worker.ts'])
-      expect(bare).toEqual([ALLOWED_RUNTIME_PACKAGE])
+      expect(bare).toEqual([ALLOWED_RUNTIME_PACKAGE, LAN_TRANSPORT_PACKAGE])
       expect(files.some((file) => /session-host|helper-discovery|ppt-bridge/.test(file))).toBe(false)
     })
 

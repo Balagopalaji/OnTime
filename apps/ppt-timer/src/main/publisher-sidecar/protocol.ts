@@ -40,6 +40,9 @@ export const SHARE_STATUSES = [
   'not-configured',
 ] as const
 export type ShareStatus = (typeof SHARE_STATUSES)[number]
+/** Safe LAN-publish status (ISSUE-002 S9c): no URLs, room IDs, tokens, or error bodies. */
+export const LAN_STATUSES = ['connecting', 'live', 'retrying', 'paused', 'ended', 'unavailable'] as const
+export type LanStatus = (typeof LAN_STATUSES)[number]
 
 export type Hello = { kind: 'HELLO'; nonce: string; protocolMajor: 1; maxMessageBytes: number; capabilities: string[] }
 export type MainToSidecar =
@@ -64,6 +67,8 @@ export type SidecarToMain =
   | { kind: 'SAFE_ERROR'; nonce: string; code: SafeErrorCode }
   | { kind: 'SHUTDOWN_COMPLETE'; nonce: string }
   | { kind: 'PUBLISH_STATUS'; nonce: string; status: ShareStatus }
+  /** LAN publisher status, independent of the cloud `PUBLISH_STATUS`; only sent when LAN is configured. */
+  | { kind: 'LAN_STATUS'; nonce: string; status: LanStatus }
   /** Validated viewer URL (token only in the fragment); main shows it only in the explicit share UI. */
   | { kind: 'VIEWER_LINK'; nonce: string; url: string }
   /** Validated HTTPS approval URL for `shell.openExternal`; carries only the challenge ID. */
@@ -106,6 +111,7 @@ const SIDECAR_KEYS: Record<SidecarToMain['kind'], KeySpec> = {
   SAFE_ERROR: [['kind', 'nonce', 'code']],
   SHUTDOWN_COMPLETE: [['kind', 'nonce']],
   PUBLISH_STATUS: [['kind', 'nonce', 'status']],
+  LAN_STATUS: [['kind', 'nonce', 'status']],
   VIEWER_LINK: [['kind', 'nonce', 'url']],
   AUTH_REQUIRED: [['kind', 'nonce', 'url']],
   SEAL_REQUEST: [['kind', 'nonce', 'requestId', 'data']],
@@ -317,6 +323,9 @@ export function parseSidecarToMain(raw: unknown, expectedNonce: string): Protoco
       case 'PUBLISH_STATUS':
         if (!SHARE_STATUSES.includes(record.status as ShareStatus)) fail('invalid-field')
         return { kind, nonce, status: record.status as ShareStatus }
+      case 'LAN_STATUS':
+        if (!LAN_STATUSES.includes(record.status as LanStatus)) fail('invalid-field')
+        return { kind, nonce, status: record.status as LanStatus }
       case 'VIEWER_LINK':
         if (typeof record.url !== 'string' || !isViewerUrl(record.url)) fail('invalid-field')
         return { kind, nonce, url: record.url as string }

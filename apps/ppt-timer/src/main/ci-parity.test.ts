@@ -68,6 +68,9 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
     // and their names (viewer/cloud) are the only allowed exceptions to the forbidden-word scan.
     expect(wf).toContain('node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js')
     expect(wf).toContain('dist/main/publisher-sidecar/worker.js')
+    // ISSUE-002 S9c: the sidecar's loopback LAN client ships socket.io-client; only that package family is exempt.
+    expect(wf).toContain('node_modules/socket.io-client/build/cjs/index.js')
+    expect(wf).toContain('socket\\.io-client|socket\\.io-parser|engine\\.io-client|engine\\.io-parser|@socket\\.io')
     expect(wf).toContain('$scanEntries')
     expect(wf).not.toMatch(/\$entries -match \[regex\]::Escape\(\$word\)/)
     // Build-only manifest tooling must not ship inside the packaged app.
@@ -111,6 +114,8 @@ describe('CI command parity for the standalone app (Stage 6)', () => {
     expect(store).toContain('node_modules/@ontime/ppt-bridge/dist-cjs/index.js')
     expect(store).toContain('node_modules/@ontime/presentation-core/dist-cjs/index.js')
     expect(store).toContain('node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js')
+    expect(store).toContain('node_modules/socket.io-client/build/cjs/index.js')
+    expect(store).toContain('socket\\.io-client|socket\\.io-parser|engine\\.io-client|engine\\.io-parser|@socket\\.io')
     expect(store).toContain('dist/main/publisher-sidecar/worker.js')
     expect(store).toContain('$scanEntries')
     // The callback scheme is a manifest extension, not a capability.

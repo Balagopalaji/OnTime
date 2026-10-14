@@ -38,9 +38,12 @@ export type RemoteShareStatus =
   | 'not-configured'
   | 'restarting'
   | 'failed'
+/** LAN publish status next to the cloud one (ISSUE-002 S9c); `off` = not running. */
+export type RemoteShareLanStatus = 'off' | 'connecting' | 'live' | 'retrying' | 'paused' | 'ended' | 'unavailable'
 /** The viewer URL itself never enters the renderer; copy happens in main on an explicit action. */
 /** `busy`: an End/Sign out is in flight; share controls are inert until it settles. */
-export type RemoteShareView = { available: boolean; status: RemoteShareStatus; hasViewerLink: boolean; busy: boolean }
+/** `lanStatus`: present only when LAN publishing is configured; independent of `status`. */
+export type RemoteShareView = { available: boolean; status: RemoteShareStatus; hasViewerLink: boolean; busy: boolean; lanStatus?: RemoteShareLanStatus }
 export type RemoteShareCommand = 'start' | 'stop' | 'end' | 'signOut' | 'copyLink'
 const REMOTE_SHARE_COMMANDS: readonly RemoteShareCommand[] = ['start', 'stop', 'end', 'signOut', 'copyLink']
 

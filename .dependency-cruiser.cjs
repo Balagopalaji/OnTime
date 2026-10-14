@@ -73,9 +73,19 @@ module.exports = {
       severity: 'error',
       comment:
         'apps/ppt-timer may depend only on @ontime/ppt-bridge, @ontime/presentation-core, the pure @ontime/timer-face, @ontime/remote-viewer-contracts, and @ontime/powerpoint-display (ISSUE-002); no rooms/cloud/sync/general-timer/interface contracts.',
-      from: { path: '^apps/ppt-timer(/|$)' },
+      from: { path: '^apps/ppt-timer(/|$)', pathNot: '^apps/ppt-timer/src/main/publisher-sidecar/lan-companion\\.integration\\.test\\.ts$' },
       to: {
         path: '(^@ontime/(?!ppt-bridge(?:/|$)|presentation-core(?:/|$)|timer-face(?:/|$)|remote-viewer-contracts(?:/|$)|powerpoint-display(?:/|$))|firebase|cloud-adapter|local-sync|^companion/|^frontend/|^functions/|socket\\.io|socket\\.io-client|interface-contracts|shared-types|timer-core|lock-view-model)',
+      },
+    },
+    {
+      name: 'ppt-timer-lan-integration-test',
+      severity: 'error',
+      comment:
+        'ISSUE-002 S9c: exactly one ppt-timer test may import Companion source, and only the LAN remote-snapshot hub (so the sidecar LAN client is proven against the real hub). Everything else stays banned for it as for the rest of ppt-timer. (The socket.io-client runtime import in publisher-sidecar/lan-socket.ts is a declared production dependency; node_modules are not part of this graph.)',
+      from: { path: '^apps/ppt-timer/src/main/publisher-sidecar/lan-companion\\.integration\\.test\\.ts$' },
+      to: {
+        path: '(^@ontime/(?!ppt-bridge(?:/|$)|presentation-core(?:/|$)|timer-face(?:/|$)|remote-viewer-contracts(?:/|$)|powerpoint-display(?:/|$))|firebase|cloud-adapter|local-sync|^companion/(?!src/remote-snapshot\\.ts$)|^frontend/|^functions/|interface-contracts|shared-types|timer-core|lock-view-model)',
       },
     },
     {

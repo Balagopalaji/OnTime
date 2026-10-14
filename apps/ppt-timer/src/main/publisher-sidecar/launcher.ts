@@ -22,7 +22,7 @@ type WithoutEnvelope<T> = T extends unknown ? Omit<T, 'nonce' | 'id'> : never
 export type SidecarCommand = WithoutEnvelope<
   Extract<MainToSidecar, { kind: 'SHARE_START' | 'SHARE_STOP' | 'END_SESSION' | 'SIGN_OUT' | 'SNAPSHOT_CANDIDATE' | 'AUTH_CALLBACK' }>
 >
-const EVENT_KINDS = ['SHARE_STATE', 'SAFE_ERROR', 'AUTH_REQUIRED', 'PUBLISH_STATUS', 'VIEWER_LINK'] as const
+const EVENT_KINDS = ['SHARE_STATE', 'SAFE_ERROR', 'AUTH_REQUIRED', 'PUBLISH_STATUS', 'LAN_STATUS', 'VIEWER_LINK'] as const
 export type SidecarEvent = Extract<SidecarToMain, { kind: (typeof EVENT_KINDS)[number] }>
 const isEvent = (message: SidecarToMain): message is SidecarEvent => (EVENT_KINDS as readonly string[]).includes(message.kind)
 export type SendResult = { ok: true } | { ok: false; code: SafeErrorCode }

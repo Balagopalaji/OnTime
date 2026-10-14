@@ -167,6 +167,7 @@ jobs:
             'node_modules/@ontime/ppt-bridge/dist-cjs/index.js',
             'node_modules/@ontime/presentation-core/dist-cjs/index.js',
             'node_modules/@ontime/remote-viewer-contracts/dist-cjs/index.js',
+            'node_modules/socket.io-client/build/cjs/index.js',
             'dist/main/publisher-sidecar/worker.js'
           )
           foreach ($path in $requiredRuntimeFiles) {
@@ -181,9 +182,10 @@ jobs:
 
           # ISSUE-002: the publisher sidecar (dist/main/publisher-sidecar/, which
           # includes the cloud client) and its dependency-free contracts package
-          # legitimately contain "cloud"/"viewer" in their names; scan everything else.
+          # legitimately contain "cloud"/"viewer" in their names; the sidecar's loopback LAN client
+          # ships socket.io-client and its own dependencies (S9c), whose names contain "socket.io"; scan everything else.
           $scanEntries = $entries | Where-Object {
-            $_ -notmatch 'dist/main/publisher-sidecar/' -and $_ -notmatch 'node_modules/@ontime/remote-viewer-contracts/'
+            $_ -notmatch 'dist/main/publisher-sidecar/' -and $_ -notmatch 'node_modules/@ontime/remote-viewer-contracts/' -and $_ -notmatch 'node_modules/(socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser|@socket\.io)/'
           }
           $forbidden = @('companion', 'frontend', 'viewer', 'firebase', 'cloud', 'socket.io', 'functions')
           foreach ($word in $forbidden) {

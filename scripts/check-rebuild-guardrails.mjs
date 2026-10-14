@@ -272,10 +272,14 @@ function checkProductBoundaries() {
     }
   }
 
+  // ISSUE-002 S9c: the one test that proves the sidecar LAN client against the real hub.
+  const lanHubIntegrationTest = 'apps/ppt-timer/src/main/publisher-sidecar/lan-companion.integration.test.ts'
+  const lanHubSpecifier = /^(\.\.\/)+companion\/src\/remote-snapshot$/
   for (const file of trackedUnder('apps/ppt-timer/')) {
     if (!isSourceFile(file)) continue
     const content = read(file)
     for (const specifier of importSpecifiers(content)) {
+      if (file === lanHubIntegrationTest && lanHubSpecifier.test(specifier)) continue
       if (/firebase|cloud-adapter|local-sync|companion/i.test(specifier)) {
         fail(`PPT Timer must stay standalone: ${file} -> ${specifier}`)
       }

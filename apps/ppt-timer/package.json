@@ -20,7 +20,8 @@
   "dependencies": {
     "@ontime/ppt-bridge": "0.0.0",
     "@ontime/presentation-core": "0.0.0",
-    "@ontime/remote-viewer-contracts": "0.0.0"
+    "@ontime/remote-viewer-contracts": "0.0.0",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",

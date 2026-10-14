@@ -6,10 +6,11 @@
  * itself goes to the clipboard on an explicit copy.
  */
 import type { PowerPointHeadlineMode, PowerPointTimingMode, PowerPointViewState } from '@ontime/presentation-core'
-import type { RemoteShareCommand, RemoteShareStatus, RemoteShareView } from '../shared/ipc-contract.js'
+import type { RemoteShareCommand, RemoteShareLanStatus, RemoteShareStatus, RemoteShareView } from '../shared/ipc-contract.js'
 import { isAllowedApprovalUrl, parseAuthCallbackUrl } from './publisher-sidecar/approval.js'
 import { toSnapshotCandidate } from './publisher-sidecar/candidate-adapter.js'
 import { parseCloudConfig, type CloudConfig } from './publisher-sidecar/cloud-client.js'
+import { parseLanConfig, type LanConfig } from './publisher-sidecar/lan-config.js'
 import type { SidecarConnection, SidecarEvent, SidecarLauncher } from './publisher-sidecar/launcher.js'
 import { createPublisherLifecycle } from './publisher-sidecar/lifecycle.js'
 
@@ -44,6 +45,17 @@ export function readRemoteShareConfig(env: Record<string, string | undefined>): 
   return cloud ? { cloud, webOrigin: origin } : null
 }
 
+/**
+ * Non-secret LAN target from the environment: `ONTIME_LAN_ROOM_ID` turns LAN
+ * publishing on; `ONTIME_COMPANION_URL` (loopback only) defaults to the local
+ * Companion. Anything invalid → off (the sidecar re-validates the same JSON).
+ */
+export function readLanConfig(env: Record<string, string | undefined>): LanConfig | null {
+  const roomId = env.ONTIME_LAN_ROOM_ID?.trim()
+  if (!roomId) return null
+  return parseLanConfig({ companionUrl: env.ONTIME_COMPANION_URL || 'http://127.0.0.1:4000', roomId })
+}
+
 const ACTIVE: ReadonlySet<RemoteShareStatus> = new Set(['connecting', 'awaiting-approval', 'live', 'retrying', 'restarting'])
 const FINAL: Record<'END_SESSION' | 'SIGN_OUT', ReadonlySet<string>> = {
   END_SESSION: new Set(['ended', 'paused']),
@@ -58,11 +70,14 @@ export function createRemoteShare(options: {
   openExternal(url: string): Promise<void>
   copyToClipboard(text: string): Promise<void>
   onChange(): void
+  /** LAN publishing is configured (main passed `--lan-config` to the sidecar); adds `lanStatus` to the view. */
+  lan?: boolean
   now?: () => number
 }) {
   const now = options.now ?? Date.now
   let status: RemoteShareStatus = 'off'
   let viewerUrl: string | null = null
+  let lanStatus: RemoteShareLanStatus = 'off'
   /** Short-lived sidecar running End/Sign out while nothing is shared. */
   let temporary: SidecarConnection | null = null
   /** The in-flight End/Sign out: later final commands join it, and other share controls are inert. */
@@ -72,6 +87,8 @@ export function createRemoteShare(options: {
   const set = (next: RemoteShareStatus) => {
     if (next === status) return
     status = next
+    // The LAN badge follows the sidecar while it runs; once the share is not active it must not claim "live".
+    if (!ACTIVE.has(next)) lanStatus = next === 'paused' || next === 'ended' ? next : 'off'
     options.onChange()
   }
 
@@ -82,6 +99,10 @@ export function createRemoteShare(options: {
     }
     if (event.kind === 'VIEWER_LINK') {
       viewerUrl = event.url
+      return options.onChange()
+    }
+    if (event.kind === 'LAN_STATUS') {
+      lanStatus = event.status
       return options.onChange()
     }
     if (event.kind !== 'PUBLISH_STATUS') return
@@ -172,7 +193,13 @@ export function createRemoteShare(options: {
   }
 
   return {
-    view: (): RemoteShareView => ({ available: options.config !== null, status, hasViewerLink: viewerUrl !== null, busy: finalPending !== null }),
+    view: (): RemoteShareView => ({
+      available: options.config !== null,
+      status,
+      hasViewerLink: viewerUrl !== null,
+      busy: finalPending !== null,
+      ...(options.lan ? { lanStatus } : {}),
+    }),
     async dispatch(command: RemoteShareCommand): Promise<void> {
       if (!options.config) return set('not-configured')
       switch (command) {

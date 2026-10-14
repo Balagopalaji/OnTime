@@ -1,7 +1,7 @@
 import type { PowerPointViewState } from '@ontime/presentation-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SidecarCommand, SidecarConnection, SidecarEvent } from './publisher-sidecar/launcher.js'
-import { COMMAND_TIMEOUT_MS, carriesCallbackUrl, createRemoteShare, readRemoteShareConfig, type RemoteShareConfig } from './remote-share.js'
+import { COMMAND_TIMEOUT_MS, carriesCallbackUrl, createRemoteShare, readLanConfig, readRemoteShareConfig, type RemoteShareConfig } from './remote-share.js'
 
 const NONCE = 'n'.repeat(32)
 const CONFIG: RemoteShareConfig = {
@@ -39,7 +39,7 @@ function fakeLauncher() {
   return { launcher, connections }
 }
 
-function setup(config: RemoteShareConfig | null = CONFIG) {
+function setup(config: RemoteShareConfig | null = CONFIG, lan = false) {
   const { launcher, connections } = fakeLauncher()
   const opened: string[] = []
   const copied: string[] = []
@@ -50,6 +50,7 @@ function setup(config: RemoteShareConfig | null = CONFIG) {
     openExternal: async (url) => void opened.push(url),
     copyToClipboard: async (text) => void copied.push(text),
     onChange,
+    lan,
     now: () => 5_000,
   })
   const kinds = (index: number) => connections[index].sent.map((c) => c.kind)
@@ -336,5 +337,75 @@ describe('remote share config', () => {
     [{ ONTIME_FIREBASE_PROJECT_ID: 'ontime-prod' }, null],
   ])('reads %j', (input, expected) => {
     expect(readRemoteShareConfig(input)).toEqual(expected)
+  })
+})
+
+describe('LAN status in the share view (ISSUE-002 S9c)', () => {
+  it('has no LAN field at all when LAN publishing is not configured', async () => {
+    // Defect: the renderer shows a LAN row for a feature that is off, or an existing view shape changes.
+    const { share, connections } = setup()
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'LAN_STATUS', status: 'live' })
+    expect(share.view()).not.toHaveProperty('lanStatus')
+  })
+
+  it('reports the sidecar LAN status next to, never instead of, the cloud status', async () => {
+    // Defect: a LAN status overwrites the cloud status or the viewer link, or ends the share.
+    const { share, connections, kinds } = setup(CONFIG, true)
+    expect(share.view()).toEqual({ available: true, status: 'off', hasViewerLink: false, busy: false, lanStatus: 'off' })
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'live' })
+    connections[0].emit({ kind: 'VIEWER_LINK', url: VIEWER })
+    connections[0].emit({ kind: 'LAN_STATUS', status: 'retrying' })
+    expect(share.view()).toEqual({ available: true, status: 'live', hasViewerLink: true, busy: false, lanStatus: 'retrying' })
+    connections[0].emit({ kind: 'LAN_STATUS', status: 'unavailable' })
+    expect(share.view()).toMatchObject({ status: 'live', hasViewerLink: true, lanStatus: 'unavailable' })
+    expect(kinds(0)).toEqual(['SHARE_START'])
+    expect(connections[0].shutdowns).toBe(0)
+  })
+
+  it('Stop shows LAN paused and a completed End shows LAN ended', async () => {
+    // Defect: a stale "live" LAN badge after the operator stopped or ended sharing.
+    const { share, connections } = setup(CONFIG, true)
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'live' })
+    connections[0].emit({ kind: 'LAN_STATUS', status: 'live' })
+    await share.dispatch('stop')
+    expect(share.view()).toMatchObject({ status: 'paused', lanStatus: 'paused' })
+    await share.dispatch('start')
+    connections[1].emit({ kind: 'PUBLISH_STATUS', status: 'live' })
+    connections[1].emit({ kind: 'LAN_STATUS', status: 'live' })
+    const ending = share.dispatch('end')
+    await flush()
+    connections[1].emit({ kind: 'LAN_STATUS', status: 'ended' })
+    connections[1].emit({ kind: 'PUBLISH_STATUS', status: 'ended' })
+    await ending
+    expect(share.view()).toMatchObject({ status: 'ended', lanStatus: 'ended' })
+  })
+
+  it('a cloud terminal state that releases the sidecar leaves LAN off, not stale', async () => {
+    // Defect: the badge claims LAN is live after the sidecar process was released.
+    const { share, connections } = setup(CONFIG, true)
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'LAN_STATUS', status: 'live' })
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'approval-failed' })
+    await flush()
+    expect(share.view()).toMatchObject({ status: 'approval-failed', lanStatus: 'off' })
+  })
+})
+
+describe('LAN config from the environment', () => {
+  it('is off unless a room is configured', () => {
+    expect(readLanConfig({})).toBeNull()
+    expect(readLanConfig({ ONTIME_COMPANION_URL: 'http://127.0.0.1:4000' })).toBeNull()
+  })
+
+  it.each([
+    [{ ONTIME_LAN_ROOM_ID: 'room-1' }, { companionUrl: 'http://127.0.0.1:4000', roomId: 'room-1' }],
+    [{ ONTIME_LAN_ROOM_ID: 'room-1', ONTIME_COMPANION_URL: 'http://localhost:4010' }, { companionUrl: 'http://localhost:4010', roomId: 'room-1' }],
+    [{ ONTIME_LAN_ROOM_ID: 'room-1', ONTIME_COMPANION_URL: 'http://192.168.1.9:4000' }, null],
+    [{ ONTIME_LAN_ROOM_ID: '  ' }, null],
+  ])('reads %j', (env, expected) => {
+    expect(readLanConfig(env)).toEqual(expected)
   })
 })
