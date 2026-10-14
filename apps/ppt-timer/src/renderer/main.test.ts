@@ -1084,9 +1084,9 @@ describe('accessible announcements', () => {
 })
 
 describe('remote share row (ISSUE-002 S6c)', () => {
-  const shared = (status: NonNullable<AppView['remoteShare']>['status'], hasViewerLink = false): AppView => ({
+  const shared = (status: NonNullable<AppView['remoteShare']>['status'], hasViewerLink = false, busy = false): AppView => ({
     ...twoVideoView([focusPlaying]),
-    remoteShare: { available: true, status, hasViewerLink },
+    remoteShare: { available: true, status, hasViewerLink, busy },
   })
 
   it('renders an explicit share control only when the build has a remote-share surface', () => {
@@ -1104,7 +1104,7 @@ describe('remote share row (ISSUE-002 S6c)', () => {
     expect(root.querySelector('#remote-share-status')?.textContent).toBe('Not shared')
     ;(root.querySelector('#remote-share-toggle') as HTMLButtonElement).click()
     expect(dispatch).toHaveBeenCalledWith({ type: 'remoteShare', command: 'start' })
-    renderApp(root, { ...shared('off'), remoteShare: { available: false, status: 'off', hasViewerLink: false } }, vi.fn(), 0, openDrawer)
+    renderApp(root, { ...shared('off'), remoteShare: { available: false, status: 'off', hasViewerLink: false, busy: false } }, vi.fn(), 0, openDrawer)
     expect(root.querySelector('.remote-share')).toBeNull()
   })
 
@@ -1133,6 +1133,17 @@ describe('remote share row (ISSUE-002 S6c)', () => {
     const root = document.createElement('div')
     renderApp(root, shared(status), vi.fn(), 0, openDrawer)
     expect((root.querySelector('#remote-share-end') as HTMLButtonElement).disabled).toBe(disabled)
+  })
+
+  it('disables the share buttons while an End/Sign out is pending', () => {
+    // Defect: a Stop/Share click during End detached the sidecar and lost the final status.
+    const root = document.createElement('div')
+    renderApp(root, shared('live', true, true), vi.fn(), 0, openDrawer)
+    const disabled = (id: string) => (root.querySelector(id) as HTMLButtonElement).disabled
+    expect(['#remote-share-toggle', '#remote-share-end', '#remote-share-signout'].map(disabled)).toEqual([true, true, true])
+    expect(disabled('#remote-share-copy')).toBe(false)
+    renderApp(root, shared('live', true, false), vi.fn(), 0, openDrawer)
+    expect(['#remote-share-toggle', '#remote-share-end', '#remote-share-signout'].map(disabled)).toEqual([false, false, false])
   })
 
   it('updates the share row in place on poll pushes, keeping keyboard focus', () => {

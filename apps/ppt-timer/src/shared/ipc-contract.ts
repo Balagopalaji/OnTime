@@ -39,7 +39,8 @@ export type RemoteShareStatus =
   | 'restarting'
   | 'failed'
 /** The viewer URL itself never enters the renderer; copy happens in main on an explicit action. */
-export type RemoteShareView = { available: boolean; status: RemoteShareStatus; hasViewerLink: boolean }
+/** `busy`: an End/Sign out is in flight; share controls are inert until it settles. */
+export type RemoteShareView = { available: boolean; status: RemoteShareStatus; hasViewerLink: boolean; busy: boolean }
 export type RemoteShareCommand = 'start' | 'stop' | 'end' | 'signOut' | 'copyLink'
 const REMOTE_SHARE_COMMANDS: readonly RemoteShareCommand[] = ['start', 'stop', 'end', 'signOut', 'copyLink']
 

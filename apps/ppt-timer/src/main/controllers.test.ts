@@ -68,6 +68,19 @@ describe('dispatch routes actions to effects + persistence', () => {
     expect(deps.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ timingMode: 'elapsed' }))
   })
 
+  it.each([
+    ['setTimingMode', { type: 'setTimingMode', mode: 'elapsed' }, 'timingMode', 'setTimingMode'],
+    ['setHeadlineMode', { type: 'setHeadlineMode', mode: 'latest-started' }, 'headlineMode', 'setHeadlineMode'],
+  ] as const)('%s persists before the host republishes so onView observers read the new mode', async (_name, action, field, hostMethod) => {
+    // Defect: the host publishes synchronously, so remote share was offered the previous mode.
+    let settings = { ...DEFAULT_SETTINGS }
+    const seen: unknown[] = []
+    const deps = makeDeps({ getSettings: () => settings, saveSettings: vi.fn(async (next) => void (settings = next)) })
+    vi.mocked(deps.host[hostMethod]).mockImplementation(() => void seen.push(settings[field]))
+    await createAppControllers(deps).dispatch(action)
+    expect(seen).toEqual([action.mode])
+  })
+
   it('setHeadlineMode reprojects the host and persists', async () => {
     const deps = makeDeps()
     await createAppControllers(deps).dispatch({ type: 'setHeadlineMode', mode: 'latest-started' })
@@ -168,10 +181,10 @@ describe('dispatch routes actions to effects + persistence', () => {
 
   it('passes the remote-share view through and routes share commands only to the share controller', async () => {
     // Defect: share actions are dropped, or the view omits the share status the operator relies on.
-    const remoteShare = { view: () => ({ available: true, status: 'live' as const, hasViewerLink: true }), dispatch: vi.fn(async () => undefined) }
+    const remoteShare = { view: () => ({ available: true, status: 'live' as const, hasViewerLink: true, busy: false }), dispatch: vi.fn(async () => undefined) }
     const deps = makeDeps({ remoteShare })
     const c = createAppControllers(deps)
-    expect(c.getView().remoteShare).toEqual({ available: true, status: 'live', hasViewerLink: true })
+    expect(c.getView().remoteShare).toEqual({ available: true, status: 'live', hasViewerLink: true, busy: false })
     await c.dispatch({ type: 'remoteShare', command: 'end' })
     expect(remoteShare.dispatch).toHaveBeenCalledWith('end')
     expect(createAppControllers(makeDeps()).getView()).not.toHaveProperty('remoteShare')

@@ -89,10 +89,12 @@ export function remoteShareModel(share: RemoteShareView) {
   return {
     toggleText: sharing ? 'Stop' : 'Share',
     toggleCommand: (sharing ? 'stop' : 'start') as RemoteShareCommand,
+    // An End/Sign out in flight owns the sidecar; other share actions would race it.
+    busy: share.busy,
     statusText: SHARE_STATUS_TEXT[share.status],
     canCopy: share.hasViewerLink,
     // A sealed session may outlive the app; the sidecar reports `ended` when there is none.
-    canEnd: share.status !== 'ended' && share.status !== 'signed-out',
+    canEnd: !share.busy && share.status !== 'ended' && share.status !== 'signed-out',
   }
 }
 
@@ -124,6 +126,7 @@ export function patchRemoteShare(scope: ParentNode, share: RemoteShareView): voi
   const toggle = scope.querySelector<HTMLButtonElement>('#remote-share-toggle')
   if (toggle) {
     toggle.textContent = model.toggleText
+    toggle.disabled = model.busy
     toggle.dataset.command = model.toggleCommand
     toggle.title = model.toggleCommand === 'start' ? 'Share this timer to remote viewers' : 'Stop sharing (viewers keep the link)'
     toggle.setAttribute('aria-label', toggle.title)
@@ -135,6 +138,8 @@ export function patchRemoteShare(scope: ParentNode, share: RemoteShareView): voi
   if (copy) copy.disabled = !model.canCopy
   const end = scope.querySelector<HTMLButtonElement>('#remote-share-end')
   if (end) end.disabled = !model.canEnd
+  const signOut = scope.querySelector<HTMLButtonElement>('#remote-share-signout')
+  if (signOut) signOut.disabled = model.busy
 }
 
 /** Window chrome stays available independently of either tray stage. */

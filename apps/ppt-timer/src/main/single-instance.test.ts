@@ -42,7 +42,7 @@ describe('single-instance activation', () => {
   })
 
   it('registers one second-instance handler after acquiring the lock', () => {
-    const listeners: Array<() => void> = []
+    const listeners: Array<(event: unknown, argv: string[]) => void> = []
     const onSecondInstance = vi.fn()
     const app: SingleInstanceApp = {
       requestSingleInstanceLock: () => true,
@@ -53,8 +53,26 @@ describe('single-instance activation', () => {
     const activation = acquireSingleInstanceActivation(app, onSecondInstance)
     expect(activation).not.toBeNull()
     expect(listeners).toHaveLength(1)
-    listeners[0]!()
+    listeners[0]!({}, ['app.exe'])
     expect(onSecondInstance).toHaveBeenCalledOnce()
+  })
+
+  it('records but does not activate for a second launch the guard marks as a background callback', () => {
+    // Defect: the browser auth callback relaunch stole focus from a PowerPoint slideshow.
+    const listeners: Array<(event: unknown, argv: string[]) => void> = []
+    const onSecondInstance = vi.fn()
+    const app: SingleInstanceApp = { requestSingleInstanceLock: () => true, quit: vi.fn(), on: (_event, listener) => { listeners.push(listener) } }
+    const activation = acquireSingleInstanceActivation(app, onSecondInstance, (argv) => argv.includes('cb://x'))!
+    const existing = fakeWindow({ minimized: true, visible: false })
+    activation.windowReady(existing.window)
+    existing.calls.length = 0
+
+    listeners[0]!({}, ['app.exe', 'cb://x'])
+    expect(onSecondInstance).toHaveBeenCalledOnce()
+    expect(existing.calls).toEqual([])
+
+    listeners[0]!({}, ['app.exe'])
+    expect(existing.calls).toEqual(['restore', 'focus'])
   })
 
   it('restores and focuses the existing minimized window', () => {

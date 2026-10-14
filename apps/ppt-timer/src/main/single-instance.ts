@@ -24,7 +24,7 @@ export type SingleInstanceActivation = {
 export type SingleInstanceApp = {
   requestSingleInstanceLock(): boolean
   quit(): void
-  on(event: 'second-instance', listener: () => void): unknown
+  on(event: 'second-instance', listener: (event: unknown, argv: string[]) => void): unknown
 }
 
 function activate(window: ActivatableWindow): void {
@@ -62,15 +62,17 @@ export function createSingleInstanceActivation(): SingleInstanceActivation {
 export function acquireSingleInstanceActivation(
   app: SingleInstanceApp,
   onSecondInstance: () => void,
+  /** Launches that must not take focus (e.g. a browser auth-callback relaunch over a slideshow). */
+  isBackgroundLaunch: (argv: readonly string[]) => boolean = () => false,
 ): SingleInstanceActivation | null {
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return null
   }
   const activation = createSingleInstanceActivation()
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     onSecondInstance()
-    activation.requestActivation()
+    if (!isBackgroundLaunch(argv ?? [])) activation.requestActivation()
   })
   return activation
 }

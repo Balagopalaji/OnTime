@@ -1,7 +1,7 @@
 import type { PowerPointViewState } from '@ontime/presentation-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SidecarCommand, SidecarConnection, SidecarEvent } from './publisher-sidecar/launcher.js'
-import { COMMAND_TIMEOUT_MS, createRemoteShare, readRemoteShareConfig, type RemoteShareConfig } from './remote-share.js'
+import { COMMAND_TIMEOUT_MS, carriesCallbackUrl, createRemoteShare, readRemoteShareConfig, type RemoteShareConfig } from './remote-share.js'
 
 const NONCE = 'n'.repeat(32)
 const CONFIG: RemoteShareConfig = {
@@ -15,7 +15,7 @@ const modes = { timingMode: 'remaining', headlineMode: 'longest-remaining' } as 
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
 type EventInput = SidecarEvent extends infer E ? (E extends unknown ? Omit<E, 'nonce'> : never) : never
-type Fake = SidecarConnection & { sent: SidecarCommand[]; emit(event: EventInput): void; exit(): void; shutdowns: number }
+type Fake = SidecarConnection & { sent: SidecarCommand[]; emit(event: EventInput): void; exit(): void; shutdowns: number; gate?: Promise<void> }
 function fakeLauncher() {
   const connections: Fake[] = []
   const launcher = {
@@ -29,7 +29,7 @@ function fakeLauncher() {
         onEvent: (listener) => void listeners.push(listener),
         onExit: (listener) => void exits.push(listener),
         exit: () => exits.forEach((l) => l('exited')),
-        shutdown: async () => (connection.shutdowns++, 'clean'),
+        shutdown: async () => (connection.shutdowns++, await connection.gate, 'clean'),
         emit: (event) => listeners.forEach((l) => l({ ...event, nonce: NONCE } as SidecarEvent)),
       }
       connections.push(connection)
@@ -63,7 +63,7 @@ describe('remote share controller (main process)', () => {
     const { share, connections, kinds } = setup()
     share.offer(noSlideshow, modes)
     await share.dispatch('start')
-    expect(share.view()).toEqual({ available: true, status: 'connecting', hasViewerLink: false })
+    expect(share.view()).toEqual({ available: true, status: 'connecting', hasViewerLink: false, busy: false })
     connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'live' })
     share.offer(noSlideshow, modes)
     await flush()
@@ -122,7 +122,7 @@ describe('remote share controller (main process)', () => {
     connections[0].emit({ kind: 'VIEWER_LINK', url: VIEWER })
     await share.dispatch('stop')
     expect(kinds(0)).toEqual(['SHARE_START', 'SHARE_STOP'])
-    expect(share.view()).toEqual({ available: true, status: 'paused', hasViewerLink: true })
+    expect(share.view()).toEqual({ available: true, status: 'paused', hasViewerLink: true, busy: false })
   })
 
   it('end while sharing waits for the sidecar to end the session, then releases it', async () => {
@@ -134,7 +134,7 @@ describe('remote share controller (main process)', () => {
     connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'ended' })
     await ending
     expect(kinds(0)).toEqual(['SHARE_START', 'END_SESSION', 'SHARE_STOP'])
-    expect(share.view()).toEqual({ available: true, status: 'ended', hasViewerLink: false })
+    expect(share.view()).toEqual({ available: true, status: 'ended', hasViewerLink: false, busy: false })
   })
 
   it('sign-out when not sharing runs on a short-lived sidecar', async () => {
@@ -201,6 +201,108 @@ describe('remote share controller (main process)', () => {
     expect(share.view().status).toBe('ended')
   })
 
+  it('ignores Stop while End waits on the live sidecar so the final status still lands', async () => {
+    // Defect: Stop detaches the connection, the ended event is dropped, and End hangs until the timeout.
+    const { share, connections, kinds } = setup()
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'live' })
+    const ending = share.dispatch('end')
+    await flush()
+    expect(share.view().busy).toBe(true)
+    await share.dispatch('stop')
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'ended' })
+    await ending
+    expect(kinds(0)).toEqual(['SHARE_START', 'END_SESSION', 'SHARE_STOP'])
+    expect(share.view()).toEqual({ available: true, status: 'ended', hasViewerLink: false, busy: false })
+  })
+
+  it('runs a repeated End/Sign out as one command while one is pending', async () => {
+    // Defect: two short-lived sidecars; the first waits out the timeout and shows a false "failed".
+    const { share, connections, kinds } = setup()
+    const first = share.dispatch('end')
+    const second = share.dispatch('end')
+    const third = share.dispatch('signOut')
+    await flush()
+    expect(connections).toHaveLength(1)
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'ended' })
+    await Promise.all([first, second, third])
+    expect(kinds(0)).toEqual(['END_SESSION'])
+    expect(share.view().status).toBe('ended')
+  })
+
+  it('does not resume the session being ended when the live sidecar crashes during End', async () => {
+    // Defect: the lifecycle respawns it with SHARE_START and End waits out the timeout.
+    vi.useFakeTimers()
+    const { share, connections, kinds } = setup()
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'live' })
+    const ending = share.dispatch('end')
+    await vi.advanceTimersByTimeAsync(0)
+    connections[0].exit()
+    await ending
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(connections).toHaveLength(1)
+    expect(kinds(0)).toEqual(['SHARE_START', 'END_SESSION'])
+    expect(share.view()).toMatchObject({ status: 'failed', busy: false })
+  })
+
+  it('fails a short-lived End promptly when its sidecar exits', async () => {
+    vi.useFakeTimers()
+    const { share, connections } = setup()
+    const ending = share.dispatch('end')
+    await vi.advanceTimersByTimeAsync(0)
+    connections[0].exit()
+    await ending
+    expect(share.view()).toMatchObject({ status: 'failed', busy: false })
+  })
+
+  it('Stop only pauses an active share', async () => {
+    // Defect: Stop from ended/signed-out/off rewrote the status to "paused".
+    const { share, connections } = setup()
+    await share.dispatch('stop')
+    expect(share.view().status).toBe('off')
+    await share.dispatch('start')
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'ended' })
+    await flush()
+    await share.dispatch('stop')
+    expect(share.view().status).toBe('ended')
+  })
+
+  it.each([
+    ['live', async (share: ReturnType<typeof setup>['share'], connections: Fake[]) => { await share.dispatch('start'); connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'live' }) }],
+    ['connecting', async (share: ReturnType<typeof setup>['share']) => { await share.dispatch('start') }],
+  ])('shutdown waits for the %s sidecar to close', async (_label, arrange) => {
+    const { share, connections } = setup()
+    await arrange(share, connections)
+    let release!: () => void
+    connections[0].gate = new Promise<void>((resolve) => (release = resolve))
+    let done = false
+    const closing = share.shutdown(1_000).then((result) => ((done = true), result))
+    await flush()
+    expect(done).toBe(false)
+    release()
+    expect(await closing).toBe('clean')
+    expect(connections[0].shutdowns).toBe(1)
+  })
+
+  it('shutdown waits for a short-lived End sidecar too', async () => {
+    // Defect: quitting during End/Sign out returned before the command sidecar was closed.
+    const { share, connections } = setup()
+    const ending = share.dispatch('end')
+    await flush()
+    let release!: () => void
+    connections[0].gate = new Promise<void>((resolve) => (release = resolve))
+    let done = false
+    const closing = share.shutdown(1_000).then(() => void (done = true))
+    await flush()
+    expect(done).toBe(false)
+    release()
+    await closing
+    expect(connections[0].shutdowns).toBe(1)
+    connections[0].emit({ kind: 'PUBLISH_STATUS', status: 'ended' })
+    await ending
+  })
+
   it('waits longer than the sidecar worst case (credential refresh + callable) before giving up', () => {
     expect(COMMAND_TIMEOUT_MS).toBeGreaterThanOrEqual(35_000)
   })
@@ -208,8 +310,19 @@ describe('remote share controller (main process)', () => {
   it('reports not-configured without spawning anything when the build has no cloud target', async () => {
     const { share, connections } = setup(null)
     await share.dispatch('start')
-    expect(share.view()).toEqual({ available: false, status: 'not-configured', hasViewerLink: false })
+    expect(share.view()).toEqual({ available: false, status: 'not-configured', hasViewerLink: false, busy: false })
     expect(connections).toEqual([])
+  })
+})
+
+describe('callback activation guard', () => {
+  it.each([
+    [['app.exe', 'downstage-ppt-timer://publisher-auth?challenge=x&code=y'], true],
+    [['app.exe', 'DOWNSTAGE-PPT-TIMER://publisher-auth'], true],
+    [['app.exe', '--flag', 'C:\\deck.pptx'], false],
+    [['app.exe'], false],
+  ])('%j → %s', (argv, expected) => {
+    expect(carriesCallbackUrl(argv)).toBe(expected)
   })
 })
 

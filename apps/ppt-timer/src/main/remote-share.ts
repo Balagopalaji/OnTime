@@ -20,6 +20,9 @@ export const CALLBACK_SCHEME = 'downstage-ppt-timer'
  */
 export const COMMAND_TIMEOUT_MS = 40_000
 
+/** True when a launch's argv carries the app callback scheme (relaunch by the browser, not the operator). */
+export const carriesCallbackUrl = (argv: readonly string[]): boolean => argv.some((arg) => arg.toLowerCase().startsWith(`${CALLBACK_SCHEME}://`))
+
 export type RemoteShareConfig = { cloud: CloudConfig; webOrigin: string }
 
 /** Non-secret cloud target from the environment; incomplete → sharing unavailable (no defaults that could leak). */
@@ -62,7 +65,8 @@ export function createRemoteShare(options: {
   let viewerUrl: string | null = null
   /** Short-lived sidecar running End/Sign out while nothing is shared. */
   let temporary: SidecarConnection | null = null
-  let finalPending = false
+  /** The in-flight End/Sign out: later final commands join it, and other share controls are inert. */
+  let finalPending: Promise<void> | null = null
   const statusListeners = new Set<(status: string) => void>()
 
   const set = (next: RemoteShareStatus) => {
@@ -109,46 +113,66 @@ export function createRemoteShare(options: {
     void lifecycle.stopSharing()
   }
 
-  /** Send a final command on the live sidecar, or a short-lived one, and wait for its outcome. */
+  /**
+   * Send a final command on the live sidecar, or a short-lived one, and wait for its outcome.
+   * If that sidecar exits or refuses, fail fast with `failed` instead of retrying: the lifecycle's
+   * respawn is cancelled (it would resume the session being ended) and the operator can run End again.
+   */
   async function finalCommand(kind: 'END_SESSION' | 'SIGN_OUT') {
-    finalPending = true
-    try {
-      let connection = lifecycle.connection()
-      const shortLived = connection === null
-      if (shortLived) {
-        await lifecycle.stopSharing()
-        connection = await options.launcher.start().catch(() => null)
-        if (!connection) return set('failed')
-        temporary = connection
-        attach(connection)
-      }
-      const completed = new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => finish(false), COMMAND_TIMEOUT_MS)
-        function finish(ok: boolean) {
-          clearTimeout(timer)
-          statusListeners.delete(listener)
-          resolve(ok)
-        }
-        const listener = (next: string) => FINAL[kind].has(next) && finish(true)
-        statusListeners.add(listener)
-      })
-      await (connection as SidecarConnection).send({ kind })
-      const ok = await completed
-      if (shortLived) {
-        temporary = null
-        await (connection as SidecarConnection).shutdown(2_000)
-      } else if (lifecycle.connection() === connection) {
-        release()
-      }
-      // No final status: say so rather than leaving a stale "Live".
-      if (!ok) set(shortLived ? 'failed' : 'paused')
-    } finally {
-      finalPending = false
+    let connection = lifecycle.connection()
+    const shortLived = connection === null
+    if (shortLived) {
+      await lifecycle.stopSharing()
+      connection = await options.launcher.start().catch(() => null)
+      if (!connection) return set('failed')
+      temporary = connection
+      attach(connection)
     }
+    const target = connection as SidecarConnection
+    let settled = false
+    let finish!: (outcome: 'ok' | 'timeout' | 'lost') => void
+    const completed = new Promise<'ok' | 'timeout' | 'lost'>((resolve) => {
+      const timer = setTimeout(() => finish('timeout'), COMMAND_TIMEOUT_MS)
+      const listener = (next: string) => FINAL[kind].has(next) && finish('ok')
+      finish = (outcome) => {
+        settled = true
+        clearTimeout(timer)
+        statusListeners.delete(listener)
+        resolve(outcome)
+      }
+      statusListeners.add(listener)
+    })
+    target.onExit(() => {
+      if (settled) return
+      if (!shortLived) void lifecycle.stopSharing()
+      finish('lost')
+    })
+    if (!(await target.send({ kind })).ok && !settled) finish('lost')
+    const outcome = await completed
+    if (shortLived) {
+      temporary = null
+      await target.shutdown(2_000)
+    } else if (lifecycle.connection() === target) {
+      release()
+    }
+    // No final status: say so rather than leaving a stale "Live".
+    if (outcome === 'lost') set('failed')
+    else if (outcome === 'timeout') set(shortLived ? 'failed' : 'paused')
+  }
+
+  /** Single-flight: a repeated final command joins the pending one instead of spawning another sidecar. */
+  function runFinal(kind: 'END_SESSION' | 'SIGN_OUT'): Promise<void> {
+    if (finalPending) return finalPending
+    finalPending = finalCommand(kind).finally(() => {
+      finalPending = null
+      options.onChange()
+    })
+    options.onChange()
+    return finalPending
   }
 
   return {
-    view: (): RemoteShareView => ({ available: options.config !== null, status, hasViewerLink: viewerUrl !== null }),
+    view: (): RemoteShareView => ({ available: options.config !== null, status, hasViewerLink: viewerUrl !== null, busy: finalPending !== null }),
     async dispatch(command: RemoteShareCommand): Promise<void> {
       if (!options.config) return set('not-configured')
       switch (command) {
@@ -157,12 +181,14 @@ export function createRemoteShare(options: {
           set('connecting')
           return lifecycle.startSharing()
         case 'stop':
-          set('paused')
+          // A pending End/Sign out owns the connection; detaching it would drop the final status.
+          if (finalPending) return
+          if (ACTIVE.has(status)) set('paused')
           return lifecycle.stopSharing()
         case 'end':
-          return finalCommand('END_SESSION')
+          return runFinal('END_SESSION')
         case 'signOut':
-          return finalCommand('SIGN_OUT')
+          return runFinal('SIGN_OUT')
         case 'copyLink':
           if (viewerUrl) await options.copyToClipboard(viewerUrl)
           return
@@ -181,9 +207,9 @@ export function createRemoteShare(options: {
       void live()?.send({ kind: 'AUTH_CALLBACK', ...callback })
       return true
     },
-    shutdown: (deadlineMs: number) => {
-      void temporary?.shutdown(deadlineMs)
-      return lifecycle.shutdown(deadlineMs)
+    shutdown: async (deadlineMs: number) => {
+      const [result] = await Promise.all([lifecycle.shutdown(deadlineMs), temporary?.shutdown(deadlineMs)])
+      return result
     },
   }
 }

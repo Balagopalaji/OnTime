@@ -25,6 +25,7 @@ import { acquireSingleInstanceActivation } from './single-instance.js'
 import { selectLaunchTargets } from './launch-policy.js'
 import { presentationSafeWindowOptions } from './presentation-safe-clicks.js'
 import { installRemoteShare } from './remote-share-electron.js'
+import { carriesCallbackUrl } from './remote-share.js'
 import { COMPACT_WINDOW_ASPECT_RATIO, MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
@@ -66,7 +67,7 @@ async function main(): Promise<void> {
   const diagnostics = new DiagnosticsBuffer()
   diagnostics.push({ kind: 'app_launch' })
   const startupElapsedMs = (): number => Math.max(0, Math.round(performance.now() - startupStartedAt))
-  const singleInstance = acquireSingleInstanceActivation(app, () => diagnostics.push({ kind: 'second_instance' }))
+  const singleInstance = acquireSingleInstanceActivation(app, () => diagnostics.push({ kind: 'second_instance' }), carriesCallbackUrl)
   if (!singleInstance) return
 
   // Opt-in Windows overlay diagnostics (ISSUE-001 Presenter View faults). When

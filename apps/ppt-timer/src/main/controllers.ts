@@ -73,13 +73,14 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
     const settings = deps.getSettings()
     switch (action.type) {
       case 'setTimingMode': {
-        deps.host.setTimingMode(action.mode)
+        // Persist first: the host republishes synchronously and observers read settings.
         persist(withSettingsField(settings, { timingMode: action.mode }))
+        deps.host.setTimingMode(action.mode)
         return
       }
       case 'setHeadlineMode': {
-        deps.host.setHeadlineMode(action.mode)
         persist(withSettingsField(settings, { headlineMode: action.mode }))
+        deps.host.setHeadlineMode(action.mode)
         return
       }
       case 'setAlwaysOnTop': {
