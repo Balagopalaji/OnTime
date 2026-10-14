@@ -2,7 +2,7 @@
 Type: Progress
 Status: current
 Owner: Loop orchestrator
-Last updated: 2026-09-28
+Last updated: 2026-10-14
 Issue: ISSUE-002
 Spec: docs/spec/downstage-remote-powerpoint-viewer.spec.md
 Endpoint contract: docs/spec/downstage-remote-powerpoint-viewer.endpoints.md
@@ -19,10 +19,10 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
   "baseBranch": "codex/issue-002-remote-viewer",
   "baseSha": "7533c67bfeaea1fc41288e63ea6182feea3dbcda",
   "loopSession": "176D035B-3F92-4E16-B33E-C49FC150E1ED",
-  "phase": "Implement: S6c sidecar half verified",
-  "currentTask": "S6c — main/IPC/renderer wiring next",
+  "phase": "Implement: S6c verified (sidecar + main/IPC/renderer)",
+  "currentTask": "S6d — packaged worker, lifecycle, S-033 audit",
   "worktreeStateAtPreflight": "clean",
-  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1, "S4b": 1, "S5a": 3, "S5b": 1, "S6a": 1, "S6b": 1, "S6c": 1},
+  "reviewCycleCounts": {"S0": 2, "S1a": 1, "S1b": 1, "S3a": 1, "S3b": 2, "S3c": 2, "S3d": 4, "S4a": 1, "S4b": 1, "S5a": 3, "S5b": 1, "S6a": 1, "S6b": 1, "S6c": 2},
   "stableFindingSignatures": [
     "P2|frontend/src/lib/firebase.ts|invalid emulator port override|S0",
     "P2|frontend/src/lib/firebase.test.ts|ambient Vite env leakage|S0",
@@ -134,7 +134,14 @@ Conformance: docs/spec/downstage-remote-powerpoint-viewer.conformance.md
     "P3|apps/ppt-timer/src/main/publisher-sidecar/share-session.ts|late persist can rewrite sealed bytes after sign-out|S6c",
     "P3|apps/ppt-timer/src/main/publisher-sidecar/sidecar-core.ts|share used before declaration (TDZ)|S6c",
     "P2|apps/ppt-timer/src/main/publisher-sidecar/share-session.ts|failed end reported as ended and session forgotten|S6c",
-    "P3|apps/ppt-timer/src/main/publisher-sidecar/share-session.ts|rotated refresh token persisted only on live transitions|S6c"
+    "P3|apps/ppt-timer/src/main/publisher-sidecar/share-session.ts|rotated refresh token persisted only on live transitions|S6c",
+    "P2|apps/ppt-timer/src/main/remote-share.ts|stop during pending End drops final status|S6c-main",
+    "P2|apps/ppt-timer/src/main/remote-share.ts|double End spawns two short-lived sidecars|S6c-main",
+    "P2|apps/ppt-timer/src/main/remote-share.ts|sidecar crash during End respawns and resumes|S6c-main",
+    "P2|apps/ppt-timer/src/main/single-instance.ts|callback relaunch steals focus from slideshow|S6c-main",
+    "P3|apps/ppt-timer/src/main/remote-share.ts|shutdown does not await short-lived sidecar|S6c-main",
+    "P3|apps/ppt-timer/src/main/remote-share.ts|stop sets paused from non-active states|S6c-main",
+    "P3|apps/ppt-timer/src/main/controllers.ts|remote offer reads stale timing/headline mode|S6c-main"
   ]
 }
 ```
@@ -306,6 +313,13 @@ S0 diff. No P0/P1 finding remains.
 | `P3|apps/ppt-timer/src/main/publisher-sidecar/sidecar-core.ts|share used before declaration (TDZ)|S6c` | fixed | handler registered after share creation. |
 | `P2|apps/ppt-timer/src/main/publisher-sidecar/share-session.ts|failed end reported as ended and session forgotten|S6c` | fixed (red→green) | non-gone end failure keeps the session and reports `paused`. |
 | `P3|apps/ppt-timer/src/main/publisher-sidecar/share-session.ts|rotated refresh token persisted only on live transitions|S6c` | fixed (red→green) | cloud client `onRefreshTokenChanged` hook seals each rotation. |
+| `P2|apps/ppt-timer/src/main/remote-share.ts|stop during pending End drops final status|S6c-main` | fixed (red→green) | Stop inert while a final command is pending; `RemoteShareView.busy` disables toggle/End/Sign out. |
+| `P2|apps/ppt-timer/src/main/remote-share.ts|double End spawns two short-lived sidecars|S6c-main` | fixed (red→green) | `runFinal` single-flight; 3 dispatches → 1 launch. |
+| `P2|apps/ppt-timer/src/main/remote-share.ts|sidecar crash during End respawns and resumes|S6c-main` | fixed (red→green) | exit/NACK during End cancels respawn (`stopSharing`) and fails fast as `failed`; no SHARE_START after End. |
+| `P2|apps/ppt-timer/src/main/single-instance.ts|callback relaunch steals focus from slideshow|S6c-main` | fixed (red→green) | `isBackgroundLaunch(argv)` = `carriesCallbackUrl`; callback relaunch records diagnostics but never restores/focuses. |
+| `P3|apps/ppt-timer/src/main/remote-share.ts|shutdown does not await short-lived sidecar|S6c-main` | fixed | lifecycle + temporary shutdowns awaited together; live/connecting/short-lived tests. |
+| `P3|apps/ppt-timer/src/main/remote-share.ts|stop sets paused from non-active states|S6c-main` | fixed (red→green) | guarded by `ACTIVE`. |
+| `P3|apps/ppt-timer/src/main/controllers.ts|remote offer reads stale timing/headline mode|S6c-main` | fixed (red→green) | settings persisted before the host republishes. |
 
 The existing join-operator test asserted success but previously hung because
 Firebase app resources remained open. A `finally` block now calls
@@ -330,6 +344,7 @@ Firebase app resources remained open. A `finally` block now calls
 - 2026-10-14 (S6b): `npm run test --workspace apps/ppt-timer` 549/549; `npm run typecheck --workspace apps/ppt-timer` PASS; `npm run guardrails` exit 0. Oracle review (inline sources) → 1 P1, 3 P2, 1 P3; all fixed red-first.
 - S6b interpretations/divergences (closeout doc sync): protocol adds main→sidecar `AUTH_CALLBACK{challengeId, code}` to relay the one-time code from the app callback URI (required by the S3a anti-phishing `authorizationCode`; main parses only `<scheme>://publisher-auth?challenge=…&code=…`); `AUTH_REQUIRED.url` must be HTTPS (or loopback HTTP) `/publisher/device/approve?challenge=…` only, and main additionally pins the configured web origin before `shell.openExternal`. Storage results are `SEAL_RESULT`/`UNSEAL_RESULT`/`CLEAR_RESULT` correlated by `requestId`, with enumerated `StorageError` (`encryption-unavailable | not-found | corrupt | too-large | io`). Broker file = `ODPC1\n` + safeStorage ciphertext, atomic temp+rename, operations serialized; sealed data ≤ 16 KiB serialized UTF-8. Sealed credential `{v:1, deviceUid, devicePrivateKey, session}` (session = Firebase persistence, S6c); the device keypair is ed25519 generated per approval. Approval wait is a fixed local 5 min (server clock not used). Sign-out/revoke wiring and the redacted UI errors are S6c.
 - 2026-10-14 (S6c sidecar half): ppt-timer 615/615; typecheck PASS; guardrails exit 0; `npm run test:presentation-sidecar --workspace ontime-firebase-rules` 5/5 (real compiled sidecar core + launcher + broker + REST client vs Auth/Functions/Firestore emulators: approval relay, sealed non-plaintext credential, create, viewer resolve + snapshot read, material publish seq 2, restart → resume epoch 2 without re-approval, end → viewer state ended, sign-out → device revoked + credential cleared). functions/lib restored; no debug logs committed. Oracle review now reads worktree files via `manage_selection` (verified by quoting a worktree-only line), so sources no longer need pasting.
+- 2026-10-14 (S6c main/IPC/renderer half, cloud session orchestrating Sonnet sub-agents): WIP 01075cf green on arrival (ppt-timer 648/648). Independent review → 4 P2 + 4 P3 (one P3 merged into the crash finding); all fixed red-first in a870f00. ppt-timer 664/664; typecheck PASS; build:main/build:renderer PASS; guardrails exit 0 (422 modules). Interpretations: a final command (End/Sign out) owns the share until it settles — Stop is inert, repeats join it, and the renderer shows `busy`; a sidecar exit/NACK during End fails fast (`failed`, operator may retry End) rather than auto-retrying on a short-lived sidecar; a cold-start callback in `process.argv` is deliberately ignored (PKCE verifier dies with the previous sidecar); callback-scheme relaunches never take window focus. Not covered here: `installRemoteShare` Electron glue has no unit test (effectful only); live Windows approval/share is S7.
 - S6c interpretations/divergences (closeout doc sync): the sidecar uses Firebase REST (Identity Toolkit `signInWithCustomToken`, Secure Token refresh, HTTPS callable protocol) over `fetch` instead of the Firebase JS SDK — no new runtime dependency, and the only sealed session state is the refresh token plus current `sessionId` (`session: {refreshToken, sessionId}`). Cloud target is non-secret startup data passed by main as `--cloud-config=<json>` (`{apiKey, projectId, region, emulatorHost}`; emulator host loopback only, ports 9099/5002); absent → `not-configured`. Publish spacing `MIN_PUBLISH_INTERVAL_MS` 250 (4/s < 5/s limit); backoff 1 s→30 s ×[0.5,1]; the first non-transient rejection retries immediately, later ones back off. `SHARE_STOP` = pause (session kept, viewers stale); restart/respawn resumes (server epoch+1, sequence 1); `END_SESSION` ends (failure → `paused`, session kept); `SIGN_OUT` (new main→sidecar command) self-revokes and clears. Protocol adds `PUBLISH_STATUS{status}` (10-value enum) and `VIEWER_LINK{url}` (https/loopback, `/session/<id>/view`, token only in fragment). `permission-denied`/dead refresh → `signed-out` (credential cleared).
 - S6a interpretations: protocol size limit is the HELLO-negotiated `maxMessageBytes` capped at 64 KiB, in UTF-8 bytes; a protocol violation terminates the channel (sidecar exits 2; launcher kills); a refused `SHARE_START` is handled like a crash (bounded respawn); respawn budget (1 s/5 s/30 s) refreshes after 60 s of stable sharing; the candidate adapter publishes a slide whose playing row lacks timing as `timing-unavailable`; `main.ts` wiring, runtime dependency on the contracts package, and packaging are S6c/S6d.
 - S5b user testing: record at `docs/user-testing/issue-002-s5b-cloud-viewer.md` — 12 workflows (open link, live compact face, countdown, disclosure, paused, source unavailable, stale 25 s / disconnected 60 s, resume new epoch, reload, revoke → access ended, new link → live, end → session ended, wrong token, owner device approval → app callback → completion) plus runtime checks (no unexpected console errors, no failed requests, token never in 331 request URLs, no room reads). Not tested (blocked): Safari/Firefox (no automation driver here; handed to user for the staging browser matrix), production Firebase/Google sign-in, native callback handler.
