@@ -1,0 +1,62 @@
+# Downstage View desktop packaging (ISSUE-002 S8b macOS; the Windows block is S8c).
+#
+# Downstage View is a read-only shell around the HOSTED cloud viewer route. The
+# packaged app is only the compiled shell (dist/main, dist/preload, dist/renderer,
+# dist/shared) plus package.json. There are no runtime dependencies, no @ontime
+# workspace packages, no PowerPoint helper (ppt-probe), no COM/native modules and
+# no extraResources. `npm run audit:package` checks that against real output.
+#
+# `version` is intentionally NOT set here: it flows from package.json.
+#
+# No signing or notarization secret lives in this file. Signing and notarization
+# are driven only by the environment (see the mac block). Nothing here selects the
+# web origin either: the shell reads ONTIME_WEB_ORIGIN from the environment at
+# runtime; a packaged build-time origin is an open owner decision (S8a).
+appId: com.downstage.view
+productName: Downstage View
+directories:
+  output: dist_out
+
+# Production code only. No node_modules (no runtime dependencies), no sources,
+# no tests, no source maps.
+files:
+  - dist/**/*
+  - '!**/*.map'
+  - '!**/*.test.*'
+  - package.json
+
+# No native modules exist; never rebuild or compile anything at package time.
+npmRebuild: false
+
+# S8b: named-tester macOS build, notarization-ready. Signing identity and
+# notarization credentials come ONLY from the environment (electron-builder's
+# standard variables):
+#   signing:       CSC_LINK + CSC_KEY_PASSWORD, or a Developer ID Application
+#                  identity in the login keychain (CSC_NAME to pick one)
+#   notarization:  APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER, or
+#                  APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID,
+#                  or APPLE_KEYCHAIN + APPLE_KEYCHAIN_PROFILE
+# With none of these set electron-builder skips notarization with a warning and
+# does not fail. The explicit unsigned local build is `npm run dist:mac:unsigned`
+# (`-c.mac.identity=null -c.mac.notarize=false`); it is intentionally a CLI flag,
+# not a key here, so the committed config never disables signing.
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  artifactName: Downstage-View-${version}-mac-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # One minimal entitlements file for the app and its helpers.
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+# No `publish` block: no auto-update. Upgrade is installing a newer build with the
+# same appId.

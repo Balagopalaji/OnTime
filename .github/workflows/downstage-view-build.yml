@@ -1,0 +1,77 @@
+name: Build Downstage View desktop viewer
+
+# Named-tester desktop artifacts for the read-only Downstage View shell (ISSUE-002
+# S8b macOS; the Windows job is S8c). Manual or tag-triggered, like ppt-timer-build.yml; the
+# per-commit typecheck/test gate is scripts/ci-local.mjs. electron-builder can only
+# produce real dmg/NSIS output on its own OS, so each platform has its own job.
+#
+# Signing is env-driven and optional. Without the CSC_* secrets the macOS job
+# builds an UNSIGNED, un-notarized tester build (npm run dist:mac:unsigned); with
+# them it signs, and notarizes when the APPLE_* secrets are also present. No secret
+# is read by any other step. The Windows installer is unsigned.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "downstage-view-v*"
+
+jobs:
+  mac:
+    name: Build tester app (macOS arm64 + x64)
+    runs-on: macos-latest
+    env:
+      HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/downstage-view-v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "const fs=require('node:fs'); const version=JSON.parse(fs.readFileSync('apps/downstage-view/package.json','utf8')).version; if (process.env.RELEASE_TAG !== 'downstage-view-v' + version) { throw new Error('Release tag must exactly match downstage-view-v' + version + ', got ' + process.env.RELEASE_TAG); }"
+
+      - name: Downstage View typecheck
+        run: npm run typecheck --workspace apps/downstage-view
+
+      - name: Downstage View tests
+        run: npm run test --workspace apps/downstage-view
+
+      - name: Package signed and notarized (credentials present)
+        if: env.HAS_MAC_SIGNING == 'true'
+        working-directory: apps/downstage-view
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run dist:mac
+
+      - name: Package unsigned (no signing credentials)
+        if: env.HAS_MAC_SIGNING != 'true'
+        working-directory: apps/downstage-view
+        run: npm run dist:mac:unsigned
+
+      - name: Audit packaged app contents (shell only, no helper or native modules)
+        working-directory: apps/downstage-view
+        run: npm run audit:package
+
+      - name: Upload tester artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: downstage-view-mac
+          path: |
+            apps/downstage-view/dist_out/*.dmg
+            apps/downstage-view/dist_out/*.zip
