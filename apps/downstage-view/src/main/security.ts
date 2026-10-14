@@ -23,8 +23,11 @@ export const BROWSER_SECURITY = {
 } as const
 
 type Preventable = { preventDefault(): void }
+// Electron 43 passes navigation details (with `url`) as the event; the legacy
+// signature passed the url as a second argument. Accept both.
+type FrameNavigationEvent = Preventable & { url?: string }
 type GuardedContents = {
-  on(event: string, listener: (event: Preventable, url: string) => void): unknown
+  on(event: string, listener: (event: FrameNavigationEvent, url?: string) => void): unknown
   setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): unknown
 }
 
@@ -36,11 +39,14 @@ export function createNavigationPolicy(options: { webOrigin: string }) {
     windowOpenHandler,
     /** Install the guards on a window's web contents. */
     attach(contents: GuardedContents): void {
-      const guard = (event: Preventable, url: string): void => {
-        if (!allowNavigation(url)) event.preventDefault()
+      const guard = (event: FrameNavigationEvent, legacyUrl?: string): void => {
+        if (!allowNavigation(event.url ?? legacyUrl ?? '')) event.preventDefault()
       }
       contents.on('will-navigate', guard)
       contents.on('will-redirect', guard)
+      // will-navigate/will-redirect fire for the main frame only; this covers any
+      // sub-frame (iframe) navigation off the allowed viewer origin as well.
+      contents.on('will-frame-navigate', guard)
       contents.on('will-attach-webview', (event) => event.preventDefault())
       contents.setWindowOpenHandler(windowOpenHandler)
     },

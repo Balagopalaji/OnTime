@@ -78,6 +78,49 @@ describe('navigation policy', () => {
   })
 })
 
+describe('sub-frame navigation guard', () => {
+  const policy = createNavigationPolicy({ webOrigin: ORIGIN })
+  const setup = () => {
+    const handlers = new Map<string, (...args: any[]) => void>()
+    const contents = {
+      on: vi.fn((name: string, handler: (...args: any[]) => void) => void handlers.set(name, handler)),
+      setWindowOpenHandler: vi.fn(),
+    }
+    policy.attach(contents)
+    return handlers
+  }
+
+  it('registers will-frame-navigate', () => {
+    expect(setup().has('will-frame-navigate')).toBe(true)
+  })
+
+  it('prevents an off-origin sub-frame navigation and permits an allowed one (details.url)', () => {
+    const handler = setup().get('will-frame-navigate')
+    const blocked = { url: 'https://evil.example/', isMainFrame: false, preventDefault: vi.fn() }
+    handler?.(blocked)
+    expect(blocked.preventDefault).toHaveBeenCalledOnce()
+    const allowed = { url: `${ORIGIN}/session/abc/view`, isMainFrame: false, preventDefault: vi.fn() }
+    handler?.(allowed)
+    expect(allowed.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the legacy (event, url) argument when details.url is absent', () => {
+    const handler = setup().get('will-frame-navigate')
+    const blocked = { preventDefault: vi.fn() }
+    handler?.(blocked, 'https://evil.example/')
+    expect(blocked.preventDefault).toHaveBeenCalledOnce()
+    const allowed = { preventDefault: vi.fn() }
+    handler?.(allowed, `${ORIGIN}/session/abc/view`)
+    expect(allowed.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when no url is supplied at all', () => {
+    const blocked = { preventDefault: vi.fn() }
+    setup().get('will-frame-navigate')?.(blocked)
+    expect(blocked.preventDefault).toHaveBeenCalledOnce()
+  })
+})
+
 describe('permissions', () => {
   it('denies every permission request and check', () => {
     const callback = vi.fn()
