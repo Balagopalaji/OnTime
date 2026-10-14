@@ -259,6 +259,16 @@ function checkProductBoundaries() {
     }
   }
 
+  for (const file of trackedUnder('apps/downstage-view/')) {
+    if (!isSourceFile(file) || isTestFile(file)) continue
+    const content = read(file)
+    for (const specifier of importSpecifiers(content)) {
+      if (/^@ontime\/|ppt-bridge|presentation-core|ppt-timer|firebase|cloud-adapter|local-sync|companion|socket\.io/i.test(specifier)) {
+        fail(`Downstage View must stay a viewer-only shell around the hosted viewer: ${file} -> ${specifier}`)
+      }
+    }
+  }
+
   for (const file of trackedUnder('apps/ppt-timer/')) {
     if (!isSourceFile(file)) continue
     const content = read(file)

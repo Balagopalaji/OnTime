@@ -78,6 +78,16 @@ module.exports = {
         path: '(^@ontime/(?!ppt-bridge(?:/|$)|presentation-core(?:/|$)|timer-face(?:/|$)|remote-viewer-contracts(?:/|$)|powerpoint-display(?:/|$))|firebase|cloud-adapter|local-sync|^companion/|^frontend/|^functions/|socket\\.io|socket\\.io-client|interface-contracts|shared-types|timer-core|lock-view-model)',
       },
     },
+    {
+      name: 'downstage-view-viewer-only',
+      severity: 'error',
+      comment:
+        'apps/downstage-view is a read-only shell around the hosted cloud viewer route (ISSUE-002 S8): no workspace packages, PowerPoint host/bridge/core, publisher, Firebase, Companion, or sync code.',
+      from: { path: '^apps/downstage-view(/|$)' },
+      to: {
+        path: '(^@ontime/|^packages/|ppt-bridge|presentation-core|^apps/ppt-timer|firebase|cloud-adapter|local-sync|^companion/|^frontend/|^functions/|socket\\.io|interface-contracts)',
+      },
+    },
   ],
   options: {
     doNotFollow: {

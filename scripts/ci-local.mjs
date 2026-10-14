@@ -46,6 +46,8 @@ const STEPS = [
   { name: 'Remote-viewer-contracts CJS smoke', cmd: 'npm run smoke:cjs --workspace @ontime/remote-viewer-contracts' },
   { name: 'PPT timer typecheck', cmd: 'npm run typecheck --workspace apps/ppt-timer' },
   { name: 'PPT timer tests', cmd: 'npm run test --workspace apps/ppt-timer' },
+  { name: 'Downstage View typecheck', cmd: 'npm run typecheck --workspace apps/downstage-view' },
+  { name: 'Downstage View tests', cmd: 'npm run test --workspace apps/downstage-view' },
   { name: 'Companion typecheck', cmd: 'npx tsc -p tsconfig.json --noEmit', cwd: 'companion' },
   { name: 'Companion tests', cmd: 'npm test', cwd: 'companion' },
   { name: 'Frontend lint', cmd: 'npm run lint --workspace frontend' },
