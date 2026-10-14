@@ -165,4 +165,15 @@ describe('dispatch routes actions to effects + persistence', () => {
     await createAppControllers(deps).dispatch({ type: 'openUpsell' })
     expect(deps.openExternal).not.toHaveBeenCalled()
   })
+
+  it('passes the remote-share view through and routes share commands only to the share controller', async () => {
+    // Defect: share actions are dropped, or the view omits the share status the operator relies on.
+    const remoteShare = { view: () => ({ available: true, status: 'live' as const, hasViewerLink: true }), dispatch: vi.fn(async () => undefined) }
+    const deps = makeDeps({ remoteShare })
+    const c = createAppControllers(deps)
+    expect(c.getView().remoteShare).toEqual({ available: true, status: 'live', hasViewerLink: true })
+    await c.dispatch({ type: 'remoteShare', command: 'end' })
+    expect(remoteShare.dispatch).toHaveBeenCalledWith('end')
+    expect(createAppControllers(makeDeps()).getView()).not.toHaveProperty('remoteShare')
+  })
 })

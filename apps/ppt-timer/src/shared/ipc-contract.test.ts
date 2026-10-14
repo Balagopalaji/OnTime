@@ -65,6 +65,13 @@ describe('parseRendererAction (S-014/S-033 closed union)', () => {
     expect(parseRendererAction({ type: 'copyDiagnostics' })).toEqual({ ok: true, action: { type: 'copyDiagnostics' } })
   })
 
+  it('accepts only the closed remote-share commands and never a URL', () => {
+    // Defect: the renderer smuggles a destination or arbitrary command into the share surface.
+    expect(parseRendererAction({ type: 'remoteShare', command: 'copyLink' })).toEqual({ ok: true, action: { type: 'remoteShare', command: 'copyLink' } })
+    expect(parseRendererAction({ type: 'remoteShare', command: 'start', url: 'https://evil.example' })).toEqual({ ok: true, action: { type: 'remoteShare', command: 'start' } })
+    expect(parseRendererAction({ type: 'remoteShare', command: 'openUrl' }).ok).toBe(false)
+  })
+
   it('rejects unknown action types and non-objects', () => {
     expect(parseRendererAction({ type: 'doSomethingEvil' }).ok).toBe(false)
     expect(parseRendererAction(null).ok).toBe(false)

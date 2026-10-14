@@ -12,6 +12,7 @@ import { createRequire } from 'node:module'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { connectCdp, sleep, waitForHttp } from './cdp.mjs'
 
 const require = createRequire(import.meta.url)
 const { signOut } = require('firebase/auth')
@@ -21,83 +22,11 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../..')
 const outDir = path.join(repo, 'docs/user-testing/assets/issue-002-s5b')
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const log = []
 let eventCursor = () => 0
 const record = (step, result, detail = '') => {
   log.push({ step, result, detail, eventIndex: eventCursor() })
   console.log(`${result === 'PASS' ? 'PASS' : 'FAIL'} ${step}${detail ? ` — ${detail}` : ''}`)
-}
-
-async function waitForHttp(url, timeoutMs = 60_000) {
-  const until = Date.now() + timeoutMs
-  while (Date.now() < until) {
-    try {
-      if ((await fetch(url)).ok) return
-    } catch {}
-    await sleep(500)
-  }
-  throw new Error(`timeout waiting for ${url}`)
-}
-
-/** Minimal DevTools-protocol client over Node's built-in WebSocket. */
-async function connectChrome(port) {
-  const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  const page = targets.find((t) => t.type === 'page')
-  const ws = new WebSocket(page.webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => ((ws.onopen = resolve), (ws.onerror = reject)))
-  let id = 0
-  const pending = new Map()
-  const events = []
-  ws.onmessage = (message) => {
-    const data = JSON.parse(message.data)
-    if (data.id && pending.has(data.id)) {
-      const { resolve, reject } = pending.get(data.id)
-      pending.delete(data.id)
-      data.error ? reject(new Error(JSON.stringify(data.error))) : resolve(data.result)
-    } else if (data.method) events.push(data)
-  }
-  const send = (method, params = {}) =>
-    new Promise((resolve, reject) => {
-      id += 1
-      pending.set(id, { resolve, reject })
-      ws.send(JSON.stringify({ id, method, params }))
-    })
-  await send('Page.enable')
-  await send('Runtime.enable')
-  await send('Log.enable')
-  await send('Network.enable')
-  await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 300, deviceScaleFactor: 1, mobile: false })
-  return {
-    version,
-    events,
-    send,
-    close: () => ws.close(),
-    async eval(expression) {
-      const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
-      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text + ' ' + JSON.stringify(result.exceptionDetails.exception?.description))
-      return result.result.value
-    },
-    async waitFor(expression, timeoutMs = 20_000) {
-      const until = Date.now() + timeoutMs
-      while (Date.now() < until) {
-        try {
-          if (await this.eval(expression)) return true
-        } catch {}
-        await sleep(200)
-      }
-      return false
-    },
-    async shot(name) {
-      const { data } = await send('Page.captureScreenshot', { format: 'png' })
-      writeFileSync(path.join(outDir, `${name}.png`), Buffer.from(data, 'base64'))
-      return `assets/issue-002-s5b/${name}.png`
-    },
-    async navigate(url) {
-      await send('Page.navigate', { url })
-    },
-  }
 }
 
 const faceText = `(() => ({ badge: document.querySelector('#badge')?.textContent ?? null, message: document.querySelector('#message')?.textContent ?? null, time: document.querySelector('#time')?.textContent ?? null, connection: document.querySelector('.status')?.dataset.connection ?? null }))()`
@@ -124,7 +53,7 @@ async function main() {
   try {
     await waitForHttp('http://localhost:5173/')
     await waitForHttp('http://127.0.0.1:9333/json/version')
-    browser = await connectChrome(9333)
+    browser = await connectCdp(9333, { outDir, assetPrefix: 'assets/issue-002-s5b' })
     eventCursor = () => browser.events.length
     record('environment', 'PASS', `Chrome ${browser.version.Browser}; Vite dev server on :5173; emulators project ${projectId}`)
 

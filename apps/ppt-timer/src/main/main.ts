@@ -9,9 +9,6 @@ import { DiagnosticsBuffer, isOverlayDebug, type AppDiagEvent, type DiagMeta } f
 import { discoverHelperCandidates } from './helper-discovery.js'
 import { bindPptTimerIpc } from './ipc.js'
 import {
-  attachOverlayDebug,
-  attachAlwaysOnTopChangedDebug,
-  attachWindowMessageDebug,
   classifyPlacementOutcome,
   createAlwaysOnTopSetterMarker,
   displayEventEvent,
@@ -21,11 +18,13 @@ import {
   type DisplaySnapshot as DebugDisplaySnapshot,
   type ProgrammaticBoundsReason,
 } from './overlay-debug.js'
+import { attachWindowOverlayDebug } from './overlay-debug-window.js'
 import { BROWSER_SECURITY } from './security.js'
 import { createSessionHost } from './session-host.js'
 import { acquireSingleInstanceActivation } from './single-instance.js'
 import { selectLaunchTargets } from './launch-policy.js'
 import { presentationSafeWindowOptions } from './presentation-safe-clicks.js'
+import { installRemoteShare } from './remote-share-electron.js'
 import { COMPACT_WINDOW_ASPECT_RATIO, MIN_WINDOW_SIZE, type Settings, type WindowBounds } from './settings-schema.js'
 import { createSettingsStore, type SettingsFs } from './settings-store.js'
 import { createWindowResizePolicy, settingsForResizeEvent } from './window-resize-policy.js'
@@ -165,12 +164,17 @@ async function main(): Promise<void> {
     resourcesPath: process.resourcesPath,
     envPath: launchTargets.helperOverride,
   })
+  // ISSUE-002: explicit remote share; every host poll offers a reconstructed candidate.
+  const remoteShare = installRemoteShare(() => pushView())
   const host = createSessionHost({
     candidates,
     timingMode: currentSettings.timingMode,
     headlineMode: currentSettings.headlineMode,
     diagnostics,
-    onView: () => pushView(),
+    onView: (view) => {
+      pushView()
+      remoteShare.offer(view.state, currentSettings)
+    },
   })
 
   const effects = createWindowEffects({
@@ -214,6 +218,7 @@ async function main(): Promise<void> {
     copyToClipboard: async (text) => clipboard.writeText(text),
     getDiagnosticsReport: () => diagnostics.buildReport(diagMeta()),
     effects,
+    remoteShare,
   })
 
   const pushView = (): void => {
@@ -304,38 +309,8 @@ async function main(): Promise<void> {
       mainWindow = null
     })
 
-    // Opt-in overlay diagnostics (PPT_TIMER_DEBUG=1). The listener wiring lives
-    // in attachOverlayDebug (pure module); here we inject the Electron window +
-    // screen and a literal-name bind so the per-literal `.on` overloads resolve.
-    // Listeners are registered ONLY when the flag is set, so a normal run
-    // attaches nothing. Each handler reads passive state and pushes a debug
-    // event; none activate the window (see overlay-debug.ts constraints).
-    if (overlayDebug) {
-      const win0 = mainWindow
-      const disposeOverlayDebug = attachOverlayDebug(win0, screen, (event, listener) => {
-        switch (event) {
-          case 'ready-to-show': win0.on('ready-to-show', listener); return () => win0.off('ready-to-show', listener)
-          case 'show': win0.on('show', listener); return () => win0.off('show', listener)
-          case 'hide': win0.on('hide', listener); return () => win0.off('hide', listener)
-          case 'focus': win0.on('focus', listener); return () => win0.off('focus', listener)
-          case 'blur': win0.on('blur', listener); return () => win0.off('blur', listener)
-          case 'restore': win0.on('restore', listener); return () => win0.off('restore', listener)
-          case 'minimize': win0.on('minimize', listener); return () => win0.off('minimize', listener)
-          case 'moved': win0.on('moved', listener); return () => win0.off('moved', listener)
-          case 'resized': win0.on('resized', listener); return () => win0.off('resized', listener)
-        }
-      }, logDebug, currentSettings.alwaysOnTop)
-      const disposeAlwaysOnTopChanged = attachAlwaysOnTopChangedDebug(win0, alwaysOnTopSetterMarker, logDebug)
-      const disposeWindowMessages = process.platform === 'win32' ? attachWindowMessageDebug(win0, logDebug) : () => undefined
-      // `closed` also covers destroy()/app.exit. Native message hooks belong to
-      // the HWND, so their destruction-safe disposer deliberately becomes a
-      // no-op here; JS listeners are still removed deterministically.
-      win0.once('closed', () => {
-        disposeWindowMessages()
-        disposeAlwaysOnTopChanged()
-        disposeOverlayDebug()
-      })
-    }
+    // Opt-in overlay diagnostics (PPT_TIMER_DEBUG=1); nothing is attached otherwise.
+    if (overlayDebug) attachWindowOverlayDebug(mainWindow, screen, logDebug, currentSettings.alwaysOnTop, alwaysOnTopSetterMarker)
 
     bindPptTimerIpc(mainWindow, controllers)
 
@@ -347,7 +322,7 @@ async function main(): Promise<void> {
   // (S-024). Idempotent; a hung close is abandoned after the grace period.
   const runShutdown = async (): Promise<void> => {
     await Promise.race([
-      host.shutdown().catch(() => undefined),
+      Promise.all([host.shutdown().catch(() => undefined), remoteShare.shutdown(SHUTDOWN_TIMEOUT_MS - 500)]),
       new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
     ])
   }

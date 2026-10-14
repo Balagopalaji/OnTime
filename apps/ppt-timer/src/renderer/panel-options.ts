@@ -1,4 +1,4 @@
-import type { AppView, RendererAction } from '../shared/ipc-contract.js'
+import type { AppView, RemoteShareCommand, RemoteShareStatus, RemoteShareView, RendererAction } from '../shared/ipc-contract.js'
 
 type Dispatch = (action: RendererAction) => void
 
@@ -62,7 +62,79 @@ export function renderOptionStrip(view: AppView, dispatch: Dispatch): HTMLElemen
   const diagnostics = button('copy-diagnostics', 'option-button', 'Diagnostics', 'Copy diagnostics')
   diagnostics.addEventListener('click', () => dispatch({ type: 'copyDiagnostics' }))
   strip.append(timing, headline, onTop, autoOpen, diagnostics)
+  if (view.remoteShare?.available) strip.append(renderRemoteShare(view.remoteShare, dispatch))
   return strip
+}
+
+const SHARE_STATUS_TEXT: Record<RemoteShareStatus, string> = {
+  off: 'Not shared',
+  connecting: 'Connecting…',
+  'awaiting-approval': 'Approve in browser',
+  live: 'Live',
+  retrying: 'Reconnecting…',
+  paused: 'Paused',
+  ended: 'Session ended',
+  'signed-out': 'Signed out',
+  'storage-unavailable': 'Secure storage unavailable',
+  'approval-failed': 'Approval failed',
+  'not-configured': 'Not configured',
+  restarting: 'Restarting…',
+  failed: 'Unavailable — retry',
+}
+const SHARING: ReadonlySet<RemoteShareStatus> = new Set(['connecting', 'awaiting-approval', 'live', 'retrying', 'restarting'])
+
+/** Pure share-row model: one toggle (Share/Stop), a status, and session actions. */
+export function remoteShareModel(share: RemoteShareView) {
+  const sharing = SHARING.has(share.status)
+  return {
+    toggleText: sharing ? 'Stop' : 'Share',
+    toggleCommand: (sharing ? 'stop' : 'start') as RemoteShareCommand,
+    statusText: SHARE_STATUS_TEXT[share.status],
+    canCopy: share.hasViewerLink,
+    // A sealed session may outlive the app; the sidecar reports `ended` when there is none.
+    canEnd: share.status !== 'ended' && share.status !== 'signed-out',
+  }
+}
+
+function renderRemoteShare(share: RemoteShareView, dispatch: Dispatch): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'remote-share'
+  row.setAttribute('role', 'group')
+  row.setAttribute('aria-label', 'Remote viewer')
+  const toggle = button('remote-share-toggle', 'option-button', '', '')
+  toggle.addEventListener('click', () => dispatch({ type: 'remoteShare', command: toggle.dataset.command as RemoteShareCommand }))
+  const status = document.createElement('span')
+  status.id = 'remote-share-status'
+  status.className = 'remote-share-status'
+  status.setAttribute('role', 'status')
+  const copy = button('remote-share-copy', 'option-button', 'Copy link', 'Copy the remote viewer link')
+  copy.addEventListener('click', () => dispatch({ type: 'remoteShare', command: 'copyLink' }))
+  const end = button('remote-share-end', 'option-button', 'End', 'End the remote session for all viewers')
+  end.addEventListener('click', () => dispatch({ type: 'remoteShare', command: 'end' }))
+  const signOut = button('remote-share-signout', 'option-button', 'Sign out', 'Sign this computer out of remote sharing')
+  signOut.addEventListener('click', () => dispatch({ type: 'remoteShare', command: 'signOut' }))
+  row.append(toggle, status, copy, end, signOut)
+  patchRemoteShare(row, share)
+  return row
+}
+
+/** Update the share row in place (the host pushes a view every poll). */
+export function patchRemoteShare(scope: ParentNode, share: RemoteShareView): void {
+  const model = remoteShareModel(share)
+  const toggle = scope.querySelector<HTMLButtonElement>('#remote-share-toggle')
+  if (toggle) {
+    toggle.textContent = model.toggleText
+    toggle.dataset.command = model.toggleCommand
+    toggle.title = model.toggleCommand === 'start' ? 'Share this timer to remote viewers' : 'Stop sharing (viewers keep the link)'
+    toggle.setAttribute('aria-label', toggle.title)
+  }
+  const status = scope.querySelector<HTMLElement>('#remote-share-status')
+  if (status && status.textContent !== model.statusText) status.textContent = model.statusText
+  if (status) status.dataset.status = share.status
+  const copy = scope.querySelector<HTMLButtonElement>('#remote-share-copy')
+  if (copy) copy.disabled = !model.canCopy
+  const end = scope.querySelector<HTMLButtonElement>('#remote-share-end')
+  if (end) end.disabled = !model.canEnd
 }
 
 /** Window chrome stays available independently of either tray stage. */

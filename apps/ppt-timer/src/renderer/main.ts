@@ -24,7 +24,7 @@ import {
 import type { AppView, PanelMode, PreloadApi, RendererAction } from '../shared/ipc-contract.js'
 import { createPlaybackClock } from './playback-clock.js'
 import { applyManualPanelMode, currentSlideKey, INITIAL_PANEL_STATE, reconcilePanelState } from './panel-state.js'
-import { renderOptionStrip, renderWindowControls } from './panel-options.js'
+import { patchRemoteShare, renderOptionStrip, renderWindowControls } from './panel-options.js'
 import { renderPowerPointPanel, renderVideoList } from './powerpoint-panel.js'
 
 declare global {
@@ -147,6 +147,8 @@ function patchControls(section: HTMLElement, view: AppView, options: ControlsOpt
       : 'Show time until all playing videos finish'
     headline.setAttribute('aria-label', headline.title)
   }
+  if (options.panelMode === 'options' && Boolean(view.remoteShare?.available) !== (section.querySelector('.remote-share') !== null)) return false
+  if (view.remoteShare?.available) patchRemoteShare(section, view.remoteShare)
   section.querySelector('#always-on-top')?.setAttribute('aria-pressed', String(view.alwaysOnTop))
   section.querySelector('#auto-open-video-list')?.setAttribute('aria-pressed', String(view.autoOpenVideoList))
   // Mirrors @ontime/timer-face `renderDisclosureList` row markup (name, status + data-status, time).

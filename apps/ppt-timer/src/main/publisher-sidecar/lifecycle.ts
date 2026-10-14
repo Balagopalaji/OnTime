@@ -71,6 +71,8 @@ export function createPublisherLifecycle(options: {
     stableTimer = null
     if (!wantSharing) return
     if (respawnsUsed >= respawnDelaysMs.length) {
+      // Give up until the operator explicitly shares again.
+      wantSharing = false
       setStatus('failed')
       return
     }
@@ -116,6 +118,8 @@ export function createPublisherLifecycle(options: {
 
   return {
     status: () => status,
+    /** The connection currently carrying the share (null while starting, restarting, stopped, or failed). */
+    connection: () => connection,
     async startSharing(): Promise<void> {
       if (wantSharing) return
       wantSharing = true

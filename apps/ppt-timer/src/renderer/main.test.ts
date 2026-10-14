@@ -1082,3 +1082,88 @@ describe('accessible announcements', () => {
     }
   })
 })
+
+describe('remote share row (ISSUE-002 S6c)', () => {
+  const shared = (status: NonNullable<AppView['remoteShare']>['status'], hasViewerLink = false): AppView => ({
+    ...twoVideoView([focusPlaying]),
+    remoteShare: { available: true, status, hasViewerLink },
+  })
+
+  it('renders an explicit share control only when the build has a remote-share surface', () => {
+    const root = document.createElement('div')
+    const dispatch = vi.fn()
+    renderApp(root, shared('off'), dispatch, 0, openDrawer)
+    const group = root.querySelector('.option-strip .remote-share')
+    expect(group?.getAttribute('aria-label')).toBe('Remote viewer')
+    expect(Array.from(group?.querySelectorAll('button') ?? []).map((b) => [b.id, b.textContent, b.disabled])).toEqual([
+      ['remote-share-toggle', 'Share', false],
+      ['remote-share-copy', 'Copy link', true],
+      ['remote-share-end', 'End', false],
+      ['remote-share-signout', 'Sign out', false],
+    ])
+    expect(root.querySelector('#remote-share-status')?.textContent).toBe('Not shared')
+    ;(root.querySelector('#remote-share-toggle') as HTMLButtonElement).click()
+    expect(dispatch).toHaveBeenCalledWith({ type: 'remoteShare', command: 'start' })
+    renderApp(root, { ...shared('off'), remoteShare: { available: false, status: 'off', hasViewerLink: false } }, vi.fn(), 0, openDrawer)
+    expect(root.querySelector('.remote-share')).toBeNull()
+  })
+
+  it.each([
+    ['awaiting-approval', false, 'Stop', 'Approve in browser', true],
+    ['live', true, 'Stop', 'Live', false],
+    ['paused', true, 'Share', 'Paused', false],
+    ['storage-unavailable', false, 'Share', 'Secure storage unavailable', true],
+  ] as const)('shows %s (link %s) as toggle %s / "%s"', (status, link, toggle, text, copyDisabled) => {
+    // Defect: the operator cannot tell whether viewers are live, or can copy a link that does not exist.
+    const root = document.createElement('div')
+    renderApp(root, shared(status, link), vi.fn(), 0, openDrawer)
+    expect(root.querySelector('#remote-share-toggle')?.textContent).toBe(toggle)
+    expect(root.querySelector('#remote-share-status')?.textContent).toBe(text)
+    expect((root.querySelector('#remote-share-copy') as HTMLButtonElement).disabled).toBe(copyDisabled)
+  })
+
+  it.each([
+    ['off', false],
+    ['failed', false],
+    ['live', false],
+    ['ended', true],
+    ['signed-out', true],
+  ] as const)('End is %s → disabled %s (a sealed session may exist after a restart)', (status, disabled) => {
+    // Defect: after an app restart the only way to end a stale session is to resume publishing it first.
+    const root = document.createElement('div')
+    renderApp(root, shared(status), vi.fn(), 0, openDrawer)
+    expect((root.querySelector('#remote-share-end') as HTMLButtonElement).disabled).toBe(disabled)
+  })
+
+  it('updates the share row in place on poll pushes, keeping keyboard focus', () => {
+    vi.useFakeTimers()
+    const root = document.createElement('div')
+    document.body.append(root)
+    try {
+      let listener: ((view: AppView) => void) | undefined
+      const dispatch = vi.fn(async () => undefined)
+      const stop = mountApp({
+        root,
+        api: { getView: vi.fn(() => new Promise<AppView>(() => {})), subscribe: vi.fn((fn) => { listener = fn; return () => {} }), dispatch },
+        announcer: null,
+        now: () => 0,
+      })
+      listener?.({ ...shared('off'), revision: 100 })
+      ;(root.querySelector('#settings-toggle') as HTMLButtonElement).click()
+      const toggle = root.querySelector('#remote-share-toggle') as HTMLButtonElement
+      toggle.focus()
+      toggle.click()
+      listener?.({ ...shared('live', true), revision: 101 })
+      expect(root.querySelector('#remote-share-toggle')).toBe(toggle)
+      expect(document.activeElement).toBe(toggle)
+      expect(toggle.textContent).toBe('Stop')
+      toggle.click()
+      expect(dispatch).toHaveBeenCalledWith({ type: 'remoteShare', command: 'start' })
+      expect(dispatch).toHaveBeenLastCalledWith({ type: 'remoteShare', command: 'stop' })
+      stop()
+    } finally {
+      root.remove()
+      vi.useRealTimers()
+    }
+  })
+})

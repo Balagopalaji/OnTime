@@ -218,6 +218,11 @@ describe('publisher lifecycle (main side)', () => {
     expect(spawned).toHaveLength(2)
     expect(statuses.at(-1)).toBe('failed')
     expect(() => lifecycle.offerCandidate(candidate(1))).not.toThrow()
+    // Defect: a failed lifecycle still "wants" sharing, so a later Share is a silent no-op.
+    await lifecycle.startSharing()
+    expect(spawned).toHaveLength(3)
+    expect(statuses.at(-1)).toBe('sharing')
+    await lifecycle.shutdown(500)
   })
 
   it('recovers from a stop immediately followed by a start (no orphaned sidecar)', async () => {

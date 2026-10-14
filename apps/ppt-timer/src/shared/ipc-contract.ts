@@ -23,6 +23,26 @@ export type DisplayInfo = {
   label: string
 }
 
+/** Safe remote-share status (ISSUE-002): sidecar share status plus local process states. */
+export type RemoteShareStatus =
+  | 'off'
+  | 'connecting'
+  | 'awaiting-approval'
+  | 'live'
+  | 'retrying'
+  | 'paused'
+  | 'ended'
+  | 'signed-out'
+  | 'storage-unavailable'
+  | 'approval-failed'
+  | 'not-configured'
+  | 'restarting'
+  | 'failed'
+/** The viewer URL itself never enters the renderer; copy happens in main on an explicit action. */
+export type RemoteShareView = { available: boolean; status: RemoteShareStatus; hasViewerLink: boolean }
+export type RemoteShareCommand = 'start' | 'stop' | 'end' | 'signOut' | 'copyLink'
+const REMOTE_SHARE_COMMANDS: readonly RemoteShareCommand[] = ['start', 'stop', 'end', 'signOut', 'copyLink']
+
 /**
  * Immutable view pushed to the renderer. Replaces the previous view wholesale
  * so an `unavailable` update removes numeric timing in the same frame (S-013).
@@ -39,6 +59,8 @@ export type AppView = {
   preset: SizePreset
   displays: DisplayInfo[]
   selectedDisplayId: string | null
+  /** Absent when the build has no remote-share surface. */
+  remoteShare?: RemoteShareView
 }
 
 /** Closed union of renderer -> main actions. `openUpsell` takes no URL. */
@@ -54,6 +76,7 @@ export type RendererAction =
   | { type: 'closeWindow' }
   | { type: 'copyDiagnostics' }
   | { type: 'openUpsell' }
+  | { type: 'remoteShare'; command: RemoteShareCommand }
 
 export type PreloadApi = {
   getView(): Promise<AppView>
@@ -160,6 +183,11 @@ export function parseRendererAction(raw: unknown): ParseResult {
     case 'openUpsell':
       // No URL is accepted from the renderer, even if one is supplied.
       return { ok: true, action: { type: 'openUpsell' } }
+    case 'remoteShare':
+      if (REMOTE_SHARE_COMMANDS.includes(raw.command as RemoteShareCommand)) {
+        return { ok: true, action: { type: 'remoteShare', command: raw.command as RemoteShareCommand } }
+      }
+      return { ok: false }
     default:
       return { ok: false }
   }

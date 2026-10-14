@@ -369,3 +369,32 @@ input:focus-visible {
     transition: none;
   }
 }
+
+/* ISSUE-002 remote share row: second line of the option strip. */
+.remote-share {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.remote-share-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-inline: 3px;
+  color: var(--quiet);
+  font-size: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remote-share-status[data-status="live"] {
+  color: var(--playing);
+}
+
+.option-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

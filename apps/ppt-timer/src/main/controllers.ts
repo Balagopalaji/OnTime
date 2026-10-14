@@ -12,6 +12,8 @@ import type {
   DisplayInfo,
   RendererAction,
   PanelMode,
+  RemoteShareCommand,
+  RemoteShareView,
   SizePreset,
   UpsellConfig,
 } from '../shared/ipc-contract.js'
@@ -35,6 +37,8 @@ export type AppControllersDeps = {
   copyToClipboard: (text: string) => Promise<void>
   getDiagnosticsReport: () => string
   effects: WindowEffects
+  /** ISSUE-002 remote share (optional so the local-only app and tests need no sidecar). */
+  remoteShare?: { view(): RemoteShareView; dispatch(command: RemoteShareCommand): Promise<void> }
 }
 
 export type AppControllers = {
@@ -57,6 +61,7 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       preset: settings.sizePreset,
       displays: deps.displays(),
       selectedDisplayId: settings.selectedDisplayId,
+      ...(deps.remoteShare ? { remoteShare: deps.remoteShare.view() } : {}),
     }
   }
 
@@ -115,6 +120,10 @@ export function createAppControllers(deps: AppControllersDeps): AppControllers {
       }
       case 'openUpsell': {
         await safeOpenUpsell(deps.upsell, deps.openExternal)
+        return
+      }
+      case 'remoteShare': {
+        await deps.remoteShare?.dispatch(action.command)
         return
       }
       default:
